@@ -6,6 +6,7 @@
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
@@ -29,7 +30,7 @@ export interface Db {
 }
 
 export function inTransaction<T>(db: Db, fn: () => T): T {
-	db.exec("BEGIN");
+	db.exec("BEGIN IMMEDIATE");
 	try {
 		const result = fn();
 		db.exec("COMMIT");
@@ -101,13 +102,37 @@ INSERT OR IGNORE INTO relation_names VALUES ('supersedes','Replaces (doc→doc, 
 INSERT OR IGNORE INTO relation_names VALUES ('relates_to','Catch-all (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task (rule→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('triggers','This skill applies to that work (skill→task)');
+INSERT OR IGNORE INTO relation_names VALUES ('contains','Parent contains a nested artifact (any→any)');
+INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a parent artifact (any→any)');
+CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
 `;
+
+function migrate(db: Db): void {
+	const row = db.prepare("PRAGMA user_version").get() as { user_version: number };
+	let version = row.user_version;
+	if (version > SQLITE_SCHEMA_VERSION) {
+		throw new Error(`database schema ${version} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
+	}
+	if (version < 1) {
+		inTransaction(db, () => {
+			db.exec(SCHEMA);
+			db.exec(SEED_SQL);
+			db.exec("PRAGMA user_version = 1");
+		});
+		version = 1;
+	}
+	if (version !== SQLITE_SCHEMA_VERSION) {
+		throw new Error(`missing migration from schema ${version} to ${SQLITE_SCHEMA_VERSION}`);
+	}
+}
 
 export function openDb(path: string): Db {
 	if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
 	const db = IS_BUN ? new DatabaseCtor(path, { create: true }) : new DatabaseCtor(path);
 	db.exec("PRAGMA foreign_keys = ON");
-	db.exec(SCHEMA);
-	db.exec(SEED_SQL);
+	db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
+	if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
+	migrate(db);
+	db.exec("PRAGMA optimize=0x10002");
 	return db;
 }

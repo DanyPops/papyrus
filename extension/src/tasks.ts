@@ -6,6 +6,9 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatMetadata } from "./artifact-format.ts";
+import { callService } from "./service-client.ts";
+import type { Artifact, GateResult } from "../../src/ops.ts";
 
 const GLYPHS: Record<string, string> = {
 	pending: "○",
@@ -14,11 +17,11 @@ const GLYPHS: Record<string, string> = {
 	failed: "▲",
 };
 
-const STATUS_FLOW: Record<string, string[]> = {
-	pending: ["active", "failed"],
-	active: ["done", "failed"],
+const STATUS_ACTIONS: Record<string, string[]> = {
+	pending: ["Start", "Fail"],
+	active: ["Complete (run gates)", "Fail"],
 	done: [],
-	failed: ["pending"], // retry
+	failed: ["Retry"],
 };
 
 interface TaskRow {
@@ -30,34 +33,8 @@ interface TaskRow {
 	edges?: { from: string; relation: string; to: string }[];
 }
 
-async function loadTasks(ops: typeof import("../../src/ops.ts")): Promise<TaskRow[]> {
-	// openDb pattern — same as the tools
-	const { openDb } = await import("../../src/db.ts");
-	const { queryArtifacts, getArtifact } = ops;
-	const xdg = process.env["XDG_DATA_HOME"] || `${process.env["HOME"]}/.local/share`;
-	const db = openDb(`${xdg}/papyrus/papyrus.db`);
-	try {
-		const rows = queryArtifacts(db, { kind: "task", limit: 200 });
-		return rows.map((r: any) => ({
-			id: r.id,
-			title: r.title,
-			status: r.status,
-			body: r.body,
-			extra: r.extra,
-		}));
-	} finally {
-		db.close();
-	}
-}
-
-function withDb<T>(fn: (db: any, ops: any) => T): Promise<T> {
-	return (async () => {
-		const ops = await import("../../src/ops.ts");
-		const { openDb } = await import("../../src/db.ts");
-		const xdg = process.env["XDG_DATA_HOME"] || `${process.env["HOME"]}/.local/share`;
-		const db = openDb(`${xdg}/papyrus/papyrus.db`);
-		try { return fn(db, ops); } finally { db.close(); }
-	})();
+async function loadTasks(): Promise<TaskRow[]> {
+	return callService<Record<string, unknown>, TaskRow[]>("tasks.list", { limit: 200 });
 }
 
 export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
@@ -65,15 +42,14 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		ctx.ui.notify("/tasks requires interactive mode", "warning");
 		return;
 	}
-	const ops = await import("../../src/ops.ts");
-	let rows = await loadTasks(ops);
+	let rows = await loadTasks();
 	if (rows.length === 0) {
 		const create = await ctx.ui.select("No tasks yet", ["Create a task", "Cancel"]);
 		if (create === "Create a task") {
 			const title = await ctx.ui.input("Task title:", "");
 			if (title) {
-				await withDb((db, ops) => ops.createArtifact(db, { kind: "task", title }));
-				rows = await loadTasks(ops);
+				await callService("tasks.create", { title });
+				rows = await loadTasks();
 			}
 		}
 		if (rows.length === 0) return;
@@ -82,50 +58,45 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 	for (;;) {
 		const action = await renderPanel(ctx, rows);
 		if (!action) return;
+		if (action.type === "refresh") { rows = await loadTasks(); continue; }
+		if (action.type !== "action" || !action.row) continue;
 
-		if (action.type === "refresh") {
-			rows = await loadTasks(ops);
-			continue;
-		}
+		const choices = ["Show details", "Run gates", ...(STATUS_ACTIONS[action.row.status] ?? [])];
+		const choice = await ctx.ui.select(action.row.title, choices);
+		if (!choice) continue;
 
-		if (action.type === "action" && action.row) {
-			const choices = ["Show details", "Run gates", ...(STATUS_FLOW[action.row.status] ?? []).map((s) => `Advance → ${s}`)];
-			const choice = await ctx.ui.select(action.row.title, choices);
-			if (!choice) continue;
-
-			if (choice === "Show details") {
-				const art = await withDb((db, ops) => ops.getArtifact(db, action.row!.id, { tree: true }));
-				if (!art) { ctx.ui.notify("Not found", "error"); continue; }
-				let out = `${GLYPHS[art.status] ?? "?"} ${art.title}\n\n${art.body || "(no body)"}`;
-				if (art.edges?.length) {
-					out += `\n\nEdges:\n${art.edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`;
+		if (choice === "Show details") {
+			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });
+			if (!art) { ctx.ui.notify("Not found", "error"); continue; }
+			let out = `${GLYPHS[art.status] ?? "?"} ${art.title}\n\n${art.body || "(no body)"}`;
+			if (art.edges?.length) out += `\n\nEdges:\n${art.edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
+			if (Object.keys(art.extra).length > 0) out += `\n\nMetadata:\n${formatMetadata(art.extra).map((line) => `  ${line}`).join("\n")}`;
+			ctx.ui.notify(out, "info");
+		} else if (choice === "Run gates") {
+			try {
+				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id: action.row.id });
+				ctx.ui.notify(`Gates:\n${results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n")}`, "info");
+			} catch (error) {
+				ctx.ui.notify(`Gates failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
+		} else {
+			try {
+				const operation = choice === "Start" ? "tasks.start" : choice === "Fail" ? "tasks.fail" : choice === "Retry" ? "tasks.retry" : "tasks.complete";
+				if (operation === "tasks.complete") {
+					const result = await callService<Record<string, unknown>, { artifact: Artifact; gates: GateResult[]; completed: boolean }>(operation, { id: action.row.id });
+					action.row.status = result.artifact.status;
+					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
+					ctx.ui.notify(result.completed ? `Completed ${result.artifact.id}${gates ? `\n${gates}` : ""}` : `Not complete; gates failed\n${gates}`, result.completed ? "info" : "warning");
+				} else {
+					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id });
+					action.row.status = updated.status;
+					ctx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
 				}
-				const gates = art.extra?.["gates"] as any[] | undefined;
-				if (gates?.length) {
-					out += `\n\nGates (${gates.length}):\n${gates.map((g: any) => `  ${g.type}: ${g.target}${g.expect ? ` = ${g.expect}` : ""}`).join("\n")}`;
-				}
-				ctx.ui.notify(out, "info");
-			} else if (choice === "Run gates") {
-				try {
-					const results = await withDb((db, ops) => ops.runGates(db, action.row!.id));
-					const lines = results.map((g: any) => `${g.passed ? "✓" : "✗"} ${g.gate.type}: ${g.gate.target} — ${g.output}`);
-					ctx.ui.notify(`Gates:\n${lines.join("\n")}`, "info");
-				} catch (e) {
-					ctx.ui.notify(`Gates failed: ${e instanceof Error ? e.message : e}`, "error");
-				}
-			} else if (choice.startsWith("Advance → ")) {
-				const newStatus = choice.replace("Advance → ", "");
-				try {
-					const updated = await withDb((db, ops) => ops.updateStatus(db, action.row!.id, newStatus));
-					if (updated) {
-						action.row.status = updated.status;
-						ctx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
-					}
-				} catch (e) {
-					ctx.ui.notify(`Status change failed: ${e instanceof Error ? e.message : e}`, "error");
-				}
+			} catch (error) {
+				ctx.ui.notify(`Task action failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		}
+		rows = await loadTasks();
 	}
 }
 

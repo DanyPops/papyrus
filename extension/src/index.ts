@@ -10,15 +10,10 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { dbPath } from "../../src/constants.ts";
-import type { Db } from "../../src/db.ts";
-import { taskContextFromDb } from "./task-context.ts";
-
-async function withDb<T>(fn: (db: Db) => T): Promise<T> {
-	const { openDb } = await import("../../src/db.ts");
-	const db = openDb(dbPath());
-	try { return fn(db); } finally { db.close(); }
-}
+import type { Artifact, GateResult } from "../../src/ops.ts";
+import { formatMetadata } from "./artifact-format.ts";
+import { callService } from "./service-client.ts";
+import { registerFacadeTools } from "./facade-tools.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
 	return { content: [{ type: "text" as const, text: t }], details };
@@ -60,9 +55,7 @@ class TaskOverlay {
 
 	async refresh(): Promise<void> {
 		try {
-			const rows: TaskSnapshot[] = await withDb((db: any) =>
-				db.prepare("SELECT id, title, status FROM artifacts WHERE kind = 'task' ORDER BY updated_at DESC").all()
-			);
+			const rows = await callService<Record<string, unknown>, TaskSnapshot[]>("tasks.list", { limit: 500 });
 			this.snapshot = rows;
 		} catch {
 			this.snapshot = [];
@@ -143,10 +136,9 @@ class TaskOverlay {
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
-	const { createArtifact, queryArtifacts, getArtifact, linkArtifacts, runGates, updateStatus, injectableRules } =
-		await import("../../src/ops.ts");
+	registerFacadeTools(pi);
 
-	// ── Tools ──────────────────────────────────────────────────────────
+	// ── Low-level graph-store tools ────────────────────────────────────
 
 	pi.registerTool({
 		name: "papyrus_create",
@@ -157,19 +149,21 @@ export default async function (pi: ExtensionAPI) {
 			"active rules inject into the system prompt), skill (procedural — when using X do A,B,C). " +
 			"RULE extra: {condition, action, severity: 'block'|'warn'|'info'}. " +
 			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: ['item']}. " +
-			"SKILL extra: {trigger, steps: [...], tools: [...]}.",
+			"SKILL extra: {trigger, steps: [...], tools: [...]}. " +
+			"Templates are skills with subtype='artifact-template' and extra {targetKind, defaults, required}; pass template_id to instantiate.",
 		parameters: Type.Object({
-			kind: Type.String({ description: "doc | task | rule | skill" }),
-			title: Type.String(),
+			kind: Type.Optional(Type.String({ description: "doc | task | rule | skill; optional when template_id supplies targetKind" })),
+			title: Type.Optional(Type.String({ description: "required unless supplied by template defaults" })),
 			status: Type.Optional(Type.String({ description: "default: first registered for kind" })),
 			subtype: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			template_id: Type.Optional(Type.String({ description: "skill/artifact-template id whose defaults and requirements apply" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
-				const a = await withDb((db) => createArtifact(db, params));
+				const a = await callService<Record<string, unknown>, Artifact>("artifact.create", params);
 				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, { id: a.id });
 			} catch (e) {
 				return text(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
@@ -189,7 +183,7 @@ export default async function (pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
-				const rows = await withDb((db) => queryArtifacts(db, { ...params, limit: params.limit ?? 50 }));
+				const rows = await callService<Record<string, unknown>, Artifact[]>("artifact.query", { ...params, limit: params.limit ?? 50 });
 				if (rows.length === 0) return text("No artifacts found.");
 				const lines = rows.map((r: any, i: number) => `${i + 1}. ${r.id} [${r.kind}|${r.status}] ${r.title}`);
 				return text(`${rows.length} artifact(s):\n\n${lines.join("\n")}`, { rows });
@@ -204,8 +198,8 @@ export default async function (pi: ExtensionAPI) {
 		label: "Papyrus Graph",
 		description:
 			"Link artifacts with typed edges (any kind → any kind), view subgraph, or update status. " +
-			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers. " +
-			"ACTIONS: link (from+relation+to), tree (id → BFS subgraph), status (id+status → lifecycle).",
+			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers, contains, part_of. " +
+			"ACTIONS: link (from+relation+to), tree (id → bounded BFS subgraph), status (id+status → lifecycle).",
 		parameters: Type.Object({
 			action: Type.String({ description: "link | tree | status" }),
 			from: Type.Optional(Type.String()),
@@ -213,17 +207,23 @@ export default async function (pi: ExtensionAPI) {
 			to: Type.Optional(Type.String()),
 			id: Type.Optional(Type.String()),
 			status: Type.Optional(Type.String()),
+			depth: Type.Optional(Type.Number({ description: "tree traversal depth; bounded by a hard ceiling" })),
+			max_nodes: Type.Optional(Type.Number({ description: "tree node cap; bounded by a hard ceiling" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				if (params.action === "link") {
-					await withDb((db) => linkArtifacts(db, params.from!, params.relation!, params.to!));
+					await callService("graph.link", { from: params.from!, relation: params.relation!, to: params.to! });
 					return text(`Linked ${params.from} --${params.relation}--> ${params.to}`);
 				}
 				if (params.action === "tree") {
 					const root = params.id ?? params.from;
 					if (!root) return text("Missing id for tree");
-					const a = await withDb((db) => getArtifact(db, root, { tree: true }));
+					const a = await callService<Record<string, unknown>, Artifact | null>("graph.tree", {
+						id: root,
+						depth: params.depth,
+						max_nodes: params.max_nodes,
+					});
 					if (!a) return text(`Artifact ${root} not found`);
 					const edges = (a as any).edges ?? [];
 					if (edges.length === 0) return text(`${a.title} — no edges`);
@@ -233,7 +233,7 @@ export default async function (pi: ExtensionAPI) {
 					);
 				}
 				if (params.action === "status") {
-					const a = await withDb((db) => updateStatus(db, params.id!, params.status!));
+					const a = await callService<Record<string, unknown>, Artifact | null>("graph.status", { id: params.id!, status: params.status! });
 					if (!a) return text(`Artifact ${params.id} not found`);
 					return text(`Updated ${a.id} → [${a.status}]`, { artifact: a });
 				}
@@ -251,17 +251,27 @@ export default async function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			id: Type.String(),
 			run_gates: Type.Optional(Type.Boolean()),
+			depth: Type.Optional(Type.Number({ description: "edge traversal depth" })),
+			max_nodes: Type.Optional(Type.Number({ description: "maximum traversed nodes" })),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
-				const a = await withDb((db) => getArtifact(db, params.id, { tree: true }));
+				const a = await callService<Record<string, unknown>, Artifact | null>("artifact.show", {
+					id: params.id,
+					tree: true,
+					depth: params.depth,
+					max_nodes: params.max_nodes,
+				});
 				if (!a) return text(`Artifact ${params.id} not found`);
 				let out = `${a.id} [${a.kind}|${a.status}]\n${a.title}\n\n${a.body}`;
+				if (Object.keys(a.extra).length > 0) {
+					out += `\n\nMetadata:\n${formatMetadata(a.extra).map((line) => `  ${line}`).join("\n")}`;
+				}
 				if ((a as any).edges?.length) {
 					out += `\n\nEdges:\n${(a as any).edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`;
 				}
 				if (params.run_gates) {
-					const results = await withDb((db) => runGates(db, params.id));
+					const results = await callService<Record<string, unknown>, GateResult[]>("gates.run", { id: params.id });
 					out += `\n\nGates:\n${results.map((g: any) => `  ${g.passed ? "✓" : "✗"} ${g.gate.type}: ${g.gate.target} — ${g.output}`).join("\n")}`;
 				}
 				return text(out, { artifact: a });
@@ -271,18 +281,35 @@ export default async function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ── /tasks command ─────────────────────────────────────────────────
+	// ── Interactive artifact browsers ──────────────────────────────────
 
-	// Lazy import: showTasks uses ctx.ui.custom which needs pi-tui at runtime
-	const { showTasks } = await import("./tasks.ts");
+	// Lazy imports keep TUI components out of non-interactive startup paths.
+	const [tasksModule, docsModule, rulesModule, skillsModule] = await Promise.all([
+		import("./tasks.ts"),
+		import("./docs.ts"),
+		import("./rules.ts"),
+		import("./skills.ts"),
+	]);
 	let overlay: TaskOverlay | undefined;
 
 	pi.registerCommand("tasks", {
 		description: "Browse and manage Papyrus tasks (interactive)",
 		handler: async (_args, ctx) => {
-			await showTasks(ctx);
+			await tasksModule.showTasks(ctx);
 			await overlay?.refresh();
 		},
+	});
+	pi.registerCommand("docs", {
+		description: "Browse and manage Papyrus documents (interactive)",
+		handler: async (_args, ctx) => { await docsModule.showDocs(ctx); },
+	});
+	pi.registerCommand("rules", {
+		description: "Browse, preview, and toggle Papyrus rules (interactive)",
+		handler: async (_args, ctx) => { await rulesModule.showRules(ctx); },
+	});
+	pi.registerCommand("skills", {
+		description: "Browse and invoke Papyrus skills and templates (interactive)",
+		handler: async (_args, ctx) => { await skillsModule.showSkills(ctx); },
 	});
 
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
@@ -311,16 +338,13 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event, _ctx) => {
 		try {
-			const [rules, summary] = await withDb((db) => [
-				injectableRules(db),
-				taskContextFromDb(db),
+			const [rules, summary] = await Promise.all([
+				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", {}),
+				callService<Record<string, unknown>, string | null>("tasks.context", {}),
 			]);
 			let prompt = event.systemPrompt ?? "";
 			if (rules.length > 0) {
-				const block = rules.map((r) => {
-					const cond = r.extra["condition"] ? ` (when: ${r.extra["condition"]})` : "";
-					return `\u2022 ${r.title}${cond}\n  ${r.body || r.extra["action"] || ""}`;
-				}).join("\n");
+				const block = rules.map(rulesModule.ruleInjectionPreview).join("\n");
 				prompt += `\n\n## Active rules (Papyrus)\n\n${block}\n`;
 			}
 			if (summary) {

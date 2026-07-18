@@ -1,5 +1,18 @@
 export const VERSION = "0.1.0";
 
+/** Compact task-context limits keep recurring prompt injection bounded. */
+export const TASK_CONTEXT_ACTIVE_LIMIT = 3;
+export const TASK_CONTEXT_FAILED_LIMIT = 3;
+
+/** Reconciliation instruction appended whenever Papyrus has open work. */
+export const TASK_RECONCILIATION_INSTRUCTION = [
+	"Reconcile before concluding or moving on:",
+	'• For each current task, ask: "Did we accomplish this task?"',
+	"• If yes, run its gates before marking it done; a claim is not verification.",
+	"• If no, continue with the next concrete action toward its desired state.",
+	"• Address blocked work or explicitly leave it failed with the reason.",
+].join("\n");
+
 /** $XDG_DATA_HOME/papyrus/papyrus.db */
 export function dbPath(): string {
 	const xdg = process.env["XDG_DATA_HOME"] || `${process.env["HOME"]}/.local/share`;

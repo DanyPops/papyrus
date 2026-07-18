@@ -1,22 +1,20 @@
 /**
  * pi-papyrus — native Pi extension for the Papyrus graph store.
  *
- * Four tools (create/query/graph/show) + rule injection (before_agent_start)
- * + session-start widget. In-process SQLite (dual-runtime).
- *
- * Rules with status "active" are injected into the system prompt on every
- * agent turn — Papyrus IS the structured, cross-referenced AGENTS.md.
+ * Tools: papyrus_create/query/graph/show.
+ * Command: /tasks (interactive task panel).
+ * Widget: persistent task status above editor (rpiv-todo pattern).
+ * Injection: active rules + open tasks appended to system prompt every turn.
+ *             "Are we there yet?" — the agent sees its open work items.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { showTasks } from "./tasks.ts";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import { dbPath } from "../../src/constants.ts";
+import type { Db } from "../../src/db.ts";
+import { taskContextFromDb } from "./task-context.ts";
 
-function dbPath(): string {
-	const xdg = process.env["XDG_DATA_HOME"] || `${process.env["HOME"]}/.local/share`;
-	return `${xdg}/papyrus/papyrus.db`;
-}
-
-async function withDb<T>(fn: (db: any) => T): Promise<T> {
+async function withDb<T>(fn: (db: Db) => T): Promise<T> {
 	const { openDb } = await import("../../src/db.ts");
 	const db = openDb(dbPath());
 	try { return fn(db); } finally { db.close(); }
@@ -25,6 +23,124 @@ async function withDb<T>(fn: (db: any) => T): Promise<T> {
 function text(t: string, details: Record<string, unknown> = {}) {
 	return { content: [{ type: "text" as const, text: t }], details };
 }
+
+// ---------------------------------------------------------------------------
+// Task widget (TodoOverlay pattern from rpiv-todo: factory form, requestRender)
+// ---------------------------------------------------------------------------
+
+const GLYPHS: Record<string, (theme: Theme) => string> = {
+	pending:   (t) => t.fg("dim", "○"),
+	active:    (t) => t.fg("warning", "●"),
+	done:      (t) => t.fg("success", "■"),
+	failed:    (t) => t.fg("error", "▲"),
+};
+
+const WIDGET_KEY = "pi-papyrus";
+const MAX_WIDGET_LINES = 12;
+
+interface TaskSnapshot {
+	id: string;
+	title: string;
+	status: string;
+}
+
+class TaskOverlay {
+	private uiCtx: ExtensionUIContext | undefined;
+	private registered = false;
+	private tui: any | undefined;
+	private snapshot: TaskSnapshot[] = [];
+
+	setUI(ctx: ExtensionUIContext): void {
+		if (ctx !== this.uiCtx) {
+			this.uiCtx = ctx;
+			this.registered = false;
+			this.tui = undefined;
+		}
+	}
+
+	async refresh(): Promise<void> {
+		try {
+			const rows: TaskSnapshot[] = await withDb((db: any) =>
+				db.prepare("SELECT id, title, status FROM artifacts WHERE kind = 'task' ORDER BY updated_at DESC").all()
+			);
+			this.snapshot = rows;
+		} catch {
+			this.snapshot = [];
+		}
+		this.render();
+	}
+
+	private render(): void {
+		if (!this.uiCtx) return;
+
+		// Hide widget when no tasks
+		if (this.snapshot.length === 0) {
+			if (this.registered) {
+				this.uiCtx.setWidget(WIDGET_KEY, undefined);
+				this.registered = false;
+				this.tui = undefined;
+			}
+			return;
+		}
+
+		if (!this.registered) {
+			this.uiCtx.setWidget(
+				WIDGET_KEY,
+				(tui: any, theme: Theme) => {
+					this.tui = tui;
+					return {
+						render: (width: number) => this.renderLines(theme, width),
+						invalidate: () => {
+							// Theme changed — force re-registration
+							this.registered = false;
+							this.tui = undefined;
+						},
+					};
+				},
+				{ placement: "aboveEditor" },
+			);
+			this.registered = true;
+		} else {
+			this.tui?.requestRender?.();
+		}
+	}
+
+	private renderLines(theme: Theme, width: number): string[] {
+		const visible = this.snapshot.filter((t) => t.status !== "deleted");
+		if (visible.length === 0) return [];
+
+		const lines: string[] = [];
+		const counts: Record<string, number> = {};
+		for (const t of visible) counts[t.status] = (counts[t.status] ?? 0) + 1;
+		const summary = ["pending", "active", "done", "failed"]
+			.filter((s) => (counts[s] ?? 0) > 0)
+			.map((s) => `${GLYPHS[s]?.(theme) ?? s} ${counts[s]}`)
+			.join(" · ");
+		lines.push(truncateToWidth(theme.bold(`Tasks · ${summary}`), width, "…"));
+
+		// Show active tasks + next pending (capped at MAX_WIDGET_LINES)
+		const active = visible.filter((t) => t.status === "active");
+		const pending = visible.filter((t) => t.status === "pending");
+		const show = [...active, ...pending.slice(0, Math.max(0, MAX_WIDGET_LINES - active.length - 1))];
+		for (const t of show) {
+			const glyph = GLYPHS[t.status]?.(theme) ?? "?";
+			lines.push(truncateToWidth(`  ${glyph} ${t.title}`, width, "…"));
+		}
+
+		return lines;
+	}
+
+	dispose(): void {
+		this.uiCtx?.setWidget(WIDGET_KEY, undefined);
+		this.registered = false;
+		this.tui = undefined;
+		this.uiCtx = undefined;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
 	const { createArtifact, queryArtifacts, getArtifact, linkArtifacts, runGates, updateStatus, injectableRules } =
@@ -40,13 +156,13 @@ export default async function (pi: ExtensionAPI) {
 			"task (work — with gates/checklists in extra), rule (governance — when doing X, follow Y; " +
 			"active rules inject into the system prompt), skill (procedural — when using X do A,B,C). " +
 			"RULE extra: {condition, action, severity: 'block'|'warn'|'info'}. " +
-			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: ['item']} " +
+			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: ['item']}. " +
 			"SKILL extra: {trigger, steps: [...], tools: [...]}.",
 		parameters: Type.Object({
 			kind: Type.String({ description: "doc | task | rule | skill" }),
 			title: Type.String(),
-			status: Type.Optional(Type.String({ description: "default: draft/pending/active/active" })),
-			subtype: Type.Optional(Type.String({ description: "doc: knowledge|spec|decision|design; task: goal|step" })),
+			status: Type.Optional(Type.String({ description: "default: first registered for kind" })),
+			subtype: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
@@ -87,16 +203,16 @@ export default async function (pi: ExtensionAPI) {
 		name: "papyrus_graph",
 		label: "Papyrus Graph",
 		description:
-			"Link artifacts with typed edges (any kind → any kind), or view the subgraph from an artifact. " +
+			"Link artifacts with typed edges (any kind → any kind), view subgraph, or update status. " +
 			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers. " +
-			"ACTIONS: link (from+relation+to), tree (id → BFS subgraph), status (id+status → update lifecycle).",
+			"ACTIONS: link (from+relation+to), tree (id → BFS subgraph), status (id+status → lifecycle).",
 		parameters: Type.Object({
 			action: Type.String({ description: "link | tree | status" }),
 			from: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			to: Type.Optional(Type.String()),
-			id: Type.Optional(Type.String({ description: "artifact ID (tree, status)" })),
-			status: Type.Optional(Type.String({ description: "new status (status action)" })),
+			id: Type.Optional(Type.String()),
+			status: Type.Optional(Type.String()),
 		}),
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
@@ -111,8 +227,10 @@ export default async function (pi: ExtensionAPI) {
 					if (!a) return text(`Artifact ${root} not found`);
 					const edges = (a as any).edges ?? [];
 					if (edges.length === 0) return text(`${a.title} — no edges`);
-					return text(`Subgraph from ${a.title} (${edges.length} edges):\n\n` +
-						edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n"), { edges });
+					return text(
+						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`,
+						{ edges },
+					);
 				}
 				if (params.action === "status") {
 					const a = await withDb((db) => updateStatus(db, params.id!, params.status!));
@@ -155,49 +273,64 @@ export default async function (pi: ExtensionAPI) {
 
 	// ── /tasks command ─────────────────────────────────────────────────
 
+	// Lazy import: showTasks uses ctx.ui.custom which needs pi-tui at runtime
+	const { showTasks } = await import("./tasks.ts");
+	let overlay: TaskOverlay | undefined;
+
 	pi.registerCommand("tasks", {
 		description: "Browse and manage Papyrus tasks (interactive)",
-		handler: async (_args, ctx) => { await showTasks(ctx); },
+		handler: async (_args, ctx) => {
+			await showTasks(ctx);
+			await overlay?.refresh();
+		},
 	});
 
-	// ── Rule injection: Papyrus IS the structured AGENTS.md ────────────
-
-	pi.on("before_agent_start", async (event, _ctx) => {
-		try {
-			const rules = await withDb((db) => injectableRules(db));
-			if (rules.length === 0) return;
-			const block = rules.map((r) => {
-				const cond = r.extra["condition"] ? ` (when: ${r.extra["condition"]})` : "";
-				return `• ${r.title}${cond}\n  ${r.body || r.extra["action"] || ""}`;
-			}).join("\n");
-			return {
-				systemPrompt: (event.systemPrompt ?? "") + `\n\n## Active rules (Papyrus)\n\n${block}\n`,
-			};
-		} catch {
-			// DB not ready — no rules to inject
-		}
-	});
-
-	// ── Widget: task status summary on session start ────────────────────
+	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
+		overlay ??= new TaskOverlay();
+		overlay.setUI(ctx.ui);
+		await overlay.refresh();
+	});
+
+	pi.on("session_compact", async () => { await overlay?.refresh(); });
+	pi.on("session_tree", async () => { await overlay?.refresh(); });
+	pi.on("session_shutdown", async () => { overlay?.dispose(); overlay = undefined; });
+
+	// Update widget after any papyrus tool call
+	pi.on("tool_execution_end", async (event) => {
+		if (event.toolName.startsWith("papyrus_") || event.toolName === "tasks") {
+			await overlay?.refresh();
+		}
+	});
+
+	// ── "Are we there yet?" — inject active tasks into every turn ──────
+	// The agent sees its open work items every turn. If there are failed
+	// tasks, they're explicitly called out — the agent should address them.
+
+	pi.on("before_agent_start", async (event, _ctx) => {
 		try {
-			const rows = await withDb((db) =>
-				db.prepare("SELECT status, COUNT(*) AS c FROM artifacts WHERE kind = 'task' GROUP BY status").all()
-			) as { status: string; c: number }[];
-			if (rows.length === 0) return;
-			const GLYPHS: Record<string, string> = { pending: "○", active: "●", done: "■", failed: "▲" };
-			const line = rows
-				.filter((r) => r.c > 0)
-				.map((r) => `${GLYPHS[r.status] ?? r.status} ${r.c}`)
-				.join(" · ");
-			ctx.ui.setWidget("pi-papyrus", [
-				ctx.ui.theme.bold("Tasks"),
-				ctx.ui.theme.fg("dim", line),
-			], { placement: "aboveEditor" });
+			const [rules, summary] = await withDb((db) => [
+				injectableRules(db),
+				taskContextFromDb(db),
+			]);
+			let prompt = event.systemPrompt ?? "";
+			if (rules.length > 0) {
+				const block = rules.map((r) => {
+					const cond = r.extra["condition"] ? ` (when: ${r.extra["condition"]})` : "";
+					return `\u2022 ${r.title}${cond}\n  ${r.body || r.extra["action"] || ""}`;
+				}).join("\n");
+				prompt += `\n\n## Active rules (Papyrus)\n\n${block}\n`;
+			}
+			if (summary) {
+				prompt += `\n\n## Open tasks (Papyrus)\n\n${summary}\n`;
+			}
+			if (prompt !== (event.systemPrompt ?? "")) {
+				return { systemPrompt: prompt };
+			}
 		} catch {
-			// DB not created yet
+			// DB not ready
 		}
 	});
 }

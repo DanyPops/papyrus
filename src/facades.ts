@@ -8,6 +8,7 @@ import {
 	runGatesAsync,
 	updateStatus,
 	type Artifact,
+	type CreateInput,
 	type Gate,
 	type GateResult,
 } from "./ops.ts";
@@ -183,4 +184,151 @@ export function linkDocument(db: Db, id: string, relation: DocumentRelation, tar
 	if (!getArtifact(db, targetId)) throw new Error(`target artifact "${targetId}" not found`);
 	linkArtifacts(db, id, relation, targetId);
 	return showDocument(db, id);
+}
+
+export interface CreateRuleInput {
+	title: string;
+	body?: string;
+	condition?: string;
+	action?: string;
+	severity?: "block" | "warn" | "info";
+	labels?: string[];
+	extra?: Record<string, unknown>;
+}
+
+export type RuleTransition = "enable" | "disable";
+
+export function createRule(db: Db, input: CreateRuleInput): Artifact {
+	return createArtifact(db, {
+		kind: "rule",
+		title: input.title,
+		body: input.body,
+		labels: input.labels,
+		extra: {
+			...(input.extra ?? {}),
+			...(input.condition ? { condition: input.condition } : {}),
+			...(input.action ? { action: input.action } : {}),
+			severity: input.severity ?? "info",
+		},
+	});
+}
+
+export function listRules(db: Db, filter: ListFilter): Artifact[] {
+	return queryArtifacts(db, { kind: "rule", ...filter });
+}
+
+export function showRule(db: Db, id: string): Artifact {
+	requireKind(db, id, "rule");
+	return getArtifact(db, id, { tree: true })!;
+}
+
+export function previewRule(db: Db, id: string): string {
+	const rule = requireKind(db, id, "rule");
+	const condition = typeof rule.extra["condition"] === "string" ? ` (when: ${rule.extra["condition"]})` : "";
+	const action = rule.body || (typeof rule.extra["action"] === "string" ? rule.extra["action"] : "");
+	return `• ${rule.title}${condition}\n  ${action}`;
+}
+
+export function transitionRule(db: Db, id: string, action: RuleTransition): Artifact {
+	const rule = requireKind(db, id, "rule");
+	const expected = action === "enable" ? "deprecated" : "active";
+	const target = action === "enable" ? "active" : "deprecated";
+	if (rule.status !== expected) throw new Error(`cannot ${action} rule from ${rule.status}`);
+	return updateStatus(db, id, target)!;
+}
+
+export function gateTaskWithRule(db: Db, ruleId: string, taskId: string): Artifact {
+	requireKind(db, ruleId, "rule");
+	requireKind(db, taskId, "task");
+	linkArtifacts(db, ruleId, "gates", taskId);
+	return showRule(db, ruleId);
+}
+
+export interface CreateSkillInput {
+	title: string;
+	body?: string;
+	trigger?: string;
+	steps?: string[];
+	tools?: string[];
+	labels?: string[];
+	extra?: Record<string, unknown>;
+}
+
+export interface CreateArtifactTemplateInput {
+	title: string;
+	targetKind: string;
+	defaults?: Record<string, unknown>;
+	required?: string[];
+	body?: string;
+	labels?: string[];
+}
+
+export type SkillTransition = "enable" | "disable";
+
+export function createSkill(db: Db, input: CreateSkillInput): Artifact {
+	return createArtifact(db, {
+		kind: "skill",
+		title: input.title,
+		body: input.body,
+		labels: input.labels,
+		extra: {
+			...(input.extra ?? {}),
+			...(input.trigger ? { trigger: input.trigger } : {}),
+			...(input.steps ? { steps: input.steps } : {}),
+			...(input.tools ? { tools: input.tools } : {}),
+		},
+	});
+}
+
+export function createArtifactTemplate(db: Db, input: CreateArtifactTemplateInput): Artifact {
+	return createArtifact(db, {
+		kind: "skill",
+		subtype: "artifact-template",
+		title: input.title,
+		body: input.body,
+		labels: input.labels,
+		extra: {
+			targetKind: input.targetKind,
+			defaults: input.defaults ?? {},
+			required: input.required ?? ["title"],
+		},
+	});
+}
+
+export function instantiateTemplate(db: Db, templateId: string, input: CreateInput): Artifact {
+	return createArtifact(db, { ...input, templateId });
+}
+
+export function listSkills(db: Db, filter: ListFilter): Artifact[] {
+	return queryArtifacts(db, { kind: "skill", ...filter });
+}
+
+export function showSkill(db: Db, id: string): Artifact {
+	requireKind(db, id, "skill");
+	return getArtifact(db, id, { tree: true })!;
+}
+
+export function skillInvocation(db: Db, id: string): string {
+	const skill = requireKind(db, id, "skill");
+	if (skill.subtype === "artifact-template") {
+		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_id: ${skill.id}\nAsk for or infer all required template fields, then call the skills facade instantiate action.`;
+	}
+	const trigger = typeof skill.extra["trigger"] === "string" ? skill.extra["trigger"] : "manual invocation";
+	const steps = Array.isArray(skill.extra["steps"]) ? skill.extra["steps"].filter((step): step is string => typeof step === "string") : [];
+	const tools = Array.isArray(skill.extra["tools"]) ? skill.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
+	return [
+		`Apply Papyrus skill "${skill.title}" (${skill.id}).`,
+		`Trigger: ${trigger}`,
+		...(skill.body ? [`Context: ${skill.body}`] : []),
+		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
+		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
+	].join("\n");
+}
+
+export function transitionSkill(db: Db, id: string, action: SkillTransition): Artifact {
+	const skill = requireKind(db, id, "skill");
+	const expected = action === "enable" ? "deprecated" : "active";
+	const target = action === "enable" ? "active" : "deprecated";
+	if (skill.status !== expected) throw new Error(`cannot ${action} skill from ${skill.status}`);
+	return updateStatus(db, id, target)!;
 }

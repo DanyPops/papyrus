@@ -27,6 +27,8 @@ describe("Papyrus operation service", () => {
 		expect(EXPECTED_OPERATION_NAMES).toContain("graph.tree");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.complete");
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
+		expect(EXPECTED_OPERATION_NAMES).toContain("rules.preview");
+		expect(EXPECTED_OPERATION_NAMES).toContain("skills.instantiate");
 		service.close();
 	});
 

@@ -1,11 +1,7 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "../../src/ops.ts";
-import {
-	linkFromArtifact,
-	setArtifactStatus,
-	showArtifactBrowser,
-	showArtifactDetails,
-} from "./artifact-browser.ts";
+import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
+import { callService } from "./service-client.ts";
 
 const SKILL_GLYPHS: Record<string, string> = { active: "●", deprecated: "○" };
 
@@ -25,11 +21,7 @@ export function skillRowMeta(skill: Artifact): string {
 
 export function skillInvocationPrompt(skill: Artifact): string {
 	if (skill.subtype === "artifact-template") {
-		return [
-			`Create an artifact using Papyrus template \"${skill.title}\".`,
-			`template_id: ${skill.id}`,
-			"Ask for or infer the title and all required template fields, then call papyrus_create.",
-		].join("\n");
+		return [`Create an artifact using Papyrus template \"${skill.title}\".`, `template_id: ${skill.id}`, "Ask for or infer the title and all required template fields, then call papyrus_create."].join("\n");
 	}
 	const trigger = typeof skill.extra["trigger"] === "string" ? skill.extra["trigger"] : "manual invocation";
 	const steps = strings(skill.extra["steps"]);
@@ -47,23 +39,22 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 	await showArtifactBrowser(ctx, {
 		kind: "skill",
 		title: "Skills",
+		listOperation: "skills.list",
 		statusOrder: ["active", "deprecated"],
 		glyphs: SKILL_GLYPHS,
 		rowMeta: skillRowMeta,
-		actions: (skill) => [
-			"Show details",
-			skill.subtype === "artifact-template" ? "Use template" : "Invoke skill",
-			"Link artifact",
-			skill.status === "active" ? "Disable → deprecated" : "Enable → active",
-		],
+		actions: (skill) => ["Show details", skill.subtype === "artifact-template" ? "Use template" : "Invoke skill", skill.status === "active" ? "Disable" : "Enable"],
 		handleAction: async (choice, skill, commandCtx) => {
-			if (choice === "Show details") await showArtifactDetails(commandCtx, skill.id);
+			if (choice === "Show details") await showArtifactDetails(commandCtx, skill.id, "skills.show");
 			else if (choice === "Invoke skill" || choice === "Use template") {
-				commandCtx.ui.setEditorText(skillInvocationPrompt(skill));
+				const invocation = await callService<Record<string, unknown>, string>("skills.invoke", { id: skill.id });
+				commandCtx.ui.setEditorText(invocation);
 				commandCtx.ui.notify("Invocation placed in the editor", "info");
-			} else if (choice === "Link artifact") await linkFromArtifact(commandCtx, skill.id);
-			else if (choice === "Disable → deprecated") await setArtifactStatus(commandCtx, skill.id, "deprecated");
-			else if (choice === "Enable → active") await setArtifactStatus(commandCtx, skill.id, "active");
+			} else {
+				const operation = choice === "Disable" ? "skills.disable" : "skills.enable";
+				const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: skill.id });
+				commandCtx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
+			}
 		},
 	});
 }

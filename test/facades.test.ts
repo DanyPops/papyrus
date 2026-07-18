@@ -12,6 +12,17 @@ import {
 	listTasks,
 	transitionDocument,
 	transitionTask,
+	createRule,
+	listRules,
+	previewRule,
+	transitionRule,
+	gateTaskWithRule,
+	createSkill,
+	createArtifactTemplate,
+	instantiateTemplate,
+	listSkills,
+	skillInvocation,
+	transitionSkill,
 } from "../src/facades.ts";
 
 function tmpDb(): { db: Db; dir: string } {
@@ -65,6 +76,59 @@ describe("tasks facade", () => {
 		createTask(db, { title: "Task" });
 		createArtifact(db, { kind: "doc", title: "Document" });
 		expect(listTasks(db, {})).toHaveLength(1);
+		db.close();
+	});
+});
+
+describe("rules facade", () => {
+	it("owns rule lifecycle, injection preview, and task gating", () => {
+		const { db } = tmpDb();
+		const rule = createRule(db, {
+			title: "Test before commit",
+			condition: "before commit",
+			action: "Run bun test",
+			severity: "block",
+		});
+		const task = createTask(db, { title: "Ship" });
+		expect(rule.kind).toBe("rule");
+		expect(previewRule(db, rule.id)).toContain("• Test before commit (when: before commit)\n  Run bun test");
+		expect(gateTaskWithRule(db, rule.id, task.id).edges).toContainEqual({ from: rule.id, relation: "gates", to: task.id });
+		expect(transitionRule(db, rule.id, "disable").status).toBe("deprecated");
+		expect(transitionRule(db, rule.id, "enable").status).toBe("active");
+		expect(listRules(db, {})).toHaveLength(1);
+		db.close();
+	});
+});
+
+describe("skills facade", () => {
+	it("owns skill lifecycle and invocation projection", () => {
+		const { db } = tmpDb();
+		const skill = createSkill(db, {
+			title: "TDD workflow",
+			trigger: "writing code",
+			steps: ["Write failing test", "Implement"],
+			tools: ["bun test"],
+		});
+		expect(skill.kind).toBe("skill");
+		expect(skillInvocation(db, skill.id)).toContain("1. Write failing test");
+		expect(transitionSkill(db, skill.id, "disable").status).toBe("deprecated");
+		expect(transitionSkill(db, skill.id, "enable").status).toBe("active");
+		expect(listSkills(db, {})).toHaveLength(1);
+		db.close();
+	});
+
+	it("creates and instantiates artifact templates", () => {
+		const { db } = tmpDb();
+		const template = createArtifactTemplate(db, {
+			title: "Research document",
+			targetKind: "doc",
+			defaults: { subtype: "research", labels: ["research"] },
+			required: ["title", "body"],
+		});
+		const document = instantiateTemplate(db, template.id, { title: "Findings", body: "Verified evidence" });
+		expect(template.subtype).toBe("artifact-template");
+		expect(document.kind).toBe("doc");
+		expect(document.subtype).toBe("research");
 		db.close();
 	});
 });

@@ -67,9 +67,19 @@ Agent-facing facade tools own domain lifecycle invariants and sit above this sto
 
 - **`tasks`** — create/list/show, hierarchy/dependencies, start/fail/retry, non-blocking gates, and gate-enforced completion
 - **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links
-- **`rules`** and **`skills`** — next facade layer; their interactive projections are scaffolded
+- **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
+- **`skills`** — create/list/show/invoke, enable/disable, create templates, and instantiate templates
 
 Every tool operation is registered in the daemon’s `/api/v1/ops` registry; parity is verified in tests.
+
+## Interactive frontends
+
+- `/tasks` — task lifecycle, gates, dependencies, and nested metadata
+- `/docs` — searchable documents, lifecycle, details, and graph links
+- `/rules` — severity/condition rows, exact injection preview, enable/disable, and task gating
+- `/skills` — trigger/tools rows, invocation into the editor, and artifact templates
+
+All four use daemon-backed domain operations; none opens SQLite from the Pi process.
 
 ## Tasks
 

@@ -113,4 +113,81 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+
+	pi.registerTool({
+		name: "rules",
+		label: "Rules",
+		description: "Rule domain facade. ACTIONS: create, list, show, preview, enable, disable, gate. Active rules inject into the agent system prompt.",
+		parameters: Type.Object({
+			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
+			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
+			severity: Type.Optional(Type.String()), labels: Type.Optional(Type.Array(Type.String())),
+			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
+			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), task_id: Type.Optional(Type.String()),
+		}),
+		async execute(_id, params) {
+			try {
+				const action = params.action;
+				if (action === "create") {
+					const artifact = await callService<Record<string, unknown>, Artifact>("rules.create", params);
+					return text(`Created rule ${artifactLine(artifact)}`, { artifact });
+				}
+				if (action === "list") {
+					const rows = await callService<Record<string, unknown>, Artifact[]>("rules.list", params);
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No rules found.", { rows });
+				}
+				if (action === "preview") {
+					const preview = await callService<Record<string, unknown>, string>("rules.preview", params);
+					return text(preview, { preview });
+				}
+				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate" } as const;
+				const operation = operations[action as keyof typeof operations];
+				if (!operation) return text(`Unknown rules action: ${action}`);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, { artifact });
+			} catch (error) {
+				return text(`rules failed: ${error instanceof Error ? error.message : error}`);
+			}
+		},
+	});
+
+	pi.registerTool({
+		name: "skills",
+		label: "Skills",
+		description: "Skill and artifact-template domain facade. ACTIONS: create, create_template, list, show, invoke, enable, disable, instantiate.",
+		parameters: Type.Object({
+			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
+			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
+			tools: Type.Optional(Type.Array(Type.String())), labels: Type.Optional(Type.Array(Type.String())),
+			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
+			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), template_id: Type.Optional(Type.String()),
+			target_kind: Type.Optional(Type.String()), defaults: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			required: Type.Optional(Type.Array(Type.String())), kind: Type.Optional(Type.String()), subtype: Type.Optional(Type.String()),
+		}),
+		async execute(_id, params) {
+			try {
+				const action = params.action;
+				if (action === "create" || action === "create_template") {
+					const operation = action === "create" ? "skills.create" : "skills.create_template";
+					const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+					return text(`Created skill ${artifactLine(artifact)}`, { artifact });
+				}
+				if (action === "list") {
+					const rows = await callService<Record<string, unknown>, Artifact[]>("skills.list", params);
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No skills found.", { rows });
+				}
+				if (action === "invoke") {
+					const invocation = await callService<Record<string, unknown>, string>("skills.invoke", params);
+					return text(invocation, { invocation });
+				}
+				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate" } as const;
+				const operation = operations[action as keyof typeof operations];
+				if (!operation) return text(`Unknown skills action: ${action}`);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, { artifact });
+			} catch (error) {
+				return text(`skills failed: ${error instanceof Error ? error.message : error}`);
+			}
+		},
+	});
 }

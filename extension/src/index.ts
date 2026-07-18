@@ -9,6 +9,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { showTasks } from "./tasks.ts";
 
 function dbPath(): string {
 	const xdg = process.env["XDG_DATA_HOME"] || `${process.env["HOME"]}/.local/share`;
@@ -152,6 +153,13 @@ export default async function (pi: ExtensionAPI) {
 		},
 	});
 
+	// ── /tasks command ─────────────────────────────────────────────────
+
+	pi.registerCommand("tasks", {
+		description: "Browse and manage Papyrus tasks (interactive)",
+		handler: async (_args, ctx) => { await showTasks(ctx); },
+	});
+
 	// ── Rule injection: Papyrus IS the structured AGENTS.md ────────────
 
 	pi.on("before_agent_start", async (event, _ctx) => {
@@ -170,16 +178,23 @@ export default async function (pi: ExtensionAPI) {
 		}
 	});
 
-	// ── Widget: artifact count on session start ────────────────────────
+	// ── Widget: task status summary on session start ────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		try {
-			const count = await withDb((db) => db.prepare("SELECT COUNT(*) AS c FROM artifacts").get());
-			const n = (count as { c: number })?.c ?? 0;
+			const rows = await withDb((db) =>
+				db.prepare("SELECT status, COUNT(*) AS c FROM artifacts WHERE kind = 'task' GROUP BY status").all()
+			) as { status: string; c: number }[];
+			if (rows.length === 0) return;
+			const GLYPHS: Record<string, string> = { pending: "○", active: "●", done: "■", failed: "▲" };
+			const line = rows
+				.filter((r) => r.c > 0)
+				.map((r) => `${GLYPHS[r.status] ?? r.status} ${r.c}`)
+				.join(" · ");
 			ctx.ui.setWidget("pi-papyrus", [
-				ctx.ui.theme.bold("Papyrus"),
-				ctx.ui.theme.fg("dim", `${n} artifact(s) in the graph`),
+				ctx.ui.theme.bold("Tasks"),
+				ctx.ui.theme.fg("dim", line),
 			], { placement: "aboveEditor" });
 		} catch {
 			// DB not created yet

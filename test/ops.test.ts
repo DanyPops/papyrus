@@ -152,4 +152,76 @@ describe("papyrus: four-kind model", () => {
 		expect(tree.edges!.some((e) => e.from === t1.id && e.relation === "follows" && e.to === rule.id)).toBe(true);
 		db.close();
 	});
+
+	it("bounds hierarchy traversal by depth and node count", () => {
+		const { db } = tmpDb();
+		const root = createArtifact(db, { kind: "task", title: "Epic" });
+		const child = createArtifact(db, { kind: "task", title: "Child" });
+		const grandchild = createArtifact(db, { kind: "task", title: "Grandchild" });
+		const leaf = createArtifact(db, { kind: "task", title: "Leaf" });
+
+		linkArtifacts(db, root.id, "contains", child.id);
+		linkArtifacts(db, child.id, "part_of", root.id);
+		linkArtifacts(db, child.id, "contains", grandchild.id);
+		linkArtifacts(db, grandchild.id, "contains", leaf.id);
+		linkArtifacts(db, leaf.id, "relates_to", child.id); // cycle without a root shortcut
+
+		const oneLevel = getArtifact(db, root.id, { tree: true, depth: 1, maxNodes: 10 })!;
+		expect(oneLevel.edges).toHaveLength(2);
+		expect(oneLevel.edges!.every((edge) => [root.id, child.id].includes(edge.from) && [root.id, child.id].includes(edge.to))).toBe(true);
+
+		const twoNodes = getArtifact(db, root.id, { tree: true, depth: 10, maxNodes: 2 })!;
+		expect(twoNodes.edges).toHaveLength(2);
+		expect(twoNodes.edges!.some((edge) => edge.to === grandchild.id)).toBe(false);
+		db.close();
+	});
+
+	it("instantiates an artifact template with deep defaults", () => {
+		const { db } = tmpDb();
+		const template = createArtifact(db, {
+			kind: "skill",
+			subtype: "artifact-template",
+			title: "Frontend task template",
+			extra: {
+				targetKind: "task",
+				defaults: {
+					body: "Deliver an interactive frontend.",
+					labels: ["frontend"],
+					extra: {
+						checklist: ["Write failing test", "Implement", "Verify"],
+						gates: [{ type: "command", target: "bun test" }],
+					},
+				},
+				required: ["title", "extra.owner"],
+			},
+		});
+
+		const task = createArtifact(db, {
+			templateId: template.id,
+			title: "Build documents frontend",
+			extra: { owner: "agent", checklist: ["Override first"] },
+		});
+
+		expect(task.kind).toBe("task");
+		expect(task.body).toBe("Deliver an interactive frontend.");
+		expect(task.labels).toEqual(["frontend"]);
+		expect(task.extra["owner"]).toBe("agent");
+		expect(task.extra["checklist"]).toEqual(["Override first"]);
+		expect(task.extra["gates"]).toEqual([{ type: "command", target: "bun test" }]);
+		db.close();
+	});
+
+	it("rejects missing template requirements and target-kind mismatches", () => {
+		const { db } = tmpDb();
+		const template = createArtifact(db, {
+			kind: "skill",
+			subtype: "artifact-template",
+			title: "Owned task",
+			extra: { targetKind: "task", required: ["title", "extra.owner"] },
+		});
+
+		expect(() => createArtifact(db, { templateId: template.id, title: "No owner" })).toThrow("missing required template field");
+		expect(() => createArtifact(db, { templateId: template.id, kind: "doc", title: "Wrong kind", extra: { owner: "agent" } })).toThrow("targets kind");
+		db.close();
+	});
 });

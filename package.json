@@ -5,7 +5,10 @@
   "type": "module",
   "keywords": ["pi-package"],
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "cli": "bun src/cli.ts",
+    "serve": "bun src/cli.ts serve",
+    "service:install": "bun src/cli.ts service install"
   },
   "pi": {
     "extensions": ["extension/src/index.ts"]

@@ -3,8 +3,19 @@
  * Enforces the schema protocol (kinds, statuses, relations) via FK + app validation.
  */
 import { createRequire } from "node:module";
+import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
+import {
+	DEFAULT_GRAPH_DEPTH,
+	DEFAULT_GRAPH_MAX_NODES,
+	MAX_GRAPH_DEPTH,
+	MAX_GRAPH_NODES,
+	GATE_COMMAND_TIMEOUT_MS,
+	GATE_TEST_TIMEOUT_MS,
+	GATE_OUTPUT_LIMIT,
+	GATE_MAX_BUFFER_BYTES,
+} from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
 
@@ -23,14 +34,82 @@ export interface Artifact {
 }
 
 export interface CreateInput {
-	kind: string;
-	title: string;
+	kind?: string;
+	title?: string;
 	status?: string;
 	body?: string;
 	labels?: string[];
 	extra?: Record<string, unknown>;
 	id?: string;
 	subtype?: string;
+	templateId?: string;
+}
+
+interface ResolvedCreateInput extends CreateInput {
+	kind: string;
+	title: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Merge object defaults recursively; explicit arrays and scalar values replace defaults. */
+function deepMerge(base: unknown, override: unknown): unknown {
+	if (!isRecord(base) || !isRecord(override)) return override === undefined ? base : override;
+	const merged: Record<string, unknown> = { ...base };
+	for (const [key, value] of Object.entries(override)) {
+		if (value === undefined) continue;
+		merged[key] = key in merged ? deepMerge(merged[key], value) : value;
+	}
+	return merged;
+}
+
+function valueAtPath(value: unknown, path: string): unknown {
+	return path.split(".").reduce<unknown>((current, segment) =>
+		isRecord(current) ? current[segment] : undefined, value);
+}
+
+function isPresent(value: unknown): boolean {
+	return value !== undefined && value !== null && value !== "";
+}
+
+function resolveCreateInput(db: Db, input: CreateInput): ResolvedCreateInput {
+	if (!input.templateId) {
+		if (!input.kind) throw new Error("kind is required");
+		if (!input.title) throw new Error("title is required");
+		return input as ResolvedCreateInput;
+	}
+
+	const template = getArtifact(db, input.templateId);
+	if (!template) throw new Error(`template "${input.templateId}" not found`);
+	if (template.kind !== "skill" || template.subtype !== "artifact-template") {
+		throw new Error(`artifact "${input.templateId}" is not an artifact template`);
+	}
+
+	const targetKind = template.extra["targetKind"];
+	if (typeof targetKind !== "string" || targetKind.length === 0) {
+		throw new Error(`template "${input.templateId}" has no targetKind`);
+	}
+	if (input.kind && input.kind !== targetKind) {
+		throw new Error(`template "${input.templateId}" targets kind "${targetKind}", not "${input.kind}"`);
+	}
+
+	const defaults = isRecord(template.extra["defaults"]) ? template.extra["defaults"] : {};
+	const { templateId: _templateId, ...overrides } = input;
+	const merged = deepMerge(defaults, overrides) as CreateInput;
+	merged.kind = targetKind;
+
+	const required = Array.isArray(template.extra["required"])
+		? template.extra["required"].filter((field): field is string => typeof field === "string")
+		: ["title"];
+	for (const field of required) {
+		if (!isPresent(valueAtPath(merged, field))) {
+			throw new Error(`missing required template field "${field}"`);
+		}
+	}
+	if (!merged.title) throw new Error("title is required");
+	return merged as ResolvedCreateInput;
 }
 
 function slugify(s: string): string {
@@ -64,50 +143,51 @@ function rowToArtifact(row: Record<string, unknown>): Artifact {
 }
 
 export function createArtifact(db: Db, input: CreateInput): Artifact {
-	const id = input.id ?? slugify(input.title);
-	const status = input.status ?? defaultStatusFor(db, input.kind);
+	const resolved = resolveCreateInput(db, input);
+	const id = resolved.id ?? slugify(resolved.title);
+	const status = resolved.status ?? defaultStatusFor(db, resolved.kind);
 	const now = new Date().toISOString();
-	const labels = JSON.stringify(input.labels ?? []);
-	const extra = JSON.stringify(input.extra ?? {});
-	const subtype = input.subtype ?? "";
+	const labels = JSON.stringify(resolved.labels ?? []);
+	const extra = JSON.stringify(resolved.extra ?? {});
+	const subtype = resolved.subtype ?? "";
 	inTransaction(db, () => {
 		const stmt = db.prepare(
 			"INSERT INTO artifacts (id, kind, title, status, subtype, body, labels, extra, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		);
-		stmt.run(id, input.kind, input.title, status, subtype, input.body ?? "", labels, extra, now, now);
+		stmt.run(id, resolved.kind, resolved.title, status, subtype, resolved.body ?? "", labels, extra, now, now);
 	});
 	return getArtifact(db, id)!;
 }
 
-export function getArtifact(db: Db, id: string, opts?: { tree?: boolean }): Artifact | null {
+export function getArtifact(db: Db, id: string, opts?: { tree?: boolean; depth?: number; maxNodes?: number }): Artifact | null {
 	const row = db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as Record<string, unknown> | null;
 	if (!row) return null;
 	const art = rowToArtifact(row);
 	if (opts?.tree) {
-		// BFS from the root artifact through all edges
-		const visited = new Set<string>([id]);
-		const queue = [id];
+		const depthLimit = Math.min(MAX_GRAPH_DEPTH, Math.max(0, Math.floor(opts.depth ?? DEFAULT_GRAPH_DEPTH)));
+		const nodeLimit = Math.min(MAX_GRAPH_NODES, Math.max(1, Math.floor(opts.maxNodes ?? DEFAULT_GRAPH_MAX_NODES)));
+		const queue: Array<{ id: string; depth: number }> = [{ id, depth: 0 }];
 		const allEdges = db.prepare('SELECT from_id AS "from", relation, to_id AS "to" FROM edges').all() as { from: string; relation: string; to: string }[];
 		const reachable = new Set<string>([id]);
-		// Build adjacency from all edges
 		const adj = new Map<string, { from: string; relation: string; to: string }[]>();
-		for (const e of allEdges) {
-			if (!adj.has(e.from)) adj.set(e.from, []);
-			adj.get(e.from)!.push(e);
-			if (!adj.has(e.to)) adj.set(e.to, []);
-			adj.get(e.to)!.push(e);
+		for (const edge of allEdges) {
+			if (!adj.has(edge.from)) adj.set(edge.from, []);
+			adj.get(edge.from)!.push(edge);
+			if (!adj.has(edge.to)) adj.set(edge.to, []);
+			adj.get(edge.to)!.push(edge);
 		}
-		while (queue.length) {
-			const cur = queue.shift()!;
-			for (const e of adj.get(cur) ?? []) {
-				const other = e.from === cur ? e.to : e.from;
-				if (!reachable.has(other)) {
-					reachable.add(other);
-					queue.push(other);
-				}
+		while (queue.length > 0 && reachable.size < nodeLimit) {
+			const current = queue.shift()!;
+			if (current.depth >= depthLimit) continue;
+			for (const edge of adj.get(current.id) ?? []) {
+				const other = edge.from === current.id ? edge.to : edge.from;
+				if (reachable.has(other)) continue;
+				if (reachable.size >= nodeLimit) break;
+				reachable.add(other);
+				queue.push({ id: other, depth: current.depth + 1 });
 			}
 		}
-		art.edges = allEdges.filter((e) => reachable.has(e.from) && reachable.has(e.to));
+		art.edges = allEdges.filter((edge) => reachable.has(edge.from) && reachable.has(edge.to));
 	}
 	return art;
 }
@@ -193,25 +273,79 @@ export function runGates(db: Db, artifactId: string): GateResult[] {
 			case "command": {
 				const { execSync } = require_("node:child_process");
 				try {
-					const output = execSync(gate.target, { encoding: "utf-8", timeout: 30_000, stdio: ["pipe", "pipe", "pipe"] }).trim();
+					const output = execSync(gate.target, { encoding: "utf-8", timeout: GATE_COMMAND_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"] }).trim();
 					const passed = gate.expect ? output.includes(gate.expect) : true;
-					return { gate, passed, output: output.slice(0, 200) };
+					return { gate, passed, output: output.slice(0, GATE_OUTPUT_LIMIT) };
 				} catch (e) {
-					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, 200) : "command failed" };
+					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, GATE_OUTPUT_LIMIT) : "command failed" };
 				}
 			}
 			case "test": {
 				const { execSync } = require_("node:child_process");
 				try {
-					execSync(`npx vitest run ${gate.target} --reporter=dot`, { encoding: "utf-8", timeout: 60_000, stdio: ["pipe", "pipe", "pipe"] });
+					execSync(`npx vitest run ${gate.target} --reporter=dot`, { encoding: "utf-8", timeout: GATE_TEST_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"] });
 					return { gate, passed: true, output: "tests passed" };
 				} catch (e) {
-					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, 200) : "tests failed" };
+					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, GATE_OUTPUT_LIMIT) : "tests failed" };
 				}
 			}
 			default:
 				return { gate, passed: false, output: `unknown gate type: ${String(gate.type)}` };
 		}
 	});
+}
+
+function executeGateCommand(command: string, timeout: number): Promise<{ passed: boolean; output: string }> {
+	return new Promise((resolve) => {
+		exec(command, { encoding: "utf8", timeout, maxBuffer: GATE_MAX_BUFFER_BYTES }, (error, stdout, stderr) => {
+			const output = `${stdout}${stderr}`.trim().slice(0, GATE_OUTPUT_LIMIT);
+			resolve({
+				passed: error === null,
+				output: output || (error ? error.message.slice(0, GATE_OUTPUT_LIMIT) : "ok"),
+			});
+		});
+	});
+}
+
+function runNonProcessGate(gate: Gate): GateResult {
+	if (gate.type === "file-exists") {
+		const { existsSync } = require_("node:fs");
+		const exists = existsSync(gate.target);
+		return { gate, passed: exists, output: exists ? "exists" : "not found" };
+	}
+	if (gate.type === "contains") {
+		const { readFileSync } = require_("node:fs");
+		try {
+			const content = readFileSync(gate.target, "utf-8");
+			const found = gate.expect ? content.includes(gate.expect) : content.length > 0;
+			return { gate, passed: found, output: found ? "found" : `"${gate.expect ?? ""}" not found` };
+		} catch {
+			return { gate, passed: false, output: "file not readable" };
+		}
+	}
+	return { gate, passed: false, output: `unknown gate type: ${String(gate.type)}` };
+}
+
+/** Gate runner for daemon request paths; subprocess gates never block the event loop. */
+export async function runGatesAsync(db: Db, artifactId: string): Promise<GateResult[]> {
+	const art = getArtifact(db, artifactId);
+	if (!art) throw new Error("artifact not found");
+	const gates = (art.extra["gates"] as Gate[]) ?? [];
+	const results: GateResult[] = [];
+	for (const gate of gates) {
+		if (gate.type === "command" || gate.type === "test") {
+			const command = gate.type === "test" ? `npx vitest run ${gate.target} --reporter=dot` : gate.target;
+			const timeout = gate.type === "test" ? GATE_TEST_TIMEOUT_MS : GATE_COMMAND_TIMEOUT_MS;
+			const executed = await executeGateCommand(command, timeout);
+			results.push({
+				gate,
+				passed: executed.passed && (gate.expect ? executed.output.includes(gate.expect) : true),
+				output: executed.output,
+			});
+		} else {
+			results.push(runNonProcessGate(gate));
+		}
+	}
+	return results;
 }
 

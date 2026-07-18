@@ -1,8 +1,38 @@
 export const VERSION = "0.1.0";
 
+/** Long-running daemon transport and state. */
+export const DAEMON_HOST = "127.0.0.1";
+export const DAEMON_PORT_FILE = "port";
+export const DAEMON_TOKEN_FILE = "token";
+export const DAEMON_CLIENT_TIMEOUT_MS = 15_000;
+export const DAEMON_PROBE_TIMEOUT_MS = 800;
+export const DAEMON_UNIT_NAME = "papyrus.service";
+export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
+export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
+export const SQLITE_SCHEMA_VERSION = 1;
+export const SERVICE_MAX_BODY_BYTES = 1_048_576;
+export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
+export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
+export const GATE_COMMAND_TIMEOUT_MS = 30_000;
+export const GATE_TEST_TIMEOUT_MS = 60_000;
+export const GATE_OUTPUT_LIMIT = 200;
+export const GATE_MAX_BUFFER_BYTES = 1_048_576;
+
 /** Compact task-context limits keep recurring prompt injection bounded. */
 export const TASK_CONTEXT_ACTIVE_LIMIT = 3;
 export const TASK_CONTEXT_FAILED_LIMIT = 3;
+
+/** Safe defaults and hard ceilings for graph expansion. */
+export const DEFAULT_GRAPH_DEPTH = 4;
+export const DEFAULT_GRAPH_MAX_NODES = 100;
+export const MAX_GRAPH_DEPTH = 20;
+export const MAX_GRAPH_NODES = 1_000;
+
+/** Bounds for recursively rendered artifact metadata. */
+export const DEFAULT_METADATA_DEPTH = 6;
+export const DEFAULT_METADATA_ITEMS = 100;
+export const MAX_METADATA_DEPTH = 12;
+export const MAX_METADATA_ITEMS = 500;
 
 /** Reconciliation instruction appended whenever Papyrus has open work. */
 export const TASK_RECONCILIATION_INSTRUCTION = [
@@ -67,5 +97,5 @@ export const SEED_STATUSES = [
 export const SEED_RELATIONS = [
 	"references", "implements", "follows", "depends_on",
 	"documents", "blocks", "supersedes", "relates_to",
-	"gates", "triggers",
+	"gates", "triggers", "contains", "part_of",
 ] as const;

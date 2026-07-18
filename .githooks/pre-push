@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+remote_name="${1:-unknown}"
+remote_url="${2:-}"
+allowed_owner="DanyPops"
+allowed_repo="papyrus"
+
+case "$remote_url" in
+  *github.com[:/]"$allowed_owner"/"$allowed_repo"|*github.com[:/]"$allowed_owner"/"$allowed_repo".git)
+    exit 0
+    ;;
+  *)
+    printf 'BLOCKED: Papyrus may only be pushed to GitHub owner %s.\n' "$allowed_owner" >&2
+    printf 'Remote %s resolves to: %s\n' "$remote_name" "$remote_url" >&2
+    printf 'Do not bypass this guard with an explicit fallback URL.\n' >&2
+    exit 1
+    ;;
+esac

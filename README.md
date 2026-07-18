@@ -33,6 +33,14 @@ bun src/cli.ts service status
 bun src/cli.ts service restart
 ```
 
+For repository work, install the versioned ownership guard once:
+
+```bash
+bun run guard:install
+```
+
+It blocks every Papyrus push whose destination is not `DanyPops/papyrus`, including explicit fallback URLs that bypass `origin`.
+
 The daemon uses WAL, foreign keys, a bounded busy timeout, versioned migrations, periodic passive checkpoints, and periodic `PRAGMA optimize`. Keep the database on a local filesystem; SQLite WAL does not support network filesystems.
 
 ## Schema protocol (enforceable)

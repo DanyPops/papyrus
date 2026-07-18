@@ -12,58 +12,32 @@ $XDG_DATA_HOME/papyrus/papyrus.db    ← ~/.local/share/papyrus/papyrus.db
 
 ## Schema protocol (enforceable)
 
-```sql
--- The vocabulary: kinds must be registered before artifacts can use them
-CREATE TABLE kinds (
-    name        TEXT PRIMARY KEY,          -- e.g. 'effort.goal'
-    namespace   TEXT NOT NULL,             -- 'effort'
-    description TEXT
-);
+Papyrus enforces four artifact kinds:
 
--- Allowed relations per kind pair (FK-enforced)
-CREATE TABLE relations (
-    from_kind   TEXT NOT NULL REFERENCES kinds(name),
-    relation    TEXT NOT NULL,             -- e.g. 'depends_on'
-    to_kind     TEXT NOT NULL REFERENCES kinds(name),
-    PRIMARY KEY (from_kind, relation, to_kind)
-);
+- `doc` — knowledge: specifications, decisions, and research
+- `task` — work: desired outcomes, gates, checklists, and dependencies
+- `rule` — governance injected into the Pi system prompt
+- `skill` — reusable procedural knowledge
 
--- Statuses per kind
-CREATE TABLE statuses (
-    name        TEXT NOT NULL,             -- 'work.active'
-    kind        TEXT NOT NULL REFERENCES kinds(name),
-    PRIMARY KEY (name, kind)
-);
-
--- Artifacts: kind must exist, status must be registered for that kind
-CREATE TABLE artifacts (
-    id          TEXT PRIMARY KEY,          -- slug
-    kind        TEXT NOT NULL REFERENCES kinds(name),
-    title       TEXT NOT NULL,
-    status      TEXT NOT NULL,
-    body        TEXT DEFAULT '',
-    labels      TEXT DEFAULT '[]',         -- JSON array
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    FOREIGN KEY (kind, status) REFERENCES statuses(kind, name)
-);
-
--- Edges: both ends must exist, relation must be allowed for the kind pair
-CREATE TABLE edges (
-    from_id     TEXT NOT NULL REFERENCES artifacts(id),
-    relation    TEXT NOT NULL,
-    to_id       TEXT NOT NULL REFERENCES artifacts(id),
-    weight      REAL DEFAULT 0,
-    PRIMARY KEY (from_id, relation, to_id)
-);
-```
+Each kind has an enforced status vocabulary. Every edge endpoint must exist, and every edge relation must be registered in `relation_names`. Relations are universal: any artifact kind can link to any other kind.
 
 ## Tools
 
-- **`papyrus_create`** — create/update an artifact (validates kind + status exist)
-- **`papyrus_query`** — list/filter by kind/status/labels/full-text
-- **`papyrus_graph`** — edges, tree, fan-in/out (traverses the typed edge table)
-- **`papyrus_show`** — read one artifact with its edges
+- **`papyrus_create`** — create an artifact with validated kind and status
+- **`papyrus_query`** — filter by kind/status or search title and body
+- **`papyrus_graph`** — link artifacts, traverse a subgraph, or update status
+- **`papyrus_show`** — read one artifact with edges and optionally run its gates
+
+## Tasks
+
+Run `/tasks` for the interactive task panel:
+
+- `/` filters; arrow keys navigate; Enter opens task actions
+- advance the `pending → active → done` lifecycle or retry `failed → pending`
+- inspect dependencies and run verification gates
+- persistent widget shows active and pending work above the editor
+
+Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run gates before marking it done. The injection disappears when every task is complete.
 
 ## Why
 

@@ -9,12 +9,15 @@ export type TaskLifecycleStatus = "todo" | "in-progress" | "review" | "rejected"
 
 export const TASK_EVENT_TYPES = [
 	"created",
+	"updated",
 	"started",
 	"submitted",
 	"completion_attempted",
 	"gates_evaluated",
-	"automation_enabled",
-	"automation_disabled",
+	"focus_set",
+	"focus_paused",
+	"focus_unpaused",
+	"focus_cleared",
 	"project_assigned",
 	"review_rejected",
 	"retried",

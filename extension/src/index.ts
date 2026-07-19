@@ -20,7 +20,7 @@ import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
-import { ActiveTaskContinuation, type ActiveTaskMarker } from "./active-task-continuation.ts";
+import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 
@@ -41,7 +41,7 @@ export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjec
 		const row = projection.rows[index]!;
 		const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
 		const hierarchy = taskTreeConnector({ depth: row.depth, hasChildren: row.hasOpenChildren, hasLaterSibling: laterSibling });
-		const focus = row.active ? theme.fg("accent", "▶") : " ";
+		const focus = row.active ? theme.fg("accent", row.focusStatus === "paused" ? "Ⅱ" : "▶") : " ";
 		const presentation = TASK_STATUS_PRESENTATION[row.task.status as TaskStatus];
 		const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : theme.fg("muted", "?");
 		lines.push(truncateToWidth(`${focus} ${hierarchy} ${glyph} ${row.task.title}`, width, "…"));
@@ -149,8 +149,13 @@ export default async function (pi: ExtensionAPI) {
 					content: decision.prompt,
 					display: false,
 				}, { triggerTurn: true, deliverAs: "nextTurn" });
-			} else if (decision.action === "pause" && ctx.hasUI) {
-				ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input or task progress resumes it automatically.`, "warning");
+			} else if (decision.action === "pause") {
+				await callService("tasks.pause", {
+					actor: "system",
+					source: "task-continuation",
+					reason: automaticPauseReason(decision.reason),
+				});
+				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.
@@ -361,8 +366,17 @@ export default async function (pi: ExtensionAPI) {
 	// agent_settled is intentionally later than agent_end: Pi guarantees that
 	// retry, compaction retry, and queued follow-up processing have finished.
 
-	pi.on("input", (event) => {
-		if (event.source !== "extension") taskContinuation.onHumanInput();
+	pi.on("input", async (event) => {
+		if (event.source === "extension") return;
+		taskContinuation.onHumanInput();
+		try {
+			const focus = await callService<Record<string, never>, { status: string; pauseReason?: string } | null>("tasks.focused", {});
+			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
+				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation" });
+			}
+		} catch {
+			// The daemon may be unavailable during startup, reload, or shutdown.
+		}
 	});
 	pi.on("agent_start", () => { taskContinuation.onAgentStart(); });
 	pi.on("agent_settled", async (_event, ctx) => { await driveActiveTasks(ctx); });

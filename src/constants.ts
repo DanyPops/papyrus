@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 4;
+export const SQLITE_SCHEMA_VERSION = 5;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
@@ -43,25 +43,17 @@ export const SKILL_RUN_ID_MAX_LENGTH = 64;
 /** Bounded automatic Pi continuations while a focused Papyrus Task remains. */
 export const TASK_DRIVER_MAX_TURNS = 20;
 export const TASK_DRIVER_MAX_UNCHANGED_TURNS = 6;
+/** Mutable Task content bounds. */
+export const TASK_TITLE_MAX_LENGTH = 500;
+export const TASK_BODY_MAX_LENGTH = 100_000;
+export const TASK_LABEL_MAX_COUNT = 64;
+export const TASK_LABEL_MAX_LENGTH = 128;
 /** Append-only Task chronology query and evidence bounds. */
 export const TASK_HISTORY_DEFAULT_LIMIT = 25;
 export const TASK_HISTORY_MAX_LIMIT = 100;
 export const TASK_EVENT_MAX_EVIDENCE_BYTES = 65_536;
 export const TASK_EVENT_ACTOR_MAX_LENGTH = 128;
 export const TASK_EVENT_REASON_MAX_LENGTH = 2_000;
-/** Explicitly opt-in supervised Task graph reconciliation bounds. */
-export const TASK_AUTOMATION_INTERVAL_MS = 60_000;
-export const TASK_AUTOMATION_MIN_INTERVAL_MS = 10_000;
-export const TASK_AUTOMATION_MAX_INTERVAL_MS = 3_600_000;
-export const TASK_AUTOMATION_MAX_TASKS_PER_SWEEP = 10;
-export const TASK_AUTOMATION_HARD_MAX_TASKS_PER_SWEEP = 100;
-export const TASK_AUTOMATION_GATE_CONCURRENCY = 1;
-export const TASK_AUTOMATION_MAX_GATE_CONCURRENCY = 4;
-export const TASK_AUTOMATION_MAX_RUNTIME_MS = 120_000;
-export const TASK_AUTOMATION_HARD_MAX_RUNTIME_MS = 600_000;
-export const TASK_AUTOMATION_MAX_CANDIDATE_SCAN = 1_000;
-export const TASK_AUTOMATION_ERROR_ID_MAX_LENGTH = 128;
-export const TASK_AUTOMATION_ERROR_MESSAGE_MAX_LENGTH = 500;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;

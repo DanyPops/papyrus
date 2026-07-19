@@ -30,6 +30,12 @@ export interface CreateArtifactInput {
 	templateId?: string;
 }
 
+export interface UpdateArtifactInput {
+	title?: string;
+	body?: string;
+	labels?: string[];
+}
+
 export interface ArtifactQuery {
 	kind?: string;
 	status?: string;

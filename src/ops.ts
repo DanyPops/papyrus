@@ -7,7 +7,7 @@ import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
 import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
-import type { Gate, GateResult } from "./domain/gate.ts";
+import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 export type { Artifact } from "./domain/artifact.ts";
 export type { Gate, GateResult } from "./domain/gate.ts";
 export type CreateInput = CreateArtifactInput;
@@ -20,6 +20,7 @@ import {
 	GATE_TEST_TIMEOUT_MS,
 	GATE_OUTPUT_LIMIT,
 	GATE_MAX_BUFFER_BYTES,
+	GATE_FILE_MAX_BYTES,
 } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
@@ -234,6 +235,12 @@ export function injectableRules(db: Db): Array<{ id: string; title: string; body
 	});
 }
 
+function readBoundedGateFile(path: string): string {
+	const { readFileSync, statSync } = require_("node:fs");
+	if (statSync(path).size > GATE_FILE_MAX_BYTES) throw new Error(`file exceeds ${GATE_FILE_MAX_BYTES} bytes`);
+	return readFileSync(path, "utf-8") as string;
+}
+
 export function runGates(db: Db, artifactId: string): GateResult[] {
 	const art = getArtifact(db, artifactId);
 	if (!art) throw new Error("artifact not found");
@@ -246,9 +253,8 @@ export function runGates(db: Db, artifactId: string): GateResult[] {
 				return { gate, passed: exists, output: exists ? "exists" : "not found" };
 			}
 			case "contains": {
-				const { readFileSync } = require_("node:fs");
 				try {
-					const content = readFileSync(gate.target, "utf-8");
+					const content = readBoundedGateFile(gate.target);
 					const found = gate.expect ? content.includes(gate.expect) : content.length > 0;
 					return { gate, passed: found, output: found ? "found" : `"${gate.expect ?? ""}" not found` };
 				} catch {
@@ -299,9 +305,8 @@ function runNonProcessGate(gate: Gate): GateResult {
 		return { gate, passed: exists, output: exists ? "exists" : "not found" };
 	}
 	if (gate.type === "contains") {
-		const { readFileSync } = require_("node:fs");
 		try {
-			const content = readFileSync(gate.target, "utf-8");
+			const content = readBoundedGateFile(gate.target);
 			const found = gate.expect ? content.includes(gate.expect) : content.length > 0;
 			return { gate, passed: found, output: found ? "found" : `"${gate.expect ?? ""}" not found` };
 		} catch {
@@ -312,15 +317,21 @@ function runNonProcessGate(gate: Gate): GateResult {
 }
 
 /** Gate runner for daemon request paths; subprocess gates never block the event loop. */
-export async function runGatesAsync(db: Db, artifactId: string): Promise<GateResult[]> {
+export async function runGatesAsync(db: Db, artifactId: string, options: GateRunOptions = {}): Promise<GateResult[]> {
 	const art = getArtifact(db, artifactId);
 	if (!art) throw new Error("artifact not found");
 	const gates = (art.extra["gates"] as Gate[]) ?? [];
 	const results: GateResult[] = [];
 	for (const gate of gates) {
+		const remainingMs = options.deadlineMs === undefined ? undefined : options.deadlineMs - Date.now();
+		if (remainingMs !== undefined && remainingMs <= 0) {
+			results.push({ gate, passed: false, output: "gate runtime deadline exceeded" });
+			continue;
+		}
 		if (gate.type === "command" || gate.type === "test") {
 			const command = gate.type === "test" ? `npx vitest run ${gate.target} --reporter=dot` : gate.target;
-			const timeout = gate.type === "test" ? GATE_TEST_TIMEOUT_MS : GATE_COMMAND_TIMEOUT_MS;
+			const configuredTimeout = gate.type === "test" ? GATE_TEST_TIMEOUT_MS : GATE_COMMAND_TIMEOUT_MS;
+			const timeout = remainingMs === undefined ? configuredTimeout : Math.max(1, Math.min(configuredTimeout, remainingMs));
 			const executed = await executeGateCommand(command, timeout);
 			results.push({
 				gate,

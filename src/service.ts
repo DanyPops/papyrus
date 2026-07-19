@@ -13,6 +13,7 @@ import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
+import { TaskAutomationReconciler, taskAutomationSettings, type TaskAutomationSettings } from "./task-automation.ts";
 import {
 	createArtifactTemplate,
 	createDocument,
@@ -40,6 +41,8 @@ import { instantiateSkillWorkflow } from "./skill-execution.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
+	"automation.status",
+	"automation.reconcile",
 	"artifact.create",
 	"artifact.query",
 	"artifact.show",
@@ -61,6 +64,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.complete",
 	"tasks.run_gates",
 	"tasks.set_checklist",
+	"tasks.set_automation",
 	"tasks.context",
 	"tasks.reject",
 	"tasks.retry",
@@ -144,6 +148,7 @@ function handlers(
 	artifacts: ArtifactStore,
 	gates: GateRunner,
 	tasks: Tasks,
+	automation: TaskAutomationReconciler,
 	events: TaskEventStore,
 	migrate: () => unknown,
 ): Record<OperationName, OperationHandler> {
@@ -164,6 +169,8 @@ function handlers(
 	});
 	return {
 		"system.migrate": () => migrate(),
+		"automation.status": () => automation.status(),
+		"automation.reconcile": () => automation.reconcile(),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
 			if (normalized.kind !== "task") return artifacts.create(normalized);
@@ -241,6 +248,10 @@ function handlers(
 		"tasks.complete": (input) => tasks.completeAsync(string(input, "id"), eventContext(input)),
 		"tasks.run_gates": (input) => tasks.runGates(string(input, "id"), eventContext(input)),
 		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
+		"tasks.set_automation": (input) => {
+			if (typeof input["enabled"] !== "boolean") throw new Error("enabled must be a boolean");
+			return tasks.setAutomation(string(input, "id"), input["enabled"], eventContext(input));
+		},
 		"tasks.context": () => taskContext(artifacts, tasks.active()?.id),
 		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
 		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
@@ -293,14 +304,15 @@ function handlers(
 	};
 }
 
-export function createPapyrusService(path: string): PapyrusService {
+export function createPapyrusService(path: string, options: { automation?: TaskAutomationSettings } = {}): PapyrusService {
 	const db = openDb(path);
 	const artifacts = new SQLiteArtifactStore(db);
 	const gates = new SQLiteGateRunner(db);
 	const focus = new SQLiteTaskFocusStore(db);
 	const events = new SQLiteTaskEventStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events);
-	const registry = handlers(artifacts, gates, tasks, events, () => migrateDb(db));
+	const automation = new TaskAutomationReconciler(tasks, options.automation ?? taskAutomationSettings({}));
+	const registry = handlers(artifacts, gates, tasks, automation, events, () => migrateDb(db));
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
@@ -311,7 +323,7 @@ export function createPapyrusService(path: string): PapyrusService {
 		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
-			if (operation !== "system.migrate" && state().migrationRequired) {
+			if (operation !== "system.migrate" && operation !== "automation.status" && state().migrationRequired) {
 				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-history`");
 			}
 			return handler(input);

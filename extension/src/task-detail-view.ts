@@ -7,6 +7,7 @@ import {
 	TASK_DETAIL_RESERVED_ROWS,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
+import type { TaskEvent } from "../../src/domain/task-event.ts";
 import type { GraphRenderer } from "../../src/ports/graph-renderer.ts";
 import { projectTaskRelationships } from "../../src/task-relationship-view.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
@@ -31,13 +32,14 @@ class TaskDetailViewport {
 		private readonly theme: Theme,
 		task: Artifact,
 		private readonly graphLines: string[],
+		history: TaskEvent[],
 		private readonly close: () => void,
 	) {
 		this.visibleLines = Math.max(
 			TASK_DETAIL_MIN_VISIBLE_LINES,
 			Math.min(TASK_DETAIL_MAX_VISIBLE_LINES, tui.terminal.rows - TASK_DETAIL_RESERVED_ROWS),
 		);
-		this.narrative = taskDetailsText({ ...task, edges: undefined });
+		this.narrative = taskDetailsText({ ...task, edges: undefined }, [], history);
 	}
 
 	invalidate(): void { this.renderedWidth = 0; }
@@ -99,13 +101,14 @@ export async function showTaskDetails(
 	task: Artifact,
 	graph?: TaskGraph,
 	renderer: GraphRenderer = new BeautifulMermaidRenderer(),
+	history: TaskEvent[] = [],
 ): Promise<void> {
 	const relationshipGraph = renderer.render(projectTaskRelationships(task, graph)).lines;
-	const content = taskDetailsText(task, relationshipGraph);
+	const content = taskDetailsText(task, relationshipGraph, history);
 	if (ctx.mode !== "tui") {
 		ctx.ui.notify(content, "info");
 		return;
 	}
 	await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-		new TaskDetailViewport(tui, theme, task, relationshipGraph, done));
+		new TaskDetailViewport(tui, theme, task, relationshipGraph, history, done));
 }

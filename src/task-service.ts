@@ -2,9 +2,11 @@ import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX
 import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
 import type { Gate, GateResult } from "./domain/gate.ts";
+import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStore } from "./ports/task-focus-store.ts";
+import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-store.ts";
 import { assertDependencyEdgeAllowed } from "./task-execution.ts";
 
 export interface TaskFilter {
@@ -13,11 +15,13 @@ export interface TaskFilter {
 	limit?: number;
 }
 
-export type TaskStatus = "todo" | "in-progress" | "review" | "rejected" | "done" | "canceled";
+export type TaskStatus = TaskLifecycleStatus;
 
 export interface CreateTaskInput {
+	id?: string;
 	title: string;
 	body?: string;
+	subtype?: string;
 	status?: TaskStatus;
 	labels?: string[];
 	extra?: Record<string, unknown>;
@@ -77,6 +81,7 @@ export class Tasks {
 		private readonly artifacts: ArtifactStore,
 		private readonly gates: GateRunner,
 		private readonly focusStore: TaskFocusStore = new InMemoryTaskFocusStore(),
+		private readonly events: TaskEventStore = new InMemoryTaskEventStore(),
 	) {}
 
 	private require(id: string): Artifact {
@@ -86,27 +91,32 @@ export class Tasks {
 		return artifact;
 	}
 
-	create(input: CreateTaskInput): Artifact {
-		if ((input.dependsOn?.length ?? 0) > TASK_EXECUTION_MAX_DEGREE) {
-			throw new Error(`task cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
-		}
-		if (input.parentId) this.require(input.parentId);
-		for (const dependency of input.dependsOn ?? []) this.require(dependency);
-		const extra: Record<string, unknown> = { ...(input.extra ?? {}) };
-		if (input.gates !== undefined) extra["gates"] = input.gates;
-		if (input.checklist !== undefined) extra["checklist"] = validateChecklist(input.checklist);
-		const task = this.artifacts.create({
-			kind: "task",
-			title: input.title,
-			body: input.body,
-			status: input.status,
-			labels: input.labels,
-			extra,
-			templateId: input.templateId,
+	create(input: CreateTaskInput, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			if ((input.dependsOn?.length ?? 0) > TASK_EXECUTION_MAX_DEGREE) {
+				throw new Error(`task cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
+			}
+			if (input.parentId) this.require(input.parentId);
+			for (const dependency of input.dependsOn ?? []) this.require(dependency);
+			const extra: Record<string, unknown> = { ...(input.extra ?? {}) };
+			if (input.gates !== undefined) extra["gates"] = input.gates;
+			if (input.checklist !== undefined) extra["checklist"] = validateChecklist(input.checklist);
+			const task = this.artifacts.create({
+				id: input.id,
+				kind: "task",
+				title: input.title,
+				body: input.body,
+				subtype: input.subtype,
+				status: input.status,
+				labels: input.labels,
+				extra,
+				templateId: input.templateId,
+			});
+			if (input.parentId) this.contain(input.parentId, task.id);
+			for (const dependency of input.dependsOn ?? []) this.depend(task.id, dependency);
+			this.appendEvent({ taskId: task.id, type: "created", toStatus: task.status as TaskStatus }, context);
+			return this.show(task.id);
 		});
-		if (input.parentId) this.contain(input.parentId, task.id);
-		for (const dependency of input.dependsOn ?? []) this.depend(task.id, dependency);
-		return this.show(task.id);
 	}
 
 	list(filter: TaskFilter = {}): Artifact[] {
@@ -185,48 +195,55 @@ export class Tasks {
 		return task;
 	}
 
-	transition(id: string, action: TaskTransition): Artifact {
-		const task = this.require(id);
-		const transition = TASK_TRANSITIONS[action];
-		if (!transition.from.includes(task.status as TaskStatus)) throw new Error(`cannot ${action} task from ${task.status}`);
-		if (action === "start") {
-			const blocking = this.dependencyIds(id).filter((dependencyId) => this.require(dependencyId).status !== "done");
-			if (blocking.length > 0) throw new Error(`task "${id}" is blocked by dependencies: ${blocking.join(", ")}`);
-			this.focusStore.set(id);
-		}
-		const updated = this.artifacts.setStatus(id, transition.to)!;
-		if (action === "start" || action === "retry") this.propagateProgressToAncestors(id);
-		if (action === "retry") this.focusStore.set(id);
-		if (action === "cancel") this.focusStore.clear(id);
-		return updated;
+	transition(id: string, action: TaskTransition, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			const task = this.require(id);
+			const transition = TASK_TRANSITIONS[action];
+			if (!transition.from.includes(task.status as TaskStatus)) throw new Error(`cannot ${action} task from ${task.status}`);
+			if (action === "start") {
+				const blocking = this.dependencyIds(id).filter((dependencyId) => this.require(dependencyId).status !== "done");
+				if (blocking.length > 0) throw new Error(`task "${id}" is blocked by dependencies: ${blocking.join(", ")}`);
+				this.focusStore.set(id);
+			}
+			const updated = this.artifacts.setStatus(id, transition.to)!;
+			const eventType = { start: "started", submit: "submitted", reject: "review_rejected", retry: "retried", cancel: "canceled" }[action] as AppendTaskEvent["type"];
+			this.appendEvent({ taskId: id, type: eventType, fromStatus: task.status as TaskStatus, toStatus: transition.to }, context);
+			if (action === "start" || action === "retry") this.propagateProgressToAncestors(id, context);
+			if (action === "retry") this.focusStore.set(id);
+			if (action === "cancel") this.focusStore.clear(id);
+			return updated;
+		});
 	}
 
-	complete(id: string): TaskCompletion {
+	complete(id: string, context: TaskEventContext = {}): TaskCompletion {
 		const task = this.requireReview(id);
+		const attemptId = crypto.randomUUID();
+		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
 		const results = this.gates.run(id);
-		if (results.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted)) {
-			const artifact = this.artifacts.setStatus(id, "rejected")!;
-			return { artifact, gates: results, checklist, completed: false, focused: this.active(), blocked: [] };
-		}
-		return this.finish(id, results, checklist);
+		return this.resolveCompletion(id, attemptId, results, checklist, context);
 	}
 
-	async completeAsync(id: string): Promise<TaskCompletion> {
+	async completeAsync(id: string, context: TaskEventContext = {}): Promise<TaskCompletion> {
 		const task = this.requireReview(id);
+		const attemptId = crypto.randomUUID();
+		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
 		const results = await this.gates.runAsync(id);
-		if (results.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted)) {
-			const artifact = this.artifacts.setStatus(id, "rejected")!;
-			return { artifact, gates: results, checklist, completed: false, focused: this.active(), blocked: [] };
-		}
-		const current = this.requireReview(id);
-		return this.finish(current.id, results, checklist);
+		this.requireReview(id);
+		return this.resolveCompletion(id, attemptId, results, checklist, context);
 	}
 
-	runGates(id: string): Promise<GateResult[]> {
+	async runGates(id: string, context: TaskEventContext = {}): Promise<GateResult[]> {
 		this.require(id);
-		return this.gates.runAsync(id);
+		const results = await this.gates.runAsync(id);
+		this.events.atomic(() => this.appendEvent({ taskId: id, type: "gates_evaluated", evidence: { gates: results, result: results.every((gate) => gate.passed) ? "passed" : "failed" } }, context));
+		return results;
+	}
+
+	history(id: string, query: TaskHistoryQuery = {}): TaskHistoryPage {
+		this.require(id);
+		return this.events.history(id, query);
 	}
 
 	setChecklist(id: string, checklist: Checklist): Artifact {
@@ -282,7 +299,7 @@ export class Tasks {
 			.filter((parentId, index, ids) => ids.indexOf(parentId) === index);
 	}
 
-	private propagateProgressToAncestors(id: string): void {
+	private propagateProgressToAncestors(id: string, context: TaskEventContext): void {
 		const pending = this.parentIds(id);
 		const visited = new Set<string>();
 		while (pending.length > 0) {
@@ -291,7 +308,14 @@ export class Tasks {
 			if (visited.size >= TASK_EXECUTION_MAX_NODES) throw new Error("task ancestry exceeds execution node bound");
 			visited.add(parentId);
 			const parent = this.require(parentId);
-			if (parent.status === "todo") this.artifacts.setStatus(parentId, "in-progress");
+			if (parent.status === "todo") {
+				this.artifacts.setStatus(parentId, "in-progress");
+				this.appendEvent({ taskId: parentId, type: "started", fromStatus: "todo", toStatus: "in-progress" }, {
+					...context,
+					source: "task-ancestry",
+					reason: `nested task ${id} entered progress`,
+				});
+			}
 			pending.push(...this.parentIds(parentId));
 		}
 	}
@@ -315,7 +339,32 @@ export class Tasks {
 		return ids;
 	}
 
-	private finish(id: string, gates: GateResult[], checklist: ChecklistReview[]): TaskCompletion {
+	private resolveCompletion(
+		id: string,
+		attemptId: string,
+		gates: GateResult[],
+		checklist: ChecklistReview[],
+		context: TaskEventContext,
+	): TaskCompletion {
+		const failed = gates.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted);
+		if (failed) {
+			return this.events.atomic(() => {
+				const artifact = this.artifacts.setStatus(id, "rejected")!;
+				this.appendEvent({
+					taskId: id,
+					type: "review_rejected",
+					fromStatus: "review",
+					toStatus: "rejected",
+					attemptId,
+					evidence: { gates, checklist, result: "rejected" },
+				}, context);
+				return { artifact, gates, checklist, completed: false, focused: this.active(), blocked: [] };
+			});
+		}
+		return this.events.atomic(() => this.finish(id, attemptId, gates, checklist, context));
+	}
+
+	private finish(id: string, attemptId: string, gates: GateResult[], checklist: ChecklistReview[], context: TaskEventContext): TaskCompletion {
 		const successorIds = this.relationships(id)
 			.filter((edge) => edge.relation === "depends_on" && edge.to === id)
 			.map((edge) => edge.from);
@@ -323,6 +372,14 @@ export class Tasks {
 			throw new Error(`task "${id}" exceeds ${TASK_EXECUTION_MAX_DEGREE} successors`);
 		}
 		const artifact = this.artifacts.setStatus(id, "done")!;
+		this.appendEvent({
+			taskId: id,
+			type: "completed",
+			fromStatus: "review",
+			toStatus: "done",
+			attemptId,
+			evidence: { gates, checklist, result: "completed" },
+		}, context);
 		this.focusStore.clear(id);
 		const blocked: TaskBlockage[] = [];
 		let focused: Artifact | null = null;
@@ -341,6 +398,16 @@ export class Tasks {
 			}
 		}
 		return { artifact, gates, checklist, completed: true, focused, blocked };
+	}
+
+	private appendEvent(event: Omit<AppendTaskEvent, "actor" | "source">, context: TaskEventContext): void {
+		this.events.append({
+			...event,
+			actor: context.actor ?? "system",
+			source: context.source ?? "task-domain",
+			...(context.sessionId === undefined ? {} : { sessionId: context.sessionId }),
+			...(context.reason === undefined ? {} : { reason: context.reason }),
+		});
 	}
 
 	private requireReview(id: string): Artifact {

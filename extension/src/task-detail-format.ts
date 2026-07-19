@@ -1,4 +1,5 @@
 import type { Artifact } from "../../src/domain/artifact.ts";
+import type { TaskEvent } from "../../src/domain/task-event.ts";
 import { checklistEntries, type ProofReference } from "../../src/domain/checklist.ts";
 import { formatMetadata } from "./artifact-format.ts";
 
@@ -48,7 +49,28 @@ function gateLines(value: unknown): string[] {
 	return lines;
 }
 
-export function taskDetailsText(task: Artifact, relationshipGraphLines: string[] = []): string {
+function historyLines(history: TaskEvent[]): string[] {
+	if (history.length === 0) return ["History:", "  (no post-migration events recorded)"];
+	const lines = ["History:"];
+	for (const event of history) {
+		const transition = event.fromStatus || event.toStatus ? ` · ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"}` : "";
+		const reason = event.reason ? ` · ${event.reason}` : "";
+		lines.push(`  ${event.occurredAt} · ${event.type}${transition} · ${event.actor}/${event.source}${reason}`);
+		if (event.evidence?.result) lines.push(`    result: ${event.evidence.result}`);
+		if (Array.isArray(event.evidence?.gates)) {
+			for (const value of event.evidence.gates) {
+				if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+				const result = value as Record<string, unknown>;
+				const gate = typeof result["gate"] === "object" && result["gate"] !== null ? result["gate"] as Record<string, unknown> : {};
+				const passed = result["passed"] === true;
+				lines.push(`    ${passed ? "✓" : "✗"} ${String(gate["type"] ?? "gate")} · ${String(gate["target"] ?? "unknown")}`);
+			}
+		}
+	}
+	return lines;
+}
+
+export function taskDetailsText(task: Artifact, relationshipGraphLines: string[] = [], history: TaskEvent[] = []): string {
 	let output = `${TASK_STATUS_GLYPHS[task.status] ?? "?"} ${task.title}\n${task.id} [task|${task.status}]`;
 	if (task.labels.length > 0) output += `\nLabels: ${task.labels.join(", ")}`;
 	output += `\n\n${task.body || "(no body)"}`;
@@ -60,6 +82,7 @@ export function taskDetailsText(task: Artifact, relationshipGraphLines: string[]
 	if (Object.keys(metadata).length > 0) {
 		output += `\n\nMetadata:\n${formatMetadata(metadata).map((line) => `  ${line}`).join("\n")}`;
 	}
+	output += `\n\n${historyLines(history).join("\n")}`;
 	if (task.edges?.length) {
 		const graph = relationshipGraphLines.length > 0 ? relationshipGraphLines.join("\n") : "  (graph unavailable)";
 		output += `\n\nRelationships:\n  Dependencies point prerequisite → dependent.\n${graph}`;

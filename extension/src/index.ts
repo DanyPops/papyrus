@@ -21,7 +21,7 @@ import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
-import { TaskDriver, type ActiveTaskMarker } from "./task-driver.ts";
+import { ActiveTaskContinuation, type ActiveTaskMarker } from "./active-task-continuation.ts";
 import { buildTaskWidgetProjection } from "./task-widget.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
@@ -137,7 +137,7 @@ class TaskOverlay {
 
 export default async function (pi: ExtensionAPI) {
 	registerDomainTools(pi);
-	const taskDriver = new TaskDriver({
+	const taskContinuation = new ActiveTaskContinuation({
 		maxTurns: TASK_DRIVER_MAX_TURNS,
 		maxUnchangedTurns: TASK_DRIVER_MAX_UNCHANGED_TURNS,
 	});
@@ -149,7 +149,7 @@ export default async function (pi: ExtensionAPI) {
 				status: "active",
 				limit: TASK_DRIVER_ACTIVE_LIMIT,
 			});
-			const decision = taskDriver.evaluate(active, {
+			const decision = taskContinuation.evaluate(active, {
 				idle: ctx.isIdle(),
 				pendingMessages: ctx.hasPendingMessages(),
 			});
@@ -160,39 +160,12 @@ export default async function (pi: ExtensionAPI) {
 					display: false,
 				}, { triggerTurn: true, deliverAs: "nextTurn" });
 			} else if (decision.action === "pause" && ctx.hasUI) {
-				ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Use /task-drive on to resume.`, "warning");
+				ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input or task progress resumes it automatically.`, "warning");
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.
 		}
 	};
-
-	pi.registerCommand("task-drive", {
-		description: "Control bounded automatic continuation while active Papyrus Tasks remain",
-		handler: async (args, ctx) => {
-			const action = args.trim().toLowerCase() || "status";
-			if (action === "on") {
-				taskDriver.setEnabled(true);
-				ctx.ui.notify("Papyrus task driving enabled", "info");
-				await driveActiveTasks(ctx);
-				return;
-			}
-			if (action === "off") {
-				taskDriver.setEnabled(false);
-				ctx.ui.notify("Papyrus task driving disabled", "info");
-				return;
-			}
-			if (action !== "status") {
-				ctx.ui.notify("Usage: /task-drive <on|off|status>", "warning");
-				return;
-			}
-			const status = taskDriver.status();
-			ctx.ui.notify(
-				`Papyrus task driving: ${status.enabled ? "on" : "off"} · ${status.consecutiveTurns}/${TASK_DRIVER_MAX_TURNS} automatic turns${status.pausedReason ? ` · paused: ${status.pausedReason}` : ""}`,
-				"info",
-			);
-		},
-	});
 
 	// ── Low-level graph-store tools ────────────────────────────────────
 
@@ -393,9 +366,9 @@ export default async function (pi: ExtensionAPI) {
 	// retry, compaction retry, and queued follow-up processing have finished.
 
 	pi.on("input", (event) => {
-		if (event.source !== "extension") taskDriver.onHumanInput();
+		if (event.source !== "extension") taskContinuation.onHumanInput();
 	});
-	pi.on("agent_start", () => { taskDriver.onAgentStart(); });
+	pi.on("agent_start", () => { taskContinuation.onAgentStart(); });
 	pi.on("agent_settled", async (_event, ctx) => { await driveActiveTasks(ctx); });
 
 	// ── "Are we there yet?" — inject active tasks into every turn ──────

@@ -5,6 +5,7 @@ import { PROOF_TYPES } from "../../src/domain/checklist.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import type { TaskExecutionPlan } from "../../src/task-execution.ts";
 import type { TaskCompletion } from "../../src/task-service.ts";
+import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import { callService } from "./service-client.ts";
 
 function text(message: string, details: Record<string, unknown> = {}) {
@@ -203,11 +204,13 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
-		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, enable, disable, instantiate.",
+		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate. run validates arguments and atomically creates one scoped workflow run.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
-			tools: Type.Optional(Type.Array(Type.String())), labels: Type.Optional(Type.Array(Type.String())),
+			tools: Type.Optional(Type.Array(Type.String())), definition: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())), run_id: Type.Optional(Type.String()),
+			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), template_id: Type.Optional(Type.String()),
 			target_kind: Type.Optional(Type.String()), defaults: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
@@ -228,6 +231,13 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "invoke") {
 					const invocation = await callService<Record<string, unknown>, string>("skills.invoke", params);
 					return text(invocation, { invocation });
+				}
+				if (action === "run") {
+					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", params);
+					return text(
+						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs. Ready roots: ${run.rootTaskIds.join(", ") || "none"}.`,
+						{ run },
+					);
 				}
 				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate" } as const;
 				const operation = operations[action as keyof typeof operations];

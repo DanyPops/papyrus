@@ -69,6 +69,21 @@ describe("kind-specific frontend projections", () => {
 		expect(skillInvocationPrompt(skill)).toContain("1. Write failing test");
 	});
 
+	it("identifies executable workflows in the skills browser", () => {
+		const workflow = artifact({
+			kind: "skill",
+			subtype: "workflow",
+			extra: {
+				definition: {
+					inputs: { project: { type: "string" } },
+					blueprints: { tasks: [{ ref: "work", title: "Work" }], docs: [], rules: [] },
+				},
+			},
+		});
+		expect(skillRowMeta(workflow)).toBe("workflow · 1 inputs · 1 tasks");
+		expect(skillInvocationPrompt(workflow)).toContain("action=run");
+	});
+
 	it("identifies artifact templates in the skills browser", () => {
 		const template = artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "task" } });
 		expect(skillRowMeta(template)).toBe("template → task");

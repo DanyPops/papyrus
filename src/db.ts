@@ -29,15 +29,38 @@ export interface Db {
 	close(): void;
 }
 
+const TRANSACTION_DEPTH = new WeakMap<object, number>();
+
 export function inTransaction<T>(db: Db, fn: () => T): T {
+	const depth = TRANSACTION_DEPTH.get(db as object) ?? 0;
+	if (depth > 0) {
+		const savepoint = `papyrus_nested_${depth}`;
+		db.exec(`SAVEPOINT ${savepoint}`);
+		TRANSACTION_DEPTH.set(db as object, depth + 1);
+		try {
+			const result = fn();
+			db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+			return result;
+		} catch (error) {
+			db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+			db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+			throw error;
+		} finally {
+			TRANSACTION_DEPTH.set(db as object, depth);
+		}
+	}
+
 	db.exec("BEGIN IMMEDIATE");
+	TRANSACTION_DEPTH.set(db as object, 1);
 	try {
 		const result = fn();
 		db.exec("COMMIT");
 		return result;
-	} catch (e) {
+	} catch (error) {
 		db.exec("ROLLBACK");
-		throw e;
+		throw error;
+	} finally {
+		TRANSACTION_DEPTH.delete(db as object);
 	}
 }
 

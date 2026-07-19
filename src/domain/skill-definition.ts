@@ -1,4 +1,10 @@
-import { SEED_RELATIONS } from "../constants.ts";
+import {
+	SEED_RELATIONS,
+	SKILL_MAX_BLUEPRINTS,
+	SKILL_MAX_ENUM_VALUES,
+	SKILL_MAX_INPUTS,
+	SKILL_MAX_LINKS,
+} from "../constants.ts";
 
 export type SkillArgumentValue = string | number | boolean;
 export type SkillInputType = "string" | "number" | "boolean";
@@ -59,13 +65,10 @@ export interface SkillDefinition {
 	links: SkillBlueprintLink[];
 }
 
-const MAX_INPUTS = 32;
-const MAX_ENUM_VALUES = 32;
-const MAX_BLUEPRINTS = 100;
-const MAX_LINKS = 500;
 const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const PLACEHOLDER_PATTERN = /{{\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*}}/g;
 const INPUT_TYPES = new Set<SkillInputType>(["string", "number", "boolean"]);
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const RELATIONS = new Set<string>(SEED_RELATIONS);
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -93,9 +96,10 @@ function validateArgumentValue(name: string, type: SkillInputType, value: unknow
 function validateInputs(value: unknown): Record<string, SkillInputDefinition> {
 	const source = record(value ?? {}, "skill inputs");
 	const entries = Object.entries(source);
-	if (entries.length > MAX_INPUTS) throw new Error(`skill inputs exceed ${MAX_INPUTS}`);
+	if (entries.length > SKILL_MAX_INPUTS) throw new Error(`skill inputs exceed ${SKILL_MAX_INPUTS}`);
 	const result: Record<string, SkillInputDefinition> = {};
 	for (const [name, raw] of entries) {
+		if (RESERVED_KEYS.has(name)) throw new Error(`reserved skill input name "${name}"`);
 		if (!NAME_PATTERN.test(name)) throw new Error(`invalid skill input name "${name}"`);
 		const input = record(raw, `skill input "${name}"`);
 		if (!INPUT_TYPES.has(input["type"] as SkillInputType)) throw new Error(`skill input "${name}" has unsupported type`);
@@ -108,7 +112,7 @@ function validateInputs(value: unknown): Record<string, SkillInputDefinition> {
 		if (input["default"] !== undefined) normalized.default = validateArgumentValue(name, type, input["default"]);
 		if (input["enum"] !== undefined) {
 			const values = array(input["enum"], `skill input "${name}" enum`);
-			if (values.length === 0 || values.length > MAX_ENUM_VALUES) throw new Error(`skill input "${name}" enum must contain 1-${MAX_ENUM_VALUES} values`);
+			if (values.length === 0 || values.length > SKILL_MAX_ENUM_VALUES) throw new Error(`skill input "${name}" enum must contain 1-${SKILL_MAX_ENUM_VALUES} values`);
 			normalized.enum = values.map((entry) => validateArgumentValue(name, type, entry));
 			if (normalized.default !== undefined && !normalized.enum.includes(normalized.default)) {
 				throw new Error(`skill input "${name}" default must be one of its enum values`);
@@ -162,7 +166,7 @@ export function validateSkillDefinition(value: unknown): SkillDefinition {
 	const rules = array(rawBlueprints["rules"] ?? [], "skill rule blueprints").map((entry) => validateBlueprint<SkillRuleBlueprint>(entry, "rule"));
 	const tasks = array(rawBlueprints["tasks"] ?? [], "skill task blueprints").map((entry) => validateBlueprint<SkillTaskBlueprint>(entry, "task"));
 	const all = [...docs, ...rules, ...tasks];
-	if (all.length === 0 || all.length > MAX_BLUEPRINTS) throw new Error(`skill blueprints must contain 1-${MAX_BLUEPRINTS} artifacts`);
+	if (all.length === 0 || all.length > SKILL_MAX_BLUEPRINTS) throw new Error(`skill blueprints must contain 1-${SKILL_MAX_BLUEPRINTS} artifacts`);
 	const refs = new Set<string>();
 	for (const blueprint of all) {
 		if (refs.has(blueprint.ref)) throw new Error(`duplicate skill blueprint ref "${blueprint.ref}"`);
@@ -179,7 +183,7 @@ export function validateSkillDefinition(value: unknown): SkillDefinition {
 	}
 	assertAcyclic(tasks);
 	for (const name of placeholders(all)) {
-		if (!(name in inputs)) throw new Error(`unknown skill input placeholder "${name}"`);
+		if (!Object.hasOwn(inputs, name)) throw new Error(`unknown skill input placeholder "${name}"`);
 	}
 	const links = array(source["links"] ?? [], "skill links").map((entry) => {
 		const link = record(entry, "skill link");
@@ -191,14 +195,14 @@ export function validateSkillDefinition(value: unknown): SkillDefinition {
 		if (!RELATIONS.has(relation)) throw new Error(`unknown skill link relation "${relation}"`);
 		return { from, relation, to };
 	});
-	if (links.length > MAX_LINKS) throw new Error(`skill links exceed ${MAX_LINKS}`);
+	if (links.length > SKILL_MAX_LINKS) throw new Error(`skill links exceed ${SKILL_MAX_LINKS}`);
 	return { version: 1, inputs, blueprints: { docs, rules, tasks }, links };
 }
 
 export function resolveSkillArguments(definition: SkillDefinition, value: unknown): Record<string, SkillArgumentValue> {
 	const source = record(value ?? {}, "skill arguments");
 	for (const name of Object.keys(source)) {
-		if (!(name in definition.inputs)) throw new Error(`unknown skill argument "${name}"`);
+		if (!Object.hasOwn(definition.inputs, name)) throw new Error(`unknown skill argument "${name}"`);
 	}
 	const result: Record<string, SkillArgumentValue> = {};
 	for (const [name, input] of Object.entries(definition.inputs)) {

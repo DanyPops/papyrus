@@ -32,6 +32,13 @@ export const TASK_GRAPH_HORIZONTAL_PAN_COLUMNS = 4;
 export const TASK_EXECUTION_MAX_NODES = 1_000;
 export const TASK_EXECUTION_MAX_EDGES = 10_000;
 export const TASK_EXECUTION_MAX_DEGREE = 100;
+/** Bounded parameterized Skill definitions and rendered workflow runs. */
+export const SKILL_MAX_INPUTS = 32;
+export const SKILL_MAX_ENUM_VALUES = 32;
+export const SKILL_MAX_BLUEPRINTS = 100;
+export const SKILL_MAX_LINKS = 500;
+export const SKILL_MAX_RENDERED_BYTES = 1_048_576;
+export const SKILL_RUN_ID_MAX_LENGTH = 64;
 /** Bounded automatic Pi continuations while a focused Papyrus Task remains. */
 export const TASK_DRIVER_MAX_TURNS = 20;
 export const TASK_DRIVER_MAX_UNCHANGED_TURNS = 6;

@@ -30,15 +30,17 @@ describe("Papyrus operation service", () => {
 		expect(EXPECTED_OPERATION_NAMES).toContain("artifact.create");
 		expect(EXPECTED_OPERATION_NAMES).toContain("graph.tree");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.complete");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.update");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.graph");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.plan");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.set_checklist");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.active");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.focus");
-		expect(EXPECTED_OPERATION_NAMES).toContain("automation.status");
-		expect(EXPECTED_OPERATION_NAMES).toContain("automation.reconcile");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.focused");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.pause");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.unpause");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.clear_focus");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.submit");
-		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.set_automation");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.reject");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.cancel");
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
@@ -69,22 +71,15 @@ describe("Papyrus operation service", () => {
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 4, migrationRequired: true });
-		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate task-scope");
+		expect(service.schemaState()).toEqual({ current: 1, required: 5, migrationRequired: true });
+		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate task-focus");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 4,
-			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope"],
+			to: 5,
+			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation"],
 		});
-		expect(service.schemaState()).toEqual({ current: 4, required: 4, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 5, required: 5, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
-		service.close();
-	});
-
-	it("keeps daemon automation off unless explicitly enabled", async () => {
-		const { service } = fixture();
-		expect(await service.execute("automation.status", {})).toMatchObject({ enabled: false, inFlight: false });
-		expect(await service.execute("automation.reconcile", {})).toMatchObject({ skipped: "disabled", examined: 0 });
 		service.close();
 	});
 
@@ -104,11 +99,18 @@ describe("Papyrus operation service", () => {
 		expect(created.status).toBe(200);
 		const task = (await created.json()) as { result: { id: string; kind: string } };
 		expect(task.result.kind).toBe("task");
-		await service.execute("tasks.set_automation", { id: task.result.id, enabled: true, actor: "user", source: "test" });
+		await service.execute("tasks.update", { id: task.result.id, title: "Serve updated tasks", actor: "user", source: "test" });
+		await service.execute("tasks.focus", { id: task.result.id, actor: "user", source: "test" });
+		await service.execute("tasks.pause", { actor: "user", source: "test", reason: "manual pause" });
+		expect(await service.execute("tasks.focused", { project_root: PROJECT_ROOT })).toEqual(expect.objectContaining({ status: "paused", pauseReason: "manual pause" }));
+		await service.execute("tasks.unpause", { actor: "user", source: "test" });
 		const history = await service.execute("tasks.history", { id: task.result.id, direction: "asc" }) as { events: Array<{ type: string; actor: string }> };
 		expect(history.events).toEqual([
 			expect.objectContaining({ type: "created", actor: "system" }),
-			expect.objectContaining({ type: "automation_enabled", actor: "user", source: "test" }),
+			expect.objectContaining({ type: "updated", actor: "user", source: "test" }),
+			expect.objectContaining({ type: "focus_set", actor: "user", source: "test" }),
+			expect.objectContaining({ type: "focus_paused", actor: "user", source: "test" }),
+			expect.objectContaining({ type: "focus_unpaused", actor: "user", source: "test" }),
 		]);
 		const lowLevelTask = await service.execute("artifact.create", { kind: "task", title: "Low-level task", actor: "agent", project_root: PROJECT_ROOT }) as { id: string };
 		expect(await service.execute("tasks.history", { id: lowLevelTask.id }) as unknown).toEqual(expect.objectContaining({
@@ -235,7 +237,7 @@ describe("Papyrus operation service", () => {
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: VERSION,
-			schema: { current: 4, required: 4, migrationRequired: false },
+			schema: { current: 5, required: 5, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", { title: "Client task", project_root: PROJECT_ROOT });
 		expect(task.kind).toBe("task");

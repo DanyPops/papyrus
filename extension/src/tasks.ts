@@ -30,12 +30,6 @@ const STATUS_ACTIONS: Record<string, string[]> = {
 
 type TaskRow = Artifact;
 
-function taskAutomationEnabled(task: Artifact): boolean {
-	const automation = task.extra["automation"];
-	return typeof automation === "object" && automation !== null && !Array.isArray(automation)
-		&& (automation as Record<string, unknown>)["enabled"] === true;
-}
-
 export interface TaskHierarchyRow {
 	task: TaskRow;
 	depth: number;
@@ -114,11 +108,12 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (action.type !== "action" || !action.row) continue;
 
 		const active = graph.nodes.find((node) => node.task.id === action.row!.id)?.active === true;
-		const automationEnabled = taskAutomationEnabled(action.row);
+		const focusStatus = graph.nodes.find((node) => node.task.id === action.row!.id)?.focusStatus;
 		const choices = [
 			"Show details",
+			"Edit task",
 			...(!active && action.row.status !== "done" && action.row.status !== "canceled" ? ["Make active"] : []),
-			...(action.row.status !== "done" && action.row.status !== "canceled" ? [automationEnabled ? "Disable automation" : "Enable automation"] : []),
+			...(active ? [focusStatus === "paused" ? "Resume focus" : "Pause focus", "Clear focus"] : []),
 			...(action.row.status === "review" ? ["Run gates"] : []),
 			...(STATUS_ACTIONS[action.row.status] ?? []),
 		];
@@ -130,26 +125,39 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			if (!art) { ctx.ui.notify("Not found", "error"); continue; }
 			const history = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", { id: art.id, direction: "desc" });
 			await showTaskDetails(ctx, art, graph, undefined, [...history.events].reverse());
+		} else if (choice === "Edit task") {
+			const title = await ctx.ui.input("Task title:", action.row.title);
+			if (title === undefined) continue;
+			const body = await ctx.ui.input("Task body:", action.row.body);
+			if (body === undefined) continue;
+			try {
+				const updated = await callService<Record<string, unknown>, Artifact>("tasks.update", {
+					id: action.row.id,
+					title,
+					body,
+					actor: "user",
+					source: "tasks-tui",
+				});
+				action.row.title = updated.title;
+				action.row.body = updated.body;
+				ctx.ui.notify(`Updated: ${updated.title}`, "info");
+			} catch (error) {
+				ctx.ui.notify(`Task update failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
 		} else if (choice === "Make active") {
 			try {
-				await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id });
+				await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui" });
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
-		} else if (choice === "Enable automation" || choice === "Disable automation") {
+		} else if (choice === "Pause focus" || choice === "Resume focus" || choice === "Clear focus") {
 			try {
-				const enabled = choice === "Enable automation";
-				const updated = await callService<Record<string, unknown>, Artifact>("tasks.set_automation", {
-					id: action.row.id,
-					enabled,
-					actor: "user",
-					source: "tasks-tui",
-				});
-				action.row.extra = updated.extra;
-				ctx.ui.notify(`Automation ${enabled ? "enabled" : "disabled"}: ${action.row.title}`, enabled ? "warning" : "info");
+				const operation = choice === "Pause focus" ? "tasks.pause" : choice === "Resume focus" ? "tasks.unpause" : "tasks.clear_focus";
+				await callService(operation, { actor: "user", source: "tasks-tui" });
+				ctx.ui.notify(choice === "Clear focus" ? "Task focus cleared" : choice, "info");
 			} catch (error) {
-				ctx.ui.notify(`Automation setting failed: ${error instanceof Error ? error.message : error}`, "error");
+				ctx.ui.notify(`Focus action failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		} else if (choice === "Run gates") {
 			try {

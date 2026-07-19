@@ -32,13 +32,14 @@ bun src/cli.ts service install   # install, enable, and start user service
 bun src/cli.ts service status
 bun src/cli.ts service restart
 
-# Authenticated daemon-backed task automation (add --json for machine output)
+# Authenticated daemon-backed Task operations (add --json for machine output)
 papyrus tasks plan
 papyrus tasks depend <task-id> <prerequisite-id>
-papyrus tasks start <task-id>
+papyrus tasks update <task-id> --title "Revised task"
+papyrus tasks focus <task-id>
+papyrus tasks pause
+papyrus tasks unpause
 papyrus tasks complete <task-id>
-papyrus tasks automate <task-id> <on|off>
-papyrus automation status
 ```
 
 For repository work, install the versioned ownership guard once:
@@ -92,7 +93,7 @@ The `papyrus_*` tools are the low-level graph-store API:
 
 Agent-facing domain tools own lifecycle invariants and sit above this store API:
 
-- **`tasks`** — create/list/show/plan, manage the singleton active focus, replace evidence-bearing checklists, hierarchy/dependencies, lifecycle transitions, non-blocking gates, and review completion that focuses one deterministic ready successor without claiming effort
+- **`tasks`** — create/update/list/show/plan, manage the singleton active focus, replace evidence-bearing checklists, hierarchy/dependencies, lifecycle transitions, non-blocking gates, and review completion that focuses one deterministic ready successor without claiming effort
 - **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links
 - **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
 - **`skills`** — create/list/show/invoke/run, enable/disable, create compatibility templates, and atomically instantiate parameterized workflow runs
@@ -118,7 +119,7 @@ Run `/tasks` for the interactive task panel:
 - `g` opens the programmatic Unicode graph; Tab switches dependency/composition views and arrow keys pan
 - routed graph layouts are bounded to 48 nodes/96 edges; larger graphs use a deterministic, box-drawn line fallback, and renderer failures are contained inside the viewport rather than escaping Pi
 - advance the `todo → in-progress → review → done` lifecycle; failed review becomes `rejected`, retry returns to `in-progress`, and `canceled` is terminal
-- use **active** only as the independent singleton focus that auto-drive continues; focusing a task never changes its lifecycle
+- use **focus** as the independent singleton Task selection that automatic continuation follows; focusing, pausing, or resuming never changes lifecycle
 - starting nested effort moves todo ancestors to in-progress; submitting enters review; completing review checks both typed checklist proofs and executable gates
 - passing review marks only that task done and focuses one deterministic ready successor while leaving the successor todo until effort starts
 - successors are never auto-completed; fan-in, fan-out, diamonds, and disconnected DAGs remain explicit
@@ -139,36 +140,24 @@ papyrus tasks assign-project <task-id> [project-root] --json
 papyrus tasks active --json
 papyrus tasks history <id> --json
 papyrus tasks focus <id> --json
+papyrus tasks focused --json
+papyrus tasks pause --json
+papyrus tasks unpause --json
+papyrus tasks clear-focus --json
+papyrus tasks update <id> --title "Revised title" --body "Revised body" --json
 papyrus tasks start <id> --json
 papyrus tasks submit <id> --json
 papyrus tasks complete <id> --json
 papyrus tasks reject <id> --json
 papyrus tasks retry <id> --json
 papyrus tasks cancel <id> --json
-papyrus tasks automate <id> <on|off> --json
-papyrus automation status --json
-papyrus automation run --json
 ```
 
-### Opt-in supervised automation
+### Focus-driven automatic continuation
 
-Background graph reconciliation is off by default and requires two independent opt-ins: daemon configuration and `automation.enabled` on each Task. Only opted-in Tasks already in `review` are eligible for automatic gate/checklist review; Papyrus never skips the review lifecycle. When one completes, directly dependent opted-in successors that become ready may move from `todo` to `in-progress`. Every completion, rejection, and start is written to append-only history with actor `daemon`, source `automation-reconciler`, reason, and bounded gate evidence.
+Automatic continuation is a property of the singleton Task focus, not a per-Task automation flag. An active focus continues at Pi's public `agent_settled` boundary when Pi is idle and has no queued messages. `tasks pause` preserves the focused Task while stopping continuation; `tasks unpause` resumes it; `tasks clear-focus` removes it. Replacing focus selects an existing Task rather than creating or canceling one.
 
-Enable the daemon with a systemd user-service override and restart it:
-
-```ini
-[Service]
-Environment=PAPYRUS_AUTOMATION_ENABLED=1
-```
-
-```bash
-systemctl --user edit papyrus.service
-systemctl --user restart papyrus.service
-papyrus tasks automate <task-id> on
-papyrus automation status
-```
-
-Secure defaults are a 60-second interval, 10 Task transitions per sweep, gate concurrency 1, and a 120-second sweep deadline. Optional environment settings are `PAPYRUS_AUTOMATION_INTERVAL_MS` (10 seconds–1 hour), `PAPYRUS_AUTOMATION_MAX_TASKS` (1–100), `PAPYRUS_AUTOMATION_GATE_CONCURRENCY` (1–4), and `PAPYRUS_AUTOMATION_MAX_RUNTIME_MS` (1 ms–10 minutes). Candidate scans are capped at 1,000 review Tasks, sweeps are single-flight, subprocess gates inherit the sweep deadline, result arrays are bounded by the Task limit, and logs contain counts rather than gate output. `papyrus automation run` uses the same policy and refuses to reconcile while global automation is disabled.
+Continuation is single-flight and bounded to 20 automatic turns or 6 unchanged Task snapshots. Reaching either bound persists a paused focus and records the reason in append-only Task history. Human input resumes only these automatically paused focuses; an explicit user pause remains paused.
 
 Checklist criteria are an item-to-proof map. Every new item requires one or more typed references to inspectable evidence; proof presence does not imply that the evidence passed an executable gate:
 
@@ -187,7 +176,7 @@ Proof types are `file`, `symbol`, `code`, `test`, `command`, `artifact`, and `ur
 
 Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run review before marking it done. The injection disappears when every task is done or canceled.
 
-In TUI and RPC modes, the extension checks the singleton active focus at Pi’s public `agent_settled` lifecycle boundary. If a focused task remains and no continuation is already pending, it queues one hidden next turn. No manual driving command is required. Driving is single-flight and pauses after 20 automatic turns or 6 unchanged task snapshots; human input and task progress reset the bounded counters automatically.
+Task edits mutate the existing Papyrus-owned Task identity and append an `updated` event; title, body, and labels can be revised without canceling the Task or creating a replacement. Lifecycle, relationships, gates, checklist metadata, scope, and focus remain intact.
 
 ## Why
 
@@ -202,10 +191,10 @@ packed install npm:@danypops/papyrus
 ~/.pi/agent/npm/node_modules/.bin/papyrus service install
 ```
 
-Existing databases are never migrated on daemon boot. After upgrading to project-scoped task views, run the authenticated CLI migration explicitly. Older databases receive prerequisite schemas in one transaction. Existing Tasks are deliberately marked **unscoped**: Papyrus does not guess ownership from titles, labels, historical cwd, or repository names. They remain visible in **All projects** until explicitly assigned with `papyrus tasks assign-project <task-id> [project-root]`:
+Existing databases are never migrated on daemon boot. After upgrading to focus-driven Task continuation, run the authenticated CLI migration explicitly. Older databases receive prerequisite schemas in one transaction. Existing Tasks are deliberately marked **unscoped**: Papyrus does not guess ownership from titles, labels, historical cwd, or repository names. They remain visible in **All projects** until explicitly assigned with `papyrus tasks assign-project <task-id> [project-root]`:
 
 ```bash
-~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-scope
+~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-focus
 ```
 
 Until that command succeeds, health reports `migrationRequired` and normal domain operations are rejected with actionable guidance. Migration is not exposed as a Pi tool or MCP action. New empty databases bootstrap directly at the current schema.

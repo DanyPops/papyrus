@@ -31,7 +31,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, list, show, history, scope, set_scope, assign_project, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, set_automation, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -44,7 +44,6 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			direction: Type.Optional(Type.Union([Type.Literal("asc"), Type.Literal("desc")])),
 			reason: Type.Optional(Type.String()),
 			session_id: Type.Optional(Type.String()),
-			enabled: Type.Optional(Type.Boolean()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			gates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
@@ -86,6 +85,19 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "active") {
 					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", request);
 					return text(artifact ? `Active: ${artifactLine(artifact)}` : "No active task.", { artifact });
+				}
+				if (action === "focused") {
+					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string } | null>("tasks.focused", request);
+					return text(focus ? `Focused (${focus.status}): ${artifactLine(focus.artifact)}` : "No focused task.", { focus });
+				}
+				if (action === "pause" || action === "unpause") {
+					const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
+					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, request);
+					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, { focus });
+				}
+				if (action === "clear_focus") {
+					const result = await callService<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", request);
+					return text(result.cleared ? "Task focus cleared." : "No focused task.", result);
 				}
 				if (action === "graph") {
 					const graph = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", request);
@@ -131,9 +143,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					reject: "tasks.reject",
 					retry: "tasks.retry",
 					cancel: "tasks.cancel",
+					update: "tasks.update",
 					set_scope: "tasks.set_scope",
 					assign_project: "tasks.assign_project",
-					set_automation: "tasks.set_automation",
 					depend: "tasks.depend",
 					contain: "tasks.contain",
 				} as const;

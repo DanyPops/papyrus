@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ActiveTaskContinuation, type ActiveTaskMarker } from "../extension/src/active-task-continuation.ts";
+import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "../extension/src/active-task-continuation.ts";
 
 const active = (updatedAt = "2026-01-01T00:00:00.000Z"): ActiveTaskMarker =>
 	({ id: "task-1", title: "Implement workflow", updated_at: updatedAt });
@@ -30,6 +30,13 @@ describe("Papyrus active task continuation", () => {
 
 		expect(driver.evaluate(active("2026-01-01T00:01:00.000Z"), { idle: true, pendingMessages: false }).action).toBe("continue");
 		expect(driver.status().pausedReason).toBeUndefined();
+	});
+
+	it("resumes only automatically paused focus on human input", () => {
+		const reason = automaticPauseReason("turn limit reached");
+		expect(shouldResumeFocusOnHumanInput("paused", reason)).toBe(true);
+		expect(shouldResumeFocusOnHumanInput("paused", "manual pause")).toBe(false);
+		expect(shouldResumeFocusOnHumanInput("active", reason)).toBe(false);
 	});
 
 	it("caps consecutive turns and lets human input reset automatic driving", () => {

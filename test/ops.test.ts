@@ -134,19 +134,19 @@ describe("papyrus: four-kind model", () => {
 
 	it("subgraph BFS from root", () => {
 		const { db } = tmpDb();
-		const goal = createArtifact(db, { kind: "task", title: "Ship v1" });
+		const root = createArtifact(db, { kind: "task", title: "Ship v1" });
 		const t1 = createArtifact(db, { kind: "task", title: "Task A" });
 		const t2 = createArtifact(db, { kind: "task", title: "Task B" });
 		const doc = createArtifact(db, { kind: "doc", title: "Design doc" });
 		const rule = createArtifact(db, { kind: "rule", title: "Test everything" });
 
-		linkArtifacts(db, goal.id!, "depends_on", t1.id!);
+		linkArtifacts(db, root.id!, "depends_on", t1.id!);
 		linkArtifacts(db, t1.id!, "depends_on", t2.id!);
 		linkArtifacts(db, t1.id!, "implements", doc.id!);
 		linkArtifacts(db, t1.id!, "follows", rule.id!);
 
-		const tree = getArtifact(db, goal.id!, { tree: true })!;
-		// BFS should reach: goal → t1 → t2, doc, rule (5 artifacts, 4 edges)
+		const tree = getArtifact(db, root.id!, { tree: true })!;
+		// BFS should reach: root → t1 → t2, doc, rule (5 artifacts, 4 edges)
 		expect(tree.edges!.length).toBe(4);
 		expect(tree.edges!.some((e) => e.from === t1.id && e.relation === "depends_on" && e.to === t2.id)).toBe(true);
 		expect(tree.edges!.some((e) => e.from === t1.id && e.relation === "follows" && e.to === rule.id)).toBe(true);

@@ -7,6 +7,7 @@ export interface TaskWidgetRow {
 	depth: number;
 	hasOpenChildren: boolean;
 	active: boolean;
+	focusStatus?: "active" | "paused";
 }
 
 export interface TaskWidgetProjection {
@@ -35,7 +36,7 @@ export function buildTaskWidgetProjection(
 		if (!node) return;
 		visited.add(id);
 		const open = isOpen(node.task);
-		if (open) ordered.push({ task: node.task, depth: openDepth, hasOpenChildren: false, active: node.active === true });
+		if (open) ordered.push({ task: node.task, depth: openDepth, hasOpenChildren: false, active: node.active === true, focusStatus: node.focusStatus });
 		const childDepth = open ? openDepth + 1 : openDepth;
 		for (const childId of node.childIds) visit(childId, childDepth);
 	};

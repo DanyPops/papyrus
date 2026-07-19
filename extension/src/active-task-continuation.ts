@@ -23,6 +23,15 @@ export interface ActiveTaskContinuationDecision {
 }
 
 const TITLE_LIMIT = 120;
+const AUTOMATIC_PAUSE_PREFIX = "automatic continuation paused:";
+
+export function automaticPauseReason(reason: string): string {
+	return `${AUTOMATIC_PAUSE_PREFIX} ${reason}`;
+}
+
+export function shouldResumeFocusOnHumanInput(status: string, pauseReason?: string): boolean {
+	return status === "paused" && pauseReason?.startsWith(AUTOMATIC_PAUSE_PREFIX) === true;
+}
 
 function fingerprint(task: ActiveTaskMarker): string {
 	return `${task.id}:${task.updated_at}`;

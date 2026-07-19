@@ -9,9 +9,11 @@ import {
 	type SkillDefinition,
 } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
+import type { TaskEventContext } from "./domain/task-event.ts";
+import type { TaskEventStore } from "./ports/task-event-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import { projectTaskExecution, type TaskExecutionPlan } from "./task-execution.ts";
-import type { TaskGraph, TaskNode } from "./task-service.ts";
+import type { TaskGraph, TaskNode, TaskStatus } from "./task-service.ts";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const EXACT_PLACEHOLDER_PATTERN = /^{{\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*}}$/;
@@ -115,6 +117,7 @@ export function instantiateSkillWorkflow(
 	artifacts: ArtifactStore,
 	skillId: string,
 	input: InstantiateSkillWorkflowInput = {},
+	history?: { events: TaskEventStore; context?: TaskEventContext },
 ): SkillWorkflowRunResult {
 	const { definition } = requireWorkflowSkill(artifacts, skillId);
 	const arguments_ = resolveSkillArguments(definition, input.arguments);
@@ -138,7 +141,7 @@ export function instantiateSkillWorkflow(
 	}
 
 	const atomic = requireAtomicArtifactStore(artifacts);
-	return atomic.atomic(() => {
+	const persist = () => atomic.atomic(() => {
 		const docs = rendered.blueprints.docs.map((blueprint) => artifacts.create({
 			id: ids.get(blueprint.ref),
 			kind: "doc",
@@ -163,14 +166,26 @@ export function instantiateSkillWorkflow(
 				scope: { type: "skill-run", runId, taskIds },
 			},
 		}));
-		const tasks = rendered.blueprints.tasks.map((blueprint) => artifacts.create({
-			id: ids.get(blueprint.ref),
-			kind: "task",
-			title: blueprint.title,
-			body: blueprint.body,
-			labels: withRunLabel(blueprint.labels, runId),
-			extra: { ...(blueprint.extra ?? {}), skillRun: { id: runId, skillId, ref: blueprint.ref } },
-		}));
+		const tasks = rendered.blueprints.tasks.map((blueprint) => {
+			const task = artifacts.create({
+				id: ids.get(blueprint.ref),
+				kind: "task",
+				title: blueprint.title,
+				body: blueprint.body,
+				labels: withRunLabel(blueprint.labels, runId),
+				extra: { ...(blueprint.extra ?? {}), skillRun: { id: runId, skillId, ref: blueprint.ref } },
+			});
+			if (history) history.events.append({
+				taskId: task.id,
+				type: "created",
+				actor: history.context?.actor ?? "system",
+				source: history.context?.source ?? "skill-run",
+				toStatus: task.status as TaskStatus,
+				...(history.context?.sessionId === undefined ? {} : { sessionId: history.context.sessionId }),
+				...(history.context?.reason === undefined ? {} : { reason: history.context.reason }),
+			});
+			return task;
+		});
 
 		for (const blueprint of rendered.blueprints.tasks) {
 			const id = ids.get(blueprint.ref)!;
@@ -201,4 +216,5 @@ export function instantiateSkillWorkflow(
 			execution: projectTaskExecution(executionGraph(tasks, rendered, ids)),
 		};
 	});
+	return history ? history.events.atomic(persist) : persist();
 }

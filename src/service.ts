@@ -4,10 +4,13 @@ import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
+import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { Checklist } from "./domain/checklist.ts";
+import type { TaskEventContext, TaskEventDirection } from "./domain/task-event.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
+import type { TaskEventStore } from "./ports/task-event-store.ts";
 import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
 import {
@@ -50,6 +53,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.graph",
 	"tasks.plan",
 	"tasks.show",
+	"tasks.history",
 	"tasks.active",
 	"tasks.focus",
 	"tasks.start",
@@ -140,8 +144,19 @@ function handlers(
 	artifacts: ArtifactStore,
 	gates: GateRunner,
 	tasks: Tasks,
+	events: TaskEventStore,
 	migrate: () => unknown,
 ): Record<OperationName, OperationHandler> {
+	const eventContext = (input: OperationInput): TaskEventContext => ({
+		actor: optionalString(input, "actor"),
+		source: optionalString(input, "source"),
+		sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
+		reason: optionalString(input, "reason"),
+	});
+	const eventContextFor = (input: OperationInput, source: string): TaskEventContext => {
+		const context = eventContext(input);
+		return { ...context, source: context.source ?? source };
+	};
 	const taskFilter = (input: OperationInput) => ({
 		status: optionalString(input, "status"),
 		text: optionalString(input, "text"),
@@ -149,7 +164,20 @@ function handlers(
 	});
 	return {
 		"system.migrate": () => migrate(),
-		"artifact.create": (input) => artifacts.create(normalizeCreateInput(input)),
+		"artifact.create": (input) => {
+			const normalized = normalizeCreateInput(input);
+			if (normalized.kind !== "task") return artifacts.create(normalized);
+			return tasks.create({
+				id: normalized.id,
+				title: string(input, "title"),
+				body: normalized.body,
+				subtype: normalized.subtype,
+				status: normalized.status as TaskStatus | undefined,
+				labels: normalized.labels,
+				extra: normalized.extra,
+				templateId: normalized.templateId,
+			}, eventContextFor(input, "artifact-api"));
+		},
 		"artifact.query": (input) => artifacts.query(input),
 		"artifact.show": (input) => artifacts.get(string(input, "id"), {
 			tree: input["tree"] === true,
@@ -172,8 +200,17 @@ function handlers(
 			depth: optionalNumber(input, "depth"),
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
-		"graph.status": (input) => artifacts.setStatus(string(input, "id"), string(input, "status")),
-		"gates.run": (input) => gates.runAsync(string(input, "id")),
+		"graph.status": (input) => {
+			const id = string(input, "id");
+			if (artifacts.get(id)?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
+			return artifacts.setStatus(id, string(input, "status"));
+		},
+		"gates.run": (input) => {
+			const id = string(input, "id");
+			return artifacts.get(id)?.kind === "task"
+				? tasks.runGates(id, eventContextFor(input, "gates-api"))
+				: gates.runAsync(id);
+		},
 		"rules.injectable": () => listInjectableRules(artifacts, tasks.active()?.id)
 			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
 		"tasks.create": (input) => tasks.create({
@@ -187,22 +224,27 @@ function handlers(
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 			parentId: optionalString(input, "parent_id") ?? optionalString(input, "parentId"),
 			dependsOn: (input["depends_on"] ?? input["dependsOn"]) as string[] | undefined,
-		}),
+		}, eventContext(input)),
 		"tasks.list": (input) => tasks.list(taskFilter(input)),
 		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
 		"tasks.plan": (input) => projectTaskExecution(tasks.graph(taskFilter(input))),
 		"tasks.show": (input) => tasks.show(string(input, "id")),
+		"tasks.history": (input) => tasks.history(string(input, "id"), {
+			limit: optionalNumber(input, "limit"),
+			cursor: optionalNumber(input, "cursor"),
+			direction: optionalString(input, "direction") as TaskEventDirection | undefined,
+		}),
 		"tasks.active": () => tasks.active(),
 		"tasks.focus": (input) => tasks.focus(string(input, "id")),
-		"tasks.start": (input) => tasks.transition(string(input, "id"), "start"),
-		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit"),
-		"tasks.complete": (input) => tasks.completeAsync(string(input, "id")),
-		"tasks.run_gates": (input) => tasks.runGates(string(input, "id")),
+		"tasks.start": (input) => tasks.transition(string(input, "id"), "start", eventContext(input)),
+		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit", eventContext(input)),
+		"tasks.complete": (input) => tasks.completeAsync(string(input, "id"), eventContext(input)),
+		"tasks.run_gates": (input) => tasks.runGates(string(input, "id"), eventContext(input)),
 		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
 		"tasks.context": () => taskContext(artifacts, tasks.active()?.id),
-		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject"),
-		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry"),
-		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel"),
+		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
+		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
+		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel", eventContext(input)),
 		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id")),
 		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id")),
 		"docs.create": (input) => createDocument(artifacts, {
@@ -244,7 +286,7 @@ function handlers(
 		"skills.run": (input) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
 			runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
 			arguments: input["arguments"] as Record<string, unknown> | undefined,
-		}),
+		}, { events, context: eventContextFor(input, "skill-run") }),
 		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable"),
 		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable"),
 		"skills.instantiate": (input) => instantiateTemplate(artifacts, string(input, "template_id"), normalizeCreateInput(input)),
@@ -256,8 +298,9 @@ export function createPapyrusService(path: string): PapyrusService {
 	const artifacts = new SQLiteArtifactStore(db);
 	const gates = new SQLiteGateRunner(db);
 	const focus = new SQLiteTaskFocusStore(db);
-	const tasks = new Tasks(artifacts, gates, focus);
-	const registry = handlers(artifacts, gates, tasks, () => migrateDb(db));
+	const events = new SQLiteTaskEventStore(db);
+	const tasks = new Tasks(artifacts, gates, focus, events);
+	const registry = handlers(artifacts, gates, tasks, events, () => migrateDb(db));
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
@@ -269,7 +312,7 @@ export function createPapyrusService(path: string): PapyrusService {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
 			if (operation !== "system.migrate" && state().migrationRequired) {
-				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-lifecycle`");
+				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-history`");
 			}
 			return handler(input);
 		},

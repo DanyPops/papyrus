@@ -52,6 +52,12 @@ export class SQLiteArtifactStore implements ArtifactStore {
 			parameters.push(...filter.artifactIds, ...filter.artifactIds);
 		}
 		const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+		let limit = "";
+		if (filter.limit !== undefined) {
+			if (!Number.isInteger(filter.limit) || filter.limit < 1) throw new Error("relationship limit must be a positive integer");
+			limit = "LIMIT ?";
+			parameters.push(filter.limit);
+		}
 		return this.db.prepare(`
 			SELECT edges.from_id AS "from", edges.relation, edges.to_id AS "to"
 			FROM edges
@@ -59,6 +65,7 @@ export class SQLiteArtifactStore implements ArtifactStore {
 			JOIN artifacts AS target ON target.id = edges.to_id
 			${where}
 			ORDER BY edges.rowid
+			${limit}
 		`).all(...parameters) as ArtifactEdge[];
 	}
 }

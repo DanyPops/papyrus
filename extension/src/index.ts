@@ -14,7 +14,7 @@ import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
-import { registerFacadeTools } from "./facade-tools.ts";
+import { registerDomainTools } from "./domain-tools.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
 import { buildTaskWidgetProjection } from "./task-widget.ts";
 
@@ -130,7 +130,7 @@ class TaskOverlay {
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
-	registerFacadeTools(pi);
+	registerDomainTools(pi);
 
 	// ── Low-level graph-store tools ────────────────────────────────────
 
@@ -140,10 +140,10 @@ export default async function (pi: ExtensionAPI) {
 		description:
 			"Create a graph artifact. KINDS: doc (knowledge — specs, decisions, research), " +
 			"task (work — with gates/checklists in extra), rule (governance — when doing X, follow Y; " +
-			"active rules inject into the system prompt), skill (procedural — when using X do A,B,C). " +
+			"active rules inject into the system prompt), skill (parameterized workflow bundle — validated inputs render connected Tasks, Rules, and Docs). " +
 			"RULE extra: {condition, action, severity: 'block'|'warn'|'info'}. " +
 			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: {'criterion': {proof: [{type:'file'|'symbol'|'code'|'test'|'command'|'artifact'|'url', target, expect}]}}}. " +
-			"SKILL extra: {trigger, steps: [...], tools: [...]}. " +
+			"Legacy SKILL extra: {trigger, steps: [...], tools: [...]}. Workflow Skill schemas are versioned separately. " +
 			"Templates are skills with subtype='artifact-template' and extra {targetKind, defaults, required}; pass template_id to instantiate.",
 		parameters: Type.Object({
 			kind: Type.Optional(Type.String({ description: "doc | task | rule | skill; optional when template_id supplies targetKind" })),

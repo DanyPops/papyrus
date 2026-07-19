@@ -53,4 +53,5 @@ export interface ArtifactLink {
 export interface RelationshipQuery {
 	kind?: string;
 	artifactIds?: string[];
+	limit?: number;
 }

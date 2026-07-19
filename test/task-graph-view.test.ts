@@ -50,6 +50,35 @@ describe("task graph projection", () => {
 		]);
 	});
 
+	it("projects execution layers and readiness across non-linear dependencies", () => {
+		const executionGraph: TaskGraph = {
+			...graph,
+			nodes: graph.nodes.map((entry) => ({
+				...entry,
+				task: { ...entry.task, status: entry.task.id === "telemetry" ? "done" : entry.task.status },
+			})),
+		};
+
+		const display = projectTaskGraph(executionGraph, "execution");
+
+		expect(display.nodes.find((entry) => entry.id === "telemetry")).toMatchObject({
+			label: "■ OpenRouter telemetry · layer 1 · done",
+			status: "done",
+		});
+		expect(display.nodes.find((entry) => entry.id === "policy")).toMatchObject({
+			label: "◇ Budget policy · layer 2 · ready",
+			status: "ready",
+		});
+		expect(display.nodes.find((entry) => entry.id === "actuator")).toMatchObject({
+			label: "○ Pi actuator · layer 3 · blocked",
+			status: "blocked",
+		});
+		expect(display.edges).toEqual([
+			{ from: "telemetry", to: "policy", label: "unlocks" },
+			{ from: "policy", to: "actuator", label: "unlocks" },
+		]);
+	});
+
 	it("renders composition once without inverse part_of edges", () => {
 		const display = projectTaskGraph(graph, "composition");
 

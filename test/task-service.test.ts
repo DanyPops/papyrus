@@ -11,6 +11,7 @@ import type {
 import type { GateResult } from "../src/domain/gate.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
+import { projectTaskExecution } from "../src/task-execution.ts";
 import { Tasks } from "../src/task-service.ts";
 
 class FakeArtifactStore implements ArtifactStore {
@@ -49,6 +50,7 @@ class FakeArtifactStore implements ArtifactStore {
 		return [...this.artifacts.values()]
 			.filter((artifact) => !filter.kind || artifact.kind === filter.kind)
 			.filter((artifact) => !filter.status || artifact.status === filter.status)
+			.slice(0, filter.limit ?? this.artifacts.size)
 			.map((artifact) => structuredClone(artifact));
 	}
 
@@ -74,14 +76,21 @@ class FakeArtifactStore implements ArtifactStore {
 
 	relationships(filter: RelationshipQuery = {}): ArtifactEdge[] {
 		const ids = filter.artifactIds ? new Set(filter.artifactIds) : undefined;
-		return this.edges.filter((edge) => !ids || ids.has(edge.from) || ids.has(edge.to)).map((edge) => ({ ...edge }));
+		return this.edges
+			.filter((edge) => !ids || ids.has(edge.from) || ids.has(edge.to))
+			.slice(0, filter.limit ?? this.edges.length)
+			.map((edge) => ({ ...edge }));
 	}
 }
 
 class FakeGateRunner implements GateRunner {
 	results: GateResult[] = [];
-	run(): GateResult[] { return structuredClone(this.results); }
-	async runAsync(): Promise<GateResult[]> { return this.run(); }
+	readonly calls: string[] = [];
+	run(artifactId: string): GateResult[] {
+		this.calls.push(artifactId);
+		return structuredClone(this.results);
+	}
+	async runAsync(artifactId: string): Promise<GateResult[]> { return this.run(artifactId); }
 }
 
 describe("Tasks port behavior", () => {
@@ -148,5 +157,90 @@ describe("Tasks port behavior", () => {
 
 		expect(tasks.complete(task.id).completed).toBe(false);
 		expect(tasks.show(task.id).status).toBe("active");
+	});
+
+	it("completes a passing task and starts every ready fan-out successor", () => {
+		const artifacts = new FakeArtifactStore();
+		const gates = new FakeGateRunner();
+		const tasks = new Tasks(artifacts, gates);
+		const root = tasks.create({ title: "Root", status: "active" });
+		const left = tasks.create({ title: "Left", dependsOn: [root.id] });
+		const right = tasks.create({ title: "Right", dependsOn: [root.id] });
+
+		const result = tasks.complete(root.id);
+
+		expect(result.completed).toBe(true);
+		expect(result.started.map((task) => task.id)).toEqual([left.id, right.id]);
+		expect(result.blocked).toEqual([]);
+		expect(tasks.show(root.id).status).toBe("done");
+		expect(tasks.show(left.id).status).toBe("active");
+		expect(tasks.show(right.id).status).toBe("active");
+		expect(gates.calls).toEqual([root.id]);
+	});
+
+	it("holds a fan-in successor until every prerequisite is done", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		const left = tasks.create({ title: "Left", status: "active" });
+		const right = tasks.create({ title: "Right", status: "active" });
+		const join = tasks.create({ title: "Join", dependsOn: [left.id, right.id] });
+
+		const first = tasks.complete(left.id);
+		expect(first.started).toEqual([]);
+		expect(first.blocked).toHaveLength(1);
+		expect(first.blocked[0]?.artifact).toMatchObject({ id: join.id, status: "pending" });
+		expect(first.blocked[0]?.dependencyIds).toEqual([right.id]);
+		expect(tasks.show(join.id).status).toBe("pending");
+
+		const second = tasks.complete(right.id);
+		expect(second.started.map((task) => task.id)).toEqual([join.id]);
+		expect(tasks.show(join.id).status).toBe("active");
+	});
+
+	it("projects deterministic execution layers and readiness for fan-out and fan-in", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		const root = tasks.create({ title: "Root", status: "done" });
+		const left = tasks.create({ title: "Left", dependsOn: [root.id] });
+		const right = tasks.create({ title: "Right", dependsOn: [root.id] });
+		const join = tasks.create({ title: "Join", dependsOn: [left.id, right.id] });
+
+		const plan = projectTaskExecution(tasks.graph());
+
+		expect(plan.layers).toEqual([[root.id], [left.id, right.id], [join.id]]);
+		expect(plan.cycleIds).toEqual([]);
+		expect(plan.nodes.find((node) => node.id === root.id)).toMatchObject({
+			state: "done",
+			layer: 0,
+			successorIds: [left.id, right.id],
+		});
+		expect(plan.nodes.find((node) => node.id === left.id)).toMatchObject({ state: "ready", layer: 1 });
+		expect(plan.nodes.find((node) => node.id === right.id)).toMatchObject({ state: "ready", layer: 1 });
+		expect(plan.nodes.find((node) => node.id === join.id)).toMatchObject({ state: "blocked", layer: 2 });
+	});
+
+	it("rejects self-dependencies and dependency cycles before storing an edge", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		const first = tasks.create({ title: "First" });
+		const second = tasks.create({ title: "Second" });
+		const third = tasks.create({ title: "Third" });
+
+		expect(() => tasks.depend(first.id, first.id)).toThrow("cannot depend on itself");
+		tasks.depend(second.id, first.id);
+		tasks.depend(third.id, second.id);
+		expect(() => tasks.depend(first.id, third.id)).toThrow("dependency cycle");
+		expect(artifacts.edges).not.toContainEqual({ from: first.id, relation: "depends_on", to: third.id });
+	});
+
+	it("starts only tasks whose complete prerequisite set is done", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		const prerequisite = tasks.create({ title: "Prerequisite" });
+		const dependent = tasks.create({ title: "Dependent", dependsOn: [prerequisite.id] });
+
+		expect(() => tasks.transition(dependent.id, "start")).toThrow(`blocked by dependencies: ${prerequisite.id}`);
+		artifacts.setStatus(prerequisite.id, "done");
+		expect(tasks.transition(dependent.id, "start").status).toBe("active");
 	});
 });

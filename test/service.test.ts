@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { PapyrusClient } from "../src/client.ts";
 import { openDb } from "../src/db.ts";
 import { EXPECTED_OPERATION_NAMES, createApp, createPapyrusService } from "../src/service.ts";
+import { VERSION } from "../src/version.ts";
 
 function fixture() {
 	const dir = mkdtempSync(join(tmpdir(), "papyrus-service-"));
@@ -207,7 +208,7 @@ describe("Papyrus operation service", () => {
 		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
 		expect(await client.health()).toEqual({
 			ok: true,
-			version: "0.5.0",
+			version: VERSION,
 			schema: { current: 3, required: 3, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string }, { id: string; kind: string }>("tasks.create", { title: "Client task" });

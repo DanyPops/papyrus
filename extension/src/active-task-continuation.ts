@@ -4,20 +4,19 @@ export interface ActiveTaskMarker {
 	updated_at: string;
 }
 
-export interface TaskDriverOptions {
+export interface ActiveTaskContinuationOptions {
 	maxTurns: number;
 	maxUnchangedTurns: number;
 }
 
-export interface TaskDriverState {
-	enabled: boolean;
+export interface ActiveTaskContinuationState {
 	queued: boolean;
 	consecutiveTurns: number;
 	unchangedTurns: number;
 	pausedReason?: string;
 }
 
-export interface TaskDriverDecision {
+export interface ActiveTaskContinuationDecision {
 	action: "continue" | "wait" | "pause";
 	reason: string;
 	prompt?: string;
@@ -37,29 +36,27 @@ function continuationPrompt(tasks: ActiveTaskMarker[]): string {
 	const names = tasks.slice(0, DISPLAYED_TASK_LIMIT).map((task) => `- ${task.id}: ${task.title.slice(0, TITLE_LIMIT)}`);
 	return [
 		"Continue active Papyrus work now; do not hand off merely because the previous Pi run settled.",
-		"Reconcile the active Tasks, choose the next concrete action, use tools, run gates before completion, and continue until done, blocked, or the bounded task driver pauses.",
+		"Reconcile the active Tasks, choose the next concrete action, use tools, run gates before completion, and continue until done, blocked, or the bounded continuation pauses.",
 		"Active tasks:",
 		...names,
 	].join("\n");
 }
 
-export class TaskDriver {
-	private enabled = true;
+export class ActiveTaskContinuation {
 	private queued = false;
 	private consecutiveTurns = 0;
 	private unchangedTurns = 0;
 	private lastFingerprint: string | undefined;
 	private pausedReason: string | undefined;
 
-	constructor(private readonly options: TaskDriverOptions) {
+	constructor(private readonly options: ActiveTaskContinuationOptions) {
 		if (!Number.isInteger(options.maxTurns) || options.maxTurns < 1) throw new Error("maxTurns must be a positive integer");
 		if (!Number.isInteger(options.maxUnchangedTurns) || options.maxUnchangedTurns < 1) {
 			throw new Error("maxUnchangedTurns must be a positive integer");
 		}
 	}
 
-	evaluate(tasks: ActiveTaskMarker[], context: { idle: boolean; pendingMessages: boolean }): TaskDriverDecision {
-		if (!this.enabled) return { action: "wait", reason: "disabled" };
+	evaluate(tasks: ActiveTaskMarker[], context: { idle: boolean; pendingMessages: boolean }): ActiveTaskContinuationDecision {
 		if (!context.idle) return { action: "wait", reason: "Pi is not settled" };
 		if (context.pendingMessages) return { action: "wait", reason: "Pi already has pending messages" };
 		if (this.queued) return { action: "wait", reason: "continuation already queued" };
@@ -101,15 +98,8 @@ export class TaskDriver {
 		this.resetProgress();
 	}
 
-	setEnabled(enabled: boolean): void {
-		this.enabled = enabled;
-		if (enabled) this.resetProgress();
-		else this.queued = false;
-	}
-
-	status(): TaskDriverState {
+	status(): ActiveTaskContinuationState {
 		return {
-			enabled: this.enabled,
 			queued: this.queued,
 			consecutiveTurns: this.consecutiveTurns,
 			unchangedTurns: this.unchangedTurns,
@@ -117,7 +107,7 @@ export class TaskDriver {
 		};
 	}
 
-	private pause(reason: string): TaskDriverDecision {
+	private pause(reason: string): ActiveTaskContinuationDecision {
 		this.pausedReason = reason;
 		return { action: "pause", reason };
 	}

@@ -1,17 +1,10 @@
-import type { Db } from "./db.ts";
+import type { Artifact } from "./domain/artifact.ts";
+import type { ArtifactStore } from "./ports/artifact-store.ts";
 import {
 	TASK_CONTEXT_ACTIVE_LIMIT,
 	TASK_CONTEXT_FAILED_LIMIT,
 	TASK_RECONCILIATION_INSTRUCTION,
 } from "./constants.ts";
-
-interface TaskRow {
-	id: string;
-	title: string;
-	status: string;
-	body: string;
-	extra: string;
-}
 
 interface Gate {
 	type?: unknown;
@@ -19,13 +12,9 @@ interface Gate {
 	expect?: unknown;
 }
 
-function gatesFrom(row: TaskRow): Gate[] {
-	try {
-		const extra = JSON.parse(row.extra) as { gates?: unknown };
-		return Array.isArray(extra.gates) ? extra.gates as Gate[] : [];
-	} catch {
-		return [];
-	}
+function gatesFrom(task: Artifact): Gate[] {
+	const gates = task.extra["gates"];
+	return Array.isArray(gates) ? gates as Gate[] : [];
 }
 
 function renderGate(gate: Gate): string {
@@ -35,7 +24,7 @@ function renderGate(gate: Gate): string {
 	return `${type}: ${target}${expect}`;
 }
 
-function renderCurrent(task: TaskRow): string[] {
+function renderCurrent(task: Artifact): string[] {
 	const desired = task.body.trim() || task.title;
 	const gates = gatesFrom(task);
 	return [
@@ -45,11 +34,8 @@ function renderCurrent(task: TaskRow): string[] {
 	];
 }
 
-/** Project open task state into a compact Alef-style reconciliation context. */
-export function taskContextFromDb(db: Db): string | null {
-	const tasks = db.prepare(
-		"SELECT id, title, status, body, extra FROM artifacts WHERE kind = 'task' ORDER BY updated_at ASC",
-	).all() as TaskRow[];
+export function taskContext(artifacts: ArtifactStore): string | null {
+	const tasks = artifacts.query({ kind: "task" }).sort((left, right) => left.updated_at.localeCompare(right.updated_at));
 	const open = tasks.filter((task) => task.status !== "done");
 	if (open.length === 0) return null;
 

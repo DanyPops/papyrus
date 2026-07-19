@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { Artifact } from "../../src/ops.ts";
+import type { Artifact } from "../../src/domain/artifact.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { callService } from "./service-client.ts";
 

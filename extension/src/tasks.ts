@@ -5,10 +5,16 @@
  */
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
-import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { formatMetadata } from "./artifact-format.ts";
+import { Container, Input, Spacer, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { callService } from "./service-client.ts";
-import type { Artifact, GateResult } from "../../src/ops.ts";
+import { showTaskDetails } from "./task-detail-view.ts";
+import { showTaskGraph } from "./task-graph.ts";
+
+export { taskDetailsText } from "./task-detail-format.ts";
+export { showTaskDetails } from "./task-detail-view.ts";
+import type { Artifact } from "../../src/domain/artifact.ts";
+import type { GateResult } from "../../src/domain/gate.ts";
+import type { TaskGraph } from "../../src/task-service.ts";
 
 const GLYPHS: Record<string, string> = {
 	pending: "○",
@@ -24,17 +30,35 @@ const STATUS_ACTIONS: Record<string, string[]> = {
 	failed: ["Retry"],
 };
 
-interface TaskRow {
-	id: string;
-	title: string;
-	status: string;
-	body: string;
-	extra: Record<string, unknown>;
-	edges?: { from: string; relation: string; to: string }[];
+type TaskRow = Artifact;
+
+export interface TaskHierarchyRow {
+	task: TaskRow;
+	depth: number;
+	childCount: number;
+	dependencies: string[];
 }
 
-async function loadTasks(): Promise<TaskRow[]> {
-	return callService<Record<string, unknown>, TaskRow[]>("tasks.list", { limit: 200 });
+export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
+	const byId = new Map(graph.nodes.map((node) => [node.task.id, node]));
+	const result: TaskHierarchyRow[] = [];
+	const visited = new Set<string>();
+	const visit = (id: string, depth: number): void => {
+		if (visited.has(id)) return;
+		const node = byId.get(id);
+		if (!node) return;
+		visited.add(id);
+		const children = node.childIds.filter((childId) => byId.has(childId));
+		result.push({ task: node.task, depth, childCount: children.length, dependencies: [...node.dependencyIds] });
+		for (const childId of children) visit(childId, depth + 1);
+	};
+	for (const rootId of graph.rootIds) visit(rootId, 0);
+	for (const node of graph.nodes) visit(node.task.id, 0);
+	return result;
+}
+
+async function loadTaskGraph(): Promise<TaskGraph> {
+	return callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 200 });
 }
 
 export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
@@ -42,23 +66,24 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		ctx.ui.notify("/tasks requires interactive mode", "warning");
 		return;
 	}
-	let rows = await loadTasks();
-	if (rows.length === 0) {
+	let graph = await loadTaskGraph();
+	if (graph.nodes.length === 0) {
 		const create = await ctx.ui.select("No tasks yet", ["Create a task", "Cancel"]);
 		if (create === "Create a task") {
 			const title = await ctx.ui.input("Task title:", "");
 			if (title) {
 				await callService("tasks.create", { title });
-				rows = await loadTasks();
+				graph = await loadTaskGraph();
 			}
 		}
-		if (rows.length === 0) return;
+		if (graph.nodes.length === 0) return;
 	}
 
 	for (;;) {
-		const action = await renderPanel(ctx, rows);
+		const action = await renderPanel(ctx, graph);
 		if (!action) return;
-		if (action.type === "refresh") { rows = await loadTasks(); continue; }
+		if (action.type === "refresh") { graph = await loadTaskGraph(); continue; }
+		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
 		if (action.type !== "action" || !action.row) continue;
 
 		const choices = ["Show details", "Run gates", ...(STATUS_ACTIONS[action.row.status] ?? [])];
@@ -68,10 +93,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (choice === "Show details") {
 			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });
 			if (!art) { ctx.ui.notify("Not found", "error"); continue; }
-			let out = `${GLYPHS[art.status] ?? "?"} ${art.title}\n\n${art.body || "(no body)"}`;
-			if (art.edges?.length) out += `\n\nEdges:\n${art.edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
-			if (Object.keys(art.extra).length > 0) out += `\n\nMetadata:\n${formatMetadata(art.extra).map((line) => `  ${line}`).join("\n")}`;
-			ctx.ui.notify(out, "info");
+			await showTaskDetails(ctx, art, graph);
 		} else if (choice === "Run gates") {
 			try {
 				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id: action.row.id });
@@ -96,28 +118,31 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 				ctx.ui.notify(`Task action failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		}
-		rows = await loadTasks();
+		graph = await loadTaskGraph();
 	}
 }
 
 interface PanelAction {
-	type: "action" | "refresh";
+	type: "action" | "refresh" | "graph";
 	row?: TaskRow;
 }
 
-function renderPanel(ctx: ExtensionCommandContext, rows: TaskRow[]): Promise<PanelAction | undefined> {
+function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<PanelAction | undefined> {
 	return ctx.ui.custom<PanelAction | undefined>((tui, theme, _kb, done) => {
+		const rows = graph.nodes.map((node) => node.task);
 		const searchInput = new Input();
+		const hierarchy = buildTaskHierarchy(graph);
+		const taskById = new Map(rows.map((task) => [task.id, task]));
 		let searchActive = false;
-		let filtered = [...rows];
+		let filtered = [...hierarchy];
 		let selectedIndex = 0;
 		const maxVisible = 20;
 
 		function applyFilter(): void {
 			const q = searchInput.getValue().trim().toLowerCase();
-			filtered = q ? rows.filter((r) =>
-				r.title.toLowerCase().includes(q) || r.id.toLowerCase().includes(q)
-			) : [...rows];
+			filtered = q ? hierarchy.filter(({ task }) =>
+				task.title.toLowerCase().includes(q) || task.id.toLowerCase().includes(q)
+			) : [...hierarchy];
 			selectedIndex = 0;
 		}
 
@@ -136,9 +161,13 @@ function renderPanel(ctx: ExtensionCommandContext, rows: TaskRow[]): Promise<Pan
 				const title = theme.bold("Tasks");
 				const hint = searchActive
 					? rawKeyHint("esc", "clear")
-					: rawKeyHint("enter", "actions") +
+					: rawKeyHint("↑/↓", "navigate") +
+						theme.fg("muted", " · ") +
+						rawKeyHint("enter", "actions") +
 						theme.fg("muted", " · ") +
 						rawKeyHint("/", "filter") +
+						theme.fg("muted", " · ") +
+						rawKeyHint("g", "graph") +
 						theme.fg("muted", " · ") +
 						rawKeyHint("r", "refresh") +
 						theme.fg("muted", " · ") +
@@ -163,19 +192,29 @@ function renderPanel(ctx: ExtensionCommandContext, rows: TaskRow[]): Promise<Pan
 				const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), filtered.length - maxVisible));
 				const end = Math.min(start + maxVisible, filtered.length);
 				for (let i = start; i < end; i++) {
-					const row = filtered[i]!;
+					const entry = filtered[i]!;
+					const row = entry.task;
 					const selected = i === selectedIndex;
 					const cursor = selected ? theme.fg("accent", "❯") : " ";
 					const glyph = GLYPHS[row.status] ?? "?";
 					const statusColor = row.status === "active" ? "accent" : row.status === "done" ? "dim" : row.status === "failed" ? "warning" : "muted";
 					const glyphStyled = theme.fg(statusColor, glyph);
 					const title = selected ? theme.bold(row.title) : row.title;
+					const indent = "  ".repeat(entry.depth);
+					const node = entry.childCount > 0 ? theme.fg("accent", "▾") : theme.fg("dim", "·");
 					const gates = (row.extra?.["gates"] as any[])?.length;
-					const gateStr = gates ? theme.fg("dim", ` [${gates} gate(s)]`) : "";
-					lines.push(truncateToWidth(`${cursor} ${glyphStyled} ${title}${gateStr}`, width, ""));
+					const relationParts: string[] = [];
+					if (entry.childCount > 0) relationParts.push(`${entry.childCount} subtask${entry.childCount === 1 ? "" : "s"}`);
+					if (entry.dependencies.length > 0) {
+						const names = entry.dependencies.map((id) => taskById.get(id)?.title ?? id);
+						relationParts.push(`needs ${names.join(", ")}`);
+					}
+					if (gates) relationParts.push(`${gates} gate${gates === 1 ? "" : "s"}`);
+					const relationText = relationParts.length > 0 ? theme.fg("dim", ` · ${relationParts.join(" · ")}`) : "";
+					lines.push(truncateToWidth(`${cursor} ${indent}${node} ${glyphStyled} ${title}${relationText}`, width, ""));
 				}
 				const hasScroll = start > 0 || end < filtered.length;
-				lines.push(theme.fg("muted", `  ${hasScroll ? `${selectedIndex + 1}/${filtered.length} ` : ""}task`));
+				lines.push(theme.fg("muted", `  ${hasScroll ? `${selectedIndex + 1}/${filtered.length} · ` : ""}↑/↓ navigate · Enter actions`));
 				return lines;
 			},
 		};
@@ -195,25 +234,23 @@ function renderPanel(ctx: ExtensionCommandContext, rows: TaskRow[]): Promise<Pan
 			invalidate: () => container.invalidate(),
 			handleInput(data: string) {
 				if (searchActive) {
-					if (data === "\x1b") { searchActive = false; applyFilter(); }
-					else if (data === "\r") { searchActive = false; }
+					if (matchesKey(data, "escape")) { searchActive = false; applyFilter(); }
+					else if (matchesKey(data, "enter")) { searchActive = false; }
 					else { searchInput.handleInput(data); applyFilter(); }
 					tui.requestRender();
 					return;
 				}
-				switch (data) {
-					case "\x1b[A": selectedIndex = (selectedIndex - 1 + filtered.length) % Math.max(filtered.length, 1); break;
-					case "\x1b[B": selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1); break;
-					case "/": searchActive = true; break;
-					case "r": done({ type: "refresh" }); return;
-					case "\r": {
-						const row = filtered[selectedIndex];
-						if (row) done({ type: "action", row });
-						return;
-					}
-					case "\x1b": done(undefined); return;
-					default: return;
-				}
+				if (matchesKey(data, "up")) selectedIndex = (selectedIndex - 1 + filtered.length) % Math.max(filtered.length, 1);
+				else if (matchesKey(data, "down")) selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1);
+				else if (data === "/") searchActive = true;
+				else if (data === "g") { done({ type: "graph" }); return; }
+				else if (data === "r") { done({ type: "refresh" }); return; }
+				else if (matchesKey(data, "enter")) {
+					const entry = filtered[selectedIndex];
+					if (entry) done({ type: "action", row: entry.task });
+					return;
+				} else if (matchesKey(data, "escape")) { done(undefined); return; }
+				else return;
 				tui.requestRender();
 			},
 		};

@@ -2,25 +2,26 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, type Db } from "../src/db.ts";
-import { createArtifact, updateStatus } from "../src/ops.ts";
-import { taskContextFromDb } from "../extension/src/task-context.ts";
+import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { openDb } from "../src/db.ts";
+import { taskContext } from "../extension/src/task-context.ts";
 
-function tmpDb(): Db {
+function fixture() {
 	const dir = mkdtempSync(join(tmpdir(), "papyrus-task-context-"));
-	return openDb(join(dir, "papyrus.db"));
+	const db = openDb(join(dir, "papyrus.db"));
+	return { db, artifacts: new SQLiteArtifactStore(db) };
 }
 
 describe("task context reconciliation", () => {
 	it("injects nothing when there are no open tasks", () => {
-		const db = tmpDb();
-		expect(taskContextFromDb(db)).toBeNull();
+		const { db, artifacts } = fixture();
+		expect(taskContext(artifacts)).toBeNull();
 		db.close();
 	});
 
 	it("injects Alef-style desired, verify, next, and explicit completion check", () => {
-		const db = tmpDb();
-		const active = createArtifact(db, {
+		const { db, artifacts } = fixture();
+		const active = artifacts.create({
 			kind: "task",
 			title: "Ship task frontend",
 			body: "Users can manage tasks interactively.",
@@ -28,10 +29,10 @@ describe("task context reconciliation", () => {
 				gates: [{ type: "command", target: "bun test", expect: "0 fail" }],
 			},
 		});
-		updateStatus(db, active.id, "active");
-		createArtifact(db, { kind: "task", title: "Document task workflow" });
+		artifacts.setStatus(active.id, "active");
+		artifacts.create({ kind: "task", title: "Document task workflow" });
 
-		const context = taskContextFromDb(db)!;
+		const context = taskContext(artifacts)!;
 		expect(context).toContain("Current: Ship task frontend");
 		expect(context).toContain("Desired: Users can manage tasks interactively.");
 		expect(context).toContain("Verify: command: bun test = 0 fail");
@@ -42,11 +43,11 @@ describe("task context reconciliation", () => {
 	});
 
 	it("calls out failed tasks as blocked work", () => {
-		const db = tmpDb();
-		const failed = createArtifact(db, { kind: "task", title: "Repair release" });
-		updateStatus(db, failed.id, "failed");
+		const { db, artifacts } = fixture();
+		const failed = artifacts.create({ kind: "task", title: "Repair release" });
+		artifacts.setStatus(failed.id, "failed");
 
-		const context = taskContextFromDb(db)!;
+		const context = taskContext(artifacts)!;
 		expect(context).toContain("Blocked: Repair release");
 		expect(context).toContain("0/1 done");
 		db.close();

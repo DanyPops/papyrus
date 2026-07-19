@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { Artifact, GateResult } from "../../src/ops.ts";
+import type { Artifact } from "../../src/domain/artifact.ts";
+import { PROOF_TYPES } from "../../src/domain/checklist.ts";
+import type { GateResult } from "../../src/domain/gate.ts";
 import { callService } from "./service-client.ts";
 
 function text(message: string, details: Record<string, unknown> = {}) {
@@ -11,11 +13,21 @@ function artifactLine(artifact: Artifact): string {
 	return `${artifact.id} [${artifact.status}] ${artifact.title}`;
 }
 
+const proofReferenceSchema = Type.Object({
+	type: Type.Union(PROOF_TYPES.map((type) => Type.Literal(type))),
+	target: Type.String(),
+	expect: Type.Optional(Type.String()),
+});
+
+const checklistCriterionSchema = Type.Object({
+	proof: Type.Array(proofReferenceSchema, { minItems: 1 }),
+});
+
 export function registerFacadeTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain facade. ACTIONS: create, list, show, start, complete (runs gates and refuses done on failure), fail, retry, run_gates, depend, contain. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain facade. ACTIONS: create, list, show, start, complete (runs gates and refuses done on failure), fail, retry, run_gates, set_checklist, depend, contain. Checklist is an item-to-proof map; every item requires one or more typed evidence references. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -27,7 +39,7 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			gates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
-			checklist: Type.Optional(Type.Array(Type.Unknown())),
+			checklist: Type.Optional(Type.Record(Type.String(), checklistCriterionSchema)),
 			template_id: Type.Optional(Type.String()),
 			parent_id: Type.Optional(Type.String()),
 			child_id: Type.Optional(Type.String()),
@@ -48,6 +60,10 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
+				}
+				if (action === "set_checklist") {
+					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_checklist", params);
+					return text(`Updated checklist: ${artifactLine(artifact)}`, { artifact });
 				}
 				if (action === "complete") {
 					const result = await callService<Record<string, unknown>, { artifact: Artifact; gates: GateResult[]; completed: boolean }>("tasks.complete", params);

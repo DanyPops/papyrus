@@ -21,7 +21,7 @@ import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, type ActiveTaskMarker } from "./active-task-continuation.ts";
-import { buildTaskWidgetProjection } from "./task-widget.ts";
+import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
@@ -33,6 +33,21 @@ function text(t: string, details: Record<string, unknown> = {}) {
 // ---------------------------------------------------------------------------
 
 const WIDGET_KEY = "pi-papyrus";
+
+export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjection, width: number): string[] {
+	if (projection.openTotal === 0) return [];
+	const lines: string[] = [];
+	for (let index = 0; index < projection.rows.length; index++) {
+		const row = projection.rows[index]!;
+		const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
+		const hierarchy = taskTreeConnector({ depth: row.depth, hasChildren: row.hasOpenChildren, hasLaterSibling: laterSibling });
+		const focus = row.active ? theme.fg("accent", "▶") : " ";
+		const presentation = TASK_STATUS_PRESENTATION[row.task.status as TaskStatus];
+		const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : theme.fg("muted", "?");
+		lines.push(truncateToWidth(`${focus} ${hierarchy} ${glyph} ${row.task.title}`, width, "…"));
+	}
+	return lines;
+}
 
 class TaskOverlay {
 	private uiCtx: ExtensionUIContext | undefined;
@@ -93,31 +108,7 @@ class TaskOverlay {
 	}
 
 	private renderLines(theme: Theme, width: number): string[] {
-		const projection = buildTaskWidgetProjection(this.snapshot);
-		if (projection.total === 0) return [];
-
-		if (projection.openTotal === 0) {
-			return [truncateToWidth(theme.bold("Tasks · no open tasks · /tasks"), width, "…")];
-		}
-
-		const active = projection.rows.find((row) => row.active);
-		const lines = [
-			truncateToWidth(
-				theme.bold(`Tasks · ${active ? theme.fg("accent", "▶ active") : "no active focus"} · ${projection.openTotal} open`),
-				width,
-				"…",
-			),
-		];
-		for (let index = 0; index < projection.rows.length; index++) {
-			const row = projection.rows[index]!;
-			const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
-			const hierarchy = taskTreeConnector({ depth: row.depth, hasChildren: row.hasOpenChildren, hasLaterSibling: laterSibling });
-			const focus = row.active ? theme.fg("accent", "▶") : " ";
-			const presentation = TASK_STATUS_PRESENTATION[row.task.status as TaskStatus];
-			const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : theme.fg("muted", "?");
-			lines.push(truncateToWidth(`${focus} ${hierarchy} ${glyph} ${row.task.title}`, width, "…"));
-		}
-		return lines;
+		return renderTaskWidgetLines(theme, buildTaskWidgetProjection(this.snapshot), width);
 	}
 
 	dispose(): void {

@@ -80,7 +80,7 @@ const SEED_SQL = `
 INSERT OR IGNORE INTO kinds VALUES ('doc','Knowledge — what we know (specs, decisions, research, designs)');
 INSERT OR IGNORE INTO kinds VALUES ('task','Work — what we are doing (goals, steps, checklists)');
 INSERT OR IGNORE INTO kinds VALUES ('rule','Governance — when doing X, follow Y');
-INSERT OR IGNORE INTO kinds VALUES ('skill','Procedural — when using X,Y,Z do A,B,C');
+INSERT OR IGNORE INTO kinds VALUES ('skill','Parameterized workflow bundle — inputs and templates load tasks, rules, and docs');
 INSERT OR IGNORE INTO statuses VALUES ('draft','doc');
 INSERT OR IGNORE INTO statuses VALUES ('active','doc');
 INSERT OR IGNORE INTO statuses VALUES ('archived','doc');

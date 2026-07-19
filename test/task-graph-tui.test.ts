@@ -38,6 +38,8 @@ const theme = {
 describe("task graph TUI", () => {
 	it("opens a width-safe viewport and switches semantic views with Tab", async () => {
 		let closed = false;
+		let widthSafe = true;
+		let executionLines: string[] = [];
 		let dependencyLines: string[] = [];
 		let compositionLines: string[] = [];
 		const ctx = {
@@ -49,9 +51,14 @@ describe("task graph TUI", () => {
 					const component = await factory(
 						{ terminal: { rows: 24 }, requestRender() {} }, theme, {}, () => { closed = true; },
 					);
+					executionLines = component.render(50);
+					for (const width of [40, 80, 120]) widthSafe &&= component.render(width).every((line: string) => visibleWidth(line) <= width);
+					component.handleInput("\t");
 					dependencyLines = component.render(50);
+					for (const width of [40, 80, 120]) widthSafe &&= component.render(width).every((line: string) => visibleWidth(line) <= width);
 					component.handleInput("\t");
 					compositionLines = component.render(50);
+					for (const width of [40, 80, 120]) widthSafe &&= component.render(width).every((line: string) => visibleWidth(line) <= width);
 					component.handleInput("\x1b");
 				},
 			},
@@ -59,11 +66,14 @@ describe("task graph TUI", () => {
 
 		await showTaskGraph(ctx, graph);
 
+		expect(executionLines.join("\n")).toContain("Task graph · execution");
+		expect(executionLines.join("\n")).toContain("ready");
 		expect(dependencyLines.join("\n")).toContain("Task graph · dependencies");
 		expect(dependencyLines.join("\n")).toContain("OpenRouter telemetry");
 		expect(compositionLines.join("\n")).toContain("Task graph · composition");
 		expect(compositionLines.join("\n")).toContain("Router epic");
-		expect([...dependencyLines, ...compositionLines].every((line) => visibleWidth(line) <= 50)).toBe(true);
+		expect([...executionLines, ...dependencyLines, ...compositionLines].every((line) => visibleWidth(line) <= 50)).toBe(true);
+		expect(widthSafe).toBe(true);
 		expect(closed).toBe(true);
 	});
 });

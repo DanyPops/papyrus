@@ -11,7 +11,7 @@ import { projectTaskGraph, type TaskGraphView } from "../../src/task-graph-view.
 import type { TaskGraph } from "../../src/task-service.ts";
 import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
 
-const GRAPH_VIEWS: TaskGraphView[] = ["dependencies", "composition"];
+const GRAPH_VIEWS: TaskGraphView[] = ["execution", "dependencies", "composition"];
 
 export class TaskGraphViewport {
 	private viewIndex = 0;
@@ -88,8 +88,8 @@ export async function showTaskGraph(
 	renderer: GraphRenderer = new BeautifulMermaidRenderer(),
 ): Promise<void> {
 	if (ctx.mode !== "tui") {
-		const rendered = renderer.render(projectTaskGraph(graph, "dependencies"));
-		ctx.ui.notify(rendered.lines.join("\n") || "No task dependency relationships", "info");
+		const rendered = renderer.render(projectTaskGraph(graph, "execution"));
+		ctx.ui.notify(rendered.lines.join("\n") || "No tasks in the execution graph", "info");
 		return;
 	}
 	await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>

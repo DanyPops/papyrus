@@ -14,13 +14,17 @@ export { taskDetailsText } from "./task-detail-format.ts";
 export { showTaskDetails } from "./task-detail-view.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
-import type { TaskGraph } from "../../src/task-service.ts";
+import { projectTaskExecution } from "../../src/task-execution.ts";
+import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 
 const GLYPHS: Record<string, string> = {
 	pending: "○",
+	ready: "◇",
+	blocked: "○",
 	active: "●",
 	done: "■",
 	failed: "▲",
+	invalid: "!",
 };
 
 const STATUS_ACTIONS: Record<string, string[]> = {
@@ -105,10 +109,19 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			try {
 				const operation = choice === "Start" ? "tasks.start" : choice === "Fail" ? "tasks.fail" : choice === "Retry" ? "tasks.retry" : "tasks.complete";
 				if (operation === "tasks.complete") {
-					const result = await callService<Record<string, unknown>, { artifact: Artifact; gates: GateResult[]; completed: boolean }>(operation, { id: action.row.id });
+					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id });
 					action.row.status = result.artifact.status;
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
-					ctx.ui.notify(result.completed ? `Completed ${result.artifact.id}${gates ? `\n${gates}` : ""}` : `Not complete; gates failed\n${gates}`, result.completed ? "info" : "warning");
+					const started = result.started.length > 0 ? `\nStarted: ${result.started.map((task) => task.title).join(", ")}` : "";
+					const blocked = result.blocked.length > 0
+						? `\nWaiting: ${result.blocked.map((entry) => `${entry.artifact.title} needs ${entry.dependencyIds.join(", ")}`).join("; ")}`
+						: "";
+					ctx.ui.notify(
+						result.completed
+							? `Completed ${result.artifact.id}${started}${blocked}${gates ? `\n${gates}` : ""}`
+							: `Not complete; gates failed\n${gates}`,
+						result.completed ? "info" : "warning",
+					);
 				} else {
 					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id });
 					action.row.status = updated.status;
@@ -133,6 +146,7 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 		const searchInput = new Input();
 		const hierarchy = buildTaskHierarchy(graph);
 		const taskById = new Map(rows.map((task) => [task.id, task]));
+		const executionById = new Map(projectTaskExecution(graph).nodes.map((node) => [node.id, node]));
 		let searchActive = false;
 		let filtered = [...hierarchy];
 		let selectedIndex = 0;
@@ -148,10 +162,10 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 
 		function statusLine(): string {
 			const counts: Record<string, number> = {};
-			for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
-			return ["pending", "active", "done", "failed"]
-				.filter((s) => (counts[s] ?? 0) > 0)
-				.map((s) => `${GLYPHS[s] ?? s} ${counts[s]} ${s}`)
+			for (const node of executionById.values()) counts[node.state] = (counts[node.state] ?? 0) + 1;
+			return ["ready", "active", "blocked", "done", "failed", "invalid"]
+				.filter((state) => (counts[state] ?? 0) > 0)
+				.map((state) => `${GLYPHS[state] ?? state} ${counts[state]} ${state}`)
 				.join(", ");
 		}
 
@@ -196,14 +210,17 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 					const row = entry.task;
 					const selected = i === selectedIndex;
 					const cursor = selected ? theme.fg("accent", "❯") : " ";
-					const glyph = GLYPHS[row.status] ?? "?";
-					const statusColor = row.status === "active" ? "accent" : row.status === "done" ? "dim" : row.status === "failed" ? "warning" : "muted";
+					const execution = executionById.get(row.id);
+					const state = execution?.state ?? row.status;
+					const glyph = GLYPHS[state] ?? "?";
+					const statusColor = state === "active" || state === "ready" ? "accent" : state === "done" ? "dim" : state === "failed" || state === "invalid" ? "warning" : "muted";
 					const glyphStyled = theme.fg(statusColor, glyph);
 					const title = selected ? theme.bold(row.title) : row.title;
 					const indent = "  ".repeat(entry.depth);
 					const node = entry.childCount > 0 ? theme.fg("accent", "▾") : theme.fg("dim", "·");
 					const gates = (row.extra?.["gates"] as any[])?.length;
 					const relationParts: string[] = [];
+					if (execution) relationParts.push(execution.layer === null ? state : `layer ${execution.layer + 1} · ${state}`);
 					if (entry.childCount > 0) relationParts.push(`${entry.childCount} subtask${entry.childCount === 1 ? "" : "s"}`);
 					if (entry.dependencies.length > 0) {
 						const names = entry.dependencies.map((id) => taskById.get(id)?.title ?? id);

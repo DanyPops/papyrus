@@ -21,10 +21,10 @@ import {
 	listSkills,
 	skillInvocation,
 	transitionSkill,
-} from "../src/facades.ts";
+} from "../src/domain-services.ts";
 
 function fixture() {
-	const dir = mkdtempSync(join(tmpdir(), "papyrus-facade-"));
+	const dir = mkdtempSync(join(tmpdir(), "papyrus-domain-service-"));
 	const db = openDb(join(dir, "papyrus.db"));
 	const artifacts = new SQLiteArtifactStore(db);
 	return { db, dir, artifacts, tasks: new Tasks(artifacts, new SQLiteGateRunner(db)) };
@@ -73,7 +73,7 @@ describe("tasks application API", () => {
 	});
 });
 
-describe("rules facade", () => {
+describe("rules domain service", () => {
 	it("owns rule lifecycle, injection preview, and task gating", () => {
 		const { db, artifacts, tasks } = fixture();
 		const rule = createRule(artifacts, { title: "Test before commit", condition: "before commit", action: "Run bun test", severity: "block" });
@@ -88,7 +88,7 @@ describe("rules facade", () => {
 	});
 });
 
-describe("skills facade", () => {
+describe("skills domain service", () => {
 	it("owns skill lifecycle and invocation projection", () => {
 		const { db, artifacts } = fixture();
 		const skill = createSkill(artifacts, { title: "TDD workflow", trigger: "writing code", steps: ["Write failing test", "Implement"], tools: ["bun test"] });
@@ -111,7 +111,7 @@ describe("skills facade", () => {
 	});
 });
 
-describe("documents facade", () => {
+describe("documents domain service", () => {
 	it("owns document creation and lifecycle", () => {
 		const { db, artifacts } = fixture();
 		const document = createDocument(artifacts, { title: "Architecture", subtype: "design", labels: ["sqlite"] });

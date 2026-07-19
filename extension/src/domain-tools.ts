@@ -3,6 +3,8 @@ import { Type } from "typebox";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { PROOF_TYPES } from "../../src/domain/checklist.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
+import type { TaskExecutionPlan } from "../../src/task-execution.ts";
+import type { TaskCompletion } from "../../src/task-service.ts";
 import { callService } from "./service-client.ts";
 
 function text(message: string, details: Record<string, unknown> = {}) {
@@ -23,11 +25,11 @@ const checklistCriterionSchema = Type.Object({
 	proof: Type.Array(proofReferenceSchema, { minItems: 1 }),
 });
 
-export function registerFacadeTools(pi: ExtensionAPI): void {
+export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain facade. ACTIONS: create, list, show, start, complete (runs gates and refuses done on failure), fail, retry, run_gates, set_checklist, depend, contain. Checklist is an item-to-proof map; every item requires one or more typed evidence references. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, list, show, plan, start, complete (runs gates, refuses done on failure, and starts newly ready successors), fail, retry, run_gates, set_checklist, depend, contain. Dependency graphs support deterministic execution layers, fan-in, and fan-out; cycles are rejected. Checklist is an item-to-proof map; every item requires one or more typed evidence references. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -61,14 +63,31 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
 				}
+				if (action === "plan") {
+					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", params);
+					const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+					const lines = plan.layers.flatMap((layer, index) => [
+						`Layer ${index + 1}`,
+						...layer.map((id) => {
+							const node = byId.get(id);
+							return node ? `  [${node.state}] ${node.id} ${node.title}` : `  [unknown] ${id}`;
+						}),
+					]);
+					if (plan.cycleIds.length > 0) lines.push(`Invalid cycle: ${plan.cycleIds.join(", ")}`);
+					return text(lines.join("\n") || "No tasks in execution plan.", { plan });
+				}
 				if (action === "set_checklist") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_checklist", params);
 					return text(`Updated checklist: ${artifactLine(artifact)}`, { artifact });
 				}
 				if (action === "complete") {
-					const result = await callService<Record<string, unknown>, { artifact: Artifact; gates: GateResult[]; completed: boolean }>("tasks.complete", params);
+					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", params);
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
-					return text(`${result.completed ? "Completed" : "Not completed"}: ${artifactLine(result.artifact)}${gates ? `\n${gates}` : ""}`, { ...result });
+					const started = result.started.length > 0 ? `\nStarted: ${result.started.map(artifactLine).join(", ")}` : "";
+					const blocked = result.blocked.length > 0
+						? `\nBlocked: ${result.blocked.map((entry) => `${artifactLine(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
+						: "";
+					return text(`${result.completed ? "Completed" : "Not completed"}: ${artifactLine(result.artifact)}${started}${blocked}${gates ? `\n${gates}` : ""}`, { ...result });
 				}
 				if (action === "run_gates") {
 					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", params);
@@ -88,7 +107,7 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "docs",
 		label: "Documents",
-		description: "Document domain facade. ACTIONS: create, list, show, activate, archive, reopen, link. Prefer this over low-level papyrus_* tools for document work.",
+		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link. Prefer this over low-level papyrus_* tools for document work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -133,7 +152,7 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "rules",
 		label: "Rules",
-		description: "Rule domain facade. ACTIONS: create, list, show, preview, enable, disable, gate. Active rules inject into the agent system prompt.",
+		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate. Active rules inject into the agent system prompt.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
@@ -170,7 +189,7 @@ export function registerFacadeTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
-		description: "Skill and artifact-template domain facade. ACTIONS: create, create_template, list, show, invoke, enable, disable, instantiate.",
+		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, enable, disable, instantiate.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),

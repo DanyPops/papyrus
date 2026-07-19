@@ -1,7 +1,17 @@
 import type { DisplayGraph, DisplayGraphEdge } from "./domain/display-graph.ts";
+import { projectTaskExecution, type TaskExecutionState } from "./task-execution.ts";
 import type { TaskGraph } from "./task-service.ts";
 
-export type TaskGraphView = "dependencies" | "composition";
+export type TaskGraphView = "execution" | "dependencies" | "composition";
+
+const EXECUTION_GLYPHS: Record<TaskExecutionState, string> = {
+	done: "■",
+	active: "●",
+	ready: "◇",
+	blocked: "○",
+	failed: "▲",
+	invalid: "!",
+};
 
 export function projectTaskGraph(graph: TaskGraph, view: TaskGraphView): DisplayGraph {
 	const edges: DisplayGraphEdge[] = [];
@@ -14,7 +24,7 @@ export function projectTaskGraph(graph: TaskGraph, view: TaskGraphView): Display
 	};
 
 	for (const node of graph.nodes) {
-		if (view === "dependencies") {
+		if (view === "execution" || view === "dependencies") {
 			for (const dependencyId of node.dependencyIds) {
 				addEdge({ from: dependencyId, to: node.task.id, label: "unlocks" });
 			}
@@ -23,12 +33,21 @@ export function projectTaskGraph(graph: TaskGraph, view: TaskGraphView): Display
 		}
 	}
 
-	const connected = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
+	const connected = view === "execution"
+		? new Set(graph.nodes.map((node) => node.task.id))
+		: new Set(edges.flatMap((edge) => [edge.from, edge.to]));
+	const nodes = view === "execution"
+		? projectTaskExecution(graph).nodes.map((node) => ({
+			id: node.id,
+			label: `${EXECUTION_GLYPHS[node.state]} ${node.title} · ${node.layer === null ? "no layer" : `layer ${node.layer + 1}`} · ${node.state}`,
+			status: node.state,
+		}))
+		: graph.nodes
+			.filter((node) => connected.has(node.task.id))
+			.map((node) => ({ id: node.task.id, label: node.task.title, status: node.task.status }));
 	return {
 		direction: "TD",
-		nodes: graph.nodes
-			.filter((node) => connected.has(node.task.id))
-			.map((node) => ({ id: node.task.id, label: node.task.title, status: node.task.status })),
+		nodes,
 		edges: edges.filter((edge) => connected.has(edge.from) && connected.has(edge.to)),
 	};
 }

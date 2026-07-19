@@ -20,13 +20,14 @@ function request(app: { fetch(request: Request): Promise<Response> }, path: stri
 }
 
 describe("Papyrus operation service", () => {
-	it("registers a service operation for every low-level and current facade action", () => {
+	it("registers a service operation for every low-level and current domain action", () => {
 		const { service } = fixture();
 		expect(service.operationNames()).toEqual([...EXPECTED_OPERATION_NAMES]);
 		expect(EXPECTED_OPERATION_NAMES).toContain("artifact.create");
 		expect(EXPECTED_OPERATION_NAMES).toContain("graph.tree");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.complete");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.graph");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.plan");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.set_checklist");
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
 		expect(EXPECTED_OPERATION_NAMES).toContain("rules.preview");
@@ -72,6 +73,41 @@ describe("Papyrus operation service", () => {
 
 		const operations = await request(app, "/api/v1/ops");
 		expect((await operations.json()) as unknown).toEqual({ operations: EXPECTED_OPERATION_NAMES });
+		service.close();
+	});
+
+	it("exposes execution plans and gated successor advancement", async () => {
+		const { service } = fixture();
+		const prerequisite = await service.execute("tasks.create", { title: "Prerequisite", status: "active" }) as { id: string };
+		const left = await service.execute("tasks.create", { title: "Left", depends_on: [prerequisite.id] }) as { id: string };
+		const right = await service.execute("tasks.create", { title: "Right", depends_on: [prerequisite.id] }) as { id: string };
+
+		const before = await service.execute("tasks.plan", {}) as {
+			layers: string[][];
+			nodes: Array<{ id: string; state: string }>;
+		};
+		expect(before.layers[0]).toEqual([prerequisite.id]);
+		expect([...before.layers[1]!].sort()).toEqual([left.id, right.id].sort());
+		expect((await service.execute("tasks.plan", {}) as { layers: string[][] }).layers).toEqual(before.layers);
+		expect(before.nodes.find((node) => node.id === left.id)?.state).toBe("blocked");
+
+		const completion = await service.execute("tasks.complete", { id: prerequisite.id }) as {
+			completed: boolean;
+			started: Array<{ id: string; status: string }>;
+		};
+		expect(completion.completed).toBe(true);
+		expect(completion.started.map((task) => task.id)).toEqual([left.id, right.id]);
+		expect(completion.started.every((task) => task.status === "active")).toBe(true);
+		service.close();
+	});
+
+	it("rejects dependency cycles through the daemon boundary", async () => {
+		const { service } = fixture();
+		const first = await service.execute("tasks.create", { title: "First" }) as { id: string };
+		const second = await service.execute("tasks.create", { title: "Second", depends_on: [first.id] }) as { id: string };
+
+		await expect(service.execute("tasks.depend", { id: first.id, dependency_id: second.id })).rejects.toThrow("dependency cycle");
+		await expect(service.execute("graph.link", { from: first.id, relation: "depends_on", to: second.id })).rejects.toThrow("dependency cycle");
 		service.close();
 	});
 

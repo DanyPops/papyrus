@@ -234,10 +234,14 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				if (action === "run") {
 					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", params);
-					return text(
-						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs. Ready roots: ${run.rootTaskIds.join(", ") || "none"}.`,
-						{ run },
-					);
+					const execution = run.execution.nodes.map((node) => `  [${node.state}] ${node.id} ${node.title}`).join("\n");
+					return text([
+						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs.`,
+						`Ready roots: ${run.rootTaskIds.join(", ") || "none"}.`,
+						`Context docs: ${run.created.docs.join(", ") || "none"}.`,
+						`Scoped rules: ${run.created.rules.join(", ") || "none"}.`,
+						...(execution ? ["Execution:", execution] : []),
+					].join("\n"), { run });
 				}
 				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate" } as const;
 				const operation = operations[action as keyof typeof operations];

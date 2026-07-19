@@ -1,8 +1,10 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
+import type { TaskGraph } from "../../src/task-service.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { callService } from "./service-client.ts";
+import { showTaskGraph } from "./task-graph.ts";
 
 const SKILL_GLYPHS: Record<string, string> = { active: "●", deprecated: "○" };
 
@@ -51,6 +53,20 @@ export function skillInvocationPrompt(skill: Artifact): string {
 	].join("\n");
 }
 
+export function skillRunTaskGraph(run: SkillWorkflowRunResult, taskArtifacts: Artifact[]): TaskGraph {
+	const executionById = new Map(run.execution.nodes.map((node) => [node.id, node]));
+	return {
+		nodes: taskArtifacts.map((task) => ({
+			task,
+			active: executionById.get(task.id)?.active === true,
+			parentIds: [],
+			childIds: [],
+			dependencyIds: executionById.get(task.id)?.prerequisiteIds ?? [],
+		})),
+		rootIds: run.rootTaskIds,
+	};
+}
+
 export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 	await showArtifactBrowser(ctx, {
 		kind: "skill",
@@ -78,7 +94,14 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 						id: skill.id,
 						arguments: arguments_ as Record<string, unknown>,
 					});
-					commandCtx.ui.notify(`Created ${run.runId} · ${run.created.tasks.length} tasks · ${run.rootTaskIds.length} ready roots`, "info");
+					commandCtx.ui.notify([
+						`Created ${run.runId} · ${run.created.tasks.length} tasks · ${run.rootTaskIds.length} ready roots`,
+						`Context docs: ${run.created.docs.join(", ") || "none"}`,
+						`Scoped rules: ${run.created.rules.join(", ") || "none"}`,
+					].join("\n"), "info");
+					const taskArtifacts = await Promise.all(run.execution.nodes.map((node) =>
+						callService<Record<string, unknown>, Artifact>("tasks.show", { id: node.id })));
+					await showTaskGraph(commandCtx, skillRunTaskGraph(run, taskArtifacts));
 				} catch (error) {
 					commandCtx.ui.notify(`Workflow run failed: ${error instanceof Error ? error.message : error}`, "error");
 				}

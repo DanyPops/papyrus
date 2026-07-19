@@ -1,12 +1,22 @@
 import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import type { TaskGraph } from "./task-service.ts";
 
-export type TaskExecutionState = "done" | "active" | "ready" | "blocked" | "failed" | "invalid";
+export type TaskExecutionState =
+	| "todo"
+	| "in-progress"
+	| "review"
+	| "rejected"
+	| "done"
+	| "canceled"
+	| "ready"
+	| "blocked"
+	| "invalid";
 
 export interface TaskExecutionNode {
 	id: string;
 	title: string;
 	status: string;
+	active: boolean;
 	state: TaskExecutionState;
 	layer: number | null;
 	prerequisiteIds: string[];
@@ -21,8 +31,10 @@ export interface TaskExecutionPlan {
 
 function executionState(status: string, invalid: boolean, prerequisitesDone: boolean): TaskExecutionState {
 	if (invalid) return "invalid";
-	if (status === "done" || status === "active" || status === "failed") return status;
-	if (status === "pending" && prerequisitesDone) return "ready";
+	if (status === "todo") return prerequisitesDone ? "ready" : "blocked";
+	if (["in-progress", "review", "rejected", "done", "canceled"].includes(status)) {
+		return status as TaskExecutionState;
+	}
 	return "blocked";
 }
 
@@ -96,6 +108,7 @@ export function projectTaskExecution(graph: TaskGraph): TaskExecutionPlan {
 				id: node.task.id,
 				title: node.task.title,
 				status: node.task.status,
+				active: node.active === true,
 				state,
 				layer: layerById.get(node.task.id) ?? null,
 				prerequisiteIds,

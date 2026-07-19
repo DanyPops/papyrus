@@ -10,8 +10,17 @@ import type { GraphRenderer } from "../../src/ports/graph-renderer.ts";
 import { projectTaskGraph, type TaskGraphView } from "../../src/task-graph-view.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
 import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
+import { TASK_STATUS_PRESENTATION } from "./task-presentation.ts";
 
 const GRAPH_VIEWS: TaskGraphView[] = ["execution", "dependencies", "composition"];
+
+export function colorizeTaskGraphLine(theme: Theme, line: string): string {
+	let colored = line;
+	for (const presentation of Object.values(TASK_STATUS_PRESENTATION)) {
+		colored = colored.replaceAll(presentation.glyph, theme.fg(presentation.color, presentation.glyph));
+	}
+	return colored.replaceAll("▶", theme.fg("accent", "▶"));
+}
 
 export class TaskGraphViewport {
 	private viewIndex = 0;
@@ -51,7 +60,8 @@ export class TaskGraphViewport {
 			truncateToWidth(this.theme.bold(`Task graph · ${GRAPH_VIEWS[this.viewIndex]}`), contentWidth, ""),
 			truncateToWidth(this.theme.fg("dim", `Tab switch · arrows pan · Esc back${position}`), contentWidth, ""),
 			border,
-			...this.graphLines.slice(this.offsetY, end).map((line) => sliceByColumn(line, this.offsetX, contentWidth, true)),
+			...this.graphLines.slice(this.offsetY, end).map((line) =>
+				colorizeTaskGraphLine(this.theme, sliceByColumn(line, this.offsetX, contentWidth, true))),
 			border,
 		];
 	}

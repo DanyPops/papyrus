@@ -15,23 +15,16 @@ export { showTaskDetails } from "./task-detail-view.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import { projectTaskExecution } from "../../src/task-execution.ts";
-import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
-
-const GLYPHS: Record<string, string> = {
-	pending: "○",
-	ready: "◇",
-	blocked: "○",
-	active: "●",
-	done: "■",
-	failed: "▲",
-	invalid: "!",
-};
+import type { TaskCompletion, TaskGraph, TaskStatus } from "../../src/task-service.ts";
+import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 
 const STATUS_ACTIONS: Record<string, string[]> = {
-	pending: ["Start", "Fail"],
-	active: ["Complete (run gates)", "Fail"],
+	todo: ["Start", "Cancel"],
+	"in-progress": ["Submit for review", "Cancel"],
+	review: ["Complete review", "Reject", "Cancel"],
+	rejected: ["Retry", "Cancel"],
 	done: [],
-	failed: ["Retry"],
+	canceled: [],
 };
 
 type TaskRow = Artifact;
@@ -41,6 +34,7 @@ export interface TaskHierarchyRow {
 	depth: number;
 	childCount: number;
 	dependencies: string[];
+	active: boolean;
 }
 
 export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
@@ -53,7 +47,7 @@ export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
 		if (!node) return;
 		visited.add(id);
 		const children = node.childIds.filter((childId) => byId.has(childId));
-		result.push({ task: node.task, depth, childCount: children.length, dependencies: [...node.dependencyIds] });
+		result.push({ task: node.task, depth, childCount: children.length, dependencies: [...node.dependencyIds], active: node.active === true });
 		for (const childId of children) visit(childId, depth + 1);
 	};
 	for (const rootId of graph.rootIds) visit(rootId, 0);
@@ -90,7 +84,13 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
 		if (action.type !== "action" || !action.row) continue;
 
-		const choices = ["Show details", "Run gates", ...(STATUS_ACTIONS[action.row.status] ?? [])];
+		const active = graph.nodes.find((node) => node.task.id === action.row!.id)?.active === true;
+		const choices = [
+			"Show details",
+			...(!active && action.row.status !== "done" && action.row.status !== "canceled" ? ["Make active"] : []),
+			...(action.row.status === "review" ? ["Run gates"] : []),
+			...(STATUS_ACTIONS[action.row.status] ?? []),
+		];
 		const choice = await ctx.ui.select(action.row.title, choices);
 		if (!choice) continue;
 
@@ -98,6 +98,13 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });
 			if (!art) { ctx.ui.notify("Not found", "error"); continue; }
 			await showTaskDetails(ctx, art, graph);
+		} else if (choice === "Make active") {
+			try {
+				await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id });
+				ctx.ui.notify(`Active: ${action.row.title}`, "info");
+			} catch (error) {
+				ctx.ui.notify(`Focus failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
 		} else if (choice === "Run gates") {
 			try {
 				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id: action.row.id });
@@ -107,19 +114,30 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else {
 			try {
-				const operation = choice === "Start" ? "tasks.start" : choice === "Fail" ? "tasks.fail" : choice === "Retry" ? "tasks.retry" : "tasks.complete";
+				const operation = choice === "Start"
+					? "tasks.start"
+					: choice === "Submit for review"
+						? "tasks.submit"
+						: choice === "Reject"
+							? "tasks.reject"
+							: choice === "Retry"
+								? "tasks.retry"
+								: choice === "Cancel"
+									? "tasks.cancel"
+									: "tasks.complete";
 				if (operation === "tasks.complete") {
 					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id });
 					action.row.status = result.artifact.status;
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
-					const started = result.started.length > 0 ? `\nStarted: ${result.started.map((task) => task.title).join(", ")}` : "";
+					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}`).join("\n");
+					const focused = result.focused ? `\nActive: ${result.focused.title}` : "";
 					const blocked = result.blocked.length > 0
 						? `\nWaiting: ${result.blocked.map((entry) => `${entry.artifact.title} needs ${entry.dependencyIds.join(", ")}`).join("; ")}`
 						: "";
 					ctx.ui.notify(
 						result.completed
-							? `Completed ${result.artifact.id}${started}${blocked}${gates ? `\n${gates}` : ""}`
-							: `Not complete; gates failed\n${gates}`,
+							? `Completed ${result.artifact.id}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`
+							: `Review rejected${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`,
 						result.completed ? "info" : "warning",
 					);
 				} else {
@@ -162,11 +180,15 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 
 		function statusLine(): string {
 			const counts: Record<string, number> = {};
-			for (const node of executionById.values()) counts[node.state] = (counts[node.state] ?? 0) + 1;
-			return ["ready", "active", "blocked", "done", "failed", "invalid"]
-				.filter((state) => (counts[state] ?? 0) > 0)
-				.map((state) => `${GLYPHS[state] ?? state} ${counts[state]} ${state}`)
-				.join(", ");
+			for (const entry of hierarchy) counts[entry.task.status] = (counts[entry.task.status] ?? 0) + 1;
+			const parts = hierarchy.some((entry) => entry.active) ? ["▶ 1 active"] : [];
+			for (const status of ["todo", "in-progress", "review", "rejected", "done", "canceled"] as TaskStatus[]) {
+				if ((counts[status] ?? 0) > 0) {
+					const presentation = TASK_STATUS_PRESENTATION[status];
+					parts.push(`${presentation.glyph} ${counts[status]} ${presentation.label}`);
+				}
+			}
+			return parts.join(", ");
 		}
 
 		const header = {
@@ -210,14 +232,29 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 					const row = entry.task;
 					const selected = i === selectedIndex;
 					const cursor = selected ? theme.fg("accent", "❯") : " ";
+					const focus = entry.active ? theme.fg("accent", "▶") : " ";
 					const execution = executionById.get(row.id);
 					const state = execution?.state ?? row.status;
-					const glyph = GLYPHS[state] ?? "?";
-					const statusColor = state === "active" || state === "ready" ? "accent" : state === "done" ? "dim" : state === "failed" || state === "invalid" ? "warning" : "muted";
-					const glyphStyled = theme.fg(statusColor, glyph);
+					const presentation = TASK_STATUS_PRESENTATION[row.status as TaskStatus];
+					const glyphStyled = state === "invalid"
+						? theme.fg("error", "!")
+						: presentation
+							? theme.fg(presentation.color, presentation.glyph)
+							: theme.fg("muted", "?");
 					const title = selected ? theme.bold(row.title) : row.title;
-					const indent = "  ".repeat(entry.depth);
-					const node = entry.childCount > 0 ? theme.fg("accent", "▾") : theme.fg("dim", "·");
+					let laterSibling = false;
+					for (let candidate = i + 1; candidate < filtered.length; candidate++) {
+						if (filtered[candidate]!.depth < entry.depth) break;
+						if (filtered[candidate]!.depth === entry.depth) { laterSibling = true; break; }
+					}
+					const connector = taskTreeConnector({
+						depth: entry.depth,
+						hasChildren: entry.childCount > 0,
+						hasLaterSibling: laterSibling,
+					});
+					const node = entry.depth === 0 && entry.childCount > 0
+						? theme.fg("accent", connector)
+						: theme.fg("dim", connector);
 					const gates = (row.extra?.["gates"] as any[])?.length;
 					const relationParts: string[] = [];
 					if (execution) relationParts.push(execution.layer === null ? state : `layer ${execution.layer + 1} · ${state}`);
@@ -228,7 +265,7 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 					}
 					if (gates) relationParts.push(`${gates} gate${gates === 1 ? "" : "s"}`);
 					const relationText = relationParts.length > 0 ? theme.fg("dim", ` · ${relationParts.join(" · ")}`) : "";
-					lines.push(truncateToWidth(`${cursor} ${indent}${node} ${glyphStyled} ${title}${relationText}`, width, ""));
+					lines.push(truncateToWidth(`${cursor}${focus} ${node} ${glyphStyled} ${title}${relationText}`, width, ""));
 				}
 				const hasScroll = start > 0 || end < filtered.length;
 				lines.push(theme.fg("muted", `  ${hasScroll ? `${selectedIndex + 1}/${filtered.length} · ` : ""}↑/↓ navigate · Enter actions`));

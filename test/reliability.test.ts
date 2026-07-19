@@ -72,6 +72,7 @@ describe("SQLite daemon reliability", () => {
 			gates: [{ type: "command", target: "sleep 0.1" }],
 		});
 		tasks.transition(task.id, "start");
+		tasks.transition(task.id, "submit");
 		let timerFired = false;
 		setTimeout(() => { timerFired = true; }, 10);
 		const completion = await tasks.completeAsync(task.id);

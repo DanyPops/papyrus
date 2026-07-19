@@ -9,7 +9,7 @@ const task: Artifact = {
 	id: "build-router-n23w",
 	kind: "task",
 	title: "Build token router",
-	status: "active",
+	status: "in-progress",
 	subtype: "",
 	body: "Route requests without overspending.",
 	labels: ["jittor"],

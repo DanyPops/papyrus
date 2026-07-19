@@ -8,7 +8,7 @@ function task(id: string, title: string): Artifact {
 		id,
 		kind: "task",
 		title,
-		status: "pending",
+		status: "todo",
 		subtype: "",
 		body: "",
 		labels: [],

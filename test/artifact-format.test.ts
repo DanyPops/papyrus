@@ -9,7 +9,7 @@ describe("nested artifact metadata formatter", () => {
 				{
 					title: "Implement browser",
 					status: "done",
-					children: [{ title: "Wire command", status: "pending" }],
+					children: [{ title: "Wire command", status: "todo" }],
 				},
 			],
 		});

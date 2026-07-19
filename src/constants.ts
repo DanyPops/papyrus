@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 1;
+export const SQLITE_SCHEMA_VERSION = 2;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
@@ -17,9 +17,9 @@ export const GATE_OUTPUT_LIMIT = 200;
 export const GATE_MAX_BUFFER_BYTES = 1_048_576;
 
 /** Compact task-context limits keep recurring prompt injection bounded. */
-export const TASK_CONTEXT_ACTIVE_LIMIT = 3;
-export const TASK_CONTEXT_FAILED_LIMIT = 3;
-export const TASK_WIDGET_ACTIVE_LIMIT = 3;
+export const TASK_CONTEXT_CURRENT_LIMIT = 3;
+export const TASK_CONTEXT_REJECTED_LIMIT = 3;
+export const TASK_WIDGET_OPEN_LIMIT = 3;
 export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
 export const TASK_DETAIL_MAX_VISIBLE_LINES = 24;
 export const TASK_DETAIL_RESERVED_ROWS = 8;
@@ -32,8 +32,7 @@ export const TASK_GRAPH_HORIZONTAL_PAN_COLUMNS = 4;
 export const TASK_EXECUTION_MAX_NODES = 1_000;
 export const TASK_EXECUTION_MAX_EDGES = 10_000;
 export const TASK_EXECUTION_MAX_DEGREE = 100;
-/** Bounded automatic Pi continuations while active Papyrus Tasks remain. */
-export const TASK_DRIVER_ACTIVE_LIMIT = 4;
+/** Bounded automatic Pi continuations while a focused Papyrus Task remains. */
 export const TASK_DRIVER_MAX_TURNS = 20;
 export const TASK_DRIVER_MAX_UNCHANGED_TURNS = 6;
 export const GRAPH_RENDER_PADDING_X = 2;
@@ -58,7 +57,7 @@ export const TASK_RECONCILIATION_INSTRUCTION = [
 	'• For each current task, ask: "Did we accomplish this task?"',
 	"• If yes, run its gates before marking it done; a claim is not verification.",
 	"• If no, continue with the next concrete action toward its desired state.",
-	"• Address blocked work or explicitly leave it failed with the reason.",
+	"• Address blocked work or explicitly move failed review to rejected with the reason.",
 ].join("\n");
 
 /** $XDG_DATA_HOME/papyrus/papyrus.db */
@@ -88,10 +87,12 @@ export const SEED_STATUSES = [
 	{ name: "draft", kind: "doc" },
 	{ name: "active", kind: "doc" },
 	{ name: "archived", kind: "doc" },
-	{ name: "pending", kind: "task" },
-	{ name: "active", kind: "task" },
+	{ name: "todo", kind: "task" },
+	{ name: "in-progress", kind: "task" },
+	{ name: "review", kind: "task" },
+	{ name: "rejected", kind: "task" },
 	{ name: "done", kind: "task" },
-	{ name: "failed", kind: "task" },
+	{ name: "canceled", kind: "task" },
 	{ name: "active", kind: "rule" },
 	{ name: "deprecated", kind: "rule" },
 	{ name: "active", kind: "skill" },

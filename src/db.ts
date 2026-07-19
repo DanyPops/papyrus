@@ -74,6 +74,11 @@ CREATE TABLE IF NOT EXISTS relation_names (
 	name        TEXT PRIMARY KEY,
 	description TEXT
 );
+CREATE TABLE IF NOT EXISTS task_focus (
+	scope       TEXT PRIMARY KEY CHECK (scope = 'global'),
+	task_id     TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	updated_at  TEXT NOT NULL
+);
 `;
 
 const SEED_SQL = `
@@ -84,10 +89,12 @@ INSERT OR IGNORE INTO kinds VALUES ('skill','Parameterized workflow bundle — i
 INSERT OR IGNORE INTO statuses VALUES ('draft','doc');
 INSERT OR IGNORE INTO statuses VALUES ('active','doc');
 INSERT OR IGNORE INTO statuses VALUES ('archived','doc');
-INSERT OR IGNORE INTO statuses VALUES ('pending','task');
-INSERT OR IGNORE INTO statuses VALUES ('active','task');
+INSERT OR IGNORE INTO statuses VALUES ('todo','task');
+INSERT OR IGNORE INTO statuses VALUES ('in-progress','task');
+INSERT OR IGNORE INTO statuses VALUES ('review','task');
+INSERT OR IGNORE INTO statuses VALUES ('rejected','task');
 INSERT OR IGNORE INTO statuses VALUES ('done','task');
-INSERT OR IGNORE INTO statuses VALUES ('failed','task');
+INSERT OR IGNORE INTO statuses VALUES ('canceled','task');
 INSERT OR IGNORE INTO statuses VALUES ('active','rule');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','rule');
 INSERT OR IGNORE INTO statuses VALUES ('active','skill');
@@ -107,23 +114,64 @@ INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a pa
 CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
 `;
 
-function migrate(db: Db): void {
-	const row = db.prepare("PRAGMA user_version").get() as { user_version: number };
-	let version = row.user_version;
-	if (version > SQLITE_SCHEMA_VERSION) {
-		throw new Error(`database schema ${version} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
+export interface MigrationResult {
+	from: number;
+	to: number;
+	applied: string[];
+}
+
+export function schemaVersion(db: Db): number {
+	return (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+}
+
+function bootstrapEmptyDatabase(db: Db): void {
+	const existing = db
+		.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1")
+		.get();
+	if (existing) throw new Error("database schema is unversioned; refusing to migrate existing data during boot");
+	inTransaction(db, () => {
+		db.exec(SCHEMA);
+		db.exec(SEED_SQL);
+		db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
+	});
+}
+
+export function migrateDb(db: Db): MigrationResult {
+	const from = schemaVersion(db);
+	if (from > SQLITE_SCHEMA_VERSION) {
+		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
-	if (version < 1) {
-		inTransaction(db, () => {
-			db.exec(SCHEMA);
-			db.exec(SEED_SQL);
-			db.exec("PRAGMA user_version = 1");
-		});
-		version = 1;
-	}
-	if (version !== SQLITE_SCHEMA_VERSION) {
-		throw new Error(`missing migration from schema ${version} to ${SQLITE_SCHEMA_VERSION}`);
-	}
+	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
+	if (from !== 1) throw new Error(`no explicit migration path from database schema ${from}`);
+
+	inTransaction(db, () => {
+		db.exec(`
+			INSERT OR IGNORE INTO statuses VALUES ('todo','task');
+			INSERT OR IGNORE INTO statuses VALUES ('in-progress','task');
+			INSERT OR IGNORE INTO statuses VALUES ('review','task');
+			INSERT OR IGNORE INTO statuses VALUES ('rejected','task');
+			INSERT OR IGNORE INTO statuses VALUES ('done','task');
+			INSERT OR IGNORE INTO statuses VALUES ('canceled','task');
+			CREATE TABLE task_focus (
+				scope TEXT PRIMARY KEY CHECK (scope = 'global'),
+				task_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+				updated_at TEXT NOT NULL
+			);
+			INSERT INTO task_focus (scope, task_id, updated_at)
+			SELECT 'global', id, strftime('%Y-%m-%dT%H:%M:%fZ','now')
+			FROM artifacts WHERE kind = 'task' AND status = 'active'
+			ORDER BY updated_at DESC, id ASC LIMIT 1;
+			UPDATE artifacts SET status = CASE status
+				WHEN 'pending' THEN 'todo'
+				WHEN 'active' THEN 'in-progress'
+				WHEN 'failed' THEN 'rejected'
+				ELSE status END
+			WHERE kind = 'task';
+			DELETE FROM statuses WHERE kind = 'task' AND name IN ('pending', 'active', 'failed');
+			PRAGMA user_version = 2;
+		`);
+	});
+	return { from, to: SQLITE_SCHEMA_VERSION, applied: ["task-lifecycle-and-focus"] };
 }
 
 export function openDb(path: string): Db {
@@ -132,7 +180,12 @@ export function openDb(path: string): Db {
 	db.exec("PRAGMA foreign_keys = ON");
 	db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
 	if (path !== ":memory:") db.exec("PRAGMA journal_mode = WAL");
-	migrate(db);
+	const current = schemaVersion(db);
+	if (current > SQLITE_SCHEMA_VERSION) {
+		db.close();
+		throw new Error(`database schema ${current} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
+	}
+	if (current === 0) bootstrapEmptyDatabase(db);
 	db.exec("PRAGMA optimize=0x10002");
 	return db;
 }

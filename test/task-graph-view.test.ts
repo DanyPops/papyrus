@@ -9,7 +9,7 @@ function artifact(id: string, title: string): Artifact {
 		id,
 		kind: "task",
 		title,
-		status: "pending",
+		status: "todo",
 		subtype: "",
 		body: "",
 		labels: [],
@@ -55,6 +55,7 @@ describe("task graph projection", () => {
 			...graph,
 			nodes: graph.nodes.map((entry) => ({
 				...entry,
+				active: entry.task.id === "policy",
 				task: { ...entry.task, status: entry.task.id === "telemetry" ? "done" : entry.task.status },
 			})),
 		};
@@ -66,7 +67,7 @@ describe("task graph projection", () => {
 			status: "done",
 		});
 		expect(display.nodes.find((entry) => entry.id === "policy")).toMatchObject({
-			label: "◇ Budget policy · layer 2 · ready",
+			label: "▶ ◇ Budget policy · layer 2 · ready",
 			status: "ready",
 		});
 		expect(display.nodes.find((entry) => entry.id === "actuator")).toMatchObject({
@@ -102,5 +103,6 @@ describe("Beautiful Mermaid graph renderer", () => {
 		expect(rendered.lines.join("\n")).toContain("OpenRouter telemetry");
 		expect(rendered.lines.join("\n")).toContain("Budget policy");
 		expect(rendered.lines.join("\n")).toContain("unlocks");
+		expect(rendered.lines.join("\n")).toMatch(/[┌┐└┘─│]/);
 	});
 });

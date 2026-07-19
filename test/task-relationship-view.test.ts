@@ -5,7 +5,7 @@ import type { TaskGraph } from "../src/task-service.ts";
 
 function task(id: string, title: string): Artifact {
 	return {
-		id, kind: "task", title, status: "pending", subtype: "", body: "", labels: [], extra: {},
+		id, kind: "task", title, status: "todo", subtype: "", body: "", labels: [], extra: {},
 		created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
 	};
 }
@@ -34,9 +34,9 @@ describe("task relationship graph projection", () => {
 		const display = projectTaskRelationships(selected, graph);
 
 		expect(display.nodes).toEqual([
-			{ id: "epic", label: "Token router", status: "pending" },
-			{ id: "adapter", label: "Codex telemetry adapter", status: "pending" },
-			{ id: "research", label: "Provider research", status: "pending" },
+			{ id: "epic", label: "Token router", status: "todo" },
+			{ id: "adapter", label: "Codex telemetry adapter", status: "todo" },
+			{ id: "research", label: "Provider research", status: "todo" },
 			{ id: "contracts", label: "contracts" },
 		]);
 		expect(display.edges).toEqual([

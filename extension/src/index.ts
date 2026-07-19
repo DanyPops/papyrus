@@ -36,7 +36,7 @@ const WIDGET_KEY = "pi-papyrus";
 
 export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjection, width: number): string[] {
 	if (projection.openTotal === 0) return [];
-	const lines: string[] = [];
+	const lines: string[] = [theme.fg("muted", `Tasks · ${projection.scopeLabel}`)];
 	for (let index = 0; index < projection.rows.length; index++) {
 		const row = projection.rows[index]!;
 		const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
@@ -54,6 +54,7 @@ class TaskOverlay {
 	private registered = false;
 	private tui: any | undefined;
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
+	private projectRoot: string | undefined;
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -63,9 +64,12 @@ class TaskOverlay {
 		}
 	}
 
+	setProjectRoot(projectRoot: string): void { this.projectRoot = projectRoot; }
+
 	async refresh(): Promise<void> {
+		if (!this.projectRoot) return;
 		try {
-			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500 });
+			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500, project_root: this.projectRoot });
 		} catch {
 			this.snapshot = { nodes: [], rootIds: [] };
 		}
@@ -116,6 +120,7 @@ class TaskOverlay {
 		this.registered = false;
 		this.tui = undefined;
 		this.uiCtx = undefined;
+		this.projectRoot = undefined;
 	}
 }
 
@@ -133,7 +138,7 @@ export default async function (pi: ExtensionAPI) {
 	const driveActiveTasks = async (ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
 		try {
-			const active = await callService<Record<string, never>, ActiveTaskMarker | null>("tasks.active", {});
+			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd });
 			const decision = taskContinuation.evaluate(active, {
 				idle: ctx.isIdle(),
 				pendingMessages: ctx.hasPendingMessages(),
@@ -174,10 +179,14 @@ export default async function (pi: ExtensionAPI) {
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			template_id: Type.Optional(Type.String({ description: "skill/artifact-template id whose defaults and requirements apply" })),
+			project_root: Type.Optional(Type.String({ description: "required for Tasks; defaults to Pi cwd" })),
 		}),
-		async execute(_id, params, _signal, _onUpdate, _ctx) {
+		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
-				const a = await callService<Record<string, unknown>, Artifact>("artifact.create", params);
+				const a = await callService<Record<string, unknown>, Artifact>("artifact.create", {
+					...params,
+					...(params.kind === "task" ? { project_root: params.project_root ?? ctx.cwd } : {}),
+				});
 				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, { id: a.id });
 			} catch (e) {
 				return text(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
@@ -309,6 +318,7 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("tasks", {
 		description: "Browse and manage Papyrus tasks (interactive)",
 		handler: async (_args, ctx) => {
+			overlay?.setProjectRoot(ctx.cwd);
 			await tasksModule.showTasks(ctx);
 			await overlay?.refresh();
 		},
@@ -332,6 +342,7 @@ export default async function (pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 		overlay ??= new TaskOverlay();
 		overlay.setUI(ctx.ui);
+		overlay.setProjectRoot(ctx.cwd);
 		await overlay.refresh();
 	});
 
@@ -360,11 +371,11 @@ export default async function (pi: ExtensionAPI) {
 	// The agent sees its open work items every turn. If there are rejected
 	// tasks, they're explicitly called out — the agent should address them.
 
-	pi.on("before_agent_start", async (event, _ctx) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		try {
 			const [rules, summary] = await Promise.all([
-				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", {}),
-				callService<Record<string, unknown>, string | null>("tasks.context", {}),
+				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd }),
+				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd }),
 			]);
 			let prompt = event.systemPrompt ?? "";
 			if (rules.length > 0) {

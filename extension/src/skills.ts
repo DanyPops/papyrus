@@ -93,6 +93,7 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", {
 						id: skill.id,
 						arguments: arguments_ as Record<string, unknown>,
+						project_root: commandCtx.cwd,
 					});
 					commandCtx.ui.notify([
 						`Created ${run.runId} · ${run.created.tasks.length} tasks · ${run.rootTaskIds.length} ready roots`,

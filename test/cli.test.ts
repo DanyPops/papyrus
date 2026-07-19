@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { runAutomationCli, runMigrationCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import type { OperationName } from "../src/service.ts";
 
+const PROJECT_ROOT = process.cwd();
+
 class FakeClient {
 	readonly calls: Array<{ operation: OperationName; input: Record<string, unknown> }> = [];
 	constructor(private readonly result: unknown) {}
@@ -12,12 +14,12 @@ class FakeClient {
 }
 
 describe("Papyrus migration CLI", () => {
-	it("routes the explicit task history migration through the daemon", async () => {
-		const client = new FakeClient({ from: 2, to: 3, applied: ["task-history"] });
-		expect(await runMigrationCli(["task-history", "--json"], client)).toBe(JSON.stringify({
-			from: 2,
-			to: 3,
-			applied: ["task-history"],
+	it("routes the explicit task scope migration through the daemon", async () => {
+		const client = new FakeClient({ from: 3, to: 4, applied: ["task-project-scope"] });
+		expect(await runMigrationCli(["task-scope", "--json"], client)).toBe(JSON.stringify({
+			from: 3,
+			to: 4,
+			applied: ["task-project-scope"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
 	});
@@ -49,7 +51,7 @@ describe("Papyrus Skill CLI", () => {
 		], client)).toBe(JSON.stringify(result));
 		expect(client.calls).toEqual([{
 			operation: "skills.run",
-			input: { id: "skill-1", arguments: { project: "Papyrus" }, run_id: "run-001" },
+			input: { id: "skill-1", arguments: { project: "Papyrus" }, project_root: PROJECT_ROOT, run_id: "run-001" },
 		}]);
 	});
 });
@@ -79,11 +81,23 @@ describe("Papyrus task CLI", () => {
 		expect(client.calls).toEqual([{ operation: "tasks.history", input: { id: "task", direction: "desc" } }]);
 	});
 
+	it("reads and persists project, focused-graph, and all-project scopes", async () => {
+		const current = new FakeClient({ mode: "project", label: "papyrus", projectRoot: PROJECT_ROOT });
+		expect(await runTaskCli(["scope"], current)).toBe("Task scope: papyrus");
+		expect(current.calls).toEqual([{ operation: "tasks.scope", input: { project_root: PROJECT_ROOT } }]);
+		const all = new FakeClient({ mode: "all", label: "All projects", projectRoot: PROJECT_ROOT });
+		expect(await runTaskCli(["scope", "all", "--json"], all)).toContain('"mode":"all"');
+		expect(all.calls).toEqual([{ operation: "tasks.set_scope", input: { project_root: PROJECT_ROOT, scope: "all" } }]);
+		const graph = new FakeClient({ mode: "graph", label: "papyrus · Epic", projectRoot: PROJECT_ROOT, rootTaskId: "epic" });
+		await runTaskCli(["scope", "graph", "epic"], graph);
+		expect(graph.calls).toEqual([{ operation: "tasks.set_scope", input: { project_root: PROJECT_ROOT, scope: "graph", root_task_id: "epic" } }]);
+	});
+
 	it("prints stable JSON for machine consumers", async () => {
 		const graph = { nodes: [{ dependencyIds: [], childIds: [] }], rootIds: ["root"] };
 		const graphClient = new FakeClient(graph);
 		expect(await runTaskCli(["graph", "--json"], graphClient)).toBe(JSON.stringify(graph));
-		expect(graphClient.calls).toEqual([{ operation: "tasks.graph", input: { limit: 1001 } }]);
+		expect(graphClient.calls).toEqual([{ operation: "tasks.graph", input: { limit: 1001, project_root: PROJECT_ROOT } }]);
 
 		const result = {
 			layers: [["root"], ["left", "right"]],
@@ -93,7 +107,7 @@ describe("Papyrus task CLI", () => {
 		const client = new FakeClient(result);
 
 		expect(await runTaskCli(["plan", "--json"], client)).toBe(JSON.stringify(result));
-		expect(client.calls).toEqual([{ operation: "tasks.plan", input: {} }]);
+		expect(client.calls).toEqual([{ operation: "tasks.plan", input: { project_root: PROJECT_ROOT } }]);
 	});
 
 	it("routes dependency and start mutations through authenticated task operations", async () => {
@@ -118,7 +132,7 @@ describe("Papyrus task CLI", () => {
 
 		const activeClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
 		expect(await runTaskCli(["active", "--json"], activeClient)).toBe(JSON.stringify({ id: "task", title: "Task", status: "todo" }));
-		expect(activeClient.calls).toEqual([{ operation: "tasks.active", input: {} }]);
+		expect(activeClient.calls).toEqual([{ operation: "tasks.active", input: { project_root: PROJECT_ROOT } }]);
 
 		for (const action of ["submit", "reject", "retry", "cancel"] as const) {
 			const lifecycleClient = new FakeClient({ id: "task", title: "Task", status: "review" });

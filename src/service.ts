@@ -5,12 +5,15 @@ import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
+import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { Checklist } from "./domain/checklist.ts";
 import type { TaskEventContext, TaskEventDirection } from "./domain/task-event.ts";
+import type { TaskViewMode } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
+import type { TaskScopeStore } from "./ports/task-scope-store.ts";
 import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
 import { TaskAutomationReconciler, taskAutomationSettings, type TaskAutomationSettings } from "./task-automation.ts";
@@ -57,6 +60,9 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.plan",
 	"tasks.show",
 	"tasks.history",
+	"tasks.scope",
+	"tasks.set_scope",
+	"tasks.assign_project",
 	"tasks.active",
 	"tasks.focus",
 	"tasks.start",
@@ -150,6 +156,7 @@ function handlers(
 	tasks: Tasks,
 	automation: TaskAutomationReconciler,
 	events: TaskEventStore,
+	scopes: TaskScopeStore,
 	migrate: () => unknown,
 ): Record<OperationName, OperationHandler> {
 	const eventContext = (input: OperationInput): TaskEventContext => ({
@@ -166,6 +173,9 @@ function handlers(
 		status: optionalString(input, "status"),
 		text: optionalString(input, "text"),
 		limit: optionalNumber(input, "limit"),
+		projectRoot: string(input, "project_root"),
+		scope: optionalString(input, "scope") as TaskViewMode | undefined,
+		rootTaskId: optionalString(input, "root_task_id"),
 	});
 	return {
 		"system.migrate": () => migrate(),
@@ -183,6 +193,8 @@ function handlers(
 				labels: normalized.labels,
 				extra: normalized.extra,
 				templateId: normalized.templateId,
+				projectRoot: string(input, "project_root"),
+				projectSource: "cwd",
 			}, eventContextFor(input, "artifact-api"));
 		},
 		"artifact.query": (input) => artifacts.query(input),
@@ -218,7 +230,7 @@ function handlers(
 				? tasks.runGates(id, eventContextFor(input, "gates-api"))
 				: gates.runAsync(id);
 		},
-		"rules.injectable": () => listInjectableRules(artifacts, tasks.active()?.id)
+		"rules.injectable": (input) => listInjectableRules(artifacts, tasks.active(taskFilter(input))?.id)
 			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
 		"tasks.create": (input) => tasks.create({
 			title: string(input, "title"),
@@ -231,6 +243,8 @@ function handlers(
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 			parentId: optionalString(input, "parent_id") ?? optionalString(input, "parentId"),
 			dependsOn: (input["depends_on"] ?? input["dependsOn"]) as string[] | undefined,
+			projectRoot: string(input, "project_root"),
+			projectSource: "cwd",
 		}, eventContext(input)),
 		"tasks.list": (input) => tasks.list(taskFilter(input)),
 		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
@@ -241,7 +255,18 @@ function handlers(
 			cursor: optionalNumber(input, "cursor"),
 			direction: optionalString(input, "direction") as TaskEventDirection | undefined,
 		}),
-		"tasks.active": () => tasks.active(),
+		"tasks.scope": (input) => tasks.scopeSelection(string(input, "project_root")),
+		"tasks.set_scope": (input) => tasks.setView(
+			string(input, "project_root"),
+			string(input, "scope") as TaskViewMode,
+			optionalString(input, "root_task_id"),
+		),
+		"tasks.assign_project": (input) => tasks.assignProject(
+			string(input, "id"),
+			string(input, "project_root"),
+			eventContext(input),
+		),
+		"tasks.active": (input) => tasks.active(taskFilter(input)),
 		"tasks.focus": (input) => tasks.focus(string(input, "id")),
 		"tasks.start": (input) => tasks.transition(string(input, "id"), "start", eventContext(input)),
 		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit", eventContext(input)),
@@ -252,7 +277,7 @@ function handlers(
 			if (typeof input["enabled"] !== "boolean") throw new Error("enabled must be a boolean");
 			return tasks.setAutomation(string(input, "id"), input["enabled"], eventContext(input));
 		},
-		"tasks.context": () => taskContext(artifacts, tasks.active()?.id),
+		"tasks.context": (input) => taskContext(artifacts, tasks.active()?.id, new Set(tasks.list(taskFilter(input)).map((task) => task.id))),
 		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
 		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
 		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel", eventContext(input)),
@@ -297,10 +322,24 @@ function handlers(
 		"skills.run": (input) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
 			runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
 			arguments: input["arguments"] as Record<string, unknown> | undefined,
-		}, { events, context: eventContextFor(input, "skill-run") }),
+		}, { events, scopes, projectRoot: string(input, "project_root"), context: eventContextFor(input, "skill-run") }),
 		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable"),
 		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable"),
-		"skills.instantiate": (input) => instantiateTemplate(artifacts, string(input, "template_id"), normalizeCreateInput(input)),
+		"skills.instantiate": (input) => {
+			const templateId = string(input, "template_id");
+			const template = artifacts.get(templateId);
+			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input));
+			return tasks.create({
+				title: optionalString(input, "title") as string,
+				body: optionalString(input, "body"),
+				status: optionalString(input, "status") as TaskStatus | undefined,
+				labels: input["labels"] as string[] | undefined,
+				extra: input["extra"] as Record<string, unknown> | undefined,
+				templateId,
+				projectRoot: string(input, "project_root"),
+				projectSource: "cwd",
+			}, eventContextFor(input, "template-instantiation"));
+		},
 	};
 }
 
@@ -310,9 +349,10 @@ export function createPapyrusService(path: string, options: { automation?: TaskA
 	const gates = new SQLiteGateRunner(db);
 	const focus = new SQLiteTaskFocusStore(db);
 	const events = new SQLiteTaskEventStore(db);
-	const tasks = new Tasks(artifacts, gates, focus, events);
+	const scopes = new SQLiteTaskScopeStore(db);
+	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const automation = new TaskAutomationReconciler(tasks, options.automation ?? taskAutomationSettings({}));
-	const registry = handlers(artifacts, gates, tasks, automation, events, () => migrateDb(db));
+	const registry = handlers(artifacts, gates, tasks, automation, events, scopes, () => migrateDb(db));
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
@@ -324,7 +364,7 @@ export function createPapyrusService(path: string, options: { automation?: TaskA
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
 			if (operation !== "system.migrate" && operation !== "automation.status" && state().migrationRequired) {
-				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-history`");
+				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-scope`");
 			}
 			return handler(input);
 		},

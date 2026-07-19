@@ -122,6 +122,20 @@ CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events
 BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events
 BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
+CREATE TABLE IF NOT EXISTS task_scopes (
+	task_id       TEXT PRIMARY KEY REFERENCES artifacts(id),
+	project_root  TEXT,
+	source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+	assigned_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_scopes_project_idx ON task_scopes(project_root, task_id);
+CREATE TABLE IF NOT EXISTS task_views (
+	project_root  TEXT PRIMARY KEY,
+	mode          TEXT NOT NULL CHECK (mode IN ('project', 'graph', 'all')),
+	root_task_id  TEXT REFERENCES artifacts(id),
+	updated_at    TEXT NOT NULL,
+	CHECK ((mode = 'graph' AND root_task_id IS NOT NULL) OR (mode != 'graph' AND root_task_id IS NULL))
+);
 `;
 
 const SEED_SQL = `
@@ -185,7 +199,7 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2 && from !== 3) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
 	inTransaction(db, () => {
@@ -242,6 +256,29 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 3;
 			`);
 			applied.push("task-history");
+		}
+		if (schemaVersion(db) === 3) {
+			db.exec(`
+				CREATE TABLE task_scopes (
+					task_id TEXT PRIMARY KEY REFERENCES artifacts(id),
+					project_root TEXT,
+					source TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+					assigned_at TEXT NOT NULL
+				);
+				CREATE INDEX task_scopes_project_idx ON task_scopes(project_root, task_id);
+				CREATE TABLE task_views (
+					project_root TEXT PRIMARY KEY,
+					mode TEXT NOT NULL CHECK (mode IN ('project', 'graph', 'all')),
+					root_task_id TEXT REFERENCES artifacts(id),
+					updated_at TEXT NOT NULL,
+					CHECK ((mode = 'graph' AND root_task_id IS NOT NULL) OR (mode != 'graph' AND root_task_id IS NULL))
+				);
+				INSERT INTO task_scopes (task_id, project_root, source, assigned_at)
+				SELECT id, NULL, 'unscoped', strftime('%Y-%m-%dT%H:%M:%fZ','now')
+				FROM artifacts WHERE kind = 'task';
+				PRAGMA user_version = 4;
+			`);
+			applied.push("task-project-scope");
 		}
 	});
 	return { from, to: schemaVersion(db), applied };

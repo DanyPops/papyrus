@@ -11,6 +11,8 @@ import {
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
+import type { TaskScopeStore } from "./ports/task-scope-store.ts";
+import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import { projectTaskExecution, type TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskGraph, TaskNode, TaskStatus } from "./task-service.ts";
@@ -117,9 +119,10 @@ export function instantiateSkillWorkflow(
 	artifacts: ArtifactStore,
 	skillId: string,
 	input: InstantiateSkillWorkflowInput = {},
-	history?: { events: TaskEventStore; context?: TaskEventContext },
+	history?: { events: TaskEventStore; scopes: TaskScopeStore; projectRoot: string; context?: TaskEventContext },
 ): SkillWorkflowRunResult {
 	const { definition } = requireWorkflowSkill(artifacts, skillId);
+	const projectRoot = history ? normalizeProjectRoot(history.projectRoot) : undefined;
 	const arguments_ = resolveSkillArguments(definition, input.arguments);
 	const rendered = renderDefinition(definition, arguments_);
 	const runId = normalizeRunId(skillId, input.runId);
@@ -175,15 +178,18 @@ export function instantiateSkillWorkflow(
 				labels: withRunLabel(blueprint.labels, runId),
 				extra: { ...(blueprint.extra ?? {}), skillRun: { id: runId, skillId, ref: blueprint.ref } },
 			});
-			if (history) history.events.append({
-				taskId: task.id,
-				type: "created",
-				actor: history.context?.actor ?? "system",
-				source: history.context?.source ?? "skill-run",
-				toStatus: task.status as TaskStatus,
-				...(history.context?.sessionId === undefined ? {} : { sessionId: history.context.sessionId }),
-				...(history.context?.reason === undefined ? {} : { reason: history.context.reason }),
-			});
+			if (history) {
+				history.scopes.assign(task.id, projectRoot, "cwd");
+				history.events.append({
+					taskId: task.id,
+					type: "created",
+					actor: history.context?.actor ?? "system",
+					source: history.context?.source ?? "skill-run",
+					toStatus: task.status as TaskStatus,
+					...(history.context?.sessionId === undefined ? {} : { sessionId: history.context.sessionId }),
+					...(history.context?.reason === undefined ? {} : { reason: history.context.reason }),
+				});
+			}
 			return task;
 		});
 

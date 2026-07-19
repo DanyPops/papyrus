@@ -1,18 +1,23 @@
-import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
+import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES, TASK_SCOPE_MAX_TASKS } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
 import type { Gate, GateResult } from "./domain/gate.ts";
 import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
+import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-store.ts";
+import { InMemoryTaskScopeStore, type TaskScopeStore } from "./ports/task-scope-store.ts";
 import { assertDependencyEdgeAllowed } from "./task-execution.ts";
 
 export interface TaskFilter {
 	status?: string;
 	text?: string;
 	limit?: number;
+	projectRoot?: string;
+	scope?: TaskViewMode;
+	rootTaskId?: string;
 }
 
 export type TaskStatus = TaskLifecycleStatus;
@@ -30,6 +35,8 @@ export interface CreateTaskInput {
 	templateId?: string;
 	parentId?: string;
 	dependsOn?: string[];
+	projectRoot?: string;
+	projectSource?: TaskScopeSource;
 }
 
 export type TaskTransition = "start" | "submit" | "reject" | "retry" | "cancel";
@@ -71,6 +78,7 @@ export interface TaskNode {
 export interface TaskGraph {
 	nodes: TaskNode[];
 	rootIds: string[];
+	scope?: TaskViewSelection;
 }
 
 const TASK_TRANSITIONS: Record<TaskTransition, { from: TaskStatus[]; to: TaskStatus }> = {
@@ -87,6 +95,7 @@ export class Tasks {
 		private readonly gates: GateRunner,
 		private readonly focusStore: TaskFocusStore = new InMemoryTaskFocusStore(),
 		private readonly events: TaskEventStore = new InMemoryTaskEventStore(),
+		private readonly scopes: TaskScopeStore = new InMemoryTaskScopeStore(),
 	) {}
 
 	private require(id: string): Artifact {
@@ -106,6 +115,10 @@ export class Tasks {
 			const extra: Record<string, unknown> = { ...(input.extra ?? {}) };
 			if (input.gates !== undefined) extra["gates"] = input.gates;
 			if (input.checklist !== undefined) extra["checklist"] = validateChecklist(input.checklist);
+			const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
+			if (input.parentId && this.scopes.get(input.parentId)?.projectRoot !== projectRoot) {
+				throw new Error(`parent task "${input.parentId}" is outside project scope`);
+			}
 			const task = this.artifacts.create({
 				id: input.id,
 				kind: "task",
@@ -117,6 +130,7 @@ export class Tasks {
 				extra,
 				templateId: input.templateId,
 			});
+			this.scopes.assign(task.id, projectRoot, input.projectSource ?? (projectRoot ? "explicit" : "unscoped"));
 			if (input.parentId) this.contain(input.parentId, task.id);
 			for (const dependency of input.dependsOn ?? []) this.depend(task.id, dependency);
 			this.appendEvent({ taskId: task.id, type: "created", toStatus: task.status as TaskStatus }, context);
@@ -125,10 +139,62 @@ export class Tasks {
 	}
 
 	list(filter: TaskFilter = {}): Artifact[] {
-		return this.artifacts.query({ kind: "task", ...filter });
+		const selection = this.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
+		const limit = filter.limit ?? TASK_SCOPE_MAX_TASKS;
+		if (!Number.isInteger(limit) || limit < 1 || limit > TASK_SCOPE_MAX_TASKS + 1) {
+			throw new Error(`task list limit must be between 1 and ${TASK_SCOPE_MAX_TASKS + 1}`);
+		}
+		if (selection.mode === "all") {
+			return this.artifacts.query({ kind: "task", status: filter.status, text: filter.text, limit });
+		}
+		const ids = this.scopes.taskIds(selection.projectRoot, TASK_SCOPE_MAX_TASKS + 1);
+		if (ids.length > TASK_SCOPE_MAX_TASKS) throw new Error(`task project scope exceeds ${TASK_SCOPE_MAX_TASKS} tasks`);
+		const selectedIds = selection.mode === "graph" ? this.descendantIds(selection.rootTaskId!, ids) : new Set(ids);
+		const text = filter.text?.toLowerCase();
+		return [...selectedIds]
+			.map((id) => this.artifacts.get(id))
+			.filter((task): task is Artifact => task?.kind === "task")
+			.filter((task) => filter.status === undefined || task.status === filter.status)
+			.filter((task) => text === undefined || task.title.toLowerCase().includes(text) || task.body.toLowerCase().includes(text))
+			.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))
+			.slice(0, limit);
+	}
+
+	scopeSelection(projectRoot?: string, mode?: TaskViewMode, rootTaskId?: string): TaskViewSelection {
+		if (mode !== undefined && mode !== "project" && mode !== "graph" && mode !== "all") throw new Error("task scope must be project, graph, or all");
+		if (projectRoot === undefined) return { mode: "all", label: taskScopeLabel("all") };
+		const normalized = normalizeProjectRoot(projectRoot);
+		const persisted = this.scopes.view(normalized);
+		const selectedMode = mode ?? persisted.mode;
+		const selectedRoot = rootTaskId ?? (selectedMode === "graph" ? persisted.rootTaskId : undefined);
+		if (selectedMode === "graph" && !selectedRoot) throw new Error("graph scope requires root_task_id");
+		const root = selectedRoot ? this.require(selectedRoot) : undefined;
+		if (root && this.scopes.get(root.id)?.projectRoot !== normalized) throw new Error(`task "${root.id}" is outside project scope`);
+		return {
+			mode: selectedMode,
+			label: taskScopeLabel(selectedMode, normalized, root?.title),
+			projectRoot: normalized,
+			...(selectedRoot === undefined ? {} : { rootTaskId: selectedRoot }),
+		};
+	}
+
+	setView(projectRoot: string, mode: TaskViewMode, rootTaskId?: string): TaskViewSelection {
+		const selection = this.scopeSelection(projectRoot, mode, rootTaskId);
+		this.scopes.setView(selection.projectRoot!, selection.mode, selection.rootTaskId);
+		return selection;
+	}
+
+	assignProject(id: string, projectRoot: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			const task = this.require(id);
+			this.scopes.assign(id, normalizeProjectRoot(projectRoot), "explicit");
+			this.appendEvent({ taskId: id, type: "project_assigned", reason: context.reason }, context);
+			return task;
+		});
 	}
 
 	graph(filter: TaskFilter = {}): TaskGraph {
+		const scope = this.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
 		const requestedLimit = filter.limit ?? TASK_EXECUTION_MAX_NODES + 1;
 		if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > TASK_EXECUTION_MAX_NODES + 1) {
 			throw new Error(`task graph limit must be between 1 and ${TASK_EXECUTION_MAX_NODES + 1}`);
@@ -172,6 +238,7 @@ export class Tasks {
 		return {
 			nodes: tasks.map((task) => nodes.get(task.id)!),
 			rootIds: tasks.filter((task) => nodes.get(task.id)!.parentIds.length === 0).map((task) => task.id),
+			scope,
 		};
 	}
 
@@ -180,7 +247,7 @@ export class Tasks {
 		return this.artifacts.get(id, { tree: true })!;
 	}
 
-	active(): Artifact | null {
+	active(filter?: TaskFilter): Artifact | null {
 		const id = this.focusStore.get();
 		if (!id) return null;
 		const task = this.artifacts.get(id);
@@ -188,6 +255,7 @@ export class Tasks {
 			this.focusStore.clear(id);
 			return null;
 		}
+		if (filter?.projectRoot && !this.list(filter).some((candidate) => candidate.id === task.id)) return null;
 		return task;
 	}
 
@@ -293,6 +361,36 @@ export class Tasks {
 		this.artifacts.link({ from: parentId, relation: "contains", to: childId });
 		this.artifacts.link({ from: childId, relation: "part_of", to: parentId });
 		return this.show(parentId);
+	}
+
+	private descendantIds(rootTaskId: string, projectTaskIds: string[]): Set<string> {
+		const allowed = new Set(projectTaskIds);
+		if (!allowed.has(rootTaskId)) throw new Error(`task "${rootTaskId}" is outside project scope`);
+		const relationships = this.artifacts.relationships({
+			kind: "task",
+			artifactIds: projectTaskIds,
+			limit: TASK_EXECUTION_MAX_EDGES + 1,
+		});
+		if (relationships.length > TASK_EXECUTION_MAX_EDGES) throw new Error(`task project scope exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
+		const children = new Map<string, string[]>();
+		for (const edge of relationships) {
+			const parentId = edge.relation === "contains" ? edge.from : edge.relation === "part_of" ? edge.to : undefined;
+			const childId = edge.relation === "contains" ? edge.to : edge.relation === "part_of" ? edge.from : undefined;
+			if (!parentId || !childId || !allowed.has(parentId) || !allowed.has(childId)) continue;
+			const values = children.get(parentId) ?? [];
+			if (!values.includes(childId)) values.push(childId);
+			children.set(parentId, values);
+		}
+		const selected = new Set<string>();
+		const pending = [rootTaskId];
+		while (pending.length > 0) {
+			const id = pending.shift()!;
+			if (selected.has(id)) continue;
+			if (selected.size >= TASK_SCOPE_MAX_TASKS) throw new Error(`focused task graph exceeds ${TASK_SCOPE_MAX_TASKS} tasks`);
+			selected.add(id);
+			pending.push(...(children.get(id) ?? []));
+		}
+		return selected;
 	}
 
 	private relationships(id: string) {

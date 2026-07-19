@@ -34,8 +34,10 @@ function renderCurrent(task: Artifact): string[] {
 	];
 }
 
-export function taskContext(artifacts: ArtifactStore, activeTaskId?: string): string | null {
-	const tasks = artifacts.query({ kind: "task" }).sort((left, right) => left.updated_at.localeCompare(right.updated_at));
+export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, taskIds?: Set<string>): string | null {
+	const tasks = artifacts.query({ kind: "task" })
+		.filter((task) => taskIds === undefined || taskIds.has(task.id))
+		.sort((left, right) => left.updated_at.localeCompare(right.updated_at));
 	const open = tasks.filter((task) => task.status !== "done" && task.status !== "canceled");
 	if (open.length === 0) return null;
 

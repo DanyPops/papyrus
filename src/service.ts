@@ -1,4 +1,5 @@
-import { SERVICE_MAX_BODY_BYTES, VERSION } from "./constants.ts";
+import { SERVICE_MAX_BODY_BYTES } from "./constants.ts";
+import { VERSION } from "./version.ts";
 import { openDb } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";

@@ -62,8 +62,13 @@ export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
 	return result;
 }
 
-async function loadTaskGraph(): Promise<TaskGraph> {
-	return callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 200 });
+async function loadTaskGraph(projectRoot: string, scope?: "project" | "graph" | "all", rootTaskId?: string): Promise<TaskGraph> {
+	return callService<Record<string, unknown>, TaskGraph>("tasks.graph", {
+		limit: 200,
+		project_root: projectRoot,
+		...(scope ? { scope } : {}),
+		...(rootTaskId ? { root_task_id: rootTaskId } : {}),
+	});
 }
 
 export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
@@ -71,14 +76,14 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		ctx.ui.notify("/tasks requires interactive mode", "warning");
 		return;
 	}
-	let graph = await loadTaskGraph();
+	let graph = await loadTaskGraph(ctx.cwd);
 	if (graph.nodes.length === 0) {
 		const create = await ctx.ui.select("No tasks yet", ["Create a task", "Cancel"]);
 		if (create === "Create a task") {
 			const title = await ctx.ui.input("Task title:", "");
 			if (title) {
-				await callService("tasks.create", { title, actor: "user", source: "tasks-tui" });
-				graph = await loadTaskGraph();
+				await callService("tasks.create", { title, project_root: ctx.cwd, actor: "user", source: "tasks-tui" });
+				graph = await loadTaskGraph(ctx.cwd);
 			}
 		}
 		if (graph.nodes.length === 0) return;
@@ -87,7 +92,24 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 	for (;;) {
 		const action = await renderPanel(ctx, graph);
 		if (!action) return;
-		if (action.type === "refresh") { graph = await loadTaskGraph(); continue; }
+		if (action.type === "refresh") { graph = await loadTaskGraph(ctx.cwd); continue; }
+		if (action.type === "scope") {
+			const choice = await ctx.ui.select("Task scope", ["Current project", "Focused graph", "All projects"]);
+			if (!choice) continue;
+			const scope: "project" | "graph" | "all" = choice === "Current project" ? "project" : choice === "All projects" ? "all" : "graph";
+			let rootTaskId: string | undefined;
+			if (scope === "graph") {
+				const projectGraph = await loadTaskGraph(ctx.cwd, "project");
+				const roots = projectGraph.rootIds.map((id) => projectGraph.nodes.find((node) => node.task.id === id)?.task).filter((task): task is Artifact => task !== undefined);
+				const selected = await ctx.ui.select("Focused root or epic", roots.map((task) => `${task.title} · ${task.id}`));
+				if (!selected) continue;
+				rootTaskId = roots.find((task) => `${task.title} · ${task.id}` === selected)?.id;
+				if (!rootTaskId) continue;
+			}
+			await callService("tasks.set_scope", { project_root: ctx.cwd, scope, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) });
+			graph = await loadTaskGraph(ctx.cwd);
+			continue;
+		}
 		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
 		if (action.type !== "action" || !action.row) continue;
 
@@ -173,12 +195,12 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 				ctx.ui.notify(`Task action failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		}
-		graph = await loadTaskGraph();
+		graph = await loadTaskGraph(ctx.cwd);
 	}
 }
 
 interface PanelAction {
-	type: "action" | "refresh" | "graph";
+	type: "action" | "refresh" | "graph" | "scope";
 	row?: TaskRow;
 }
 
@@ -218,7 +240,7 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 		const header = {
 			invalidate() {},
 			render(width: number): string[] {
-				const title = theme.bold("Tasks");
+				const title = theme.bold(`Tasks · ${graph.scope?.label ?? "scope unavailable"}`);
 				const hint = searchActive
 					? rawKeyHint("esc", "clear")
 					: rawKeyHint("↑/↓", "navigate") +
@@ -228,6 +250,8 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 						rawKeyHint("/", "filter") +
 						theme.fg("muted", " · ") +
 						rawKeyHint("g", "graph") +
+						theme.fg("muted", " · ") +
+						rawKeyHint("s", "scope") +
 						theme.fg("muted", " · ") +
 						rawKeyHint("r", "refresh") +
 						theme.fg("muted", " · ") +
@@ -322,6 +346,7 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 				else if (matchesKey(data, "down")) selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1);
 				else if (data === "/") searchActive = true;
 				else if (data === "g") { done({ type: "graph" }); return; }
+				else if (data === "s") { done({ type: "scope" }); return; }
 				else if (data === "r") { done({ type: "refresh" }); return; }
 				else if (matchesKey(data, "enter")) {
 					const entry = filtered[selectedIndex];

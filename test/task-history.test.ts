@@ -80,12 +80,12 @@ describe("append-only task lifecycle history", () => {
 		let db = openDb(path);
 		const artifacts = new SQLiteArtifactStore(db);
 		artifacts.create({ kind: "task", title: "Before history" });
-		db.exec("DROP TRIGGER task_events_no_update; DROP TRIGGER task_events_no_delete; DROP TABLE task_events; PRAGMA user_version = 2;");
+		db.exec("DROP TABLE task_views; DROP TABLE task_scopes; DROP TRIGGER task_events_no_update; DROP TRIGGER task_events_no_delete; DROP TABLE task_events; PRAGMA user_version = 2;");
 		db.close();
 
 		db = openDb(path);
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
-		expect(migrateDb(db)).toEqual({ from: 2, to: 3, applied: ["task-history"] });
+		expect(migrateDb(db)).toEqual({ from: 2, to: 4, applied: ["task-history", "task-project-scope"] });
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		db.close();
 	});

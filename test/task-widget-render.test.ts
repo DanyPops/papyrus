@@ -20,17 +20,19 @@ const projection: TaskWidgetProjection = {
 	}],
 	openTotal: 49,
 	total: 110,
+	scopeLabel: "papyrus · Release epic",
 };
 
 describe("task widget rendering", () => {
 	it("renders actionable rows without redundant active or global-open aggregates", () => {
 		for (const width of [40, 80, 120]) {
 			const lines = renderTaskWidgetLines(theme, projection, width);
-			expect(lines).toHaveLength(1);
-			expect(lines[0]).toContain("▶ · ● Fix graph crash");
-			expect(lines[0]).not.toContain("49 open");
-			expect(lines[0]).not.toContain("▶ active");
-			expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(width);
+			expect(lines).toHaveLength(2);
+			expect(lines[0]).toBe("Tasks · papyrus · Release epic");
+			expect(lines[1]).toContain("▶ · ● Fix graph crash");
+			expect(lines.join("\n")).not.toContain("49 open");
+			expect(lines.join("\n")).not.toContain("▶ active");
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 		}
 	});
 

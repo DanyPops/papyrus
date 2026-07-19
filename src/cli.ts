@@ -57,13 +57,15 @@ function installService(): void {
 const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
-  papyrus migrate task-history [--json]
+  papyrus migrate task-scope [--json]
   papyrus automation <status|run> [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus tasks plan [--json]
   papyrus tasks graph [--json]
   papyrus tasks active [--json]
   papyrus tasks history <id> [--json]
+  papyrus tasks scope [project|all|graph <root-id>] [--json]
+  papyrus tasks assign-project <id> [project-root] [--json]
   papyrus tasks focus <id> [--json]
   papyrus tasks complete <id> [--json]
   papyrus tasks start <id> [--json]
@@ -110,8 +112,8 @@ function planText(plan: TaskExecutionPlan): string {
 export async function runMigrationCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
-	if (positional.length !== 1 || positional[0] !== "task-history") {
-		throw new Error("migrate requires exactly `task-history`");
+	if (positional.length !== 1 || positional[0] !== "task-scope") {
+		throw new Error("migrate requires exactly `task-scope`");
 	}
 	const result = await client.call<Record<string, never>, MigrationResult>("system.migrate", {});
 	if (json) return JSON.stringify(result);
@@ -133,7 +135,7 @@ export async function runAutomationCli(args: string[], client: TaskCliClient): P
 	return json ? JSON.stringify(result) : `Automation sweep: ${result.examined} examined · ${result.completed} completed · ${result.rejected} rejected · ${result.started} started · ${result.errors.length} errors${result.skipped ? ` · skipped ${result.skipped}` : ""}`;
 }
 
-export async function runSkillCli(args: string[], client: TaskCliClient): Promise<string> {
+export async function runSkillCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
 	let runId: string | undefined;
@@ -160,7 +162,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient): Promis
 		positional.push(argument);
 	}
 	if (positional.length !== 2 || positional[0] !== "run") throw new Error("skills requires `run <id>`");
-	const input: Record<string, unknown> = { id: positional[1], arguments: arguments_ };
+	const input: Record<string, unknown> = { id: positional[1], arguments: arguments_, project_root: projectRoot };
 	if (runId) input["run_id"] = runId;
 	const result = await client.call<Record<string, unknown>, {
 		runId: string;
@@ -178,7 +180,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient): Promis
 	].join("\n");
 }
 
-export async function runTaskCli(args: string[], client: TaskCliClient): Promise<string> {
+export async function runTaskCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
 	const [action, id, dependencyId] = positional;
@@ -187,7 +189,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 	switch (action) {
 		case "active": {
 			if (id) throw new Error("tasks active accepts no positional arguments");
-			const active = await client.call<Record<string, never>, CliArtifact | null>("tasks.active", {});
+			const active = await client.call<Record<string, string>, CliArtifact | null>("tasks.active", { project_root: projectRoot });
 			result = active;
 			human = active ? `Active: ${artifactLabel(active)}` : "No active task.";
 			break;
@@ -201,6 +203,37 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 				: [...page.events].reverse().map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`).join("\n");
 			break;
 		}
+		case "scope": {
+			if (!id) {
+				const selection = await client.call<Record<string, string>, import("./domain/task-scope.ts").TaskViewSelection>("tasks.scope", { project_root: projectRoot });
+				result = selection;
+				human = `Task scope: ${selection.label}`;
+				break;
+			}
+			if (id !== "project" && id !== "all" && id !== "graph") throw new Error("tasks scope mode must be project, all, or graph");
+			if (id === "graph" && !dependencyId) throw new Error("tasks scope graph requires a root task id");
+			if (id !== "graph" && dependencyId) throw new Error(`tasks scope ${id} accepts no root task id`);
+			const selection = await client.call<Record<string, unknown>, import("./domain/task-scope.ts").TaskViewSelection>("tasks.set_scope", {
+				project_root: projectRoot,
+				scope: id,
+				...(dependencyId ? { root_task_id: dependencyId } : {}),
+			});
+			result = selection;
+			human = `Task scope: ${selection.label}`;
+			break;
+		}
+		case "assign-project": {
+			if (!id || positional.length > 3) throw new Error("tasks assign-project requires a task id and optional project root");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.assign_project", {
+				id,
+				project_root: dependencyId ?? projectRoot,
+				actor: "user",
+				source: "cli",
+			});
+			result = artifact;
+			human = `Project assigned: ${artifactLabel(artifact)}`;
+			break;
+		}
 		case "focus": {
 			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
 			const active = await client.call<{ id: string }, CliArtifact>("tasks.focus", { id });
@@ -210,10 +243,10 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 		}
 		case "graph": {
 			if (id) throw new Error("tasks graph accepts no positional arguments");
-			const graph = await client.call<{ limit: number }, {
+			const graph = await client.call<{ limit: number; project_root: string }, {
 				nodes: Array<{ dependencyIds: string[]; childIds: string[] }>;
 				rootIds: string[];
-			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1 });
+			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1, project_root: projectRoot });
 			result = graph;
 			const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 			const children = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
@@ -222,7 +255,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 		}
 		case "plan": {
 			if (id) throw new Error("tasks plan accepts no positional arguments");
-			const plan = await client.call<Record<string, never>, TaskExecutionPlan>("tasks.plan", {});
+			const plan = await client.call<Record<string, string>, TaskExecutionPlan>("tasks.plan", { project_root: projectRoot });
 			result = plan;
 			human = planText(plan);
 			break;
@@ -281,7 +314,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			break;
 		}
 		default:
-			throw new Error("tasks action must be active, focus, graph, plan, history, complete, start, submit, reject, retry, cancel, automate, or depend");
+			throw new Error("tasks action must be active, focus, graph, plan, history, scope, assign-project, complete, start, submit, reject, retry, cancel, automate, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }

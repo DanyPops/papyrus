@@ -103,7 +103,7 @@ Internally, application services depend on the `ArtifactStore` and `GateRunner` 
 
 ## Interactive frontends
 
-- `/tasks` — task lifecycle, append-only history, gates, dependencies, and nested metadata
+- `/tasks` — project/focused-graph scope, task lifecycle, append-only history, gates, dependencies, and nested metadata
 - `/docs` — searchable documents, lifecycle, details, and graph links
 - `/rules` — severity/condition rows, exact injection preview, enable/disable, and task gating
 - `/skills` — trigger/tools rows, invocation into the editor, and artifact templates
@@ -114,7 +114,7 @@ All four use daemon-backed domain operations; none opens SQLite from the Pi proc
 
 Run `/tasks` for the interactive task panel:
 
-- `/` filters; arrow keys navigate; Enter opens task actions
+- `/` filters; arrow keys navigate; Enter opens task actions; `s` switches among the persisted current-project, focused-root graph, and explicit all-projects views
 - `g` opens the programmatic Unicode graph; Tab switches dependency/composition views and arrow keys pan
 - routed graph layouts are bounded to 48 nodes/96 edges; larger graphs use a deterministic, box-drawn line fallback, and renderer failures are contained inside the viewport rather than escaping Pi
 - advance the `todo → in-progress → review → done` lifecycle; failed review becomes `rejected`, retry returns to `in-progress`, and `canceled` is terminal
@@ -125,12 +125,17 @@ Run `/tasks` for the interactive task panel:
 - inspect deterministic execution layers, readiness, a box-drawn nested hierarchy, composition, dependencies, evidence-bearing checklists, and verification gates
 - lifecycle colors are semantic and redundant with text/glyphs: To-Do grey, in-progress yellow, review blue, rejected orange, done green, and canceled red; `▶` marks active focus
 - Show details keeps Checklist and Validation gates separate from incidental Metadata, renders bounded post-migration lifecycle history with actor/source/reason and gate evidence, then renders relationships as a Unicode box-drawing graph footer; `↑/↓` scrolls and `←/→` pans wide graphs
-- the compact persistent widget shows bounded open work in containment order and always retains the active focus
+- the compact persistent widget shows the current scope label plus bounded open work in containment order and always retains active focus when it belongs to that scope
 
 Authenticated CLI parity covers the changed lifecycle and focus operations:
 
 ```bash
 papyrus tasks graph --json
+papyrus tasks scope --json
+papyrus tasks scope project --json
+papyrus tasks scope graph <root-id> --json
+papyrus tasks scope all --json
+papyrus tasks assign-project <task-id> [project-root] --json
 papyrus tasks active --json
 papyrus tasks history <id> --json
 papyrus tasks focus <id> --json
@@ -197,10 +202,10 @@ packed install npm:@danypops/papyrus
 ~/.pi/agent/npm/node_modules/.bin/papyrus service install
 ```
 
-Existing databases are never migrated on daemon boot. After upgrading to append-only task history, run the authenticated CLI migration explicitly. A v1 database receives the lifecycle prerequisite and history schema in one transaction; existing tasks receive no fabricated events:
+Existing databases are never migrated on daemon boot. After upgrading to project-scoped task views, run the authenticated CLI migration explicitly. Older databases receive prerequisite schemas in one transaction. Existing Tasks are deliberately marked **unscoped**: Papyrus does not guess ownership from titles, labels, historical cwd, or repository names. They remain visible in **All projects** until explicitly assigned with `papyrus tasks assign-project <task-id> [project-root]`:
 
 ```bash
-~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-history
+~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-scope
 ```
 
 Until that command succeeds, health reports `migrationRequired` and normal domain operations are rejected with actionable guidance. Migration is not exposed as a Pi tool or MCP action. New empty databases bootstrap directly at the current schema.

@@ -34,6 +34,10 @@ export const TASK_GRAPH_HORIZONTAL_PAN_COLUMNS = 4;
 export const TASK_EXECUTION_MAX_NODES = 1_000;
 export const TASK_EXECUTION_MAX_EDGES = 10_000;
 export const TASK_EXECUTION_MAX_DEGREE = 100;
+/** Bounded automatic Pi continuations while active Papyrus Tasks remain. */
+export const TASK_DRIVER_ACTIVE_LIMIT = 4;
+export const TASK_DRIVER_MAX_TURNS = 20;
+export const TASK_DRIVER_MAX_UNCHANGED_TURNS = 6;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
 export const GRAPH_RENDER_BOX_PADDING = 0;

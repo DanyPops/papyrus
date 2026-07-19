@@ -7,15 +7,21 @@
  * Injection: active rules + open tasks appended to system prompt every turn.
  *             "Are we there yet?" — the agent sees its open work items.
  */
-import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	TASK_DRIVER_ACTIVE_LIMIT,
+	TASK_DRIVER_MAX_TURNS,
+	TASK_DRIVER_MAX_UNCHANGED_TURNS,
+} from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
+import { TaskDriver, type ActiveTaskMarker } from "./task-driver.ts";
 import { buildTaskWidgetProjection } from "./task-widget.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
@@ -131,6 +137,62 @@ class TaskOverlay {
 
 export default async function (pi: ExtensionAPI) {
 	registerDomainTools(pi);
+	const taskDriver = new TaskDriver({
+		maxTurns: TASK_DRIVER_MAX_TURNS,
+		maxUnchangedTurns: TASK_DRIVER_MAX_UNCHANGED_TURNS,
+	});
+
+	const driveActiveTasks = async (ctx: ExtensionContext): Promise<void> => {
+		if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
+		try {
+			const active = await callService<Record<string, unknown>, ActiveTaskMarker[]>("tasks.list", {
+				status: "active",
+				limit: TASK_DRIVER_ACTIVE_LIMIT,
+			});
+			const decision = taskDriver.evaluate(active, {
+				idle: ctx.isIdle(),
+				pendingMessages: ctx.hasPendingMessages(),
+			});
+			if (decision.action === "continue" && decision.prompt) {
+				pi.sendMessage({
+					customType: "papyrus-task-continuation",
+					content: decision.prompt,
+					display: false,
+				}, { triggerTurn: true, deliverAs: "nextTurn" });
+			} else if (decision.action === "pause" && ctx.hasUI) {
+				ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Use /task-drive on to resume.`, "warning");
+			}
+		} catch {
+			// The daemon may be unavailable during startup, reload, or shutdown.
+		}
+	};
+
+	pi.registerCommand("task-drive", {
+		description: "Control bounded automatic continuation while active Papyrus Tasks remain",
+		handler: async (args, ctx) => {
+			const action = args.trim().toLowerCase() || "status";
+			if (action === "on") {
+				taskDriver.setEnabled(true);
+				ctx.ui.notify("Papyrus task driving enabled", "info");
+				await driveActiveTasks(ctx);
+				return;
+			}
+			if (action === "off") {
+				taskDriver.setEnabled(false);
+				ctx.ui.notify("Papyrus task driving disabled", "info");
+				return;
+			}
+			if (action !== "status") {
+				ctx.ui.notify("Usage: /task-drive <on|off|status>", "warning");
+				return;
+			}
+			const status = taskDriver.status();
+			ctx.ui.notify(
+				`Papyrus task driving: ${status.enabled ? "on" : "off"} · ${status.consecutiveTurns}/${TASK_DRIVER_MAX_TURNS} automatic turns${status.pausedReason ? ` · paused: ${status.pausedReason}` : ""}`,
+				"info",
+			);
+		},
+	});
 
 	// ── Low-level graph-store tools ────────────────────────────────────
 
@@ -325,6 +387,16 @@ export default async function (pi: ExtensionAPI) {
 			await overlay?.refresh();
 		}
 	});
+
+	// ── Keep driving active work after Pi has exhausted built-in continuations ──
+	// agent_settled is intentionally later than agent_end: Pi guarantees that
+	// retry, compaction retry, and queued follow-up processing have finished.
+
+	pi.on("input", (event) => {
+		if (event.source !== "extension") taskDriver.onHumanInput();
+	});
+	pi.on("agent_start", () => { taskDriver.onAgentStart(); });
+	pi.on("agent_settled", async (_event, ctx) => { await driveActiveTasks(ctx); });
 
 	// ── "Are we there yet?" — inject active tasks into every turn ──────
 	// The agent sees its open work items every turn. If there are failed

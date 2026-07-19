@@ -30,6 +30,12 @@ const STATUS_ACTIONS: Record<string, string[]> = {
 
 type TaskRow = Artifact;
 
+function taskAutomationEnabled(task: Artifact): boolean {
+	const automation = task.extra["automation"];
+	return typeof automation === "object" && automation !== null && !Array.isArray(automation)
+		&& (automation as Record<string, unknown>)["enabled"] === true;
+}
+
 export interface TaskHierarchyRow {
 	task: TaskRow;
 	depth: number;
@@ -86,9 +92,11 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (action.type !== "action" || !action.row) continue;
 
 		const active = graph.nodes.find((node) => node.task.id === action.row!.id)?.active === true;
+		const automationEnabled = taskAutomationEnabled(action.row);
 		const choices = [
 			"Show details",
 			...(!active && action.row.status !== "done" && action.row.status !== "canceled" ? ["Make active"] : []),
+			...(action.row.status !== "done" && action.row.status !== "canceled" ? [automationEnabled ? "Disable automation" : "Enable automation"] : []),
 			...(action.row.status === "review" ? ["Run gates"] : []),
 			...(STATUS_ACTIONS[action.row.status] ?? []),
 		];
@@ -106,6 +114,20 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
+		} else if (choice === "Enable automation" || choice === "Disable automation") {
+			try {
+				const enabled = choice === "Enable automation";
+				const updated = await callService<Record<string, unknown>, Artifact>("tasks.set_automation", {
+					id: action.row.id,
+					enabled,
+					actor: "user",
+					source: "tasks-tui",
+				});
+				action.row.extra = updated.extra;
+				ctx.ui.notify(`Automation ${enabled ? "enabled" : "disabled"}: ${action.row.title}`, enabled ? "warning" : "info");
+			} catch (error) {
+				ctx.ui.notify(`Automation setting failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		} else if (choice === "Run gates") {
 			try {

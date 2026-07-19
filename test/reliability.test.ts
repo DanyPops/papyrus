@@ -81,6 +81,19 @@ describe("SQLite daemon reliability", () => {
 		db.close();
 	});
 
+	it("caps subprocess gate execution at an automation deadline", async () => {
+		const db = openDb(dbFile());
+		const tasks = new Tasks(new SQLiteArtifactStore(db), new SQLiteGateRunner(db));
+		const task = tasks.create({ title: "Deadline", gates: [{ type: "command", target: "sleep 2" }] });
+		tasks.transition(task.id, "start");
+		tasks.transition(task.id, "submit");
+		const startedAt = Date.now();
+		const completion = await tasks.completeAsync(task.id, {}, { gateDeadlineMs: startedAt + 25 });
+		expect(Date.now() - startedAt).toBeLessThan(1_000);
+		expect(completion.completed).toBe(false);
+		db.close();
+	});
+
 	it("rejects oversized service requests before parsing JSON", async () => {
 		const service = createPapyrusService(dbFile());
 		const app = createApp({ service, token: "token" });

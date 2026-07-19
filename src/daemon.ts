@@ -1,12 +1,15 @@
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS, dbPath } from "./constants.ts";
 import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
 import { createApp, createPapyrusService } from "./service.ts";
+import { scheduleTaskAutomation, taskAutomationSettings, type TaskAutomationResult } from "./task-automation.ts";
+import { logEvent } from "./log.ts";
 
 /** Start the supervised, long-running Papyrus service. */
 export function serveMain(): void {
 	const stateDir = daemonStateDir();
 	const token = loadOrCreateToken(stateDir);
-	const service = createPapyrusService(dbPath());
+	const automation = taskAutomationSettings(process.env);
+	const service = createPapyrusService(dbPath(), { automation });
 	const app = createApp({ service, token });
 	const server = Bun.serve({
 		hostname: DAEMON_HOST,
@@ -19,11 +22,23 @@ export function serveMain(): void {
 	}
 	writeDaemonPort(stateDir, server.port);
 	const checkpointTimer = setInterval(() => {
-		try { service.checkpoint(); } catch (error) { console.error("[papyrus] checkpoint failed", error); }
+		try { service.checkpoint(); } catch (error) { logEvent("error", "checkpoint_failed", { message: error instanceof Error ? error.message : String(error) }); }
 	}, WAL_CHECKPOINT_INTERVAL_MS);
 	const optimizeTimer = setInterval(() => {
-		try { service.optimize(); } catch (error) { console.error("[papyrus] optimize failed", error); }
+		try { service.optimize(); } catch (error) { logEvent("error", "optimize_failed", { message: error instanceof Error ? error.message : String(error) }); }
 	}, DB_OPTIMIZE_INTERVAL_MS);
+	const stopAutomation = scheduleTaskAutomation(automation, async () => {
+		const result = await service.execute("automation.reconcile", {}) as TaskAutomationResult;
+		logEvent(result.errors.length > 0 ? "warn" : "info", "automation_sweep", {
+			examined: result.examined,
+			completed: result.completed,
+			rejected: result.rejected,
+			started: result.started,
+			errors: result.errors.length,
+			timedOut: result.timedOut,
+			skipped: result.skipped,
+		});
+	}, (error) => logEvent("error", "automation_sweep_failed", { message: error instanceof Error ? error.message : String(error) }));
 
 	let stopping = false;
 	const shutdown = () => {
@@ -31,11 +46,12 @@ export function serveMain(): void {
 		stopping = true;
 		clearInterval(checkpointTimer);
 		clearInterval(optimizeTimer);
+		stopAutomation();
 		clearDaemonPort(stateDir);
 		service.close();
 		void server.stop(true).finally(() => process.exit(0));
 	};
 	process.on("SIGINT", shutdown);
 	process.on("SIGTERM", shutdown);
-	console.error(`[papyrus] listening on ${DAEMON_HOST}:${server.port}`);
+	logEvent("info", "listening", { host: DAEMON_HOST, port: server.port, automationEnabled: automation.enabled });
 }

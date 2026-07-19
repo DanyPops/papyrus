@@ -81,7 +81,7 @@ describe("SQLite daemon reliability", () => {
 		db.close();
 	});
 
-	it("caps subprocess gate execution at an automation deadline", async () => {
+	it("caps subprocess gate execution at a caller deadline", async () => {
 		const db = openDb(dbFile());
 		const tasks = new Tasks(new SQLiteArtifactStore(db), new SQLiteGateRunner(db));
 		const task = tasks.create({ title: "Deadline", gates: [{ type: "command", target: "sleep 2" }] });

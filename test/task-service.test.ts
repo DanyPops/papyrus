@@ -7,6 +7,7 @@ import type {
 	ArtifactQuery,
 	CreateArtifactInput,
 	RelationshipQuery,
+	UpdateArtifactInput,
 } from "../src/domain/artifact.ts";
 import type { GateResult } from "../src/domain/gate.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
@@ -71,6 +72,16 @@ class FakeArtifactStore implements ArtifactStore {
 		const artifact = this.artifacts.get(id);
 		if (!artifact) return null;
 		artifact.extra = structuredClone(extra);
+		return structuredClone(artifact);
+	}
+
+	updateContent(id: string, input: UpdateArtifactInput): Artifact | null {
+		const artifact = this.artifacts.get(id);
+		if (!artifact) return null;
+		if (input.title !== undefined) artifact.title = input.title;
+		if (input.body !== undefined) artifact.body = input.body;
+		if (input.labels !== undefined) artifact.labels = [...input.labels];
+		artifact.updated_at = new Date().toISOString();
 		return structuredClone(artifact);
 	}
 
@@ -250,6 +261,16 @@ describe("Tasks port behavior", () => {
 		expect(tasks.active()?.id).toBe(dependent.id);
 	});
 
+	it("updates an existing Task without replacing its identity, lifecycle, or metadata", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Old title", body: "Old body", labels: ["old"], extra: { owner: "papyrus" } });
+		const updated = tasks.update(task.id, { title: "New title", body: "New body", labels: ["new"] }, { actor: "user", source: "test" });
+
+		expect(updated).toMatchObject({ id: task.id, title: "New title", body: "New body", labels: ["new"], status: "todo", extra: { owner: "papyrus" } });
+		expect(tasks.history(task.id, { direction: "asc" }).events.at(-1)).toMatchObject({ type: "updated", actor: "user", source: "test", evidence: { result: "fields:body,labels,title" } });
+		expect(() => tasks.update(task.id, {})).toThrow("requires title, body, or labels");
+	});
+
 	it("keeps singleton active focus independent from lifecycle", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
 		const todo = tasks.create({ title: "Todo" });
@@ -258,6 +279,11 @@ describe("Tasks port behavior", () => {
 		tasks.focus(todo.id);
 		expect(tasks.active()?.id).toBe(todo.id);
 		tasks.focus(review.id);
+		expect(tasks.active()?.id).toBe(review.id);
+		expect(tasks.pauseFocus({ reason: "manual pause" })).toMatchObject({ artifact: { id: review.id }, status: "paused", pauseReason: "manual pause" });
+		expect(tasks.active()).toBeNull();
+		expect(tasks.focused()).toMatchObject({ artifact: { id: review.id }, status: "paused" });
+		expect(tasks.unpauseFocus()).toMatchObject({ artifact: { id: review.id }, status: "active" });
 		expect(tasks.active()?.id).toBe(review.id);
 		expect(tasks.show(todo.id).status).toBe("todo");
 		expect(tasks.show(review.id).status).toBe("review");

@@ -10,7 +10,6 @@ import { serveMain } from "./daemon.ts";
 import type { GateResult } from "./domain/gate.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskBlockage, TaskCompletion } from "./task-service.ts";
-import type { TaskAutomationResult, TaskAutomationSettings } from "./task-automation.ts";
 
 export interface SystemdUnitOptions {
 	bunBin: string;
@@ -57,23 +56,26 @@ function installService(): void {
 const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
-  papyrus migrate task-scope [--json]
-  papyrus automation <status|run> [--json]
+  papyrus migrate task-focus [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus tasks plan [--json]
   papyrus tasks graph [--json]
   papyrus tasks active [--json]
+  papyrus tasks focused [--json]
+  papyrus tasks pause [--json]
+  papyrus tasks unpause [--json]
+  papyrus tasks clear-focus [--json]
   papyrus tasks history <id> [--json]
   papyrus tasks scope [project|all|graph <root-id>] [--json]
   papyrus tasks assign-project <id> [project-root] [--json]
   papyrus tasks focus <id> [--json]
+  papyrus tasks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus tasks complete <id> [--json]
   papyrus tasks start <id> [--json]
   papyrus tasks submit <id> [--json]
   papyrus tasks reject <id> [--json]
   papyrus tasks retry <id> [--json]
   papyrus tasks cancel <id> [--json]
-  papyrus tasks automate <id> <on|off> [--json]
   papyrus tasks depend <id> <prerequisite-id> [--json]`;
 
 function usage(): never {
@@ -112,27 +114,13 @@ function planText(plan: TaskExecutionPlan): string {
 export async function runMigrationCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
-	if (positional.length !== 1 || positional[0] !== "task-scope") {
-		throw new Error("migrate requires exactly `task-scope`");
+	if (positional.length !== 1 || positional[0] !== "task-focus") {
+		throw new Error("migrate requires exactly `task-focus`");
 	}
 	const result = await client.call<Record<string, never>, MigrationResult>("system.migrate", {});
 	if (json) return JSON.stringify(result);
 	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
 	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
-}
-
-export async function runAutomationCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional = args.filter((argument) => argument !== "--json");
-	if (positional.length !== 1 || (positional[0] !== "status" && positional[0] !== "run")) {
-		throw new Error("automation requires exactly `status` or `run`");
-	}
-	if (positional[0] === "status") {
-		const status = await client.call<Record<string, never>, TaskAutomationSettings & { inFlight: boolean }>("automation.status", {});
-		return json ? JSON.stringify(status) : `Automation: ${status.enabled ? "enabled" : "disabled"} · interval ${status.intervalMs}ms · max ${status.maxTasksPerSweep} tasks · concurrency ${status.gateConcurrency}`;
-	}
-	const result = await client.call<Record<string, never>, TaskAutomationResult>("automation.reconcile", {});
-	return json ? JSON.stringify(result) : `Automation sweep: ${result.examined} examined · ${result.completed} completed · ${result.rejected} rejected · ${result.started} started · ${result.errors.length} errors${result.skipped ? ` · skipped ${result.skipped}` : ""}`;
 }
 
 export async function runSkillCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
@@ -182,7 +170,25 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 
 export async function runTaskCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
-	const positional = args.filter((arg) => arg !== "--json");
+	const positional: string[] = [];
+	const updateInput: { title?: string; body?: string; labels?: string[] } = {};
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--title" || argument === "--body" || argument === "--labels-json") {
+			const value = args[++index];
+			if (value === undefined) throw new Error(`${argument} requires a value`);
+			if (argument === "--title") updateInput.title = value;
+			else if (argument === "--body") updateInput.body = value;
+			else {
+				const parsed = JSON.parse(value) as unknown;
+				if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) throw new Error("--labels-json requires a JSON string array");
+				updateInput.labels = parsed as string[];
+			}
+			continue;
+		}
+		positional.push(argument);
+	}
 	const [action, id, dependencyId] = positional;
 	let result: unknown;
 	let human: string;
@@ -192,6 +198,37 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			const active = await client.call<Record<string, string>, CliArtifact | null>("tasks.active", { project_root: projectRoot });
 			result = active;
 			human = active ? `Active: ${artifactLabel(active)}` : "No active task.";
+			break;
+		}
+		case "focused": {
+			if (id) throw new Error("tasks focused accepts no positional arguments");
+			const focus = await client.call<Record<string, string>, { artifact: CliArtifact; status: "active" | "paused"; updatedAt: string } | null>("tasks.focused", { project_root: projectRoot });
+			result = focus;
+			human = focus ? `Focused (${focus.status}): ${artifactLabel(focus.artifact)}` : "No focused task.";
+			break;
+		}
+		case "pause":
+		case "unpause": {
+			if (id) throw new Error(`tasks ${action} accepts no positional arguments`);
+			const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
+			const focus = await client.call<Record<string, string>, { artifact: CliArtifact; status: string }>(operation, { actor: "user", source: "cli" });
+			result = focus;
+			human = `Focused (${focus.status}): ${artifactLabel(focus.artifact)}`;
+			break;
+		}
+		case "clear-focus": {
+			if (id) throw new Error("tasks clear-focus accepts no positional arguments");
+			const cleared = await client.call<Record<string, string>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli" });
+			result = cleared;
+			human = cleared.cleared ? "Task focus cleared." : "No focused task.";
+			break;
+		}
+		case "update": {
+			if (!id || dependencyId) throw new Error("tasks update requires exactly one task id");
+			if (Object.keys(updateInput).length === 0) throw new Error("tasks update requires --title, --body, or --labels-json");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.update", { id, ...updateInput, actor: "user", source: "cli" });
+			result = artifact;
+			human = `Updated: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "history": {
@@ -236,7 +273,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "focus": {
 			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
-			const active = await client.call<{ id: string }, CliArtifact>("tasks.focus", { id });
+			const active = await client.call<Record<string, string>, CliArtifact>("tasks.focus", { id, actor: "user", source: "cli" });
 			result = active;
 			human = `Active: ${artifactLabel(active)}`;
 			break;
@@ -291,18 +328,6 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
 			break;
 		}
-		case "automate": {
-			if (!id || (dependencyId !== "on" && dependencyId !== "off") || positional.length !== 3) throw new Error("tasks automate requires a task id and on or off");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.set_automation", {
-				id,
-				enabled: dependencyId === "on",
-				actor: "user",
-				source: "cli",
-			});
-			result = artifact;
-			human = `Automation ${dependencyId}: ${artifactLabel(artifact)}`;
-			break;
-		}
 		case "depend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks depend requires a task id and prerequisite id");
 			const artifact = await client.call<{ id: string; dependency_id: string }, CliArtifact>("tasks.depend", {
@@ -314,7 +339,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			break;
 		}
 		default:
-			throw new Error("tasks action must be active, focus, graph, plan, history, scope, assign-project, complete, start, submit, reject, retry, cancel, automate, or depend");
+			throw new Error("tasks action must be active, focused, focus, pause, unpause, clear-focus, update, graph, plan, history, scope, assign-project, complete, start, submit, reject, retry, cancel, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -325,11 +350,6 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
-		return;
-	}
-	if (command === "automation") {
-		const client = await connectPapyrusClient();
-		console.log(await runAutomationCli(args.slice(1), client));
 		return;
 	}
 	if (command === "skills") {

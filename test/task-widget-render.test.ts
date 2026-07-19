@@ -36,6 +36,11 @@ describe("task widget rendering", () => {
 		}
 	});
 
+	it("renders paused focus without the active continuation triangle", () => {
+		const paused = { ...projection, rows: [{ ...projection.rows[0]!, focusStatus: "paused" as const }] };
+		expect(renderTaskWidgetLines(theme, paused, 80)[1]).toContain("Ⅱ · ● Fix graph crash");
+	});
+
 	it("renders nothing when no actionable work remains", () => {
 		expect(renderTaskWidgetLines(theme, { ...projection, rows: [], openTotal: 0 }, 80)).toEqual([]);
 	});

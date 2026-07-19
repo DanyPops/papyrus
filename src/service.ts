@@ -16,7 +16,6 @@ import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
 import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
-import { TaskAutomationReconciler, taskAutomationSettings, type TaskAutomationSettings } from "./task-automation.ts";
 import {
 	createArtifactTemplate,
 	createDocument,
@@ -44,8 +43,6 @@ import { instantiateSkillWorkflow } from "./skill-execution.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
-	"automation.status",
-	"automation.reconcile",
 	"artifact.create",
 	"artifact.query",
 	"artifact.show",
@@ -55,6 +52,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"gates.run",
 	"rules.injectable",
 	"tasks.create",
+	"tasks.update",
 	"tasks.list",
 	"tasks.graph",
 	"tasks.plan",
@@ -64,13 +62,16 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.set_scope",
 	"tasks.assign_project",
 	"tasks.active",
+	"tasks.focused",
 	"tasks.focus",
+	"tasks.pause",
+	"tasks.unpause",
+	"tasks.clear_focus",
 	"tasks.start",
 	"tasks.submit",
 	"tasks.complete",
 	"tasks.run_gates",
 	"tasks.set_checklist",
-	"tasks.set_automation",
 	"tasks.context",
 	"tasks.reject",
 	"tasks.retry",
@@ -123,6 +124,13 @@ function optionalString(input: OperationInput, key: string): string | undefined 
 	return value;
 }
 
+function optionalStringArray(input: OperationInput, key: string): string[] | undefined {
+	const value = input[key];
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(`${key} must be an array of strings`);
+	return value as string[];
+}
+
 function optionalNumber(input: OperationInput, key: string): number | undefined {
 	const value = input[key];
 	if (value === undefined) return undefined;
@@ -154,7 +162,6 @@ function handlers(
 	artifacts: ArtifactStore,
 	gates: GateRunner,
 	tasks: Tasks,
-	automation: TaskAutomationReconciler,
 	events: TaskEventStore,
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
@@ -169,18 +176,19 @@ function handlers(
 		const context = eventContext(input);
 		return { ...context, source: context.source ?? source };
 	};
-	const taskFilter = (input: OperationInput) => ({
+	const artifactFilter = (input: OperationInput) => ({
 		status: optionalString(input, "status"),
 		text: optionalString(input, "text"),
 		limit: optionalNumber(input, "limit"),
+	});
+	const taskFilter = (input: OperationInput) => ({
+		...artifactFilter(input),
 		projectRoot: string(input, "project_root"),
 		scope: optionalString(input, "scope") as TaskViewMode | undefined,
 		rootTaskId: optionalString(input, "root_task_id"),
 	});
 	return {
 		"system.migrate": () => migrate(),
-		"automation.status": () => automation.status(),
-		"automation.reconcile": () => automation.reconcile(),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
 			if (normalized.kind !== "task") return artifacts.create(normalized);
@@ -246,6 +254,11 @@ function handlers(
 			projectRoot: string(input, "project_root"),
 			projectSource: "cwd",
 		}, eventContext(input)),
+		"tasks.update": (input) => tasks.update(string(input, "id"), {
+			...(input["title"] !== undefined ? { title: optionalString(input, "title")! } : {}),
+			...(input["body"] !== undefined ? { body: optionalString(input, "body")! } : {}),
+			...(input["labels"] !== undefined ? { labels: optionalStringArray(input, "labels")! } : {}),
+		}, eventContext(input)),
 		"tasks.list": (input) => tasks.list(taskFilter(input)),
 		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
 		"tasks.plan": (input) => projectTaskExecution(tasks.graph(taskFilter(input))),
@@ -267,16 +280,16 @@ function handlers(
 			eventContext(input),
 		),
 		"tasks.active": (input) => tasks.active(taskFilter(input)),
-		"tasks.focus": (input) => tasks.focus(string(input, "id")),
+		"tasks.focused": (input) => tasks.focused(taskFilter(input)),
+		"tasks.focus": (input) => tasks.focus(string(input, "id"), eventContext(input)),
+		"tasks.pause": (input) => tasks.pauseFocus(eventContext(input)),
+		"tasks.unpause": (input) => tasks.unpauseFocus(eventContext(input)),
+		"tasks.clear_focus": (input) => tasks.clearFocus(eventContext(input)),
 		"tasks.start": (input) => tasks.transition(string(input, "id"), "start", eventContext(input)),
 		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit", eventContext(input)),
 		"tasks.complete": (input) => tasks.completeAsync(string(input, "id"), eventContext(input)),
 		"tasks.run_gates": (input) => tasks.runGates(string(input, "id"), eventContext(input)),
 		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
-		"tasks.set_automation": (input) => {
-			if (typeof input["enabled"] !== "boolean") throw new Error("enabled must be a boolean");
-			return tasks.setAutomation(string(input, "id"), input["enabled"], eventContext(input));
-		},
 		"tasks.context": (input) => taskContext(artifacts, tasks.active()?.id, new Set(tasks.list(taskFilter(input)).map((task) => task.id))),
 		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
 		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
@@ -288,7 +301,7 @@ function handlers(
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 		}),
-		"docs.list": (input) => listDocuments(artifacts, taskFilter(input)),
+		"docs.list": (input) => listDocuments(artifacts, artifactFilter(input)),
 		"docs.show": (input) => showDocument(artifacts, string(input, "id")),
 		"docs.activate": (input) => transitionDocument(artifacts, string(input, "id"), "activate"),
 		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive"),
@@ -300,7 +313,7 @@ function handlers(
 			severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 		}),
-		"rules.list": (input) => listRules(artifacts, taskFilter(input)),
+		"rules.list": (input) => listRules(artifacts, artifactFilter(input)),
 		"rules.show": (input) => showRule(artifacts, string(input, "id")),
 		"rules.preview": (input) => previewRule(artifacts, string(input, "id")),
 		"rules.enable": (input) => transitionRule(artifacts, string(input, "id"), "enable"),
@@ -316,7 +329,7 @@ function handlers(
 			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
 			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
 		}),
-		"skills.list": (input) => listSkills(artifacts, taskFilter(input)),
+		"skills.list": (input) => listSkills(artifacts, artifactFilter(input)),
 		"skills.show": (input) => showSkill(artifacts, string(input, "id")),
 		"skills.invoke": (input) => skillInvocation(artifacts, string(input, "id")),
 		"skills.run": (input) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
@@ -343,7 +356,7 @@ function handlers(
 	};
 }
 
-export function createPapyrusService(path: string, options: { automation?: TaskAutomationSettings } = {}): PapyrusService {
+export function createPapyrusService(path: string): PapyrusService {
 	const db = openDb(path);
 	const artifacts = new SQLiteArtifactStore(db);
 	const gates = new SQLiteGateRunner(db);
@@ -351,8 +364,7 @@ export function createPapyrusService(path: string, options: { automation?: TaskA
 	const events = new SQLiteTaskEventStore(db);
 	const scopes = new SQLiteTaskScopeStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
-	const automation = new TaskAutomationReconciler(tasks, options.automation ?? taskAutomationSettings({}));
-	const registry = handlers(artifacts, gates, tasks, automation, events, scopes, () => migrateDb(db));
+	const registry = handlers(artifacts, gates, tasks, events, scopes, () => migrateDb(db));
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
@@ -363,8 +375,8 @@ export function createPapyrusService(path: string, options: { automation?: TaskA
 		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
-			if (operation !== "system.migrate" && operation !== "automation.status" && state().migrationRequired) {
-				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-scope`");
+			if (operation !== "system.migrate" && state().migrationRequired) {
+				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-focus`");
 			}
 			return handler(input);
 		},

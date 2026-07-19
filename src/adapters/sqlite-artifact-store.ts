@@ -9,8 +9,9 @@ import type {
 	ArtifactQuery,
 	CreateArtifactInput,
 	RelationshipQuery,
+	UpdateArtifactInput,
 } from "../domain/artifact.ts";
-import { createArtifact, getArtifact, linkArtifacts, queryArtifacts, updateExtra, updateStatus } from "../ops.ts";
+import { createArtifact, getArtifact, linkArtifacts, queryArtifacts, updateArtifactContent, updateExtra, updateStatus } from "../ops.ts";
 
 export class SQLiteArtifactStore implements AtomicArtifactStore {
 	constructor(private readonly db: Db) {}
@@ -41,6 +42,10 @@ export class SQLiteArtifactStore implements AtomicArtifactStore {
 
 	setExtra(id: string, extra: Record<string, unknown>): Artifact | null {
 		return updateExtra(this.db, id, extra);
+	}
+
+	updateContent(id: string, input: UpdateArtifactInput): Artifact | null {
+		return updateArtifactContent(this.db, id, input);
 	}
 
 	relationships(filter: RelationshipQuery = {}): ArtifactEdge[] {

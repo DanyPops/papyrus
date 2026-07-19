@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS relation_names (
 CREATE TABLE IF NOT EXISTS task_focus (
 	scope       TEXT PRIMARY KEY CHECK (scope = 'global'),
 	task_id     TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	status      TEXT NOT NULL CHECK (status IN ('active', 'paused')),
+	pause_reason TEXT,
 	updated_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS task_events (
@@ -140,7 +142,7 @@ CREATE TABLE IF NOT EXISTS task_views (
 
 const SEED_SQL = `
 INSERT OR IGNORE INTO kinds VALUES ('doc','Knowledge — what we know (specs, decisions, research, designs)');
-INSERT OR IGNORE INTO kinds VALUES ('task','Work — what we are doing (goals, steps, checklists)');
+INSERT OR IGNORE INTO kinds VALUES ('task','Work — what we are doing (objectives, steps, checklists)');
 INSERT OR IGNORE INTO kinds VALUES ('rule','Governance — when doing X, follow Y');
 INSERT OR IGNORE INTO kinds VALUES ('skill','Parameterized workflow bundle — inputs and templates load tasks, rules, and docs');
 INSERT OR IGNORE INTO statuses VALUES ('draft','doc');
@@ -199,7 +201,7 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2 && from !== 3) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2 && from !== 3 && from !== 4) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
 	inTransaction(db, () => {
@@ -279,6 +281,14 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 4;
 			`);
 			applied.push("task-project-scope");
+		}
+		if (schemaVersion(db) === 4) {
+			db.exec(`
+				ALTER TABLE task_focus ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused'));
+				ALTER TABLE task_focus ADD COLUMN pause_reason TEXT;
+				PRAGMA user_version = 5;
+			`);
+			applied.push("task-focus-continuation");
 		}
 	});
 	return { from, to: schemaVersion(db), applied };

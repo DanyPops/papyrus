@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
-import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
+import type { Artifact, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
 import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 export type { Artifact } from "./domain/artifact.ts";
 export type { Gate, GateResult } from "./domain/gate.ts";
@@ -202,6 +202,22 @@ export function linkArtifacts(db: Db, fromId: string, relation: string, toId: st
 	inTransaction(db, () => {
 		db.prepare("INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)").run(fromId, relation, toId);
 	});
+}
+
+export function updateArtifactContent(db: Db, id: string, input: UpdateArtifactInput): Artifact | null {
+	const artifact = getArtifact(db, id);
+	if (!artifact) return null;
+	const now = new Date().toISOString();
+	inTransaction(db, () => {
+		db.prepare("UPDATE artifacts SET title = ?, body = ?, labels = ?, updated_at = ? WHERE id = ?").run(
+			input.title ?? artifact.title,
+			input.body ?? artifact.body,
+			JSON.stringify(input.labels ?? artifact.labels),
+			now,
+			id,
+		);
+	});
+	return getArtifact(db, id);
 }
 
 export function updateStatus(db: Db, id: string, status: string): Artifact | null {

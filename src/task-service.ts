@@ -1,4 +1,13 @@
-import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES, TASK_SCOPE_MAX_TASKS } from "./constants.ts";
+import {
+	TASK_BODY_MAX_LENGTH,
+	TASK_EXECUTION_MAX_DEGREE,
+	TASK_EXECUTION_MAX_EDGES,
+	TASK_EXECUTION_MAX_NODES,
+	TASK_LABEL_MAX_COUNT,
+	TASK_LABEL_MAX_LENGTH,
+	TASK_SCOPE_MAX_TASKS,
+	TASK_TITLE_MAX_LENGTH,
+} from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
 import type { Gate, GateResult } from "./domain/gate.ts";
@@ -6,10 +15,16 @@ import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQue
 import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
-import { InMemoryTaskFocusStore, type TaskFocusStore } from "./ports/task-focus-store.ts";
+import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "./ports/task-scope-store.ts";
 import { assertDependencyEdgeAllowed } from "./task-execution.ts";
+
+export interface UpdateTaskInput {
+	title?: string;
+	body?: string;
+	labels?: string[];
+}
 
 export interface TaskFilter {
 	status?: string;
@@ -53,6 +68,13 @@ export interface ChecklistReview {
 	reason?: string;
 }
 
+export interface TaskFocus {
+	artifact: Artifact;
+	status: TaskFocusStatus;
+	updatedAt: string;
+	pauseReason?: string;
+}
+
 export interface TaskCompletionOptions {
 	focusSuccessor?: boolean;
 	gateDeadlineMs?: number;
@@ -70,6 +92,7 @@ export interface TaskCompletion {
 export interface TaskNode {
 	task: Artifact;
 	active?: boolean;
+	focusStatus?: TaskFocusStatus;
 	parentIds: string[];
 	childIds: string[];
 	dependencyIds: string[];
@@ -135,6 +158,28 @@ export class Tasks {
 			for (const dependency of input.dependsOn ?? []) this.depend(task.id, dependency);
 			this.appendEvent({ taskId: task.id, type: "created", toStatus: task.status as TaskStatus }, context);
 			return this.show(task.id);
+		});
+	}
+
+	update(id: string, input: UpdateTaskInput, context: TaskEventContext = {}): Artifact {
+		const fields = (["title", "body", "labels"] as const).filter((field) => input[field] !== undefined);
+		if (fields.length === 0) throw new Error("task update requires title, body, or labels");
+		if (input.title !== undefined && (input.title.trim().length === 0 || input.title.length > TASK_TITLE_MAX_LENGTH)) {
+			throw new Error(`title must be between 1 and ${TASK_TITLE_MAX_LENGTH} characters`);
+		}
+		if (input.body !== undefined && input.body.length > TASK_BODY_MAX_LENGTH) throw new Error(`body cannot exceed ${TASK_BODY_MAX_LENGTH} characters`);
+		if (input.labels !== undefined) {
+			if (input.labels.length > TASK_LABEL_MAX_COUNT) throw new Error(`labels cannot exceed ${TASK_LABEL_MAX_COUNT} entries`);
+			if (input.labels.some((label) => label.length === 0 || label.length > TASK_LABEL_MAX_LENGTH)) {
+				throw new Error(`each label must be between 1 and ${TASK_LABEL_MAX_LENGTH} characters`);
+			}
+		}
+		return this.events.atomic(() => {
+			this.require(id);
+			const updated = this.artifacts.updateContent(id, input);
+			if (!updated) throw new Error(`task "${id}" not found`);
+			this.appendEvent({ taskId: id, type: "updated", evidence: { result: `fields:${fields.sort().join(",")}` } }, context);
+			return updated;
 		});
 	}
 
@@ -204,10 +249,12 @@ export class Tasks {
 			throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
 		}
 		const byId = new Map(tasks.map((task) => [task.id, task]));
-		const focusedId = this.focusStore.get();
+		const focus = this.focusStore.get();
+		const focusedId = focus?.taskId;
 		const nodes = new Map(tasks.map((task) => [task.id, {
 			task,
 			active: task.id === focusedId,
+			...(task.id === focusedId ? { focusStatus: focus!.status } : {}),
 			parentIds: [] as string[],
 			childIds: [] as string[],
 			dependencyIds: [] as string[],
@@ -247,25 +294,60 @@ export class Tasks {
 		return this.artifacts.get(id, { tree: true })!;
 	}
 
-	active(filter?: TaskFilter): Artifact | null {
-		const id = this.focusStore.get();
-		if (!id) return null;
-		const task = this.artifacts.get(id);
+	focused(filter?: TaskFilter): TaskFocus | null {
+		const focus = this.focusStore.get();
+		if (!focus) return null;
+		const task = this.artifacts.get(focus.taskId);
 		if (!task || task.kind !== "task" || task.status === "done" || task.status === "canceled") {
-			this.focusStore.clear(id);
+			this.focusStore.clear(focus.taskId);
 			return null;
 		}
 		if (filter?.projectRoot && !this.list(filter).some((candidate) => candidate.id === task.id)) return null;
-		return task;
+		return { artifact: task, status: focus.status, updatedAt: focus.updatedAt, ...(focus.pauseReason ? { pauseReason: focus.pauseReason } : {}) };
 	}
 
-	focus(id: string): Artifact {
-		const task = this.require(id);
-		if (task.status === "done" || task.status === "canceled") {
-			throw new Error(`cannot focus task from ${task.status}`);
-		}
-		this.focusStore.set(id);
-		return task;
+	active(filter?: TaskFilter): Artifact | null {
+		const focus = this.focused(filter);
+		return focus?.status === "active" ? focus.artifact : null;
+	}
+
+	focus(id: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			const task = this.require(id);
+			if (task.status === "done" || task.status === "canceled") throw new Error(`cannot focus task from ${task.status}`);
+			this.focusStore.set(id);
+			this.appendEvent({ taskId: id, type: "focus_set" }, context);
+			return task;
+		});
+	}
+
+	pauseFocus(context: TaskEventContext = {}): TaskFocus {
+		return this.events.atomic(() => {
+			const focus = this.focused();
+			if (!focus) throw new Error("no focused task");
+			const state = this.focusStore.pause(focus.artifact.id, context.reason);
+			this.appendEvent({ taskId: focus.artifact.id, type: "focus_paused" }, context);
+			return { artifact: focus.artifact, status: state.status, updatedAt: state.updatedAt, ...(state.pauseReason ? { pauseReason: state.pauseReason } : {}) };
+		});
+	}
+
+	unpauseFocus(context: TaskEventContext = {}): TaskFocus {
+		return this.events.atomic(() => {
+			const focus = this.focused();
+			if (!focus) throw new Error("no focused task");
+			const state = this.focusStore.unpause(focus.artifact.id);
+			this.appendEvent({ taskId: focus.artifact.id, type: "focus_unpaused" }, context);
+			return { artifact: focus.artifact, status: state.status, updatedAt: state.updatedAt };
+		});
+	}
+
+	clearFocus(context: TaskEventContext = {}): { cleared: boolean } {
+		return this.events.atomic(() => {
+			const focus = this.focusStore.get();
+			if (focus) this.appendEvent({ taskId: focus.taskId, type: "focus_cleared" }, context);
+			this.focusStore.clear();
+			return { cleared: focus !== undefined };
+		});
 	}
 
 	transition(id: string, action: TaskTransition, context: TaskEventContext = {}): Artifact {
@@ -322,19 +404,6 @@ export class Tasks {
 	setChecklist(id: string, checklist: Checklist): Artifact {
 		const task = this.require(id);
 		return this.artifacts.setExtra(id, { ...task.extra, checklist: validateChecklist(checklist) })!;
-	}
-
-	setAutomation(id: string, enabled: boolean, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			const task = this.require(id);
-			const current = task.extra["automation"];
-			const automation = typeof current === "object" && current !== null && !Array.isArray(current)
-				? current as Record<string, unknown>
-				: {};
-			const updated = this.artifacts.setExtra(id, { ...task.extra, automation: { ...automation, enabled } })!;
-			this.appendEvent({ taskId: id, type: enabled ? "automation_enabled" : "automation_disabled" }, context);
-			return updated;
-		});
 	}
 
 	depend(id: string, dependencyId: string): Artifact {

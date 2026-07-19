@@ -45,6 +45,10 @@ export const TASK_DRIVER_MAX_UNCHANGED_TURNS = 6;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
 export const GRAPH_RENDER_BOX_PADDING = 0;
+/** beautiful-mermaid routed layouts become unsafe on larger task graphs; use bounded line fallback. */
+export const GRAPH_RENDER_MAX_ROUTED_NODES = 48;
+export const GRAPH_RENDER_MAX_ROUTED_EDGES = 96;
+export const GRAPH_RENDER_MAX_FALLBACK_LINES = 200;
 
 /** Safe defaults and hard ceilings for graph expansion. */
 export const DEFAULT_GRAPH_DEPTH = 4;

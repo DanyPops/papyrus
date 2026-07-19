@@ -114,6 +114,7 @@ Run `/tasks` for the interactive task panel:
 
 - `/` filters; arrow keys navigate; Enter opens task actions
 - `g` opens the programmatic Unicode graph; Tab switches dependency/composition views and arrow keys pan
+- routed graph layouts are bounded to 48 nodes/96 edges; larger graphs use a deterministic, box-drawn line fallback, and renderer failures are contained inside the viewport rather than escaping Pi
 - advance the `todo → in-progress → review → done` lifecycle; failed review becomes `rejected`, retry returns to `in-progress`, and `canceled` is terminal
 - use **active** only as the independent singleton focus that auto-drive continues; focusing a task never changes its lifecycle
 - starting nested effort moves todo ancestors to in-progress; submitting enters review; completing review checks both typed checklist proofs and executable gates
@@ -127,6 +128,7 @@ Run `/tasks` for the interactive task panel:
 Authenticated CLI parity covers the changed lifecycle and focus operations:
 
 ```bash
+papyrus tasks graph --json
 papyrus tasks active --json
 papyrus tasks focus <id> --json
 papyrus tasks start <id> --json

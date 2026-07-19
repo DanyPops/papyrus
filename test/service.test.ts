@@ -126,7 +126,7 @@ describe("Papyrus operation service", () => {
 	it("provides a typed client over the same HTTP adapter", async () => {
 		const { service, app } = fixture();
 		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
-		expect(await client.health()).toEqual({ ok: true, version: "0.2.0" });
+		expect(await client.health()).toEqual({ ok: true, version: "0.2.1" });
 		const task = await client.call<{ title: string }, { id: string; kind: string }>("tasks.create", { title: "Client task" });
 		expect(task.kind).toBe("task");
 		expect((await client.operations()).length).toBe(EXPECTED_OPERATION_NAMES.length);

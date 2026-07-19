@@ -13,6 +13,8 @@ export const TASK_EVENT_TYPES = [
 	"submitted",
 	"completion_attempted",
 	"gates_evaluated",
+	"automation_enabled",
+	"automation_disabled",
 	"review_rejected",
 	"retried",
 	"completed",

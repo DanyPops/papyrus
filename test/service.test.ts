@@ -33,7 +33,10 @@ describe("Papyrus operation service", () => {
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.set_checklist");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.active");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.focus");
+		expect(EXPECTED_OPERATION_NAMES).toContain("automation.status");
+		expect(EXPECTED_OPERATION_NAMES).toContain("automation.reconcile");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.submit");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.set_automation");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.reject");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.cancel");
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
@@ -74,6 +77,13 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
+	it("keeps daemon automation off unless explicitly enabled", async () => {
+		const { service } = fixture();
+		expect(await service.execute("automation.status", {})).toMatchObject({ enabled: false, inFlight: false });
+		expect(await service.execute("automation.reconcile", {})).toMatchObject({ skipped: "disabled", examined: 0 });
+		service.close();
+	});
+
 	it("dispatches low-level and task operations through one endpoint", async () => {
 		const { service, app } = fixture();
 		const created = await request(app, "/api/v1/ops", {
@@ -83,8 +93,12 @@ describe("Papyrus operation service", () => {
 		expect(created.status).toBe(200);
 		const task = (await created.json()) as { result: { id: string; kind: string } };
 		expect(task.result.kind).toBe("task");
+		await service.execute("tasks.set_automation", { id: task.result.id, enabled: true, actor: "user", source: "test" });
 		const history = await service.execute("tasks.history", { id: task.result.id, direction: "asc" }) as { events: Array<{ type: string; actor: string }> };
-		expect(history.events).toEqual([expect.objectContaining({ type: "created", actor: "system" })]);
+		expect(history.events).toEqual([
+			expect.objectContaining({ type: "created", actor: "system" }),
+			expect.objectContaining({ type: "automation_enabled", actor: "user", source: "test" }),
+		]);
 		const lowLevelTask = await service.execute("artifact.create", { kind: "task", title: "Low-level task", actor: "agent" }) as { id: string };
 		expect(await service.execute("tasks.history", { id: lowLevelTask.id }) as unknown).toEqual(expect.objectContaining({
 			events: [expect.objectContaining({ type: "created", actor: "agent", source: "artifact-api" })],

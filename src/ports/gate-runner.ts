@@ -1,6 +1,6 @@
-import type { GateResult } from "../domain/gate.ts";
+import type { GateResult, GateRunOptions } from "../domain/gate.ts";
 
 export interface GateRunner {
 	run(artifactId: string): GateResult[];
-	runAsync(artifactId: string): Promise<GateResult[]>;
+	runAsync(artifactId: string, options?: GateRunOptions): Promise<GateResult[]>;
 }

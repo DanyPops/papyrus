@@ -31,7 +31,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, list, show, history, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, list, show, history, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, set_automation, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -44,6 +44,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			direction: Type.Optional(Type.Union([Type.Literal("asc"), Type.Literal("desc")])),
 			reason: Type.Optional(Type.String()),
 			session_id: Type.Optional(Type.String()),
+			enabled: Type.Optional(Type.Boolean()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			gates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
@@ -123,6 +124,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					reject: "tasks.reject",
 					retry: "tasks.retry",
 					cancel: "tasks.cancel",
+					set_automation: "tasks.set_automation",
 					depend: "tasks.depend",
 					contain: "tasks.contain",
 				} as const;

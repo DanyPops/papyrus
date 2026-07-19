@@ -46,6 +46,11 @@ export interface ChecklistReview {
 	reason?: string;
 }
 
+export interface TaskCompletionOptions {
+	focusSuccessor?: boolean;
+	gateDeadlineMs?: number;
+}
+
 export interface TaskCompletion {
 	artifact: Artifact;
 	gates: GateResult[];
@@ -215,23 +220,23 @@ export class Tasks {
 		});
 	}
 
-	complete(id: string, context: TaskEventContext = {}): TaskCompletion {
+	complete(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): TaskCompletion {
 		const task = this.requireReview(id);
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
 		const results = this.gates.run(id);
-		return this.resolveCompletion(id, attemptId, results, checklist, context);
+		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
 	}
 
-	async completeAsync(id: string, context: TaskEventContext = {}): Promise<TaskCompletion> {
+	async completeAsync(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): Promise<TaskCompletion> {
 		const task = this.requireReview(id);
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
-		const results = await this.gates.runAsync(id);
+		const results = await this.gates.runAsync(id, { deadlineMs: options.gateDeadlineMs });
 		this.requireReview(id);
-		return this.resolveCompletion(id, attemptId, results, checklist, context);
+		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
 	}
 
 	async runGates(id: string, context: TaskEventContext = {}): Promise<GateResult[]> {
@@ -249,6 +254,19 @@ export class Tasks {
 	setChecklist(id: string, checklist: Checklist): Artifact {
 		const task = this.require(id);
 		return this.artifacts.setExtra(id, { ...task.extra, checklist: validateChecklist(checklist) })!;
+	}
+
+	setAutomation(id: string, enabled: boolean, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			const task = this.require(id);
+			const current = task.extra["automation"];
+			const automation = typeof current === "object" && current !== null && !Array.isArray(current)
+				? current as Record<string, unknown>
+				: {};
+			const updated = this.artifacts.setExtra(id, { ...task.extra, automation: { ...automation, enabled } })!;
+			this.appendEvent({ taskId: id, type: enabled ? "automation_enabled" : "automation_disabled" }, context);
+			return updated;
+		});
 	}
 
 	depend(id: string, dependencyId: string): Artifact {
@@ -345,6 +363,7 @@ export class Tasks {
 		gates: GateResult[],
 		checklist: ChecklistReview[],
 		context: TaskEventContext,
+		options: TaskCompletionOptions,
 	): TaskCompletion {
 		const failed = gates.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted);
 		if (failed) {
@@ -361,10 +380,10 @@ export class Tasks {
 				return { artifact, gates, checklist, completed: false, focused: this.active(), blocked: [] };
 			});
 		}
-		return this.events.atomic(() => this.finish(id, attemptId, gates, checklist, context));
+		return this.events.atomic(() => this.finish(id, attemptId, gates, checklist, context, options));
 	}
 
-	private finish(id: string, attemptId: string, gates: GateResult[], checklist: ChecklistReview[], context: TaskEventContext): TaskCompletion {
+	private finish(id: string, attemptId: string, gates: GateResult[], checklist: ChecklistReview[], context: TaskEventContext, options: TaskCompletionOptions): TaskCompletion {
 		const successorIds = this.relationships(id)
 			.filter((edge) => edge.relation === "depends_on" && edge.to === id)
 			.map((edge) => edge.from);
@@ -392,7 +411,7 @@ export class Tasks {
 				blocked.push({ artifact: successor, dependencyIds });
 				continue;
 			}
-			if (!focused) {
+			if (options.focusSuccessor !== false && !focused) {
 				this.focusStore.set(successor.id);
 				focused = successor;
 			}

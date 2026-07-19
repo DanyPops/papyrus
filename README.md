@@ -37,6 +37,8 @@ papyrus tasks plan
 papyrus tasks depend <task-id> <prerequisite-id>
 papyrus tasks start <task-id>
 papyrus tasks complete <task-id>
+papyrus tasks automate <task-id> <on|off>
+papyrus automation status
 ```
 
 For repository work, install the versioned ownership guard once:
@@ -138,7 +140,30 @@ papyrus tasks complete <id> --json
 papyrus tasks reject <id> --json
 papyrus tasks retry <id> --json
 papyrus tasks cancel <id> --json
+papyrus tasks automate <id> <on|off> --json
+papyrus automation status --json
+papyrus automation run --json
 ```
+
+### Opt-in supervised automation
+
+Background graph reconciliation is off by default and requires two independent opt-ins: daemon configuration and `automation.enabled` on each Task. Only opted-in Tasks already in `review` are eligible for automatic gate/checklist review; Papyrus never skips the review lifecycle. When one completes, directly dependent opted-in successors that become ready may move from `todo` to `in-progress`. Every completion, rejection, and start is written to append-only history with actor `daemon`, source `automation-reconciler`, reason, and bounded gate evidence.
+
+Enable the daemon with a systemd user-service override and restart it:
+
+```ini
+[Service]
+Environment=PAPYRUS_AUTOMATION_ENABLED=1
+```
+
+```bash
+systemctl --user edit papyrus.service
+systemctl --user restart papyrus.service
+papyrus tasks automate <task-id> on
+papyrus automation status
+```
+
+Secure defaults are a 60-second interval, 10 Task transitions per sweep, gate concurrency 1, and a 120-second sweep deadline. Optional environment settings are `PAPYRUS_AUTOMATION_INTERVAL_MS` (10 seconds–1 hour), `PAPYRUS_AUTOMATION_MAX_TASKS` (1–100), `PAPYRUS_AUTOMATION_GATE_CONCURRENCY` (1–4), and `PAPYRUS_AUTOMATION_MAX_RUNTIME_MS` (1 ms–10 minutes). Candidate scans are capped at 1,000 review Tasks, sweeps are single-flight, subprocess gates inherit the sweep deadline, result arrays are bounded by the Task limit, and logs contain counts rather than gate output. `papyrus automation run` uses the same policy and refuses to reconcile while global automation is disabled.
 
 Checklist criteria are an item-to-proof map. Every new item requires one or more typed references to inspectable evidence; proof presence does not imply that the evidence passed an executable gate:
 

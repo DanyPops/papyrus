@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runMigrationCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runAutomationCli, runMigrationCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import type { OperationName } from "../src/service.ts";
 
 class FakeClient {
@@ -20,6 +20,19 @@ describe("Papyrus migration CLI", () => {
 			applied: ["task-history"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
+	});
+});
+
+describe("Papyrus automation CLI", () => {
+	it("exposes authenticated status and bounded manual sweeps", async () => {
+		const status = { enabled: false, intervalMs: 60_000, maxTasksPerSweep: 10, gateConcurrency: 1, maxRuntimeMs: 120_000, inFlight: false };
+		const statusClient = new FakeClient(status);
+		expect(await runAutomationCli(["status", "--json"], statusClient)).toBe(JSON.stringify(status));
+		expect(statusClient.calls).toEqual([{ operation: "automation.status", input: {} }]);
+		const result = { examined: 1, completed: 1, rejected: 0, started: 0, errors: [], timedOut: false };
+		const runClient = new FakeClient(result);
+		expect(await runAutomationCli(["run", "--json"], runClient)).toBe(JSON.stringify(result));
+		expect(runClient.calls).toEqual([{ operation: "automation.reconcile", input: {} }]);
 	});
 });
 
@@ -94,6 +107,10 @@ describe("Papyrus task CLI", () => {
 		const startClient = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
 		expect(await runTaskCli(["start", "task"], startClient)).toBe("Started: task Task");
 		expect(startClient.calls).toEqual([{ operation: "tasks.start", input: { id: "task", actor: "user", source: "cli" } }]);
+
+		const automationClient = new FakeClient({ id: "task", title: "Task", status: "review" });
+		expect(await runTaskCli(["automate", "task", "on"], automationClient)).toBe("Automation on: task Task");
+		expect(automationClient.calls).toEqual([{ operation: "tasks.set_automation", input: { id: "task", enabled: true, actor: "user", source: "cli" } }]);
 
 		const focusClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
 		expect(await runTaskCli(["focus", "task"], focusClient)).toBe("Active: task Task");

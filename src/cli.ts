@@ -10,6 +10,7 @@ import { serveMain } from "./daemon.ts";
 import type { GateResult } from "./domain/gate.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskBlockage, TaskCompletion } from "./task-service.ts";
+import type { TaskAutomationResult, TaskAutomationSettings } from "./task-automation.ts";
 
 export interface SystemdUnitOptions {
 	bunBin: string;
@@ -57,6 +58,7 @@ const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
   papyrus migrate task-history [--json]
+  papyrus automation <status|run> [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus tasks plan [--json]
   papyrus tasks graph [--json]
@@ -69,6 +71,7 @@ const USAGE = `Usage:
   papyrus tasks reject <id> [--json]
   papyrus tasks retry <id> [--json]
   papyrus tasks cancel <id> [--json]
+  papyrus tasks automate <id> <on|off> [--json]
   papyrus tasks depend <id> <prerequisite-id> [--json]`;
 
 function usage(): never {
@@ -114,6 +117,20 @@ export async function runMigrationCli(args: string[], client: TaskCliClient): Pr
 	if (json) return JSON.stringify(result);
 	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
 	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
+}
+
+export async function runAutomationCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional = args.filter((argument) => argument !== "--json");
+	if (positional.length !== 1 || (positional[0] !== "status" && positional[0] !== "run")) {
+		throw new Error("automation requires exactly `status` or `run`");
+	}
+	if (positional[0] === "status") {
+		const status = await client.call<Record<string, never>, TaskAutomationSettings & { inFlight: boolean }>("automation.status", {});
+		return json ? JSON.stringify(status) : `Automation: ${status.enabled ? "enabled" : "disabled"} · interval ${status.intervalMs}ms · max ${status.maxTasksPerSweep} tasks · concurrency ${status.gateConcurrency}`;
+	}
+	const result = await client.call<Record<string, never>, TaskAutomationResult>("automation.reconcile", {});
+	return json ? JSON.stringify(result) : `Automation sweep: ${result.examined} examined · ${result.completed} completed · ${result.rejected} rejected · ${result.started} started · ${result.errors.length} errors${result.skipped ? ` · skipped ${result.skipped}` : ""}`;
 }
 
 export async function runSkillCli(args: string[], client: TaskCliClient): Promise<string> {
@@ -241,6 +258,18 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
 			break;
 		}
+		case "automate": {
+			if (!id || (dependencyId !== "on" && dependencyId !== "off") || positional.length !== 3) throw new Error("tasks automate requires a task id and on or off");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.set_automation", {
+				id,
+				enabled: dependencyId === "on",
+				actor: "user",
+				source: "cli",
+			});
+			result = artifact;
+			human = `Automation ${dependencyId}: ${artifactLabel(artifact)}`;
+			break;
+		}
 		case "depend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks depend requires a task id and prerequisite id");
 			const artifact = await client.call<{ id: string; dependency_id: string }, CliArtifact>("tasks.depend", {
@@ -252,7 +281,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			break;
 		}
 		default:
-			throw new Error("tasks action must be active, focus, graph, plan, history, complete, start, submit, reject, retry, cancel, or depend");
+			throw new Error("tasks action must be active, focus, graph, plan, history, complete, start, submit, reject, retry, cancel, automate, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -263,6 +292,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
+		return;
+	}
+	if (command === "automation") {
+		const client = await connectPapyrusClient();
+		console.log(await runAutomationCli(args.slice(1), client));
 		return;
 	}
 	if (command === "skills") {

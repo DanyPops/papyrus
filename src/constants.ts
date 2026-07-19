@@ -15,6 +15,7 @@ export const GATE_COMMAND_TIMEOUT_MS = 30_000;
 export const GATE_TEST_TIMEOUT_MS = 60_000;
 export const GATE_OUTPUT_LIMIT = 200;
 export const GATE_MAX_BUFFER_BYTES = 1_048_576;
+export const GATE_FILE_MAX_BYTES = 1_048_576;
 
 /** Compact task-context limits keep recurring prompt injection bounded. */
 export const TASK_CONTEXT_CURRENT_LIMIT = 3;
@@ -48,6 +49,19 @@ export const TASK_HISTORY_MAX_LIMIT = 100;
 export const TASK_EVENT_MAX_EVIDENCE_BYTES = 65_536;
 export const TASK_EVENT_ACTOR_MAX_LENGTH = 128;
 export const TASK_EVENT_REASON_MAX_LENGTH = 2_000;
+/** Explicitly opt-in supervised Task graph reconciliation bounds. */
+export const TASK_AUTOMATION_INTERVAL_MS = 60_000;
+export const TASK_AUTOMATION_MIN_INTERVAL_MS = 10_000;
+export const TASK_AUTOMATION_MAX_INTERVAL_MS = 3_600_000;
+export const TASK_AUTOMATION_MAX_TASKS_PER_SWEEP = 10;
+export const TASK_AUTOMATION_HARD_MAX_TASKS_PER_SWEEP = 100;
+export const TASK_AUTOMATION_GATE_CONCURRENCY = 1;
+export const TASK_AUTOMATION_MAX_GATE_CONCURRENCY = 4;
+export const TASK_AUTOMATION_MAX_RUNTIME_MS = 120_000;
+export const TASK_AUTOMATION_HARD_MAX_RUNTIME_MS = 600_000;
+export const TASK_AUTOMATION_MAX_CANDIDATE_SCAN = 1_000;
+export const TASK_AUTOMATION_ERROR_ID_MAX_LENGTH = 128;
+export const TASK_AUTOMATION_ERROR_MESSAGE_MAX_LENGTH = 500;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
 export const GRAPH_RENDER_BOX_PADDING = 0;

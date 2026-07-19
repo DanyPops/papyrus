@@ -6,10 +6,12 @@ import {
 } from "../../src/constants.ts";
 
 const STATUS_GLYPHS: Record<string, string> = {
-	pending: "○",
-	active: "●",
+	todo: "○",
+	"in-progress": "●",
+	review: "◆",
+	rejected: "▲",
 	done: "■",
-	failed: "▲",
+	canceled: "×",
 };
 
 export interface MetadataFormatOptions {

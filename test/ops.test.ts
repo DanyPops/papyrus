@@ -42,7 +42,7 @@ describe("papyrus: four-kind model", () => {
 	it("default status per kind", () => {
 		const { db } = tmpDb();
 		expect(createArtifact(db, { kind: "doc", title: "D" }).status).toBe("draft");
-		expect(createArtifact(db, { kind: "task", title: "T" }).status).toBe("pending");
+		expect(createArtifact(db, { kind: "task", title: "T" }).status).toBe("todo");
 		expect(createArtifact(db, { kind: "rule", title: "R" }).status).toBe("active");
 		expect(createArtifact(db, { kind: "skill", title: "S" }).status).toBe("active");
 		db.close();

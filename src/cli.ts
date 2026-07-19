@@ -56,9 +56,16 @@ function installService(): void {
 const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
+  papyrus migrate task-lifecycle [--json]
   papyrus tasks plan [--json]
+  papyrus tasks active [--json]
+  papyrus tasks focus <id> [--json]
   papyrus tasks complete <id> [--json]
   papyrus tasks start <id> [--json]
+  papyrus tasks submit <id> [--json]
+  papyrus tasks reject <id> [--json]
+  papyrus tasks retry <id> [--json]
+  papyrus tasks cancel <id> [--json]
   papyrus tasks depend <id> <prerequisite-id> [--json]`;
 
 function usage(): never {
@@ -67,10 +74,10 @@ function usage(): never {
 }
 
 type TaskCliClient = Pick<PapyrusClient, "call">;
+type MigrationResult = { from: number; to: number; applied: string[] };
 type CliArtifact = { id: string; title: string; status: string };
-type CliCompletion = Omit<TaskCompletion, "artifact" | "started" | "blocked"> & {
+type CliCompletion = Omit<TaskCompletion, "artifact" | "blocked"> & {
 	artifact: CliArtifact;
-	started: CliArtifact[];
 	blocked: Array<Omit<TaskBlockage, "artifact"> & { artifact: CliArtifact }>;
 	gates: GateResult[];
 };
@@ -94,6 +101,18 @@ function planText(plan: TaskExecutionPlan): string {
 	return lines.join("\n");
 }
 
+export async function runMigrationCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional = args.filter((arg) => arg !== "--json");
+	if (positional.length !== 1 || positional[0] !== "task-lifecycle") {
+		throw new Error("migrate requires exactly `task-lifecycle`");
+	}
+	const result = await client.call<Record<string, never>, MigrationResult>("system.migrate", {});
+	if (json) return JSON.stringify(result);
+	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
+	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
+}
+
 export async function runTaskCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
@@ -101,6 +120,20 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 	let result: unknown;
 	let human: string;
 	switch (action) {
+		case "active": {
+			if (id) throw new Error("tasks active accepts no positional arguments");
+			const active = await client.call<Record<string, never>, CliArtifact | null>("tasks.active", {});
+			result = active;
+			human = active ? `Active: ${artifactLabel(active)}` : "No active task.";
+			break;
+		}
+		case "focus": {
+			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
+			const active = await client.call<{ id: string }, CliArtifact>("tasks.focus", { id });
+			result = active;
+			human = `Active: ${artifactLabel(active)}`;
+			break;
+		}
 		case "plan": {
 			if (id) throw new Error("tasks plan accepts no positional arguments");
 			const plan = await client.call<Record<string, never>, TaskExecutionPlan>("tasks.plan", {});
@@ -112,8 +145,8 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			if (!id || dependencyId) throw new Error("tasks complete requires exactly one task id");
 			const completion = await client.call<{ id: string }, CliCompletion>("tasks.complete", { id });
 			result = completion;
-			const lines = [`${completion.completed ? "Completed" : "Not completed"}: ${artifactLabel(completion.artifact)}`];
-			if (completion.started.length > 0) lines.push(`Started: ${completion.started.map(artifactLabel).join(", ")}`);
+			const lines = [`${completion.completed ? "Completed" : "Rejected"}: ${artifactLabel(completion.artifact)}`];
+			if (completion.focused) lines.push(`Active: ${artifactLabel(completion.focused)}`);
 			if (completion.blocked.length > 0) {
 				lines.push(`Blocked: ${completion.blocked.map((entry) => `${artifactLabel(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`);
 			}
@@ -128,6 +161,17 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			human = `Started: ${artifactLabel(artifact)}`;
 			break;
 		}
+		case "submit":
+		case "reject":
+		case "retry":
+		case "cancel": {
+			if (!id || dependencyId) throw new Error(`tasks ${action} requires exactly one task id`);
+			const operation = `tasks.${action}` as "tasks.submit" | "tasks.reject" | "tasks.retry" | "tasks.cancel";
+			const artifact = await client.call<{ id: string }, CliArtifact>(operation, { id });
+			result = artifact;
+			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
+			break;
+		}
 		case "depend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks depend requires a task id and prerequisite id");
 			const artifact = await client.call<{ id: string; dependency_id: string }, CliArtifact>("tasks.depend", {
@@ -139,7 +183,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			break;
 		}
 		default:
-			throw new Error("tasks action must be plan, complete, start, or depend");
+			throw new Error("tasks action must be active, focus, plan, complete, start, submit, reject, retry, cancel, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -150,6 +194,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
+		return;
+	}
+	if (command === "migrate") {
+		const client = await connectPapyrusClient();
+		console.log(await runMigrationCli(args.slice(1), client));
 		return;
 	}
 	if (command !== "service") usage();

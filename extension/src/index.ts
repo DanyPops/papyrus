@@ -11,7 +11,6 @@ import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "
 import { Type } from "typebox";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
-	TASK_DRIVER_ACTIVE_LIMIT,
 	TASK_DRIVER_MAX_TURNS,
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
 } from "../../src/constants.ts";
@@ -20,9 +19,10 @@ import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
-import type { TaskGraph } from "../../src/task-service.ts";
+import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, type ActiveTaskMarker } from "./active-task-continuation.ts";
 import { buildTaskWidgetProjection } from "./task-widget.ts";
+import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
 	return { content: [{ type: "text" as const, text: t }], details };
@@ -31,13 +31,6 @@ function text(t: string, details: Record<string, unknown> = {}) {
 // ---------------------------------------------------------------------------
 // Task widget (TodoOverlay pattern from rpiv-todo: factory form, requestRender)
 // ---------------------------------------------------------------------------
-
-const GLYPHS: Record<string, (theme: Theme) => string> = {
-	pending:   (t) => t.fg("dim", "○"),
-	active:    (t) => t.fg("warning", "●"),
-	done:      (t) => t.fg("success", "■"),
-	failed:    (t) => t.fg("error", "▲"),
-};
 
 const WIDGET_KEY = "pi-papyrus";
 
@@ -103,22 +96,26 @@ class TaskOverlay {
 		const projection = buildTaskWidgetProjection(this.snapshot);
 		if (projection.total === 0) return [];
 
-		if (projection.activeTotal === 0) {
-			return [truncateToWidth(theme.bold("Tasks · no active tasks · /tasks"), width, "…")];
+		if (projection.openTotal === 0) {
+			return [truncateToWidth(theme.bold("Tasks · no open tasks · /tasks"), width, "…")];
 		}
 
+		const active = projection.rows.find((row) => row.active);
 		const lines = [
 			truncateToWidth(
-				theme.bold(`Tasks · ${GLYPHS.active!(theme)} ${projection.activeTotal} active`),
+				theme.bold(`Tasks · ${active ? theme.fg("accent", "▶ active") : "no active focus"} · ${projection.openTotal} open`),
 				width,
 				"…",
 			),
 		];
-		for (const row of projection.active) {
-			const hierarchy = row.depth === 0
-				? row.hasActiveChildren ? "▾" : "·"
-				: `${"  ".repeat(row.depth)}↳`;
-			lines.push(truncateToWidth(`  ${hierarchy} ${GLYPHS.active!(theme)} ${row.task.title}`, width, "…"));
+		for (let index = 0; index < projection.rows.length; index++) {
+			const row = projection.rows[index]!;
+			const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
+			const hierarchy = taskTreeConnector({ depth: row.depth, hasChildren: row.hasOpenChildren, hasLaterSibling: laterSibling });
+			const focus = row.active ? theme.fg("accent", "▶") : " ";
+			const presentation = TASK_STATUS_PRESENTATION[row.task.status as TaskStatus];
+			const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : theme.fg("muted", "?");
+			lines.push(truncateToWidth(`${focus} ${hierarchy} ${glyph} ${row.task.title}`, width, "…"));
 		}
 		return lines;
 	}
@@ -145,10 +142,7 @@ export default async function (pi: ExtensionAPI) {
 	const driveActiveTasks = async (ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
 		try {
-			const active = await callService<Record<string, unknown>, ActiveTaskMarker[]>("tasks.list", {
-				status: "active",
-				limit: TASK_DRIVER_ACTIVE_LIMIT,
-			});
+			const active = await callService<Record<string, never>, ActiveTaskMarker | null>("tasks.active", {});
 			const decision = taskContinuation.evaluate(active, {
 				idle: ctx.isIdle(),
 				pendingMessages: ctx.hasPendingMessages(),
@@ -372,7 +366,7 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("agent_settled", async (_event, ctx) => { await driveActiveTasks(ctx); });
 
 	// ── "Are we there yet?" — inject active tasks into every turn ──────
-	// The agent sees its open work items every turn. If there are failed
+	// The agent sees its open work items every turn. If there are rejected
 	// tasks, they're explicitly called out — the agent should address them.
 
 	pi.on("before_agent_start", async (event, _ctx) => {

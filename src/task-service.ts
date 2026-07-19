@@ -1,9 +1,10 @@
 import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
-import { validateChecklist, type Checklist } from "./domain/checklist.ts";
+import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
 import type { Gate, GateResult } from "./domain/gate.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
+import { InMemoryTaskFocusStore, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { assertDependencyEdgeAllowed } from "./task-execution.ts";
 
 export interface TaskFilter {
@@ -12,10 +13,12 @@ export interface TaskFilter {
 	limit?: number;
 }
 
+export type TaskStatus = "todo" | "in-progress" | "review" | "rejected" | "done" | "canceled";
+
 export interface CreateTaskInput {
 	title: string;
 	body?: string;
-	status?: "pending" | "active" | "done" | "failed";
+	status?: TaskStatus;
 	labels?: string[];
 	extra?: Record<string, unknown>;
 	gates?: Gate[];
@@ -25,23 +28,32 @@ export interface CreateTaskInput {
 	dependsOn?: string[];
 }
 
-export type TaskTransition = "start" | "fail" | "retry";
+export type TaskTransition = "start" | "submit" | "reject" | "retry" | "cancel";
 
 export interface TaskBlockage {
 	artifact: Artifact;
 	dependencyIds: string[];
 }
 
+export interface ChecklistReview {
+	item: string;
+	proof: ProofReference[];
+	accepted: boolean;
+	reason?: string;
+}
+
 export interface TaskCompletion {
 	artifact: Artifact;
 	gates: GateResult[];
+	checklist: ChecklistReview[];
 	completed: boolean;
-	started: Artifact[];
+	focused: Artifact | null;
 	blocked: TaskBlockage[];
 }
 
 export interface TaskNode {
 	task: Artifact;
+	active?: boolean;
 	parentIds: string[];
 	childIds: string[];
 	dependencyIds: string[];
@@ -52,16 +64,19 @@ export interface TaskGraph {
 	rootIds: string[];
 }
 
-const TASK_TRANSITIONS: Record<TaskTransition, { from: string[]; to: string }> = {
-	start: { from: ["pending"], to: "active" },
-	fail: { from: ["pending", "active"], to: "failed" },
-	retry: { from: ["failed"], to: "pending" },
+const TASK_TRANSITIONS: Record<TaskTransition, { from: TaskStatus[]; to: TaskStatus }> = {
+	start: { from: ["todo"], to: "in-progress" },
+	submit: { from: ["in-progress"], to: "review" },
+	reject: { from: ["review"], to: "rejected" },
+	retry: { from: ["rejected"], to: "in-progress" },
+	cancel: { from: ["todo", "in-progress", "review", "rejected"], to: "canceled" },
 };
 
 export class Tasks {
 	constructor(
 		private readonly artifacts: ArtifactStore,
 		private readonly gates: GateRunner,
+		private readonly focusStore: TaskFocusStore = new InMemoryTaskFocusStore(),
 	) {}
 
 	private require(id: string): Artifact {
@@ -108,8 +123,10 @@ export class Tasks {
 			throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
 		}
 		const byId = new Map(tasks.map((task) => [task.id, task]));
+		const focusedId = this.focusStore.get();
 		const nodes = new Map(tasks.map((task) => [task.id, {
 			task,
+			active: task.id === focusedId,
 			parentIds: [] as string[],
 			childIds: [] as string[],
 			dependencyIds: [] as string[],
@@ -148,34 +165,63 @@ export class Tasks {
 		return this.artifacts.get(id, { tree: true })!;
 	}
 
+	active(): Artifact | null {
+		const id = this.focusStore.get();
+		if (!id) return null;
+		const task = this.artifacts.get(id);
+		if (!task || task.kind !== "task" || task.status === "done" || task.status === "canceled") {
+			this.focusStore.clear(id);
+			return null;
+		}
+		return task;
+	}
+
+	focus(id: string): Artifact {
+		const task = this.require(id);
+		if (task.status === "done" || task.status === "canceled") {
+			throw new Error(`cannot focus task from ${task.status}`);
+		}
+		this.focusStore.set(id);
+		return task;
+	}
+
 	transition(id: string, action: TaskTransition): Artifact {
 		const task = this.require(id);
 		const transition = TASK_TRANSITIONS[action];
-		if (!transition.from.includes(task.status)) throw new Error(`cannot ${action} task from ${task.status}`);
+		if (!transition.from.includes(task.status as TaskStatus)) throw new Error(`cannot ${action} task from ${task.status}`);
 		if (action === "start") {
 			const blocking = this.dependencyIds(id).filter((dependencyId) => this.require(dependencyId).status !== "done");
 			if (blocking.length > 0) throw new Error(`task "${id}" is blocked by dependencies: ${blocking.join(", ")}`);
+			this.focusStore.set(id);
 		}
-		return this.artifacts.setStatus(id, transition.to)!;
+		const updated = this.artifacts.setStatus(id, transition.to)!;
+		if (action === "start" || action === "retry") this.propagateProgressToAncestors(id);
+		if (action === "retry") this.focusStore.set(id);
+		if (action === "cancel") this.focusStore.clear(id);
+		return updated;
 	}
 
 	complete(id: string): TaskCompletion {
-		const task = this.requireActive(id);
+		const task = this.requireReview(id);
+		const checklist = this.reviewChecklist(task);
 		const results = this.gates.run(id);
-		if (results.some((gate) => !gate.passed)) {
-			return { artifact: task, gates: results, completed: false, started: [], blocked: [] };
+		if (results.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted)) {
+			const artifact = this.artifacts.setStatus(id, "rejected")!;
+			return { artifact, gates: results, checklist, completed: false, focused: this.active(), blocked: [] };
 		}
-		return this.finish(id, results);
+		return this.finish(id, results, checklist);
 	}
 
 	async completeAsync(id: string): Promise<TaskCompletion> {
-		this.requireActive(id);
+		const task = this.requireReview(id);
+		const checklist = this.reviewChecklist(task);
 		const results = await this.gates.runAsync(id);
-		if (results.some((gate) => !gate.passed)) {
-			return { artifact: this.require(id), gates: results, completed: false, started: [], blocked: [] };
+		if (results.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted)) {
+			const artifact = this.artifacts.setStatus(id, "rejected")!;
+			return { artifact, gates: results, checklist, completed: false, focused: this.active(), blocked: [] };
 		}
-		const current = this.requireActive(id);
-		return this.finish(current.id, results);
+		const current = this.requireReview(id);
+		return this.finish(current.id, results, checklist);
 	}
 
 	runGates(id: string): Promise<GateResult[]> {
@@ -226,6 +272,39 @@ export class Tasks {
 		return relationships;
 	}
 
+	private parentIds(id: string): string[] {
+		return this.relationships(id)
+			.flatMap((edge) => {
+				if (edge.relation === "part_of" && edge.from === id) return [edge.to];
+				if (edge.relation === "contains" && edge.to === id) return [edge.from];
+				return [];
+			})
+			.filter((parentId, index, ids) => ids.indexOf(parentId) === index);
+	}
+
+	private propagateProgressToAncestors(id: string): void {
+		const pending = this.parentIds(id);
+		const visited = new Set<string>();
+		while (pending.length > 0) {
+			const parentId = pending.shift()!;
+			if (visited.has(parentId)) continue;
+			if (visited.size >= TASK_EXECUTION_MAX_NODES) throw new Error("task ancestry exceeds execution node bound");
+			visited.add(parentId);
+			const parent = this.require(parentId);
+			if (parent.status === "todo") this.artifacts.setStatus(parentId, "in-progress");
+			pending.push(...this.parentIds(parentId));
+		}
+	}
+
+	private reviewChecklist(task: Artifact): ChecklistReview[] {
+		return checklistEntries(task.extra["checklist"]).map((entry) => ({
+			item: entry.item,
+			proof: entry.proof,
+			accepted: !entry.legacy && entry.proof.length > 0,
+			...((entry.legacy || entry.proof.length === 0) ? { reason: "typed proof reference required" } : {}),
+		}));
+	}
+
 	private dependencyIds(id: string): string[] {
 		const ids = this.relationships(id)
 			.filter((edge) => edge.relation === "depends_on" && edge.from === id)
@@ -236,7 +315,7 @@ export class Tasks {
 		return ids;
 	}
 
-	private finish(id: string, gates: GateResult[]): TaskCompletion {
+	private finish(id: string, gates: GateResult[], checklist: ChecklistReview[]): TaskCompletion {
 		const successorIds = this.relationships(id)
 			.filter((edge) => edge.relation === "depends_on" && edge.to === id)
 			.map((edge) => edge.from);
@@ -244,25 +323,29 @@ export class Tasks {
 			throw new Error(`task "${id}" exceeds ${TASK_EXECUTION_MAX_DEGREE} successors`);
 		}
 		const artifact = this.artifacts.setStatus(id, "done")!;
-		const started: Artifact[] = [];
+		this.focusStore.clear(id);
 		const blocked: TaskBlockage[] = [];
-		for (const successorId of successorIds) {
+		let focused: Artifact | null = null;
+		for (const successorId of [...successorIds].sort()) {
 			const successor = this.require(successorId);
-			if (successor.status !== "pending") continue;
+			if (successor.status === "done" || successor.status === "canceled") continue;
 			const dependencyIds = this.dependencyIds(successorId)
 				.filter((dependencyId) => this.require(dependencyId).status !== "done");
 			if (dependencyIds.length > 0) {
 				blocked.push({ artifact: successor, dependencyIds });
 				continue;
 			}
-			started.push(this.artifacts.setStatus(successorId, "active")!);
+			if (!focused) {
+				this.focusStore.set(successor.id);
+				focused = successor;
+			}
 		}
-		return { artifact, gates, completed: true, started, blocked };
+		return { artifact, gates, checklist, completed: true, focused, blocked };
 	}
 
-	private requireActive(id: string): Artifact {
+	private requireReview(id: string): Artifact {
 		const task = this.require(id);
-		if (task.status !== "active") throw new Error(`cannot complete task from ${task.status}`);
+		if (task.status !== "review") throw new Error(`cannot complete task from ${task.status}`);
 		return task;
 	}
 }

@@ -52,13 +52,16 @@ describe("tasks application API", () => {
 		const output = join(dir, "built.txt");
 		const task = tasks.create({ title: "Build output", gates: [{ type: "file-exists", target: output }] });
 
-		expect(tasks.transition(task.id, "start").status).toBe("active");
+		expect(tasks.transition(task.id, "start").status).toBe("in-progress");
+		expect(tasks.transition(task.id, "submit").status).toBe("review");
 		const blocked = tasks.complete(task.id);
 		expect(blocked.completed).toBe(false);
-		expect(blocked.artifact.status).toBe("active");
+		expect(blocked.artifact.status).toBe("rejected");
 		expect(blocked.gates[0]?.passed).toBe(false);
 
 		writeFileSync(output, "done");
+		expect(tasks.transition(task.id, "retry").status).toBe("in-progress");
+		expect(tasks.transition(task.id, "submit").status).toBe("review");
 		expect(tasks.complete(task.id).completed).toBe(true);
 		expect(() => tasks.transition(task.id, "start")).toThrow("cannot start task from done");
 		db.close();

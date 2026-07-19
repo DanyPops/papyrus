@@ -1,9 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { ActiveTaskContinuation, type ActiveTaskMarker } from "../extension/src/active-task-continuation.ts";
 
-const active = (updatedAt = "2026-01-01T00:00:00.000Z"): ActiveTaskMarker[] => [
-	{ id: "task-1", title: "Implement workflow", updated_at: updatedAt },
-];
+const active = (updatedAt = "2026-01-01T00:00:00.000Z"): ActiveTaskMarker =>
+	({ id: "task-1", title: "Implement workflow", updated_at: updatedAt });
 
 describe("Papyrus active task continuation", () => {
 	it("continues one next turn only when active tasks remain and Pi is settled", () => {
@@ -16,7 +15,7 @@ describe("Papyrus active task continuation", () => {
 		expect(continuation.prompt).toContain("Implement workflow");
 		expect(driver.evaluate(active(), { idle: true, pendingMessages: false }).reason).toBe("continuation already queued");
 		driver.onAgentStart();
-		expect(driver.evaluate([], { idle: true, pendingMessages: false }).reason).toBe("no active tasks");
+		expect(driver.evaluate(null, { idle: true, pendingMessages: false }).reason).toBe("no active task");
 	});
 
 	it("pauses after bounded unchanged turns and resumes when task progress changes", () => {

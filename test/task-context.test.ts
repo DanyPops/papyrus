@@ -29,7 +29,7 @@ describe("task context reconciliation", () => {
 				gates: [{ type: "command", target: "bun test", expect: "0 fail" }],
 			},
 		});
-		artifacts.setStatus(active.id, "active");
+		artifacts.setStatus(active.id, "in-progress");
 		artifacts.create({ kind: "task", title: "Document task workflow" });
 
 		const context = taskContext(artifacts)!;
@@ -42,13 +42,13 @@ describe("task context reconciliation", () => {
 		db.close();
 	});
 
-	it("calls out failed tasks as blocked work", () => {
+	it("calls out rejected tasks as review failures", () => {
 		const { db, artifacts } = fixture();
-		const failed = artifacts.create({ kind: "task", title: "Repair release" });
-		artifacts.setStatus(failed.id, "failed");
+		const rejected = artifacts.create({ kind: "task", title: "Repair release" });
+		artifacts.setStatus(rejected.id, "rejected");
 
 		const context = taskContext(artifacts)!;
-		expect(context).toContain("Blocked: Repair release");
+		expect(context).toContain("Rejected: Repair release");
 		expect(context).toContain("0/1 done");
 		db.close();
 	});

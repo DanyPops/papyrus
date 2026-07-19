@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PapyrusClient } from "../src/client.ts";
+import { openDb } from "../src/db.ts";
 import { EXPECTED_OPERATION_NAMES, createApp, createPapyrusService } from "../src/service.ts";
 
 function fixture() {
@@ -29,9 +30,42 @@ describe("Papyrus operation service", () => {
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.graph");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.plan");
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.set_checklist");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.active");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.focus");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.submit");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.reject");
+		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.cancel");
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
 		expect(EXPECTED_OPERATION_NAMES).toContain("rules.preview");
 		expect(EXPECTED_OPERATION_NAMES).toContain("skills.instantiate");
+		expect(EXPECTED_OPERATION_NAMES).toContain("system.migrate");
+		service.close();
+	});
+
+	it("starts without migrating old data and permits only explicit migration", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "papyrus-service-migration-"));
+		const path = join(dir, "papyrus.db");
+		const legacy = openDb(path);
+		legacy.exec(`
+			INSERT OR IGNORE INTO statuses VALUES ('pending','task');
+			INSERT OR IGNORE INTO statuses VALUES ('active','task');
+			INSERT OR IGNORE INTO statuses VALUES ('failed','task');
+			DELETE FROM statuses WHERE kind = 'task' AND name IN ('todo','in-progress','review','rejected','canceled');
+			DROP TABLE task_focus;
+			PRAGMA user_version = 1;
+		`);
+		legacy.close();
+
+		const service = createPapyrusService(path);
+		expect(service.schemaState()).toEqual({ current: 1, required: 2, migrationRequired: true });
+		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate task-lifecycle");
+		expect(await service.execute("system.migrate", {})).toEqual({
+			from: 1,
+			to: 2,
+			applied: ["task-lifecycle-and-focus"],
+		});
+		expect(service.schemaState()).toEqual({ current: 2, required: 2, migrationRequired: false });
+		expect(await service.execute("tasks.list", {})).toEqual([]);
 		service.close();
 	});
 
@@ -78,7 +112,7 @@ describe("Papyrus operation service", () => {
 
 	it("exposes execution plans and gated successor advancement", async () => {
 		const { service } = fixture();
-		const prerequisite = await service.execute("tasks.create", { title: "Prerequisite", status: "active" }) as { id: string };
+		const prerequisite = await service.execute("tasks.create", { title: "Prerequisite", status: "review" }) as { id: string };
 		const left = await service.execute("tasks.create", { title: "Left", depends_on: [prerequisite.id] }) as { id: string };
 		const right = await service.execute("tasks.create", { title: "Right", depends_on: [prerequisite.id] }) as { id: string };
 
@@ -93,11 +127,11 @@ describe("Papyrus operation service", () => {
 
 		const completion = await service.execute("tasks.complete", { id: prerequisite.id }) as {
 			completed: boolean;
-			started: Array<{ id: string; status: string }>;
+			focused: { id: string; status: string } | null;
 		};
 		expect(completion.completed).toBe(true);
-		expect(completion.started.map((task) => task.id)).toEqual([left.id, right.id]);
-		expect(completion.started.every((task) => task.status === "active")).toBe(true);
+		expect(completion.focused?.id).toBe(left.id);
+		expect(completion.focused?.status).toBe("todo");
 		service.close();
 	});
 
@@ -126,7 +160,11 @@ describe("Papyrus operation service", () => {
 	it("provides a typed client over the same HTTP adapter", async () => {
 		const { service, app } = fixture();
 		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
-		expect(await client.health()).toEqual({ ok: true, version: "0.2.1" });
+		expect(await client.health()).toEqual({
+			ok: true,
+			version: "0.2.1",
+			schema: { current: 2, required: 2, migrationRequired: false },
+		});
 		const task = await client.call<{ title: string }, { id: string; kind: string }>("tasks.create", { title: "Client task" });
 		expect(task.kind).toBe("task");
 		expect((await client.operations()).length).toBe(EXPECTED_OPERATION_NAMES.length);

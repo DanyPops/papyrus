@@ -1,6 +1,6 @@
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
 import { daemonStateDir, readDaemonHandle } from "./daemon-state.ts";
-import type { OperationName } from "./service.ts";
+import type { OperationName, SchemaState } from "./service.ts";
 
 export type FetchAdapter = (request: Request) => Promise<Response>;
 
@@ -28,7 +28,7 @@ export class PapyrusClient {
 		return body;
 	}
 
-	health(): Promise<{ ok: true; version: string }> {
+	health(): Promise<{ ok: true; version: string; schema: SchemaState }> {
 		return this.request("/health");
 	}
 

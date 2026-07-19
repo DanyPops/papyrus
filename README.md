@@ -73,12 +73,14 @@ The `papyrus_*` tools are the low-level graph-store API:
 
 Agent-facing facade tools own domain lifecycle invariants and sit above this store API:
 
-- **`tasks`** — create/list/show, hierarchy/dependencies, start/fail/retry, non-blocking gates, and gate-enforced completion
+- **`tasks`** — create/list/show, replace evidence-bearing checklists, hierarchy/dependencies, start/fail/retry, non-blocking gates, and gate-enforced completion
 - **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links
 - **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
 - **`skills`** — create/list/show/invoke, enable/disable, create templates, and instantiate templates
 
-Every tool operation is registered in the daemon’s `/api/v1/ops` registry; parity is verified in tests.
+Every tool operation is registered in the daemon’s `/api/v1/ops` registry; parity is verified in tests. The task consumer uses the `tasks.graph` operation, which returns task nodes with explicit parent, child, and dependency IDs rather than leaking SQLite rows or asking the UI to reconstruct relationships.
+
+Internally, application services depend on the `ArtifactStore` and `GateRunner` ports. SQLite and subprocess execution are adapters composed only by the daemon; task behavior is unit-tested against fakes without a database. Task visualization projects the same `TaskGraph` into semantic display graphs and sends them through a `GraphRenderer` port; the Pi adapter uses `beautiful-mermaid` for terminal Unicode output without leaking Mermaid syntax into the task domain.
 
 ## Interactive frontends
 
@@ -94,9 +96,26 @@ All four use daemon-backed domain operations; none opens SQLite from the Pi proc
 Run `/tasks` for the interactive task panel:
 
 - `/` filters; arrow keys navigate; Enter opens task actions
+- `g` opens the programmatic Unicode graph; Tab switches dependency/composition views and arrow keys pan
 - advance the `pending → active → done` lifecycle or retry `failed → pending`
-- inspect dependencies and run verification gates
-- persistent widget shows active and pending work above the editor
+- inspect a nested task hierarchy, composition, dependencies, evidence-bearing checklists, and verification gates
+- Show details keeps Checklist and Validation gates separate from incidental Metadata, then renders relationships as a Unicode graph footer; `↑/↓` scrolls and `←/→` pans wide graphs
+- the compact persistent widget shows active work in containment order, indents active children beneath active parents, and points to `/tasks` for the complete graph
+
+Checklist criteria are an item-to-proof map. Every new item requires one or more typed references to inspectable evidence; proof presence does not imply that the evidence passed an executable gate:
+
+```ts
+checklist: {
+  "Write failing skill-row tests": {
+    proof: [
+      { type: "file", target: "test/frontends.test.ts" },
+      { type: "symbol", target: "test/frontends.test.ts#skill row test" }
+    ]
+  }
+}
+```
+
+Proof types are `file`, `symbol`, `code`, `test`, `command`, `artifact`, and `url`. Existing array checklists remain readable as legacy items with `proof: missing`; Papyrus does not invent evidence.
 
 Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run gates before marking it done. The injection disappears when every task is complete.
 
@@ -105,6 +124,15 @@ Papyrus also injects an Alef-style reconciliation block on every agent turn whil
 Papyrus keeps SQLite’s local simplicity while centralizing writes, migrations, lifecycle invariants, gate execution, and maintenance in one small supervised process. The loopback bearer token prevents unrelated local HTTP callers from mutating the graph, while the native Pi extension provides richer domain tools and TUI integration.
 
 ## Install
+
+Install the published Pi package, then install its supervised user service:
+
+```bash
+pi install npm:@danypops/papyrus
+~/.pi/agent/npm/node_modules/.bin/papyrus service install
+```
+
+Reload Pi once the service is active. Git installs remain available for development builds:
 
 ```bash
 pi install git:github.com/DanyPops/papyrus

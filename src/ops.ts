@@ -6,6 +6,11 @@ import { createRequire } from "node:module";
 import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
+import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
+import type { Gate, GateResult } from "./domain/gate.ts";
+export type { Artifact } from "./domain/artifact.ts";
+export type { Gate, GateResult } from "./domain/gate.ts";
+export type CreateInput = CreateArtifactInput;
 import {
 	DEFAULT_GRAPH_DEPTH,
 	DEFAULT_GRAPH_MAX_NODES,
@@ -18,32 +23,6 @@ import {
 } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
-
-export interface Artifact {
-	id: string;
-	kind: string;
-	title: string;
-	status: string;
-	subtype: string;
-	body: string;
-	labels: string[];
-	extra: Record<string, unknown>;
-	created_at: string;
-	updated_at: string;
-	edges?: { from: string; relation: string; to: string }[];
-}
-
-export interface CreateInput {
-	kind?: string;
-	title?: string;
-	status?: string;
-	body?: string;
-	labels?: string[];
-	extra?: Record<string, unknown>;
-	id?: string;
-	subtype?: string;
-	templateId?: string;
-}
 
 interface ResolvedCreateInput extends CreateInput {
 	kind: string;
@@ -224,9 +203,6 @@ export function linkArtifacts(db: Db, fromId: string, relation: string, toId: st
 	});
 }
 
-export interface Gate { type: "file-exists" | "command" | "contains" | "test"; target: string; expect?: string }
-export interface GateResult { gate: Gate; passed: boolean; output: string }
-
 export function updateStatus(db: Db, id: string, status: string): Artifact | null {
 	const art = getArtifact(db, id);
 	if (!art) return null;
@@ -236,6 +212,15 @@ export function updateStatus(db: Db, id: string, status: string): Artifact | nul
 	const now = new Date().toISOString();
 	inTransaction(db, () => {
 		db.prepare("UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?").run(status, now, id);
+	});
+	return getArtifact(db, id);
+}
+
+export function updateExtra(db: Db, id: string, extra: Record<string, unknown>): Artifact | null {
+	if (!getArtifact(db, id)) return null;
+	const now = new Date().toISOString();
+	inTransaction(db, () => {
+		db.prepare("UPDATE artifacts SET extra = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(extra), now, id);
 	});
 	return getArtifact(db, id);
 }

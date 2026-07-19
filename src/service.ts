@@ -1,46 +1,34 @@
 import { SERVICE_MAX_BODY_BYTES, VERSION } from "./constants.ts";
-import { openDb, type Db } from "./db.ts";
+import { openDb } from "./db.ts";
+import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
+import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
+import type { CreateArtifactInput } from "./domain/artifact.ts";
+import type { Checklist } from "./domain/checklist.ts";
+import type { ArtifactStore } from "./ports/artifact-store.ts";
+import type { GateRunner } from "./ports/gate-runner.ts";
+import { Tasks } from "./task-service.ts";
 import {
-	completeTaskAsync,
-	containTask,
 	createArtifactTemplate,
 	createDocument,
 	createRule,
 	createSkill,
-	createTask,
 	linkDocument,
 	gateTaskWithRule,
 	instantiateTemplate,
-	linkTaskDependency,
 	listDocuments,
 	listRules,
 	listSkills,
-	listTasks,
 	previewRule,
 	showDocument,
 	showRule,
 	showSkill,
-	showTask,
 	skillInvocation,
 	transitionDocument,
 	transitionRule,
 	transitionSkill,
-	transitionTask,
 	type DocumentRelation,
-	type DocumentTransition,
-	type TaskTransition,
 } from "./facades.ts";
-import { taskContextFromDb } from "./task-context.ts";
-import {
-	createArtifact,
-	getArtifact,
-	injectableRules,
-	linkArtifacts,
-	queryArtifacts,
-	runGatesAsync,
-	updateStatus,
-	type CreateInput,
-} from "./ops.ts";
+import { taskContext } from "./task-context.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"artifact.create",
@@ -53,10 +41,12 @@ export const EXPECTED_OPERATION_NAMES = [
 	"rules.injectable",
 	"tasks.create",
 	"tasks.list",
+	"tasks.graph",
 	"tasks.show",
 	"tasks.start",
 	"tasks.complete",
 	"tasks.run_gates",
+	"tasks.set_checklist",
 	"tasks.context",
 	"tasks.fail",
 	"tasks.retry",
@@ -113,9 +103,9 @@ function optionalNumber(input: OperationInput, key: string): number | undefined 
 	return value;
 }
 
-function normalizeCreateInput(input: OperationInput): CreateInput {
+function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
 	const { template_id, ...rest } = input;
-	return { ...rest, templateId: typeof template_id === "string" ? template_id : undefined } as CreateInput;
+	return { ...rest, templateId: typeof template_id === "string" ? template_id : undefined } as CreateArtifactInput;
 }
 
 export interface PapyrusService {
@@ -126,124 +116,104 @@ export interface PapyrusService {
 	close(): void;
 }
 
-function handlers(db: Db): Record<OperationName, OperationHandler> {
+function handlers(artifacts: ArtifactStore, gates: GateRunner, tasks: Tasks): Record<OperationName, OperationHandler> {
+	const taskFilter = (input: OperationInput) => ({
+		status: optionalString(input, "status"),
+		text: optionalString(input, "text"),
+		limit: optionalNumber(input, "limit"),
+	});
 	return {
-		"artifact.create": (input) => createArtifact(db, normalizeCreateInput(input)),
-		"artifact.query": (input) => queryArtifacts(db, input),
-		"artifact.show": (input) => getArtifact(db, string(input, "id"), {
+		"artifact.create": (input) => artifacts.create(normalizeCreateInput(input)),
+		"artifact.query": (input) => artifacts.query(input),
+		"artifact.show": (input) => artifacts.get(string(input, "id"), {
 			tree: input["tree"] === true,
 			depth: optionalNumber(input, "depth"),
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
 		"graph.link": (input) => {
-			linkArtifacts(db, string(input, "from"), string(input, "relation"), string(input, "to"));
+			artifacts.link({ from: string(input, "from"), relation: string(input, "relation"), to: string(input, "to") });
 			return { ok: true };
 		},
-		"graph.tree": (input) => getArtifact(db, string(input, "id"), {
+		"graph.tree": (input) => artifacts.get(string(input, "id"), {
 			tree: true,
 			depth: optionalNumber(input, "depth"),
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
-		"graph.status": (input) => updateStatus(db, string(input, "id"), string(input, "status")),
-		"gates.run": (input) => runGatesAsync(db, string(input, "id")),
-		"rules.injectable": () => injectableRules(db),
-		"tasks.create": (input) => createTask(db, {
+		"graph.status": (input) => artifacts.setStatus(string(input, "id"), string(input, "status")),
+		"gates.run": (input) => gates.runAsync(string(input, "id")),
+		"rules.injectable": () => artifacts.query({ kind: "rule", status: "active" })
+			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
+		"tasks.create": (input) => tasks.create({
 			title: string(input, "title"),
 			body: optionalString(input, "body"),
 			status: optionalString(input, "status") as "pending" | "active" | "done" | "failed" | undefined,
 			labels: input["labels"] as string[] | undefined,
 			extra: input["extra"] as Record<string, unknown> | undefined,
-			gates: input["gates"] as Parameters<typeof createTask>[1]["gates"],
-			checklist: input["checklist"] as unknown[] | undefined,
+			gates: input["gates"] as Parameters<Tasks["create"]>[0]["gates"],
+			checklist: input["checklist"] as Checklist | undefined,
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 			parentId: optionalString(input, "parent_id") ?? optionalString(input, "parentId"),
 			dependsOn: (input["depends_on"] ?? input["dependsOn"]) as string[] | undefined,
 		}),
-		"tasks.list": (input) => listTasks(db, {
-			status: optionalString(input, "status"),
-			text: optionalString(input, "text"),
-			limit: optionalNumber(input, "limit"),
-		}),
-		"tasks.show": (input) => showTask(db, string(input, "id")),
-		"tasks.start": (input) => transitionTask(db, string(input, "id"), "start"),
-		"tasks.complete": (input) => completeTaskAsync(db, string(input, "id")),
-		"tasks.run_gates": (input) => runGatesAsync(db, string(input, "id")),
-		"tasks.context": () => taskContextFromDb(db),
-		"tasks.fail": (input) => transitionTask(db, string(input, "id"), "fail"),
-		"tasks.retry": (input) => transitionTask(db, string(input, "id"), "retry"),
-		"tasks.depend": (input) => linkTaskDependency(db, string(input, "id"), string(input, "dependency_id")),
-		"tasks.contain": (input) => containTask(db, string(input, "parent_id"), string(input, "child_id")),
-		"docs.create": (input) => createDocument(db, {
-			title: string(input, "title"),
-			body: optionalString(input, "body"),
-			subtype: optionalString(input, "subtype"),
-			labels: input["labels"] as string[] | undefined,
-			extra: input["extra"] as Record<string, unknown> | undefined,
+		"tasks.list": (input) => tasks.list(taskFilter(input)),
+		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
+		"tasks.show": (input) => tasks.show(string(input, "id")),
+		"tasks.start": (input) => tasks.transition(string(input, "id"), "start"),
+		"tasks.complete": (input) => tasks.completeAsync(string(input, "id")),
+		"tasks.run_gates": (input) => tasks.runGates(string(input, "id")),
+		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
+		"tasks.context": () => taskContext(artifacts),
+		"tasks.fail": (input) => tasks.transition(string(input, "id"), "fail"),
+		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry"),
+		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id")),
+		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id")),
+		"docs.create": (input) => createDocument(artifacts, {
+			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
+			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 		}),
-		"docs.list": (input) => listDocuments(db, {
-			status: optionalString(input, "status"),
-			text: optionalString(input, "text"),
-			limit: optionalNumber(input, "limit"),
-		}),
-		"docs.show": (input) => showDocument(db, string(input, "id")),
-		"docs.activate": (input) => transitionDocument(db, string(input, "id"), "activate"),
-		"docs.archive": (input) => transitionDocument(db, string(input, "id"), "archive"),
-		"docs.reopen": (input) => transitionDocument(db, string(input, "id"), "reopen"),
-		"docs.link": (input) => linkDocument(
-			db,
-			string(input, "id"),
-			string(input, "relation") as DocumentRelation,
-			string(input, "target_id"),
-		),
-		"rules.create": (input) => createRule(db, {
-			title: string(input, "title"),
-			body: optionalString(input, "body"),
-			condition: optionalString(input, "condition"),
+		"docs.list": (input) => listDocuments(artifacts, taskFilter(input)),
+		"docs.show": (input) => showDocument(artifacts, string(input, "id")),
+		"docs.activate": (input) => transitionDocument(artifacts, string(input, "id"), "activate"),
+		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive"),
+		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen"),
+		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id")),
+		"rules.create": (input) => createRule(artifacts, {
+			title: string(input, "title"), body: optionalString(input, "body"), condition: optionalString(input, "condition"),
 			action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
 			severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
-			labels: input["labels"] as string[] | undefined,
-			extra: input["extra"] as Record<string, unknown> | undefined,
+			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 		}),
-		"rules.list": (input) => listRules(db, {
-			status: optionalString(input, "status"), text: optionalString(input, "text"), limit: optionalNumber(input, "limit"),
+		"rules.list": (input) => listRules(artifacts, taskFilter(input)),
+		"rules.show": (input) => showRule(artifacts, string(input, "id")),
+		"rules.preview": (input) => previewRule(artifacts, string(input, "id")),
+		"rules.enable": (input) => transitionRule(artifacts, string(input, "id"), "enable"),
+		"rules.disable": (input) => transitionRule(artifacts, string(input, "id"), "disable"),
+		"rules.gate": (input) => gateTaskWithRule(artifacts, string(input, "id"), string(input, "task_id")),
+		"skills.create": (input) => createSkill(artifacts, {
+			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
+			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
+			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 		}),
-		"rules.show": (input) => showRule(db, string(input, "id")),
-		"rules.preview": (input) => previewRule(db, string(input, "id")),
-		"rules.enable": (input) => transitionRule(db, string(input, "id"), "enable"),
-		"rules.disable": (input) => transitionRule(db, string(input, "id"), "disable"),
-		"rules.gate": (input) => gateTaskWithRule(db, string(input, "id"), string(input, "task_id")),
-		"skills.create": (input) => createSkill(db, {
-			title: string(input, "title"),
-			body: optionalString(input, "body"),
-			trigger: optionalString(input, "trigger"),
-			steps: input["steps"] as string[] | undefined,
-			tools: input["tools"] as string[] | undefined,
-			labels: input["labels"] as string[] | undefined,
-			extra: input["extra"] as Record<string, unknown> | undefined,
+		"skills.create_template": (input) => createArtifactTemplate(artifacts, {
+			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
+			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
 		}),
-		"skills.create_template": (input) => createArtifactTemplate(db, {
-			title: string(input, "title"),
-			targetKind: string(input, "target_kind"),
-			defaults: input["defaults"] as Record<string, unknown> | undefined,
-			required: input["required"] as string[] | undefined,
-			body: optionalString(input, "body"),
-			labels: input["labels"] as string[] | undefined,
-		}),
-		"skills.list": (input) => listSkills(db, {
-			status: optionalString(input, "status"), text: optionalString(input, "text"), limit: optionalNumber(input, "limit"),
-		}),
-		"skills.show": (input) => showSkill(db, string(input, "id")),
-		"skills.invoke": (input) => skillInvocation(db, string(input, "id")),
-		"skills.enable": (input) => transitionSkill(db, string(input, "id"), "enable"),
-		"skills.disable": (input) => transitionSkill(db, string(input, "id"), "disable"),
-		"skills.instantiate": (input) => instantiateTemplate(db, string(input, "template_id"), normalizeCreateInput(input)),
+		"skills.list": (input) => listSkills(artifacts, taskFilter(input)),
+		"skills.show": (input) => showSkill(artifacts, string(input, "id")),
+		"skills.invoke": (input) => skillInvocation(artifacts, string(input, "id")),
+		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable"),
+		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable"),
+		"skills.instantiate": (input) => instantiateTemplate(artifacts, string(input, "template_id"), normalizeCreateInput(input)),
 	};
 }
 
 export function createPapyrusService(path: string): PapyrusService {
 	const db = openDb(path);
-	const registry = handlers(db);
+	const artifacts = new SQLiteArtifactStore(db);
+	const gates = new SQLiteGateRunner(db);
+	const tasks = new Tasks(artifacts, gates);
+	const registry = handlers(artifacts, gates, tasks);
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		async execute(operation, input = {}) {

@@ -2,7 +2,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { SEED_RELATIONS } from "../../src/constants.ts";
-import type { Artifact } from "../../src/ops.ts";
+import type { Artifact } from "../../src/domain/artifact.ts";
 import type { OperationName } from "../../src/service.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";

@@ -114,10 +114,6 @@ class TaskOverlay {
 				: `${"  ".repeat(row.depth)}↳`;
 			lines.push(truncateToWidth(`  ${hierarchy} ${GLYPHS.active!(theme)} ${row.task.title}`, width, "…"));
 		}
-		const hint = projection.hiddenTotal > 0
-			? `${projection.hiddenTotal} more · /tasks`
-			: "/tasks for details";
-		lines.push(truncateToWidth(theme.fg("dim", `  ${hint}`), width, "…"));
 		return lines;
 	}
 

@@ -101,7 +101,7 @@ Internally, application services depend on the `ArtifactStore` and `GateRunner` 
 
 ## Interactive frontends
 
-- `/tasks` — task lifecycle, gates, dependencies, and nested metadata
+- `/tasks` — task lifecycle, append-only history, gates, dependencies, and nested metadata
 - `/docs` — searchable documents, lifecycle, details, and graph links
 - `/rules` — severity/condition rows, exact injection preview, enable/disable, and task gating
 - `/skills` — trigger/tools rows, invocation into the editor, and artifact templates
@@ -122,7 +122,7 @@ Run `/tasks` for the interactive task panel:
 - successors are never auto-completed; fan-in, fan-out, diamonds, and disconnected DAGs remain explicit
 - inspect deterministic execution layers, readiness, a box-drawn nested hierarchy, composition, dependencies, evidence-bearing checklists, and verification gates
 - lifecycle colors are semantic and redundant with text/glyphs: To-Do grey, in-progress yellow, review blue, rejected orange, done green, and canceled red; `▶` marks active focus
-- Show details keeps Checklist and Validation gates separate from incidental Metadata, then renders relationships as a Unicode box-drawing graph footer; `↑/↓` scrolls and `←/→` pans wide graphs
+- Show details keeps Checklist and Validation gates separate from incidental Metadata, renders bounded post-migration lifecycle history with actor/source/reason and gate evidence, then renders relationships as a Unicode box-drawing graph footer; `↑/↓` scrolls and `←/→` pans wide graphs
 - the compact persistent widget shows bounded open work in containment order and always retains the active focus
 
 Authenticated CLI parity covers the changed lifecycle and focus operations:
@@ -130,6 +130,7 @@ Authenticated CLI parity covers the changed lifecycle and focus operations:
 ```bash
 papyrus tasks graph --json
 papyrus tasks active --json
+papyrus tasks history <id> --json
 papyrus tasks focus <id> --json
 papyrus tasks start <id> --json
 papyrus tasks submit <id> --json
@@ -171,10 +172,10 @@ packed install npm:@danypops/papyrus
 ~/.pi/agent/npm/node_modules/.bin/papyrus service install
 ```
 
-Existing databases are never migrated on daemon boot. After upgrading across the task-lifecycle schema boundary, run the authenticated CLI migration explicitly:
+Existing databases are never migrated on daemon boot. After upgrading to append-only task history, run the authenticated CLI migration explicitly. A v1 database receives the lifecycle prerequisite and history schema in one transaction; existing tasks receive no fabricated events:
 
 ```bash
-~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-lifecycle
+~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-history
 ```
 
 Until that command succeeds, health reports `migrationRequired` and normal domain operations are rejected with actionable guidance. Migration is not exposed as a Pi tool or MCP action. New empty databases bootstrap directly at the current schema.

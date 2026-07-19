@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 2;
+export const SQLITE_SCHEMA_VERSION = 3;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
@@ -42,6 +42,12 @@ export const SKILL_RUN_ID_MAX_LENGTH = 64;
 /** Bounded automatic Pi continuations while a focused Papyrus Task remains. */
 export const TASK_DRIVER_MAX_TURNS = 20;
 export const TASK_DRIVER_MAX_UNCHANGED_TURNS = 6;
+/** Append-only Task chronology query and evidence bounds. */
+export const TASK_HISTORY_DEFAULT_LIMIT = 25;
+export const TASK_HISTORY_MAX_LIMIT = 100;
+export const TASK_EVENT_MAX_EVIDENCE_BYTES = 65_536;
+export const TASK_EVENT_ACTOR_MAX_LENGTH = 128;
+export const TASK_EVENT_REASON_MAX_LENGTH = 2_000;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
 export const GRAPH_RENDER_BOX_PADDING = 0;

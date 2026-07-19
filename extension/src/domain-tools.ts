@@ -4,6 +4,7 @@ import type { Artifact } from "../../src/domain/artifact.ts";
 import { PROOF_TYPES } from "../../src/domain/checklist.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import type { TaskExecutionPlan } from "../../src/task-execution.ts";
+import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import { callService } from "./service-client.ts";
@@ -30,7 +31,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, list, show, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, list, show, history, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -39,6 +40,10 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()),
 			limit: Type.Optional(Type.Number()),
+			cursor: Type.Optional(Type.Number()),
+			direction: Type.Optional(Type.Union([Type.Literal("asc"), Type.Literal("desc")])),
+			reason: Type.Optional(Type.String()),
+			session_id: Type.Optional(Type.String()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			gates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
@@ -52,8 +57,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 		async execute(_id, params) {
 			try {
 				const action = params.action;
+				const request = { ...params, actor: "agent", source: "pi-tool" };
 				if (action === "create") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", params);
+					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
 					return text(`Created task ${artifactLine(artifact)}`, { artifact });
 				}
 				if (action === "list") {
@@ -63,6 +69,11 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
+				}
+				if (action === "history") {
+					const page = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", request);
+					const lines = page.events.map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`);
+					return text(lines.join("\n") || "No recorded history for this task.", { page });
 				}
 				if (action === "active") {
 					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", params);
@@ -92,7 +103,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					return text(`Updated checklist: ${artifactLine(artifact)}`, { artifact });
 				}
 				if (action === "complete") {
-					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", params);
+					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", request);
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
 					const focused = result.focused ? `\nActive: ${artifactLine(result.focused)}` : "";
@@ -102,7 +113,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					return text(`${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`, { ...result });
 				}
 				if (action === "run_gates") {
-					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", params);
+					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", request);
 					return text(gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.", { gates });
 				}
 				const operations = {
@@ -117,7 +128,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				} as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) return text(`Unknown tasks action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
 				return text(artifactLine(artifact), { artifact });
 			} catch (error) {
 				return text(`tasks failed: ${error instanceof Error ? error.message : error}`);

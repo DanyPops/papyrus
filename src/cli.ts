@@ -56,11 +56,12 @@ function installService(): void {
 const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
-  papyrus migrate task-lifecycle [--json]
+  papyrus migrate task-history [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus tasks plan [--json]
   papyrus tasks graph [--json]
   papyrus tasks active [--json]
+  papyrus tasks history <id> [--json]
   papyrus tasks focus <id> [--json]
   papyrus tasks complete <id> [--json]
   papyrus tasks start <id> [--json]
@@ -106,8 +107,8 @@ function planText(plan: TaskExecutionPlan): string {
 export async function runMigrationCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
-	if (positional.length !== 1 || positional[0] !== "task-lifecycle") {
-		throw new Error("migrate requires exactly `task-lifecycle`");
+	if (positional.length !== 1 || positional[0] !== "task-history") {
+		throw new Error("migrate requires exactly `task-history`");
 	}
 	const result = await client.call<Record<string, never>, MigrationResult>("system.migrate", {});
 	if (json) return JSON.stringify(result);
@@ -174,6 +175,15 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			human = active ? `Active: ${artifactLabel(active)}` : "No active task.";
 			break;
 		}
+		case "history": {
+			if (!id || dependencyId) throw new Error("tasks history requires exactly one task id");
+			const page = await client.call<{ id: string; direction: "desc" }, import("./domain/task-event.ts").TaskHistoryPage>("tasks.history", { id, direction: "desc" });
+			result = page;
+			human = page.events.length === 0
+				? `No recorded history for ${id}.`
+				: [...page.events].reverse().map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`).join("\n");
+			break;
+		}
 		case "focus": {
 			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
 			const active = await client.call<{ id: string }, CliArtifact>("tasks.focus", { id });
@@ -202,7 +212,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 		}
 		case "complete": {
 			if (!id || dependencyId) throw new Error("tasks complete requires exactly one task id");
-			const completion = await client.call<{ id: string }, CliCompletion>("tasks.complete", { id });
+			const completion = await client.call<Record<string, string>, CliCompletion>("tasks.complete", { id, actor: "user", source: "cli" });
 			result = completion;
 			const lines = [`${completion.completed ? "Completed" : "Rejected"}: ${artifactLabel(completion.artifact)}`];
 			if (completion.focused) lines.push(`Active: ${artifactLabel(completion.focused)}`);
@@ -215,7 +225,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 		}
 		case "start": {
 			if (!id || dependencyId) throw new Error("tasks start requires exactly one task id");
-			const artifact = await client.call<{ id: string }, CliArtifact>("tasks.start", { id });
+			const artifact = await client.call<Record<string, string>, CliArtifact>("tasks.start", { id, actor: "user", source: "cli" });
 			result = artifact;
 			human = `Started: ${artifactLabel(artifact)}`;
 			break;
@@ -226,7 +236,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 		case "cancel": {
 			if (!id || dependencyId) throw new Error(`tasks ${action} requires exactly one task id`);
 			const operation = `tasks.${action}` as "tasks.submit" | "tasks.reject" | "tasks.retry" | "tasks.cancel";
-			const artifact = await client.call<{ id: string }, CliArtifact>(operation, { id });
+			const artifact = await client.call<Record<string, string>, CliArtifact>(operation, { id, actor: "user", source: "cli" });
 			result = artifact;
 			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
 			break;
@@ -242,7 +252,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			break;
 		}
 		default:
-			throw new Error("tasks action must be active, focus, graph, plan, complete, start, submit, reject, retry, cancel, or depend");
+			throw new Error("tasks action must be active, focus, graph, plan, history, complete, start, submit, reject, retry, cancel, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }

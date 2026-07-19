@@ -12,12 +12,12 @@ class FakeClient {
 }
 
 describe("Papyrus migration CLI", () => {
-	it("routes the explicit task lifecycle migration through the daemon", async () => {
-		const client = new FakeClient({ from: 1, to: 2, applied: ["task-lifecycle-and-focus"] });
-		expect(await runMigrationCli(["task-lifecycle", "--json"], client)).toBe(JSON.stringify({
-			from: 1,
-			to: 2,
-			applied: ["task-lifecycle-and-focus"],
+	it("routes the explicit task history migration through the daemon", async () => {
+		const client = new FakeClient({ from: 2, to: 3, applied: ["task-history"] });
+		expect(await runMigrationCli(["task-history", "--json"], client)).toBe(JSON.stringify({
+			from: 2,
+			to: 3,
+			applied: ["task-history"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
 	});
@@ -54,9 +54,16 @@ describe("Papyrus task CLI", () => {
 
 		const output = await runTaskCli(["complete", "root"], client);
 
-		expect(client.calls).toEqual([{ operation: "tasks.complete", input: { id: "root" } }]);
+		expect(client.calls).toEqual([{ operation: "tasks.complete", input: { id: "root", actor: "user", source: "cli" } }]);
 		expect(output).toContain("Completed: root Root");
 		expect(output).toContain("Active: left Left");
+	});
+
+	it("reads bounded task history through the daemon", async () => {
+		const page = { events: [{ occurredAt: "2026-01-01T00:00:00.000Z", type: "started", fromStatus: "todo", toStatus: "in-progress", actor: "agent", source: "pi-tool" }] };
+		const client = new FakeClient(page);
+		expect(await runTaskCli(["history", "task", "--json"], client)).toBe(JSON.stringify(page));
+		expect(client.calls).toEqual([{ operation: "tasks.history", input: { id: "task", direction: "desc" } }]);
 	});
 
 	it("prints stable JSON for machine consumers", async () => {
@@ -86,7 +93,7 @@ describe("Papyrus task CLI", () => {
 
 		const startClient = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
 		expect(await runTaskCli(["start", "task"], startClient)).toBe("Started: task Task");
-		expect(startClient.calls).toEqual([{ operation: "tasks.start", input: { id: "task" } }]);
+		expect(startClient.calls).toEqual([{ operation: "tasks.start", input: { id: "task", actor: "user", source: "cli" } }]);
 
 		const focusClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
 		expect(await runTaskCli(["focus", "task"], focusClient)).toBe("Active: task Task");
@@ -99,7 +106,7 @@ describe("Papyrus task CLI", () => {
 		for (const action of ["submit", "reject", "retry", "cancel"] as const) {
 			const lifecycleClient = new FakeClient({ id: "task", title: "Task", status: "review" });
 			await runTaskCli([action, "task", "--json"], lifecycleClient);
-			expect(lifecycleClient.calls).toEqual([{ operation: `tasks.${action}`, input: { id: "task" } }]);
+			expect(lifecycleClient.calls).toEqual([{ operation: `tasks.${action}`, input: { id: "task", actor: "user", source: "cli" } }]);
 		}
 	});
 });

@@ -14,6 +14,7 @@ export { taskDetailsText } from "./task-detail-format.ts";
 export { showTaskDetails } from "./task-detail-view.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
+import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import { projectTaskExecution } from "../../src/task-execution.ts";
 import type { TaskCompletion, TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
@@ -70,7 +71,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (create === "Create a task") {
 			const title = await ctx.ui.input("Task title:", "");
 			if (title) {
-				await callService("tasks.create", { title });
+				await callService("tasks.create", { title, actor: "user", source: "tasks-tui" });
 				graph = await loadTaskGraph();
 			}
 		}
@@ -97,7 +98,8 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (choice === "Show details") {
 			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });
 			if (!art) { ctx.ui.notify("Not found", "error"); continue; }
-			await showTaskDetails(ctx, art, graph);
+			const history = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", { id: art.id, direction: "desc" });
+			await showTaskDetails(ctx, art, graph, undefined, [...history.events].reverse());
 		} else if (choice === "Make active") {
 			try {
 				await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id });
@@ -107,7 +109,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else if (choice === "Run gates") {
 			try {
-				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id: action.row.id });
+				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id: action.row.id, actor: "user", source: "tasks-tui" });
 				ctx.ui.notify(`Gates:\n${results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n")}`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Gates failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -126,7 +128,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 									? "tasks.cancel"
 									: "tasks.complete";
 				if (operation === "tasks.complete") {
-					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id });
+					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id, actor: "user", source: "tasks-tui" });
 					action.row.status = result.artifact.status;
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}`).join("\n");
@@ -141,7 +143,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 						result.completed ? "info" : "warning",
 					);
 				} else {
-					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id });
+					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id, actor: "user", source: "tasks-tui" });
 					action.row.status = updated.status;
 					ctx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
 				}

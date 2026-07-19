@@ -60,6 +60,25 @@ describe("task details", () => {
 		expect(text).toContain("Relationships:\n  Dependencies point prerequisite → dependent.\n┌ relationship graph ┐");
 	});
 
+	it("renders post-migration actors, reasons, and bounded gate evidence", () => {
+		const text = taskDetailsText(task, [], [{
+			id: 7,
+			taskId: task.id,
+			occurredAt: "2026-01-02T03:04:05.000Z",
+			type: "completed",
+			actor: "agent",
+			source: "pi-tool",
+			reason: "verified",
+			fromStatus: "review",
+			toStatus: "done",
+			evidence: { result: "completed", gates: [{ gate: { type: "test", target: "bun test" }, passed: true }] },
+			schemaVersion: 1,
+		}]);
+		expect(text).toContain("completed · review → done · agent/pi-tool · verified");
+		expect(text).toContain("result: completed");
+		expect(text).toContain("✓ test · bun test");
+	});
+
 	it("marks legacy checklist rows as missing proof rather than inventing evidence", () => {
 		const text = taskDetailsText(task);
 		expect(text).toContain("Checklist:\n  • Observe budget\n    proof: missing (legacy item)");

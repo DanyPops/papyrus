@@ -53,19 +53,22 @@ describe("Papyrus operation service", () => {
 			INSERT OR IGNORE INTO statuses VALUES ('failed','task');
 			DELETE FROM statuses WHERE kind = 'task' AND name IN ('todo','in-progress','review','rejected','canceled');
 			DROP TABLE task_focus;
+			DROP TRIGGER task_events_no_update;
+			DROP TRIGGER task_events_no_delete;
+			DROP TABLE task_events;
 			PRAGMA user_version = 1;
 		`);
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 2, migrationRequired: true });
-		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate task-lifecycle");
+		expect(service.schemaState()).toEqual({ current: 1, required: 3, migrationRequired: true });
+		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate task-history");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 2,
-			applied: ["task-lifecycle-and-focus"],
+			to: 3,
+			applied: ["task-lifecycle-and-focus", "task-history"],
 		});
-		expect(service.schemaState()).toEqual({ current: 2, required: 2, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 3, required: 3, migrationRequired: false });
 		expect(await service.execute("tasks.list", {})).toEqual([]);
 		service.close();
 	});
@@ -79,18 +82,25 @@ describe("Papyrus operation service", () => {
 		expect(created.status).toBe(200);
 		const task = (await created.json()) as { result: { id: string; kind: string } };
 		expect(task.result.kind).toBe("task");
+		const history = await service.execute("tasks.history", { id: task.result.id, direction: "asc" }) as { events: Array<{ type: string; actor: string }> };
+		expect(history.events).toEqual([expect.objectContaining({ type: "created", actor: "system" })]);
+		const lowLevelTask = await service.execute("artifact.create", { kind: "task", title: "Low-level task", actor: "agent" }) as { id: string };
+		expect(await service.execute("tasks.history", { id: lowLevelTask.id }) as unknown).toEqual(expect.objectContaining({
+			events: [expect.objectContaining({ type: "created", actor: "agent", source: "artifact-api" })],
+		}));
+		await expect(service.execute("graph.status", { id: lowLevelTask.id, status: "done" })).rejects.toThrow("tasks.* operation");
 
 		const listed = await request(app, "/api/v1/ops", {
 			method: "POST",
 			body: JSON.stringify({ op: "artifact.query", input: { kind: "task" } }),
 		});
-		expect(((await listed.json()) as { result: unknown[] }).result).toHaveLength(1);
+		expect(((await listed.json()) as { result: unknown[] }).result).toHaveLength(2);
 
 		const graph = await request(app, "/api/v1/ops", {
 			method: "POST",
 			body: JSON.stringify({ op: "tasks.graph", input: {} }),
 		});
-		expect(((await graph.json()) as { result: { nodes: unknown[]; rootIds: string[] } }).result.nodes).toHaveLength(1);
+		expect(((await graph.json()) as { result: { nodes: unknown[]; rootIds: string[] } }).result.nodes).toHaveLength(2);
 
 		const checklist = await request(app, "/api/v1/ops", {
 			method: "POST",
@@ -132,6 +142,8 @@ describe("Papyrus operation service", () => {
 			arguments: { project: "Papyrus" },
 		}) as { created: { tasks: string[]; rules: string[] }; rootTaskIds: string[] };
 		expect(run.rootTaskIds).toEqual(["service-run-task"]);
+		const runHistory = await service.execute("tasks.history", { id: run.created.tasks[0] }) as { events: Array<{ type: string; source: string }> };
+		expect(runHistory.events).toEqual([expect.objectContaining({ type: "created", source: "skill-run" })]);
 		await service.execute("tasks.focus", { id: run.created.tasks[0] });
 		expect(await service.execute("rules.injectable", {})).toEqual([
 			expect.objectContaining({ id: run.created.rules[0], title: "Scoped rule" }),
@@ -196,7 +208,7 @@ describe("Papyrus operation service", () => {
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: "0.4.0",
-			schema: { current: 2, required: 2, migrationRequired: false },
+			schema: { current: 3, required: 3, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string }, { id: string; kind: string }>("tasks.create", { title: "Client task" });
 		expect(task.kind).toBe("task");

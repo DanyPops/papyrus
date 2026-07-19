@@ -102,6 +102,26 @@ CREATE TABLE IF NOT EXISTS task_focus (
 	task_id     TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
 	updated_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS task_events (
+	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+	task_id              TEXT NOT NULL REFERENCES artifacts(id),
+	occurred_at           TEXT NOT NULL,
+	event_type            TEXT NOT NULL,
+	actor                 TEXT NOT NULL,
+	source                TEXT NOT NULL,
+	session_id            TEXT,
+	reason                TEXT,
+	from_status           TEXT,
+	to_status             TEXT,
+	attempt_id             TEXT,
+	evidence_json         TEXT,
+	event_schema_version  INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS task_events_history_idx ON task_events(task_id, occurred_at, id);
+CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events
+BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events
+BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
 `;
 
 const SEED_SQL = `
@@ -165,36 +185,66 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2) throw new Error(`no explicit migration path from database schema ${from}`);
+	const applied: string[] = [];
 
 	inTransaction(db, () => {
-		db.exec(`
-			INSERT OR IGNORE INTO statuses VALUES ('todo','task');
-			INSERT OR IGNORE INTO statuses VALUES ('in-progress','task');
-			INSERT OR IGNORE INTO statuses VALUES ('review','task');
-			INSERT OR IGNORE INTO statuses VALUES ('rejected','task');
-			INSERT OR IGNORE INTO statuses VALUES ('done','task');
-			INSERT OR IGNORE INTO statuses VALUES ('canceled','task');
-			CREATE TABLE task_focus (
-				scope TEXT PRIMARY KEY CHECK (scope = 'global'),
-				task_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
-				updated_at TEXT NOT NULL
-			);
-			INSERT INTO task_focus (scope, task_id, updated_at)
-			SELECT 'global', id, strftime('%Y-%m-%dT%H:%M:%fZ','now')
-			FROM artifacts WHERE kind = 'task' AND status = 'active'
-			ORDER BY updated_at DESC, id ASC LIMIT 1;
-			UPDATE artifacts SET status = CASE status
-				WHEN 'pending' THEN 'todo'
-				WHEN 'active' THEN 'in-progress'
-				WHEN 'failed' THEN 'rejected'
-				ELSE status END
-			WHERE kind = 'task';
-			DELETE FROM statuses WHERE kind = 'task' AND name IN ('pending', 'active', 'failed');
-			PRAGMA user_version = 2;
-		`);
+		if (schemaVersion(db) === 1) {
+			db.exec(`
+				INSERT OR IGNORE INTO statuses VALUES ('todo','task');
+				INSERT OR IGNORE INTO statuses VALUES ('in-progress','task');
+				INSERT OR IGNORE INTO statuses VALUES ('review','task');
+				INSERT OR IGNORE INTO statuses VALUES ('rejected','task');
+				INSERT OR IGNORE INTO statuses VALUES ('done','task');
+				INSERT OR IGNORE INTO statuses VALUES ('canceled','task');
+				CREATE TABLE task_focus (
+					scope TEXT PRIMARY KEY CHECK (scope = 'global'),
+					task_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+					updated_at TEXT NOT NULL
+				);
+				INSERT INTO task_focus (scope, task_id, updated_at)
+				SELECT 'global', id, strftime('%Y-%m-%dT%H:%M:%fZ','now')
+				FROM artifacts WHERE kind = 'task' AND status = 'active'
+				ORDER BY updated_at DESC, id ASC LIMIT 1;
+				UPDATE artifacts SET status = CASE status
+					WHEN 'pending' THEN 'todo'
+					WHEN 'active' THEN 'in-progress'
+					WHEN 'failed' THEN 'rejected'
+					ELSE status END
+				WHERE kind = 'task';
+				DELETE FROM statuses WHERE kind = 'task' AND name IN ('pending', 'active', 'failed');
+				PRAGMA user_version = 2;
+			`);
+			applied.push("task-lifecycle-and-focus");
+		}
+		if (schemaVersion(db) === 2) {
+			db.exec(`
+				CREATE TABLE task_events (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					task_id TEXT NOT NULL REFERENCES artifacts(id),
+					occurred_at TEXT NOT NULL,
+					event_type TEXT NOT NULL,
+					actor TEXT NOT NULL,
+					source TEXT NOT NULL,
+					session_id TEXT,
+					reason TEXT,
+					from_status TEXT,
+					to_status TEXT,
+					attempt_id TEXT,
+					evidence_json TEXT,
+					event_schema_version INTEGER NOT NULL DEFAULT 1
+				);
+				CREATE INDEX task_events_history_idx ON task_events(task_id, occurred_at, id);
+				CREATE TRIGGER task_events_no_update BEFORE UPDATE ON task_events
+				BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
+				CREATE TRIGGER task_events_no_delete BEFORE DELETE ON task_events
+				BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
+				PRAGMA user_version = 3;
+			`);
+			applied.push("task-history");
+		}
 	});
-	return { from, to: SQLITE_SCHEMA_VERSION, applied: ["task-lifecycle-and-focus"] };
+	return { from, to: schemaVersion(db), applied };
 }
 
 export function openDb(path: string): Db {

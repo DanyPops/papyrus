@@ -1,6 +1,9 @@
 import { renderMermaidASCII } from "beautiful-mermaid";
 import {
 	GRAPH_RENDER_BOX_PADDING,
+	GRAPH_RENDER_MAX_FALLBACK_LINES,
+	GRAPH_RENDER_MAX_ROUTED_EDGES,
+	GRAPH_RENDER_MAX_ROUTED_NODES,
 	GRAPH_RENDER_PADDING_X,
 	GRAPH_RENDER_PADDING_Y,
 } from "../../src/constants.ts";
@@ -30,9 +33,29 @@ export function mermaidSource(graph: DisplayGraph): string {
 	return lines.join("\n");
 }
 
+function boundedLineFallback(graph: DisplayGraph): RenderedGraph {
+	const candidates = [
+		"┌─ Task graph ─",
+		`│ ${graph.nodes.length} nodes · ${graph.edges.length} edges · routed layout skipped above ${GRAPH_RENDER_MAX_ROUTED_NODES} nodes`,
+		"├─ Nodes",
+		...graph.nodes.map((node) => `│ ${node.label}`),
+		"├─ Edges",
+		...graph.edges.map((edge) => `│ ${edge.from} ─${edge.label ? `${edge.label}─` : ""}→ ${edge.to}`),
+	];
+	const contentLimit = Math.max(1, GRAPH_RENDER_MAX_FALLBACK_LINES - 1);
+	const lines = candidates.slice(0, contentLimit);
+	const omitted = candidates.length - lines.length;
+	if (omitted > 0) lines[lines.length - 1] = `│ … ${omitted + 1} lines omitted`;
+	lines.push("└─");
+	return { lines };
+}
+
 export class BeautifulMermaidRenderer implements GraphRenderer {
 	render(graph: DisplayGraph): RenderedGraph {
 		if (graph.nodes.length === 0) return { lines: [] };
+		if (graph.nodes.length > GRAPH_RENDER_MAX_ROUTED_NODES || graph.edges.length > GRAPH_RENDER_MAX_ROUTED_EDGES) {
+			return boundedLineFallback(graph);
+		}
 		const output = renderMermaidASCII(mermaidSource(graph), {
 			useAscii: false,
 			paddingX: GRAPH_RENDER_PADDING_X,

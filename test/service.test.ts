@@ -207,7 +207,7 @@ describe("Papyrus operation service", () => {
 		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
 		expect(await client.health()).toEqual({
 			ok: true,
-			version: "0.4.0",
+			version: "0.5.0",
 			schema: { current: 3, required: 3, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string }, { id: string; kind: string }>("tasks.create", { title: "Client task" });

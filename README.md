@@ -81,7 +81,7 @@ The `papyrus_*` tools are the low-level graph-store API:
 
 Agent-facing domain tools own lifecycle invariants and sit above this store API:
 
-- **`tasks`** — create/list/show/plan, replace evidence-bearing checklists, hierarchy/dependencies, start/fail/retry, non-blocking gates, and gate-enforced completion with automatic activation of newly ready successors
+- **`tasks`** — create/list/show/plan, manage the singleton active focus, replace evidence-bearing checklists, hierarchy/dependencies, lifecycle transitions, non-blocking gates, and review completion that focuses one deterministic ready successor without claiming effort
 - **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links
 - **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
 - **`skills`** — create/list/show/invoke, enable/disable, create templates, and instantiate templates
@@ -105,12 +105,28 @@ Run `/tasks` for the interactive task panel:
 
 - `/` filters; arrow keys navigate; Enter opens task actions
 - `g` opens the programmatic Unicode graph; Tab switches dependency/composition views and arrow keys pan
-- advance the `pending → active → done` lifecycle or retry `failed → pending`
-- completing an active task runs only that task’s gates; success marks it done and activates every direct pending successor whose full prerequisite set is done
-- successors are never auto-completed: each must pass its own gates; fan-in, fan-out, diamonds, and disconnected DAGs remain explicit
-- inspect deterministic execution layers, readiness, a nested task hierarchy, composition, dependencies, evidence-bearing checklists, and verification gates
-- Show details keeps Checklist and Validation gates separate from incidental Metadata, then renders relationships as a Unicode graph footer; `↑/↓` scrolls and `←/→` pans wide graphs
-- the compact persistent widget shows active work in containment order, indents active children beneath active parents, and points to `/tasks` for the complete graph
+- advance the `todo → in-progress → review → done` lifecycle; failed review becomes `rejected`, retry returns to `in-progress`, and `canceled` is terminal
+- use **active** only as the independent singleton focus that auto-drive continues; focusing a task never changes its lifecycle
+- starting nested effort moves todo ancestors to in-progress; submitting enters review; completing review checks both typed checklist proofs and executable gates
+- passing review marks only that task done and focuses one deterministic ready successor while leaving the successor todo until effort starts
+- successors are never auto-completed; fan-in, fan-out, diamonds, and disconnected DAGs remain explicit
+- inspect deterministic execution layers, readiness, a box-drawn nested hierarchy, composition, dependencies, evidence-bearing checklists, and verification gates
+- lifecycle colors are semantic and redundant with text/glyphs: To-Do grey, in-progress yellow, review blue, rejected orange, done green, and canceled red; `▶` marks active focus
+- Show details keeps Checklist and Validation gates separate from incidental Metadata, then renders relationships as a Unicode box-drawing graph footer; `↑/↓` scrolls and `←/→` pans wide graphs
+- the compact persistent widget shows bounded open work in containment order and always retains the active focus
+
+Authenticated CLI parity covers the changed lifecycle and focus operations:
+
+```bash
+papyrus tasks active --json
+papyrus tasks focus <id> --json
+papyrus tasks start <id> --json
+papyrus tasks submit <id> --json
+papyrus tasks complete <id> --json
+papyrus tasks reject <id> --json
+papyrus tasks retry <id> --json
+papyrus tasks cancel <id> --json
+```
 
 Checklist criteria are an item-to-proof map. Every new item requires one or more typed references to inspectable evidence; proof presence does not imply that the evidence passed an executable gate:
 
@@ -127,9 +143,9 @@ checklist: {
 
 Proof types are `file`, `symbol`, `code`, `test`, `command`, `artifact`, and `url`. Existing array checklists remain readable as legacy items with `proof: missing`; Papyrus does not invent evidence.
 
-Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run gates before marking it done. The injection disappears when every task is complete.
+Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run review before marking it done. The injection disappears when every task is done or canceled.
 
-In TUI and RPC modes, the extension checks bounded active Tasks at Pi’s public `agent_settled` lifecycle boundary. If active work remains and no continuation is already pending, it queues one hidden next turn so the agent continues instead of handing off merely because a low-level run ended. Active Tasks are the trigger; no manual command is required. Driving is single-flight and pauses after 20 automatic turns or 6 unchanged task snapshots; human input and task progress reset the bounded counters automatically.
+In TUI and RPC modes, the extension checks the singleton active focus at Pi’s public `agent_settled` lifecycle boundary. If a focused task remains and no continuation is already pending, it queues one hidden next turn. No manual driving command is required. Driving is single-flight and pauses after 20 automatic turns or 6 unchanged task snapshots; human input and task progress reset the bounded counters automatically.
 
 ## Why
 
@@ -140,12 +156,20 @@ Papyrus keeps SQLite’s local simplicity while centralizing writes, migrations,
 Install the published Pi package, then install its supervised user service:
 
 ```bash
-pi install npm:@danypops/papyrus
+packed install npm:@danypops/papyrus
 ~/.pi/agent/npm/node_modules/.bin/papyrus service install
 ```
+
+Existing databases are never migrated on daemon boot. After upgrading across the task-lifecycle schema boundary, run the authenticated CLI migration explicitly:
+
+```bash
+~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-lifecycle
+```
+
+Until that command succeeds, health reports `migrationRequired` and normal domain operations are rejected with actionable guidance. Migration is not exposed as a Pi tool or MCP action. New empty databases bootstrap directly at the current schema.
 
 Reload Pi once the service is active. Git installs remain available for development builds:
 
 ```bash
-pi install git:github.com/DanyPops/papyrus
+packed install git:github.com/DanyPops/papyrus
 ```

@@ -5,11 +5,14 @@ import type { TaskGraph } from "./task-service.ts";
 export type TaskGraphView = "execution" | "dependencies" | "composition";
 
 const EXECUTION_GLYPHS: Record<TaskExecutionState, string> = {
+	todo: "○",
+	"in-progress": "●",
+	review: "◆",
+	rejected: "▲",
 	done: "■",
-	active: "●",
+	canceled: "×",
 	ready: "◇",
 	blocked: "○",
-	failed: "▲",
 	invalid: "!",
 };
 
@@ -39,7 +42,7 @@ export function projectTaskGraph(graph: TaskGraph, view: TaskGraphView): Display
 	const nodes = view === "execution"
 		? projectTaskExecution(graph).nodes.map((node) => ({
 			id: node.id,
-			label: `${EXECUTION_GLYPHS[node.state]} ${node.title} · ${node.layer === null ? "no layer" : `layer ${node.layer + 1}`} · ${node.state}`,
+			label: `${node.active ? "▶ " : ""}${EXECUTION_GLYPHS[node.state]} ${node.title} · ${node.layer === null ? "no layer" : `layer ${node.layer + 1}`} · ${node.state}`,
 			status: node.state,
 		}))
 		: graph.nodes

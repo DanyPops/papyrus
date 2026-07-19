@@ -22,23 +22,17 @@ export interface ActiveTaskContinuationDecision {
 	prompt?: string;
 }
 
-const DISPLAYED_TASK_LIMIT = 3;
 const TITLE_LIMIT = 120;
 
-function fingerprint(tasks: ActiveTaskMarker[]): string {
-	return [...tasks]
-		.sort((left, right) => left.id.localeCompare(right.id))
-		.map((task) => `${task.id}:${task.updated_at}`)
-		.join("|");
+function fingerprint(task: ActiveTaskMarker): string {
+	return `${task.id}:${task.updated_at}`;
 }
 
-function continuationPrompt(tasks: ActiveTaskMarker[]): string {
-	const names = tasks.slice(0, DISPLAYED_TASK_LIMIT).map((task) => `- ${task.id}: ${task.title.slice(0, TITLE_LIMIT)}`);
+function continuationPrompt(task: ActiveTaskMarker): string {
 	return [
-		"Continue active Papyrus work now; do not hand off merely because the previous Pi run settled.",
-		"Reconcile the active Tasks, choose the next concrete action, use tools, run gates before completion, and continue until done, blocked, or the bounded continuation pauses.",
-		"Active tasks:",
-		...names,
+		"Continue the active Papyrus Task now; do not hand off merely because the previous Pi run settled.",
+		"Reconcile its lifecycle, take the next concrete action, use tools, submit it for review when implementation effort is ready, and run gates plus checklist review before completion.",
+		`Active task: ${task.id}: ${task.title.slice(0, TITLE_LIMIT)}`,
 	].join("\n");
 }
 
@@ -56,16 +50,16 @@ export class ActiveTaskContinuation {
 		}
 	}
 
-	evaluate(tasks: ActiveTaskMarker[], context: { idle: boolean; pendingMessages: boolean }): ActiveTaskContinuationDecision {
+	evaluate(task: ActiveTaskMarker | null, context: { idle: boolean; pendingMessages: boolean }): ActiveTaskContinuationDecision {
 		if (!context.idle) return { action: "wait", reason: "Pi is not settled" };
 		if (context.pendingMessages) return { action: "wait", reason: "Pi already has pending messages" };
 		if (this.queued) return { action: "wait", reason: "continuation already queued" };
-		if (tasks.length === 0) {
+		if (!task) {
 			this.resetProgress();
-			return { action: "wait", reason: "no active tasks" };
+			return { action: "wait", reason: "no active task" };
 		}
 
-		const currentFingerprint = fingerprint(tasks);
+		const currentFingerprint = fingerprint(task);
 		if (currentFingerprint !== this.lastFingerprint) {
 			this.lastFingerprint = currentFingerprint;
 			this.unchangedTurns = 0;
@@ -85,8 +79,8 @@ export class ActiveTaskContinuation {
 		this.consecutiveTurns += 1;
 		return {
 			action: "continue",
-			reason: "active tasks remain",
-			prompt: continuationPrompt(tasks),
+			reason: "an active task remains",
+			prompt: continuationPrompt(task),
 		};
 	}
 

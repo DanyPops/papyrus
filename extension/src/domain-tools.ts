@@ -29,7 +29,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, list, show, plan, start, complete (runs gates, refuses done on failure, and starts newly ready successors), fail, retry, run_gates, set_checklist, depend, contain. Dependency graphs support deterministic execution layers, fan-in, and fan-out; cycles are rejected. Checklist is an item-to-proof map; every item requires one or more typed evidence references. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, list, show, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -63,6 +63,10 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
 				}
+				if (action === "active") {
+					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", params);
+					return text(artifact ? `Active: ${artifactLine(artifact)}` : "No active task.", { artifact });
+				}
 				if (action === "plan") {
 					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", params);
 					const byId = new Map(plan.nodes.map((node) => [node.id, node]));
@@ -83,17 +87,27 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "complete") {
 					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", params);
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
-					const started = result.started.length > 0 ? `\nStarted: ${result.started.map(artifactLine).join(", ")}` : "";
+					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
+					const focused = result.focused ? `\nActive: ${artifactLine(result.focused)}` : "";
 					const blocked = result.blocked.length > 0
 						? `\nBlocked: ${result.blocked.map((entry) => `${artifactLine(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
 						: "";
-					return text(`${result.completed ? "Completed" : "Not completed"}: ${artifactLine(result.artifact)}${started}${blocked}${gates ? `\n${gates}` : ""}`, { ...result });
+					return text(`${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`, { ...result });
 				}
 				if (action === "run_gates") {
 					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", params);
 					return text(gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.", { gates });
 				}
-				const operations = { start: "tasks.start", fail: "tasks.fail", retry: "tasks.retry", depend: "tasks.depend", contain: "tasks.contain" } as const;
+				const operations = {
+					focus: "tasks.focus",
+					start: "tasks.start",
+					submit: "tasks.submit",
+					reject: "tasks.reject",
+					retry: "tasks.retry",
+					cancel: "tasks.cancel",
+					depend: "tasks.depend",
+					contain: "tasks.contain",
+				} as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) return text(`Unknown tasks action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);

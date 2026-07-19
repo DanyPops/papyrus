@@ -25,7 +25,7 @@ class FakeArtifactStore implements ArtifactStore {
 			id,
 			kind: input.kind ?? "doc",
 			title: input.title ?? "Untitled",
-			status: input.status ?? (input.kind === "task" ? "pending" : "draft"),
+			status: input.status ?? (input.kind === "task" ? "todo" : "draft"),
 			subtype: input.subtype ?? "",
 			body: input.body ?? "",
 			labels: input.labels ?? [],
@@ -147,54 +147,59 @@ describe("Tasks port behavior", () => {
 		});
 	});
 
-	it("keeps a task active when the injected gate runner reports failure", () => {
+	it("rejects a task when review gates fail and keeps it focused for corrective effort", () => {
 		const artifacts = new FakeArtifactStore();
 		const gates = new FakeGateRunner();
 		gates.results = [{ gate: { type: "command", target: "test" }, passed: false, output: "failed" }];
 		const tasks = new Tasks(artifacts, gates);
 		const task = tasks.create({ title: "Gated" });
 		tasks.transition(task.id, "start");
+		tasks.transition(task.id, "submit");
 
 		expect(tasks.complete(task.id).completed).toBe(false);
-		expect(tasks.show(task.id).status).toBe("active");
+		expect(tasks.show(task.id).status).toBe("rejected");
+		expect(tasks.active()?.id).toBe(task.id);
 	});
 
-	it("completes a passing task and starts every ready fan-out successor", () => {
+	it("completes passing review and focuses one ready fan-out successor without claiming effort", () => {
 		const artifacts = new FakeArtifactStore();
 		const gates = new FakeGateRunner();
 		const tasks = new Tasks(artifacts, gates);
-		const root = tasks.create({ title: "Root", status: "active" });
+		const root = tasks.create({ title: "Root", status: "review" });
 		const left = tasks.create({ title: "Left", dependsOn: [root.id] });
 		const right = tasks.create({ title: "Right", dependsOn: [root.id] });
+		tasks.focus(root.id);
 
 		const result = tasks.complete(root.id);
 
 		expect(result.completed).toBe(true);
-		expect(result.started.map((task) => task.id)).toEqual([left.id, right.id]);
+		expect(result.focused?.id).toBe(left.id);
 		expect(result.blocked).toEqual([]);
 		expect(tasks.show(root.id).status).toBe("done");
-		expect(tasks.show(left.id).status).toBe("active");
-		expect(tasks.show(right.id).status).toBe("active");
+		expect(tasks.show(left.id).status).toBe("todo");
+		expect(tasks.show(right.id).status).toBe("todo");
+		expect(tasks.active()?.id).toBe(left.id);
 		expect(gates.calls).toEqual([root.id]);
 	});
 
 	it("holds a fan-in successor until every prerequisite is done", () => {
 		const artifacts = new FakeArtifactStore();
 		const tasks = new Tasks(artifacts, new FakeGateRunner());
-		const left = tasks.create({ title: "Left", status: "active" });
-		const right = tasks.create({ title: "Right", status: "active" });
+		const left = tasks.create({ title: "Left", status: "review" });
+		const right = tasks.create({ title: "Right", status: "review" });
 		const join = tasks.create({ title: "Join", dependsOn: [left.id, right.id] });
 
 		const first = tasks.complete(left.id);
-		expect(first.started).toEqual([]);
+		expect(first.focused).toBeNull();
 		expect(first.blocked).toHaveLength(1);
-		expect(first.blocked[0]?.artifact).toMatchObject({ id: join.id, status: "pending" });
+		expect(first.blocked[0]?.artifact).toMatchObject({ id: join.id, status: "todo" });
 		expect(first.blocked[0]?.dependencyIds).toEqual([right.id]);
-		expect(tasks.show(join.id).status).toBe("pending");
+		expect(tasks.show(join.id).status).toBe("todo");
 
 		const second = tasks.complete(right.id);
-		expect(second.started.map((task) => task.id)).toEqual([join.id]);
-		expect(tasks.show(join.id).status).toBe("active");
+		expect(second.focused?.id).toBe(join.id);
+		expect(tasks.show(join.id).status).toBe("todo");
+		expect(tasks.active()?.id).toBe(join.id);
 	});
 
 	it("projects deterministic execution layers and readiness for fan-out and fan-in", () => {
@@ -241,6 +246,64 @@ describe("Tasks port behavior", () => {
 
 		expect(() => tasks.transition(dependent.id, "start")).toThrow(`blocked by dependencies: ${prerequisite.id}`);
 		artifacts.setStatus(prerequisite.id, "done");
-		expect(tasks.transition(dependent.id, "start").status).toBe("active");
+		expect(tasks.transition(dependent.id, "start").status).toBe("in-progress");
+		expect(tasks.active()?.id).toBe(dependent.id);
+	});
+
+	it("keeps singleton active focus independent from lifecycle", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const todo = tasks.create({ title: "Todo" });
+		const review = tasks.create({ title: "Review", status: "review" });
+
+		tasks.focus(todo.id);
+		expect(tasks.active()?.id).toBe(todo.id);
+		tasks.focus(review.id);
+		expect(tasks.active()?.id).toBe(review.id);
+		expect(tasks.show(todo.id).status).toBe("todo");
+		expect(tasks.show(review.id).status).toBe("review");
+		expect(tasks.graph().nodes.filter((node) => node.active).map((node) => node.task.id)).toEqual([review.id]);
+	});
+
+	it("propagates partial effort from a nested task to todo ancestors", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const epic = tasks.create({ title: "Epic" });
+		const parent = tasks.create({ title: "Parent", parentId: epic.id });
+		const child = tasks.create({ title: "Child", parentId: parent.id });
+
+		expect(tasks.transition(child.id, "start").status).toBe("in-progress");
+		expect(tasks.show(parent.id).status).toBe("in-progress");
+		expect(tasks.show(epic.id).status).toBe("in-progress");
+		expect(tasks.active()?.id).toBe(child.id);
+	});
+
+	it("enforces review, rejection, retry, and canceled lifecycle transitions", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Lifecycle" });
+		expect(task.status).toBe("todo");
+		expect(() => tasks.complete(task.id)).toThrow("cannot complete task from todo");
+		expect(tasks.transition(task.id, "start").status).toBe("in-progress");
+		expect(tasks.transition(task.id, "submit").status).toBe("review");
+		expect(tasks.transition(task.id, "reject").status).toBe("rejected");
+		expect(tasks.transition(task.id, "retry").status).toBe("in-progress");
+		expect(tasks.transition(task.id, "cancel").status).toBe("canceled");
+		expect(tasks.active()).toBeNull();
+		expect(() => tasks.transition(task.id, "start")).toThrow("cannot start task from canceled");
+	});
+
+	it("rejects legacy checklist entries without typed proof while still running gates", () => {
+		const gates = new FakeGateRunner();
+		const tasks = new Tasks(new FakeArtifactStore(), gates);
+		const task = tasks.create({ title: "Legacy evidence", status: "review", extra: { checklist: ["Claimed done"] } });
+
+		const result = tasks.complete(task.id);
+		expect(result.completed).toBe(false);
+		expect(result.artifact.status).toBe("rejected");
+		expect(result.checklist).toEqual([{
+			item: "Claimed done",
+			proof: [],
+			accepted: false,
+			reason: "typed proof reference required",
+		}]);
+		expect(gates.calls).toEqual([task.id]);
 	});
 });

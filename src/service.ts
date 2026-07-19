@@ -1,14 +1,15 @@
-import { SERVICE_MAX_BODY_BYTES } from "./constants.ts";
+import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
-import { openDb } from "./db.ts";
+import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
+import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { Checklist } from "./domain/checklist.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import { projectTaskExecution } from "./task-execution.ts";
-import { Tasks } from "./task-service.ts";
+import { Tasks, type TaskStatus } from "./task-service.ts";
 import {
 	createArtifactTemplate,
 	createDocument,
@@ -33,6 +34,7 @@ import {
 import { taskContext } from "./task-context.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
+	"system.migrate",
 	"artifact.create",
 	"artifact.query",
 	"artifact.show",
@@ -46,13 +48,17 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.graph",
 	"tasks.plan",
 	"tasks.show",
+	"tasks.active",
+	"tasks.focus",
 	"tasks.start",
+	"tasks.submit",
 	"tasks.complete",
 	"tasks.run_gates",
 	"tasks.set_checklist",
 	"tasks.context",
-	"tasks.fail",
+	"tasks.reject",
 	"tasks.retry",
+	"tasks.cancel",
 	"tasks.depend",
 	"tasks.contain",
 	"docs.create",
@@ -84,6 +90,7 @@ type OperationInput = Record<string, unknown>;
 type OperationHandler = (input: OperationInput) => unknown;
 
 export class UnknownOperationError extends Error {}
+export class MigrationRequiredError extends Error {}
 export class PayloadTooLargeError extends Error {}
 
 function string(input: OperationInput, key: string): string {
@@ -111,21 +118,34 @@ function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
 	return { ...rest, templateId: typeof template_id === "string" ? template_id : undefined } as CreateArtifactInput;
 }
 
+export interface SchemaState {
+	current: number;
+	required: number;
+	migrationRequired: boolean;
+}
+
 export interface PapyrusService {
 	operationNames(): OperationName[];
+	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
 	checkpoint(): void;
 	optimize(): void;
 	close(): void;
 }
 
-function handlers(artifacts: ArtifactStore, gates: GateRunner, tasks: Tasks): Record<OperationName, OperationHandler> {
+function handlers(
+	artifacts: ArtifactStore,
+	gates: GateRunner,
+	tasks: Tasks,
+	migrate: () => unknown,
+): Record<OperationName, OperationHandler> {
 	const taskFilter = (input: OperationInput) => ({
 		status: optionalString(input, "status"),
 		text: optionalString(input, "text"),
 		limit: optionalNumber(input, "limit"),
 	});
 	return {
+		"system.migrate": () => migrate(),
 		"artifact.create": (input) => artifacts.create(normalizeCreateInput(input)),
 		"artifact.query": (input) => artifacts.query(input),
 		"artifact.show": (input) => artifacts.get(string(input, "id"), {
@@ -156,7 +176,7 @@ function handlers(artifacts: ArtifactStore, gates: GateRunner, tasks: Tasks): Re
 		"tasks.create": (input) => tasks.create({
 			title: string(input, "title"),
 			body: optionalString(input, "body"),
-			status: optionalString(input, "status") as "pending" | "active" | "done" | "failed" | undefined,
+			status: optionalString(input, "status") as TaskStatus | undefined,
 			labels: input["labels"] as string[] | undefined,
 			extra: input["extra"] as Record<string, unknown> | undefined,
 			gates: input["gates"] as Parameters<Tasks["create"]>[0]["gates"],
@@ -169,13 +189,17 @@ function handlers(artifacts: ArtifactStore, gates: GateRunner, tasks: Tasks): Re
 		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
 		"tasks.plan": (input) => projectTaskExecution(tasks.graph(taskFilter(input))),
 		"tasks.show": (input) => tasks.show(string(input, "id")),
+		"tasks.active": () => tasks.active(),
+		"tasks.focus": (input) => tasks.focus(string(input, "id")),
 		"tasks.start": (input) => tasks.transition(string(input, "id"), "start"),
+		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit"),
 		"tasks.complete": (input) => tasks.completeAsync(string(input, "id")),
 		"tasks.run_gates": (input) => tasks.runGates(string(input, "id")),
 		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
-		"tasks.context": () => taskContext(artifacts),
-		"tasks.fail": (input) => tasks.transition(string(input, "id"), "fail"),
+		"tasks.context": () => taskContext(artifacts, tasks.active()?.id),
+		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject"),
 		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry"),
+		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel"),
 		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id")),
 		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id")),
 		"docs.create": (input) => createDocument(artifacts, {
@@ -223,13 +247,22 @@ export function createPapyrusService(path: string): PapyrusService {
 	const db = openDb(path);
 	const artifacts = new SQLiteArtifactStore(db);
 	const gates = new SQLiteGateRunner(db);
-	const tasks = new Tasks(artifacts, gates);
-	const registry = handlers(artifacts, gates, tasks);
+	const focus = new SQLiteTaskFocusStore(db);
+	const tasks = new Tasks(artifacts, gates, focus);
+	const registry = handlers(artifacts, gates, tasks, () => migrateDb(db));
+	const state = (): SchemaState => {
+		const current = schemaVersion(db);
+		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
+	};
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
+		schemaState: state,
 		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
+			if (operation !== "system.migrate" && state().migrationRequired) {
+				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-lifecycle`");
+			}
 			return handler(input);
 		},
 		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
@@ -278,7 +311,7 @@ export function createApp(deps: { service: PapyrusService; token: string }): { f
 			}
 			const url = new URL(request.url);
 			if (request.method === "GET" && url.pathname === "/health") {
-				return json({ ok: true, version: VERSION });
+				return json({ ok: true, version: VERSION, schema: deps.service.schemaState() });
 			}
 			if (request.method === "GET" && url.pathname === "/api/v1/ops") {
 				return json({ operations: deps.service.operationNames() });

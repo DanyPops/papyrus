@@ -3,10 +3,12 @@ import { checklistEntries, type ProofReference } from "../../src/domain/checklis
 import { formatMetadata } from "./artifact-format.ts";
 
 const TASK_STATUS_GLYPHS: Record<string, string> = {
-	pending: "○",
-	active: "●",
+	todo: "○",
+	"in-progress": "●",
+	review: "◆",
+	rejected: "▲",
 	done: "■",
-	failed: "▲",
+	canceled: "×",
 };
 
 function proofLine(proof: ProofReference): string {

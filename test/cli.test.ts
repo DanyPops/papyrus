@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runMigrationCli, runTaskCli } from "../src/cli.ts";
+import { runMigrationCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import type { OperationName } from "../src/service.ts";
 
 class FakeClient {
@@ -20,6 +20,24 @@ describe("Papyrus migration CLI", () => {
 			applied: ["task-lifecycle-and-focus"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
+	});
+});
+
+describe("Papyrus Skill CLI", () => {
+	it("runs a workflow through the authenticated daemon client with stable JSON", async () => {
+		const result = {
+			runId: "run-001",
+			created: { tasks: ["run-001-task"], rules: [], docs: [] },
+			rootTaskIds: ["run-001-task"],
+		};
+		const client = new FakeClient(result);
+		expect(await runSkillCli([
+			"run", "skill-1", "--arguments-json", '{"project":"Papyrus"}', "--run-id", "run-001", "--json",
+		], client)).toBe(JSON.stringify(result));
+		expect(client.calls).toEqual([{
+			operation: "skills.run",
+			input: { id: "skill-1", arguments: { project: "Papyrus" }, run_id: "run-001" },
+		}]);
 	});
 });
 

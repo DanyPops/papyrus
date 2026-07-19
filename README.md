@@ -62,11 +62,20 @@ Each kind has an enforced status vocabulary. Every edge endpoint must exist, and
 
 ### Hierarchy and traversal
 
-Use `contains` and `part_of` for explicit parent/child structure; use `depends_on` for execution ordering. Dependency edges form an executable DAG: self-dependencies and cycles are rejected, fan-in waits for every prerequisite, and fan-out may activate several successors. Graph reads are cycle-safe and bounded by `depth` and `max_nodes` (defaults: depth 4, 100 nodes; hard ceilings: depth 20, 1,000 nodes). Executable task plans are additionally bounded to 1,000 tasks and 10,000 relationships.
+Use `contains` and `part_of` for explicit parent/child structure; use `depends_on` for execution ordering. Dependency edges form an executable DAG: self-dependencies and cycles are rejected, fan-in waits for every prerequisite, and fan-out can expose several ready successors while active focus remains singular. Graph reads are cycle-safe and bounded by `depth` and `max_nodes` (defaults: depth 4, 100 nodes; hard ceilings: depth 20, 1,000 nodes). Executable task plans are additionally bounded to 1,000 tasks and 10,000 relationships.
 
 ### Skills and compatibility templates
 
-A Papyrus Skill is distinct from a conventional prompt-only skill: its input API and templates define a connected Task/Rule/Doc workflow. Task dependencies and gates provide deterministic execution; Rules provide scoped governance; Docs provide invocation context and provenance. The versioned workflow-instantiation API is tracked as active Papyrus work.
+A Papyrus Skill is distinct from a conventional prompt-only skill: its input API and blueprints define a connected Task/Rule/Doc workflow. `skills.run` validates and normalizes all arguments, safely renders placeholders in memory, validates the complete graph, then persists artifacts and edges in one transaction. Task dependencies, containment, gates, checklists, and context survive rendering. Run Rules are injected only while active focus belongs to that run. Docs retain invocation context and provenance; missing evidence references remain unknown and no gate runs during instantiation.
+
+A run result has a stable schema: Skill ID, run ID, normalized arguments, created IDs grouped by kind, ready root task IDs, and the bounded execution plan. Explicit run IDs produce deterministic artifact IDs (`<run-id>-<blueprint-ref>`); collisions roll back the entire run.
+
+```bash
+papyrus skills run <skill-id> \
+  --arguments-json '{"project":"Papyrus"}' \
+  --run-id papyrus-001 \
+  --json
+```
 
 The existing `artifact-template` skill subtype remains a compatibility mechanism for one-artifact templates with metadata `{targetKind, defaults, required}`. Instantiate it through `papyrus_create` with `template_id`; defaults merge recursively, explicit arrays replace defaults, required paths such as `extra.owner` are validated, and target-kind mismatches are rejected.
 
@@ -84,7 +93,7 @@ Agent-facing domain tools own lifecycle invariants and sit above this store API:
 - **`tasks`** — create/list/show/plan, manage the singleton active focus, replace evidence-bearing checklists, hierarchy/dependencies, lifecycle transitions, non-blocking gates, and review completion that focuses one deterministic ready successor without claiming effort
 - **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links
 - **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
-- **`skills`** — create/list/show/invoke, enable/disable, create templates, and instantiate templates
+- **`skills`** — create/list/show/invoke/run, enable/disable, create compatibility templates, and atomically instantiate parameterized workflow runs
 
 Every tool operation is registered in the daemon’s `/api/v1/ops` registry; parity is verified in tests. The task consumer uses the `tasks.graph` operation, which returns task nodes with explicit parent, child, and dependency IDs rather than leaking SQLite rows or asking the UI to reconstruct relationships.
 

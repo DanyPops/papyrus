@@ -6,6 +6,7 @@ import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { Checklist } from "./domain/checklist.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
+import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks } from "./task-service.ts";
 import {
 	createArtifactTemplate,
@@ -27,7 +28,7 @@ import {
 	transitionRule,
 	transitionSkill,
 	type DocumentRelation,
-} from "./facades.ts";
+} from "./domain-services.ts";
 import { taskContext } from "./task-context.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
@@ -42,6 +43,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.create",
 	"tasks.list",
 	"tasks.graph",
+	"tasks.plan",
 	"tasks.show",
 	"tasks.start",
 	"tasks.complete",
@@ -131,7 +133,14 @@ function handlers(artifacts: ArtifactStore, gates: GateRunner, tasks: Tasks): Re
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
 		"graph.link": (input) => {
-			artifacts.link({ from: string(input, "from"), relation: string(input, "relation"), to: string(input, "to") });
+			const from = string(input, "from");
+			const relation = string(input, "relation");
+			const to = string(input, "to");
+			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
+				tasks.depend(from, to);
+			} else {
+				artifacts.link({ from, relation, to });
+			}
 			return { ok: true };
 		},
 		"graph.tree": (input) => artifacts.get(string(input, "id"), {
@@ -157,6 +166,7 @@ function handlers(artifacts: ArtifactStore, gates: GateRunner, tasks: Tasks): Re
 		}),
 		"tasks.list": (input) => tasks.list(taskFilter(input)),
 		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
+		"tasks.plan": (input) => projectTaskExecution(tasks.graph(taskFilter(input))),
 		"tasks.show": (input) => tasks.show(string(input, "id")),
 		"tasks.start": (input) => tasks.transition(string(input, "id"), "start"),
 		"tasks.complete": (input) => tasks.completeAsync(string(input, "id")),

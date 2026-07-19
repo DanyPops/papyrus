@@ -30,6 +30,10 @@ export const TASK_GRAPH_MIN_VISIBLE_LINES = 8;
 export const TASK_GRAPH_MAX_VISIBLE_LINES = 30;
 export const TASK_GRAPH_RESERVED_ROWS = 8;
 export const TASK_GRAPH_HORIZONTAL_PAN_COLUMNS = 4;
+/** Hard bounds for executable dependency DAG projection and cycle checks. */
+export const TASK_EXECUTION_MAX_NODES = 1_000;
+export const TASK_EXECUTION_MAX_EDGES = 10_000;
+export const TASK_EXECUTION_MAX_DEGREE = 100;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
 export const GRAPH_RENDER_BOX_PADDING = 0;
@@ -69,13 +73,13 @@ export function dbPath(): string {
  * rule  = Governance — context injection ("when doing X, follow Y").
  *         Maps to AGENTS.md semantics: active rules with inject:true are
  *         appended to the system prompt on before_agent_start.
- * skill = Procedural — "when using X,Y,Z do A,B,C" (richer SKILL.md metadata)
+ * skill = Parameterized workflow bundle — validated inputs render connected Task, Rule, and Doc collections.
  */
 export const SEED_KINDS = [
 	{ name: "doc", description: "Knowledge — descriptive reference (specs, decisions, research, designs)" },
 	{ name: "task", description: "Work — action items with gates, checklists, and dependencies" },
 	{ name: "rule", description: "Governance — context injection (when doing X, follow Y). Maps to AGENTS.md" },
-	{ name: "skill", description: "Procedural — when using X,Y,Z do A,B,C (SKILL.md metadata)" },
+	{ name: "skill", description: "Parameterized workflow bundle — inputs and templates load deterministic tasks plus contextual rules and docs" },
 ] as const;
 
 export const SEED_STATUSES = [

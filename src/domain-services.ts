@@ -192,7 +192,7 @@ export function showSkill(artifacts: ArtifactStore, id: string): Artifact {
 export function skillInvocation(artifacts: ArtifactStore, id: string): string {
 	const skill = requireKind(artifacts, id, "skill");
 	if (skill.subtype === "artifact-template") {
-		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_id: ${skill.id}\nAsk for or infer all required template fields, then call the skills facade instantiate action.`;
+		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_id: ${skill.id}\nAsk for or infer all required template fields, then call the skills domain tool instantiate action.`;
 	}
 	const trigger = typeof skill.extra["trigger"] === "string" ? skill.extra["trigger"] : "manual invocation";
 	const steps = Array.isArray(skill.extra["steps"]) ? skill.extra["steps"].filter((step): step is string => typeof step === "string") : [];

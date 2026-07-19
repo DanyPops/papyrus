@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
-import { DAEMON_UNIT_NAME } from "./constants.ts";
+import { DAEMON_UNIT_NAME, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import type { GateResult } from "./domain/gate.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
@@ -59,6 +59,7 @@ const USAGE = `Usage:
   papyrus migrate task-lifecycle [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus tasks plan [--json]
+  papyrus tasks graph [--json]
   papyrus tasks active [--json]
   papyrus tasks focus <id> [--json]
   papyrus tasks complete <id> [--json]
@@ -180,6 +181,18 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			human = `Active: ${artifactLabel(active)}`;
 			break;
 		}
+		case "graph": {
+			if (id) throw new Error("tasks graph accepts no positional arguments");
+			const graph = await client.call<{ limit: number }, {
+				nodes: Array<{ dependencyIds: string[]; childIds: string[] }>;
+				rootIds: string[];
+			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1 });
+			result = graph;
+			const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
+			const children = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
+			human = `Task graph: ${graph.nodes.length} nodes, ${graph.rootIds.length} roots, ${dependencies} dependencies, ${children} containment edges`;
+			break;
+		}
 		case "plan": {
 			if (id) throw new Error("tasks plan accepts no positional arguments");
 			const plan = await client.call<Record<string, never>, TaskExecutionPlan>("tasks.plan", {});
@@ -229,7 +242,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient): Promise
 			break;
 		}
 		default:
-			throw new Error("tasks action must be active, focus, plan, complete, start, submit, reject, retry, cancel, or depend");
+			throw new Error("tasks action must be active, focus, graph, plan, complete, start, submit, reject, retry, cancel, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }

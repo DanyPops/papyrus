@@ -4,7 +4,7 @@ import type { Artifact } from "../../src/domain/artifact.ts";
 import { PROOF_TYPES } from "../../src/domain/checklist.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import type { TaskExecutionPlan } from "../../src/task-execution.ts";
-import type { TaskCompletion } from "../../src/task-service.ts";
+import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import { callService } from "./service-client.ts";
 
@@ -30,7 +30,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, list, show, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, list, show, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -67,6 +67,12 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "active") {
 					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", params);
 					return text(artifact ? `Active: ${artifactLine(artifact)}` : "No active task.", { artifact });
+				}
+				if (action === "graph") {
+					const graph = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", params);
+					const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
+					const containment = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
+					return text(`Task graph: ${graph.nodes.length} nodes, ${graph.rootIds.length} roots, ${dependencies} dependencies, ${containment} containment edges.`, { graph });
 				}
 				if (action === "plan") {
 					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", params);

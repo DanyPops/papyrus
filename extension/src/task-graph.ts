@@ -86,8 +86,17 @@ export class TaskGraphViewport {
 
 	private rebuild(): void {
 		const view = GRAPH_VIEWS[this.viewIndex]!;
-		this.graphLines = this.renderer.render(projectTaskGraph(this.graph, view)).lines;
-		if (this.graphLines.length === 0) this.graphLines = [`No task ${view} relationships`];
+		try {
+			this.graphLines = this.renderer.render(projectTaskGraph(this.graph, view)).lines;
+			if (this.graphLines.length === 0) this.graphLines = [`No task ${view} relationships`];
+		} catch {
+			this.graphLines = [
+				"┌─ Task graph ─",
+				`│ Graph rendering failed for ${view} view.`,
+				"│ Press Tab for another view or Esc to close.",
+				"└─",
+			];
+		}
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.graphLines.length - this.viewportHeight));
 	}
 }

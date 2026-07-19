@@ -60,6 +60,11 @@ describe("Papyrus task CLI", () => {
 	});
 
 	it("prints stable JSON for machine consumers", async () => {
+		const graph = { nodes: [{ dependencyIds: [], childIds: [] }], rootIds: ["root"] };
+		const graphClient = new FakeClient(graph);
+		expect(await runTaskCli(["graph", "--json"], graphClient)).toBe(JSON.stringify(graph));
+		expect(graphClient.calls).toEqual([{ operation: "tasks.graph", input: { limit: 1001 } }]);
+
 		const result = {
 			layers: [["root"], ["left", "right"]],
 			cycleIds: [],

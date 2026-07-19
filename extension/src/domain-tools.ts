@@ -31,7 +31,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, list, show, history, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, set_automation, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, list, show, history, scope, set_scope, assign_project, graph, plan, active, focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, set_automation, depend, contain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -54,17 +54,20 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			child_id: Type.Optional(Type.String()),
 			dependency_id: Type.Optional(Type.String()),
 			depends_on: Type.Optional(Type.Array(Type.String())),
+			project_root: Type.Optional(Type.String()),
+			scope: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("graph"), Type.Literal("all")])),
+			root_task_id: Type.Optional(Type.String()),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const action = params.action;
-				const request = { ...params, actor: "agent", source: "pi-tool" };
+				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool" };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
 					return text(`Created task ${artifactLine(artifact)}`, { artifact });
 				}
 				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", params);
+					const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", request);
 					return text(rows.length ? rows.map(artifactLine).join("\n") : "No tasks found.", { rows });
 				}
 				if (action === "show") {
@@ -76,18 +79,22 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const lines = page.events.map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`);
 					return text(lines.join("\n") || "No recorded history for this task.", { page });
 				}
+				if (action === "scope") {
+					const selection = await callService<Record<string, unknown>, import("../../src/domain/task-scope.ts").TaskViewSelection>("tasks.scope", request);
+					return text(`Task scope: ${selection.label}`, { selection });
+				}
 				if (action === "active") {
-					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", params);
+					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", request);
 					return text(artifact ? `Active: ${artifactLine(artifact)}` : "No active task.", { artifact });
 				}
 				if (action === "graph") {
-					const graph = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", params);
+					const graph = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", request);
 					const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 					const containment = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
 					return text(`Task graph: ${graph.nodes.length} nodes, ${graph.rootIds.length} roots, ${dependencies} dependencies, ${containment} containment edges.`, { graph });
 				}
 				if (action === "plan") {
-					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", params);
+					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", request);
 					const byId = new Map(plan.nodes.map((node) => [node.id, node]));
 					const lines = plan.layers.flatMap((layer, index) => [
 						`Layer ${index + 1}`,
@@ -124,6 +131,8 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					reject: "tasks.reject",
 					retry: "tasks.retry",
 					cancel: "tasks.cancel",
+					set_scope: "tasks.set_scope",
+					assign_project: "tasks.assign_project",
 					set_automation: "tasks.set_automation",
 					depend: "tasks.depend",
 					contain: "tasks.contain",
@@ -234,10 +243,12 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), template_id: Type.Optional(Type.String()),
 			target_kind: Type.Optional(Type.String()), defaults: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			required: Type.Optional(Type.Array(Type.String())), kind: Type.Optional(Type.String()), subtype: Type.Optional(Type.String()),
+			project_root: Type.Optional(Type.String()),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const action = params.action;
+				const request = { ...params, project_root: params.project_root ?? ctx.cwd };
 				if (action === "create" || action === "create_template") {
 					const operation = action === "create" ? "skills.create" : "skills.create_template";
 					const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
@@ -252,7 +263,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					return text(invocation, { invocation });
 				}
 				if (action === "run") {
-					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", params);
+					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", request);
 					const execution = run.execution.nodes.map((node) => `  [${node.state}] ${node.id} ${node.title}`).join("\n");
 					return text([
 						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs.`,
@@ -265,7 +276,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) return text(`Unknown skills action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, action === "instantiate" ? request : params);
 				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, { artifact });
 			} catch (error) {
 				return text(`skills failed: ${error instanceof Error ? error.message : error}`);

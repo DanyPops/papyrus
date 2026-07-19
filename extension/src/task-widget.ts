@@ -13,6 +13,7 @@ export interface TaskWidgetProjection {
 	rows: TaskWidgetRow[];
 	openTotal: number;
 	total: number;
+	scopeLabel: string;
 }
 
 function isOpen(task: Artifact): boolean {
@@ -52,5 +53,5 @@ export function buildTaskWidgetProjection(
 		rows = [...rows.slice(0, Math.max(0, limit - 1)), active]
 			.sort((left, right) => ordered.indexOf(left) - ordered.indexOf(right));
 	}
-	return { rows, openTotal: ordered.length, total: graph.nodes.length };
+	return { rows, openTotal: ordered.length, total: graph.nodes.length, scopeLabel: graph.scope?.label ?? "All projects" };
 }

@@ -57,6 +57,7 @@ const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
   papyrus migrate task-lifecycle [--json]
+  papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus tasks plan [--json]
   papyrus tasks active [--json]
   papyrus tasks focus <id> [--json]
@@ -111,6 +112,44 @@ export async function runMigrationCli(args: string[], client: TaskCliClient): Pr
 	if (json) return JSON.stringify(result);
 	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
 	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
+}
+
+export async function runSkillCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let runId: string | undefined;
+	let arguments_: Record<string, unknown> = {};
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--run-id") {
+			runId = args[++index];
+			if (!runId) throw new Error("--run-id requires a value");
+			continue;
+		}
+		if (argument === "--arguments-json") {
+			const source = args[++index];
+			if (!source) throw new Error("--arguments-json requires a JSON object");
+			const parsed = JSON.parse(source) as unknown;
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+				throw new Error("--arguments-json must be a JSON object");
+			}
+			arguments_ = parsed as Record<string, unknown>;
+			continue;
+		}
+		if (argument.startsWith("--")) throw new Error(`unknown skills option ${argument}`);
+		positional.push(argument);
+	}
+	if (positional.length !== 2 || positional[0] !== "run") throw new Error("skills requires `run <id>`");
+	const input: Record<string, unknown> = { id: positional[1], arguments: arguments_ };
+	if (runId) input["run_id"] = runId;
+	const result = await client.call<Record<string, unknown>, {
+		runId: string;
+		created: { tasks: string[]; rules: string[]; docs: string[] };
+		rootTaskIds: string[];
+	}>("skills.run", input);
+	if (json) return JSON.stringify(result);
+	return `Created Skill run ${result.runId}: ${result.created.tasks.length} tasks, ${result.created.rules.length} rules, ${result.created.docs.length} docs; ready roots: ${result.rootTaskIds.join(", ") || "none"}`;
 }
 
 export async function runTaskCli(args: string[], client: TaskCliClient): Promise<string> {
@@ -194,6 +233,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
+		return;
+	}
+	if (command === "skills") {
+		const client = await connectPapyrusClient();
+		console.log(await runSkillCli(args.slice(1), client));
 		return;
 	}
 	if (command === "migrate") {

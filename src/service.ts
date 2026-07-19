@@ -20,6 +20,7 @@ import {
 	instantiateTemplate,
 	listDocuments,
 	listRules,
+	listInjectableRules,
 	listSkills,
 	previewRule,
 	showDocument,
@@ -32,6 +33,7 @@ import {
 	type DocumentRelation,
 } from "./domain-services.ts";
 import { taskContext } from "./task-context.ts";
+import { instantiateSkillWorkflow } from "./skill-execution.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
@@ -80,6 +82,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"skills.list",
 	"skills.show",
 	"skills.invoke",
+	"skills.run",
 	"skills.enable",
 	"skills.disable",
 	"skills.instantiate",
@@ -171,7 +174,7 @@ function handlers(
 		}),
 		"graph.status": (input) => artifacts.setStatus(string(input, "id"), string(input, "status")),
 		"gates.run": (input) => gates.runAsync(string(input, "id")),
-		"rules.injectable": () => artifacts.query({ kind: "rule", status: "active" })
+		"rules.injectable": () => listInjectableRules(artifacts, tasks.active()?.id)
 			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
 		"tasks.create": (input) => tasks.create({
 			title: string(input, "title"),
@@ -228,6 +231,7 @@ function handlers(
 		"skills.create": (input) => createSkill(artifacts, {
 			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
 			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
+			definition: input["definition"],
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 		}),
 		"skills.create_template": (input) => createArtifactTemplate(artifacts, {
@@ -237,6 +241,10 @@ function handlers(
 		"skills.list": (input) => listSkills(artifacts, taskFilter(input)),
 		"skills.show": (input) => showSkill(artifacts, string(input, "id")),
 		"skills.invoke": (input) => skillInvocation(artifacts, string(input, "id")),
+		"skills.run": (input) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
+			runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
+			arguments: input["arguments"] as Record<string, unknown> | undefined,
+		}),
 		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable"),
 		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable"),
 		"skills.instantiate": (input) => instantiateTemplate(artifacts, string(input, "template_id"), normalizeCreateInput(input)),

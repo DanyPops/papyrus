@@ -38,6 +38,7 @@ describe("Papyrus operation service", () => {
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
 		expect(EXPECTED_OPERATION_NAMES).toContain("rules.preview");
 		expect(EXPECTED_OPERATION_NAMES).toContain("skills.instantiate");
+		expect(EXPECTED_OPERATION_NAMES).toContain("skills.run");
 		expect(EXPECTED_OPERATION_NAMES).toContain("system.migrate");
 		service.close();
 	});
@@ -107,6 +108,38 @@ describe("Papyrus operation service", () => {
 
 		const operations = await request(app, "/api/v1/ops");
 		expect((await operations.json()) as unknown).toEqual({ operations: EXPECTED_OPERATION_NAMES });
+		service.close();
+	});
+
+	it("runs workflow Skills atomically and injects run rules only for active run tasks", async () => {
+		const { service } = fixture();
+		const skill = await service.execute("skills.create", {
+			title: "Scoped workflow",
+			definition: {
+				version: 1,
+				inputs: { project: { type: "string", required: true } },
+				blueprints: {
+					docs: [],
+					rules: [{ ref: "rule", title: "Scoped rule", body: "Only this run" }],
+					tasks: [{ ref: "task", title: "Work on {{project}}" }],
+				},
+				links: [],
+			},
+		}) as { id: string };
+		const run = await service.execute("skills.run", {
+			id: skill.id,
+			run_id: "service-run",
+			arguments: { project: "Papyrus" },
+		}) as { created: { tasks: string[]; rules: string[] }; rootTaskIds: string[] };
+		expect(run.rootTaskIds).toEqual(["service-run-task"]);
+		await service.execute("tasks.focus", { id: run.created.tasks[0] });
+		expect(await service.execute("rules.injectable", {})).toEqual([
+			expect.objectContaining({ id: run.created.rules[0], title: "Scoped rule" }),
+		]);
+
+		const unrelated = await service.execute("tasks.create", { title: "Unrelated" }) as { id: string };
+		await service.execute("tasks.focus", { id: unrelated.id });
+		expect(await service.execute("rules.injectable", {})).toEqual([]);
 		service.close();
 	});
 

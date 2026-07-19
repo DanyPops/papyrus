@@ -1,4 +1,5 @@
 import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
+import { validateSkillDefinition } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 
 export interface ListFilter {
@@ -98,6 +99,18 @@ export function listRules(artifacts: ArtifactStore, filter: ListFilter): Artifac
 	return artifacts.query({ kind: "rule", ...filter });
 }
 
+/** Global rules always apply; scoped workflow rules apply only while their run owns active focus. */
+export function listInjectableRules(artifacts: ArtifactStore, activeTaskId?: string): Artifact[] {
+	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
+		const scope = rule.extra["scope"];
+		if (scope === undefined) return true;
+		if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
+		const value = scope as Record<string, unknown>;
+		if (value["type"] !== "skill-run" || !Array.isArray(value["taskIds"])) return false;
+		return activeTaskId !== undefined && value["taskIds"].some((id) => id === activeTaskId);
+	});
+}
+
 export function showRule(artifacts: ArtifactStore, id: string): Artifact {
 	requireKind(artifacts, id, "rule");
 	return artifacts.get(id, { tree: true })!;
@@ -131,6 +144,7 @@ export interface CreateSkillInput {
 	trigger?: string;
 	steps?: string[];
 	tools?: string[];
+	definition?: unknown;
 	labels?: string[];
 	extra?: Record<string, unknown>;
 }
@@ -147,13 +161,19 @@ export interface CreateArtifactTemplateInput {
 export type SkillTransition = "enable" | "disable";
 
 export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput): Artifact {
+	if (input.definition !== undefined && (input.trigger !== undefined || input.steps !== undefined || input.tools !== undefined)) {
+		throw new Error("workflow Skill definition cannot be mixed with legacy trigger, steps, or tools");
+	}
+	const definition = input.definition === undefined ? undefined : validateSkillDefinition(input.definition);
 	return artifacts.create({
 		kind: "skill",
+		subtype: definition ? "workflow" : undefined,
 		title: input.title,
 		body: input.body,
 		labels: input.labels,
 		extra: {
 			...(input.extra ?? {}),
+			...(definition ? { definition } : {}),
 			...(input.trigger ? { trigger: input.trigger } : {}),
 			...(input.steps ? { steps: input.steps } : {}),
 			...(input.tools ? { tools: input.tools } : {}),
@@ -193,6 +213,17 @@ export function skillInvocation(artifacts: ArtifactStore, id: string): string {
 	const skill = requireKind(artifacts, id, "skill");
 	if (skill.subtype === "artifact-template") {
 		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_id: ${skill.id}\nAsk for or infer all required template fields, then call the skills domain tool instantiate action.`;
+	}
+	if (skill.subtype === "workflow") {
+		const definition = validateSkillDefinition(skill.extra["definition"]);
+		const required = Object.entries(definition.inputs)
+			.filter(([, input]) => input.required && input.default === undefined)
+			.map(([name]) => name);
+		return [
+			`Run Papyrus workflow Skill "${skill.title}" (${skill.id}).`,
+			`Required arguments: ${required.length > 0 ? required.join(", ") : "none"}.`,
+			"Call the skills domain tool with action=run and arguments after collecting required values.",
+		].join("\n");
 	}
 	const trigger = typeof skill.extra["trigger"] === "string" ? skill.extra["trigger"] : "manual invocation";
 	const steps = Array.isArray(skill.extra["steps"]) ? skill.extra["steps"].filter((step): step is string => typeof step === "string") : [];

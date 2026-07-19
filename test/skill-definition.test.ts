@@ -49,6 +49,15 @@ describe("Papyrus Skill definitions", () => {
 		expect(() => resolveSkillArguments(validated, { project: "Papyrus", environment: "staging" })).toThrow('skill argument "environment" must be one of');
 	});
 
+	it("rejects prototype keys at the external definition and argument boundary", () => {
+		expect(() => validateSkillDefinition({
+			...definition,
+			inputs: { constructor: { type: "string" } },
+		})).toThrow("reserved skill input name");
+		const validated = validateSkillDefinition(definition);
+		expect(() => resolveSkillArguments(validated, JSON.parse('{"__proto__":"unsafe","project":"Papyrus"}'))).toThrow("unknown skill argument");
+	});
+
 	it("rejects duplicate refs, unresolved links, unknown placeholders, and dependency cycles", () => {
 		expect(() => validateSkillDefinition({
 			...definition,

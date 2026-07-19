@@ -147,9 +147,16 @@ export async function runSkillCli(args: string[], client: TaskCliClient): Promis
 		runId: string;
 		created: { tasks: string[]; rules: string[]; docs: string[] };
 		rootTaskIds: string[];
+		execution: TaskExecutionPlan;
 	}>("skills.run", input);
 	if (json) return JSON.stringify(result);
-	return `Created Skill run ${result.runId}: ${result.created.tasks.length} tasks, ${result.created.rules.length} rules, ${result.created.docs.length} docs; ready roots: ${result.rootTaskIds.join(", ") || "none"}`;
+	return [
+		`Created Skill run ${result.runId}: ${result.created.tasks.length} tasks, ${result.created.rules.length} rules, ${result.created.docs.length} docs`,
+		`Ready roots: ${result.rootTaskIds.join(", ") || "none"}`,
+		`Context docs: ${result.created.docs.join(", ") || "none"}`,
+		`Scoped rules: ${result.created.rules.join(", ") || "none"}`,
+		...result.execution.nodes.map((node) => `[${node.state}] ${node.id} ${node.title}`),
+	].join("\n");
 }
 
 export async function runTaskCli(args: string[], client: TaskCliClient): Promise<string> {

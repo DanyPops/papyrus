@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
-import { skillInvocationPrompt, skillRowMeta } from "../extension/src/skills.ts";
+import { skillInvocationPrompt, skillRowMeta, skillRunTaskGraph } from "../extension/src/skills.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
 
 function artifact(overrides: Partial<Artifact>): Artifact {
@@ -82,6 +82,24 @@ describe("kind-specific frontend projections", () => {
 		});
 		expect(skillRowMeta(workflow)).toBe("workflow · 1 inputs · 1 tasks");
 		expect(skillInvocationPrompt(workflow)).toContain("action=run");
+		const task = artifact({ id: "run-work", kind: "task", title: "Work", status: "todo" });
+		const graph = skillRunTaskGraph({
+			skillId: workflow.id,
+			runId: "run",
+			arguments: { project: "Papyrus" },
+			created: { docs: ["run-context"], rules: ["run-rule"], tasks: [task.id] },
+			rootTaskIds: [task.id],
+			execution: {
+				layers: [[task.id]],
+				cycleIds: [],
+				nodes: [{
+					id: task.id, title: task.title, status: "todo", active: false, state: "ready", layer: 0,
+					prerequisiteIds: [], successorIds: [],
+				}],
+			},
+		}, [task]);
+		expect(graph.rootIds).toEqual([task.id]);
+		expect(graph.nodes[0]).toMatchObject({ task: { id: task.id }, dependencyIds: [] });
 	});
 
 	it("identifies artifact templates in the skills browser", () => {

@@ -42,8 +42,8 @@ describe("task widget projection", () => {
 			{ id: "active-2", depth: 1, hasActiveChildren: false },
 		]);
 		expect(projection.activeTotal).toBe(2);
-		expect(projection.hiddenTotal).toBe(2);
 		expect(projection.total).toBe(4);
+		expect("hiddenTotal" in projection).toBe(false);
 	});
 
 	it("caps active rows while preserving the total active count", () => {
@@ -60,7 +60,6 @@ describe("task widget projection", () => {
 
 		expect(projection.active.map((row) => row.task.id)).toEqual(["active-1", "active-2"]);
 		expect(projection.activeTotal).toBe(4);
-		expect(projection.hiddenTotal).toBe(4);
 	});
 
 	it("does not leave floating indentation beneath an inactive parent", () => {
@@ -87,6 +86,5 @@ describe("task widget projection", () => {
 
 		expect(projection.active).toEqual([]);
 		expect(projection.activeTotal).toBe(0);
-		expect(projection.hiddenTotal).toBe(4);
 	});
 });

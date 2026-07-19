@@ -11,7 +11,6 @@ export interface TaskWidgetRow {
 export interface TaskWidgetProjection {
 	active: TaskWidgetRow[];
 	activeTotal: number;
-	hiddenTotal: number;
 	total: number;
 }
 
@@ -45,7 +44,6 @@ export function buildTaskWidgetProjection(
 	return {
 		active,
 		activeTotal: ordered.length,
-		hiddenTotal: visibleNodes.length - active.length,
 		total: visibleNodes.length,
 	};
 }

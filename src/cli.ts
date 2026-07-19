@@ -45,7 +45,8 @@ function installService(): void {
 		cliPath: fileURLToPath(import.meta.url),
 	}));
 	systemctl("daemon-reload");
-	systemctl("enable", "--now", DAEMON_UNIT_NAME);
+	systemctl("enable", DAEMON_UNIT_NAME);
+	systemctl("restart", DAEMON_UNIT_NAME);
 }
 
 function usage(): never {

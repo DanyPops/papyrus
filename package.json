@@ -1,9 +1,12 @@
 {
   "name": "@danypops/papyrus",
   "version": "0.1.0",
-  "description": "Minimal graph artifact store for Pi — enforced schema, SQLite, zero service",
+  "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
   "type": "module",
   "keywords": ["pi-package"],
+  "bin": {
+    "papyrus": "src/cli.ts"
+  },
   "scripts": {
     "test": "bun test",
     "cli": "bun src/cli.ts",
@@ -26,5 +29,15 @@
     "type": "git",
     "url": "git+https://github.com/DanyPops/papyrus.git"
   },
-  "files": ["src", "extension", "README.md"]
+  "homepage": "https://github.com/DanyPops/papyrus#readme",
+  "bugs": {
+    "url": "https://github.com/DanyPops/papyrus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["src", "extension", "README.md"],
+  "dependencies": {
+    "beautiful-mermaid": "1.1.3"
+  }
 }

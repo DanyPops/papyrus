@@ -10,10 +10,13 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { Artifact, GateResult } from "../../src/ops.ts";
+import type { Artifact } from "../../src/domain/artifact.ts";
+import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerFacadeTools } from "./facade-tools.ts";
+import type { TaskGraph } from "../../src/task-service.ts";
+import { buildTaskWidgetProjection } from "./task-widget.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
 	return { content: [{ type: "text" as const, text: t }], details };
@@ -31,19 +34,12 @@ const GLYPHS: Record<string, (theme: Theme) => string> = {
 };
 
 const WIDGET_KEY = "pi-papyrus";
-const MAX_WIDGET_LINES = 12;
-
-interface TaskSnapshot {
-	id: string;
-	title: string;
-	status: string;
-}
 
 class TaskOverlay {
 	private uiCtx: ExtensionUIContext | undefined;
 	private registered = false;
 	private tui: any | undefined;
-	private snapshot: TaskSnapshot[] = [];
+	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -55,10 +51,9 @@ class TaskOverlay {
 
 	async refresh(): Promise<void> {
 		try {
-			const rows = await callService<Record<string, unknown>, TaskSnapshot[]>("tasks.list", { limit: 500 });
-			this.snapshot = rows;
+			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500 });
 		} catch {
-			this.snapshot = [];
+			this.snapshot = { nodes: [], rootIds: [] };
 		}
 		this.render();
 	}
@@ -67,7 +62,7 @@ class TaskOverlay {
 		if (!this.uiCtx) return;
 
 		// Hide widget when no tasks
-		if (this.snapshot.length === 0) {
+		if (this.snapshot.nodes.length === 0) {
 			if (this.registered) {
 				this.uiCtx.setWidget(WIDGET_KEY, undefined);
 				this.registered = false;
@@ -99,27 +94,30 @@ class TaskOverlay {
 	}
 
 	private renderLines(theme: Theme, width: number): string[] {
-		const visible = this.snapshot.filter((t) => t.status !== "deleted");
-		if (visible.length === 0) return [];
+		const projection = buildTaskWidgetProjection(this.snapshot);
+		if (projection.total === 0) return [];
 
-		const lines: string[] = [];
-		const counts: Record<string, number> = {};
-		for (const t of visible) counts[t.status] = (counts[t.status] ?? 0) + 1;
-		const summary = ["pending", "active", "done", "failed"]
-			.filter((s) => (counts[s] ?? 0) > 0)
-			.map((s) => `${GLYPHS[s]?.(theme) ?? s} ${counts[s]}`)
-			.join(" · ");
-		lines.push(truncateToWidth(theme.bold(`Tasks · ${summary}`), width, "…"));
-
-		// Show active tasks + next pending (capped at MAX_WIDGET_LINES)
-		const active = visible.filter((t) => t.status === "active");
-		const pending = visible.filter((t) => t.status === "pending");
-		const show = [...active, ...pending.slice(0, Math.max(0, MAX_WIDGET_LINES - active.length - 1))];
-		for (const t of show) {
-			const glyph = GLYPHS[t.status]?.(theme) ?? "?";
-			lines.push(truncateToWidth(`  ${glyph} ${t.title}`, width, "…"));
+		if (projection.activeTotal === 0) {
+			return [truncateToWidth(theme.bold("Tasks · no active tasks · /tasks"), width, "…")];
 		}
 
+		const lines = [
+			truncateToWidth(
+				theme.bold(`Tasks · ${GLYPHS.active!(theme)} ${projection.activeTotal} active`),
+				width,
+				"…",
+			),
+		];
+		for (const row of projection.active) {
+			const hierarchy = row.depth === 0
+				? row.hasActiveChildren ? "▾" : "·"
+				: `${"  ".repeat(row.depth)}↳`;
+			lines.push(truncateToWidth(`  ${hierarchy} ${GLYPHS.active!(theme)} ${row.task.title}`, width, "…"));
+		}
+		const hint = projection.hiddenTotal > 0
+			? `${projection.hiddenTotal} more · /tasks`
+			: "/tasks for details";
+		lines.push(truncateToWidth(theme.fg("dim", `  ${hint}`), width, "…"));
 		return lines;
 	}
 
@@ -148,7 +146,7 @@ export default async function (pi: ExtensionAPI) {
 			"task (work — with gates/checklists in extra), rule (governance — when doing X, follow Y; " +
 			"active rules inject into the system prompt), skill (procedural — when using X do A,B,C). " +
 			"RULE extra: {condition, action, severity: 'block'|'warn'|'info'}. " +
-			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: ['item']}. " +
+			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: {'criterion': {proof: [{type:'file'|'symbol'|'code'|'test'|'command'|'artifact'|'url', target, expect}]}}}. " +
 			"SKILL extra: {trigger, steps: [...], tools: [...]}. " +
 			"Templates are skills with subtype='artifact-template' and extra {targetKind, defaults, required}; pass template_id to instantiate.",
 		parameters: Type.Object({

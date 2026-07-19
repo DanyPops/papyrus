@@ -21,6 +21,18 @@ export const GATE_MAX_BUFFER_BYTES = 1_048_576;
 /** Compact task-context limits keep recurring prompt injection bounded. */
 export const TASK_CONTEXT_ACTIVE_LIMIT = 3;
 export const TASK_CONTEXT_FAILED_LIMIT = 3;
+export const TASK_WIDGET_ACTIVE_LIMIT = 3;
+export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
+export const TASK_DETAIL_MAX_VISIBLE_LINES = 24;
+export const TASK_DETAIL_RESERVED_ROWS = 8;
+export const TASK_DETAIL_HORIZONTAL_PAN_COLUMNS = 4;
+export const TASK_GRAPH_MIN_VISIBLE_LINES = 8;
+export const TASK_GRAPH_MAX_VISIBLE_LINES = 30;
+export const TASK_GRAPH_RESERVED_ROWS = 8;
+export const TASK_GRAPH_HORIZONTAL_PAN_COLUMNS = 4;
+export const GRAPH_RENDER_PADDING_X = 2;
+export const GRAPH_RENDER_PADDING_Y = 1;
+export const GRAPH_RENDER_BOX_PADDING = 0;
 
 /** Safe defaults and hard ceilings for graph expansion. */
 export const DEFAULT_GRAPH_DEPTH = 4;

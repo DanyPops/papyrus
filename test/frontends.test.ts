@@ -3,7 +3,7 @@ import { filterArtifactRows, statusSummary } from "../extension/src/artifact-bro
 import { documentRowMeta } from "../extension/src/docs.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 import { skillInvocationPrompt, skillRowMeta } from "../extension/src/skills.ts";
-import type { Artifact } from "../src/ops.ts";
+import type { Artifact } from "../src/domain/artifact.ts";
 
 function artifact(overrides: Partial<Artifact>): Artifact {
 	return {

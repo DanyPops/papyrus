@@ -129,6 +129,8 @@ Proof types are `file`, `symbol`, `code`, `test`, `command`, `artifact`, and `ur
 
 Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run gates before marking it done. The injection disappears when every task is complete.
 
+In TUI and RPC modes, the extension checks bounded active Tasks at Pi’s public `agent_settled` lifecycle boundary. If active work remains and no continuation is already pending, it queues one hidden next turn so the agent continues instead of handing off merely because a low-level run ended. Driving is single-flight and pauses after 20 automatic turns or 6 unchanged task snapshots. Use `/task-drive on`, `/task-drive off`, or `/task-drive status`; human input and task progress reset the bounded counters.
+
 ## Why
 
 Papyrus keeps SQLite’s local simplicity while centralizing writes, migrations, lifecycle invariants, gate execution, and maintenance in one small supervised process. The loopback bearer token prevents unrelated local HTTP callers from mutating the graph, while the native Pi extension provides richer domain tools and TUI integration.

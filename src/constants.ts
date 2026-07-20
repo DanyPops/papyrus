@@ -99,6 +99,15 @@ export const DEFAULT_METADATA_DEPTH = 6;
 export const DEFAULT_METADATA_ITEMS = 100;
 export const MAX_METADATA_DEPTH = 12;
 export const MAX_METADATA_ITEMS = 500;
+/** Independent bounds for model-facing tool content and persisted renderer details. */
+export const TOOL_MODEL_CONTENT_MAX_CHARACTERS = 12_000;
+export const TOOL_DETAILS_BODY_MAX_CHARACTERS = 20_000;
+export const TOOL_DETAILS_FIELD_MAX_CHARACTERS = 1_000;
+export const TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS = 1_000;
+export const TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS = 131_072;
+export const TOOL_COLLAPSED_ROW_LIMIT = 5;
+export const TOOL_DETAILS_MAX_ITEMS = 100;
+export const TOOL_DETAILS_MAX_EDGES = 200;
 
 /** Reconciliation instruction appended whenever Papyrus has open work. */
 export const TASK_RECONCILIATION_INSTRUCTION = [

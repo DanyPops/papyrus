@@ -9,9 +9,20 @@ import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
 import { callService } from "./service-client.ts";
+import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
+import {
+	createArtifactDetails,
+	createArtifactListDetails,
+	createGateRunDetails,
+	createGraphDetails,
+	createInvocationDetails,
+	createModelContent,
+	createPreviewDetails,
+} from "./tool-rendering/render-model.ts";
 
-function text(message: string, details: Record<string, unknown> = {}) {
-	return { content: [{ type: "text" as const, text: message }], details };
+function text(message: string, details: unknown = {}) {
+	const modelContent = createModelContent(message);
+	return { content: [{ type: "text" as const, text: modelContent.text }], details };
 }
 
 function artifactLine(artifact: Artifact): string {
@@ -58,53 +69,68 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			scope: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("graph"), Type.Literal("all")])),
 			root_task_id: Type.Optional(Type.String()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Tasks", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const action = params.action;
 				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool" };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
-					return text(`Created task ${artifactLine(artifact)}`, { artifact });
+					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", request);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No tasks found.", { rows });
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No tasks found.", createArtifactListDetails("tasks.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
+					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("tasks.show", artifact));
 				}
 				if (action === "history") {
 					const page = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", request);
 					const lines = page.events.map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`);
-					return text(lines.join("\n") || "No recorded history for this task.", { page });
+					const output = lines.join("\n") || "No recorded history for this task.";
+					return text(output, createPreviewDetails("tasks.history", "Task history", output));
 				}
 				if (action === "scope") {
 					const selection = await callService<Record<string, unknown>, import("../../src/domain/task-scope.ts").TaskViewSelection>("tasks.scope", request);
-					return text(`Task scope: ${selection.label}`, { selection });
+					return text(`Task scope: ${selection.label}`, createPreviewDetails("tasks.scope", "Task scope", selection.label));
 				}
 				if (action === "active") {
 					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", request);
-					return text(artifact ? `Active: ${artifactLine(artifact)}` : "No active task.", { artifact });
+					return artifact
+						? text(`Active: ${artifactLine(artifact)}`, createArtifactDetails("tasks.active", artifact))
+						: text("No active task.", createPreviewDetails("tasks.active", "Active task", "No active task."));
 				}
 				if (action === "focused") {
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string } | null>("tasks.focused", request);
-					return text(focus ? `Focused (${focus.status}): ${artifactLine(focus.artifact)}` : "No focused task.", { focus });
+					return focus
+						? text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails("tasks.focused", focus.artifact))
+						: text("No focused task.", createPreviewDetails("tasks.focused", "Focused task", "No focused task."));
 				}
 				if (action === "pause" || action === "unpause") {
 					const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, request);
-					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, { focus });
+					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
 				}
 				if (action === "clear_focus") {
 					const result = await callService<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", request);
-					return text(result.cleared ? "Task focus cleared." : "No focused task.", result);
+					const output = result.cleared ? "Task focus cleared." : "No focused task.";
+					return text(output, createPreviewDetails("tasks.clear_focus", "Task focus", output));
 				}
 				if (action === "graph") {
 					const graph = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", request);
 					const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 					const containment = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
-					return text(`Task graph: ${graph.nodes.length} nodes, ${graph.rootIds.length} roots, ${dependencies} dependencies, ${containment} containment edges.`, { graph });
+					const edges = graph.nodes.flatMap((node) => [
+						...node.dependencyIds.map((dependencyId) => ({ from: node.task.id, relation: "depends_on", to: dependencyId })),
+						...node.childIds.map((childId) => ({ from: node.task.id, relation: "contains", to: childId })),
+					]);
+					return text(
+						`Task graph: ${graph.nodes.length} nodes, ${graph.rootIds.length} roots, ${dependencies} dependencies, ${containment} containment edges.`,
+						createGraphDetails("tasks.graph", graph.nodes.map((node) => node.task), edges),
+					);
 				}
 				if (action === "plan") {
 					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", request);
@@ -117,11 +143,12 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						}),
 					]);
 					if (plan.cycleIds.length > 0) lines.push(`Invalid cycle: ${plan.cycleIds.join(", ")}`);
-					return text(lines.join("\n") || "No tasks in execution plan.", { plan });
+					const output = lines.join("\n") || "No tasks in execution plan.";
+					return text(output, createPreviewDetails("tasks.plan", "Task execution plan", output));
 				}
 				if (action === "set_checklist") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_checklist", params);
-					return text(`Updated checklist: ${artifactLine(artifact)}`, { artifact });
+					return text(`Updated checklist: ${artifactLine(artifact)}`, createArtifactDetails("tasks.set_checklist", artifact));
 				}
 				if (action === "complete") {
 					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", request);
@@ -131,11 +158,17 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const blocked = result.blocked.length > 0
 						? `\nBlocked: ${result.blocked.map((entry) => `${artifactLine(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
 						: "";
-					return text(`${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`, { ...result });
+					const output = `${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
+					return text(output, createPreviewDetails("tasks.complete", "Task completion", output));
 				}
 				if (action === "run_gates") {
 					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", request);
-					return text(gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.", { gates });
+					return text(
+						gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.",
+						createGateRunDetails("tasks.run_gates", params.id ?? "", gates.map((gate) => ({
+							passed: gate.passed, type: gate.gate.type, target: gate.gate.target, output: gate.output,
+						}))),
+					);
 				}
 				const operations = {
 					focus: "tasks.focus",
@@ -151,11 +184,11 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					contain: "tasks.contain",
 				} as const;
 				const operation = operations[action as keyof typeof operations];
-				if (!operation) return text(`Unknown tasks action: ${action}`);
+				if (!operation) throw new Error(`unknown tasks action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
-				return text(artifactLine(artifact), { artifact });
+				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
 			} catch (error) {
-				return text(`tasks failed: ${error instanceof Error ? error.message : error}`);
+				throw new Error(`tasks failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});
@@ -178,29 +211,31 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			session_id: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Notes", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const action = params.action;
 				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "notes-tool" };
 				if (action === "capture") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("notes.capture", request);
-					return text(`Captured note ${artifactLine(artifact)}`, { artifact });
+					return text(`Captured note ${artifactLine(artifact)}`, createArtifactDetails("notes.capture", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", request);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No open notes.", { rows });
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No open notes.", createArtifactListDetails("notes.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("notes.show", request);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
+					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("notes.show", artifact));
 				}
 				const operations = { consume: "notes.consume", promote: "notes.promote", archive: "notes.archive" } as const;
 				const operation = operations[action as keyof typeof operations];
-				if (!operation) return text(`Unknown notes action: ${action}`);
+				if (!operation) throw new Error(`unknown notes action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
-				return text(`${action}: ${artifactLine(artifact)}`, { artifact });
+				return text(`${action}: ${artifactLine(artifact)}`, createArtifactDetails(operation, artifact));
 			} catch (error) {
-				return text(`notes failed: ${error instanceof Error ? error.message : error}`);
+				throw new Error(`notes failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});
@@ -224,28 +259,30 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			relation: Type.Optional(Type.String()),
 			target_id: Type.Optional(Type.String()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Documents", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params) {
 			try {
 				const action = params.action;
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("docs.create", params);
-					return text(`Created document ${artifactLine(artifact)}`, { artifact });
+					return text(`Created document ${artifactLine(artifact)}`, createArtifactDetails("docs.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("docs.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No documents found.", { rows });
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No documents found.", createArtifactListDetails("docs.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("docs.show", params);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
+					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("docs.show", artifact));
 				}
 				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link" } as const;
 				const operation = operations[action as keyof typeof operations];
-				if (!operation) return text(`Unknown docs action: ${action}`);
+				if (!operation) throw new Error(`unknown docs action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-				return text(artifactLine(artifact), { artifact });
+				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
 			} catch (error) {
-				return text(`docs failed: ${error instanceof Error ? error.message : error}`);
+				throw new Error(`docs failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});
@@ -261,28 +298,30 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), task_id: Type.Optional(Type.String()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Rules", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params) {
 			try {
 				const action = params.action;
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("rules.create", params);
-					return text(`Created rule ${artifactLine(artifact)}`, { artifact });
+					return text(`Created rule ${artifactLine(artifact)}`, createArtifactDetails("rules.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("rules.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No rules found.", { rows });
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No rules found.", createArtifactListDetails("rules.list", rows));
 				}
 				if (action === "preview") {
 					const preview = await callService<Record<string, unknown>, string>("rules.preview", params);
-					return text(preview, { preview });
+					return text(preview, createPreviewDetails("rules.preview", "Rule preview", preview));
 				}
 				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate" } as const;
 				const operation = operations[action as keyof typeof operations];
-				if (!operation) return text(`Unknown rules action: ${action}`);
+				if (!operation) throw new Error(`unknown rules action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, { artifact });
+				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
 			} catch (error) {
-				return text(`rules failed: ${error instanceof Error ? error.message : error}`);
+				throw new Error(`rules failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});
@@ -303,6 +342,8 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			required: Type.Optional(Type.Array(Type.String())), kind: Type.Optional(Type.String()), subtype: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Skills", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const action = params.action;
@@ -310,15 +351,15 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "create" || action === "create_template") {
 					const operation = action === "create" ? "skills.create" : "skills.create_template";
 					const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-					return text(`Created skill ${artifactLine(artifact)}`, { artifact });
+					return text(`Created skill ${artifactLine(artifact)}`, createArtifactDetails(operation, artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("skills.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No skills found.", { rows });
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No skills found.", createArtifactListDetails("skills.list", rows));
 				}
 				if (action === "invoke") {
 					const invocation = await callService<Record<string, unknown>, string>("skills.invoke", params);
-					return text(invocation, { invocation });
+					return text(invocation, createPreviewDetails("skills.invoke", "Skill invocation", invocation));
 				}
 				if (action === "run") {
 					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", request);
@@ -329,15 +370,20 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						`Context docs: ${run.created.docs.join(", ") || "none"}.`,
 						`Scoped rules: ${run.created.rules.join(", ") || "none"}.`,
 						...(execution ? ["Execution:", execution] : []),
-					].join("\n"), { run });
+					].join("\n"), createInvocationDetails("skills.run", run.runId, {
+						tasks: run.created.tasks,
+						docs: run.created.docs,
+						rules: run.created.rules,
+						roots: run.rootTaskIds,
+					}));
 				}
 				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate" } as const;
 				const operation = operations[action as keyof typeof operations];
-				if (!operation) return text(`Unknown skills action: ${action}`);
+				if (!operation) throw new Error(`unknown skills action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, action === "instantiate" ? request : params);
-				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, { artifact });
+				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
 			} catch (error) {
-				return text(`skills failed: ${error instanceof Error ? error.message : error}`);
+				throw new Error(`skills failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});

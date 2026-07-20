@@ -1,4 +1,4 @@
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
 import {
 	ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS,
@@ -7,7 +7,8 @@ import {
 	ARTIFACT_DETAIL_RESERVED_ROWS,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
-import { artifactDetailsText } from "./artifact-detail-format.ts";
+import { artifactDetailContent, artifactDetailsText, type ArtifactDetailContent } from "./artifact-detail-format.ts";
+import { renderMarkdownBody, type ActiveTheme } from "./markdown.ts";
 
 interface ArtifactDetailLine {
 	text: string;
@@ -20,12 +21,11 @@ class ArtifactDetailViewport {
 	private renderedWidth = 0;
 	private lines: ArtifactDetailLine[] = [];
 	private readonly visibleLines: number;
-	private readonly narrative: string;
-	private readonly relationships: string[];
+	private readonly content: ArtifactDetailContent;
 
 	constructor(
 		private readonly tui: TUI,
-		private readonly theme: Theme,
+		private readonly activeTheme: ActiveTheme,
 		artifact: Artifact,
 		private readonly close: () => void,
 	) {
@@ -33,8 +33,7 @@ class ArtifactDetailViewport {
 			ARTIFACT_DETAIL_MIN_VISIBLE_LINES,
 			Math.min(ARTIFACT_DETAIL_MAX_VISIBLE_LINES, tui.terminal.rows - ARTIFACT_DETAIL_RESERVED_ROWS),
 		);
-		this.narrative = artifactDetailsText({ ...artifact, edges: undefined });
-		this.relationships = (artifact.edges ?? []).map((edge) => `${edge.from} --${edge.relation}--> ${edge.to}`);
+		this.content = artifactDetailContent(artifact);
 	}
 
 	invalidate(): void { this.renderedWidth = 0; }
@@ -42,11 +41,12 @@ class ArtifactDetailViewport {
 	render(width: number): string[] {
 		const contentWidth = Math.max(1, width - 2);
 		this.buildLines(contentWidth);
-		const wideWidth = this.relationships.reduce((maximum, line) => Math.max(maximum, visibleWidth(line)), 0);
+		const wideWidth = this.content.relationships.reduce((maximum, line) => Math.max(maximum, visibleWidth(line)), 0);
 		this.offsetX = Math.min(this.offsetX, Math.max(0, wideWidth - contentWidth));
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
 		const end = Math.min(this.lines.length, this.offsetY + this.visibleLines);
-		const border = this.theme.fg("borderMuted", "─".repeat(Math.max(1, width)));
+		const theme = this.activeTheme();
+		const border = theme.fg("borderMuted", "─".repeat(Math.max(1, width)));
 		const footer = [
 			wideWidth > contentWidth ? `←/→ relationships · column ${this.offsetX + 1}/${wideWidth}` : "",
 			this.lines.length > this.visibleLines ? `↑/↓ scroll · ${this.offsetY + 1}-${end}/${this.lines.length}` : "",
@@ -54,12 +54,12 @@ class ArtifactDetailViewport {
 		].filter(Boolean).join(" · ");
 		return [
 			border,
-			truncateToWidth(this.theme.bold("Artifact details"), width, ""),
+			truncateToWidth(theme.fg("accent", theme.bold("Artifact details")), width, ""),
 			border,
 			...this.lines.slice(this.offsetY, end).map((line) => line.wide
 				? ` ${sliceByColumn(line.text, this.offsetX, contentWidth, true)}`
 				: truncateToWidth(` ${line.text}`, width, "")),
-			truncateToWidth(this.theme.fg("dim", footer), width, ""),
+			truncateToWidth(theme.fg("dim", footer), width, ""),
 			border,
 		];
 	}
@@ -77,12 +77,29 @@ class ArtifactDetailViewport {
 	private buildLines(width: number): void {
 		if (this.renderedWidth === width) return;
 		this.renderedWidth = width;
-		const narrative = this.narrative.split("\n").flatMap((line) =>
-			(line.length === 0 ? [""] : wrapTextWithAnsi(line, width)).map((text) => ({ text, wide: false })));
-		const relationshipSection = this.relationships.length > 0
-			? [{ text: "", wide: false }, { text: "Relationships:", wide: false }, ...this.relationships.map((text) => ({ text, wide: true }))]
+		const theme = this.activeTheme();
+		const wrap = (text: string, color: "text" | "muted" | "dim" = "text"): ArtifactDetailLine[] =>
+			(text.length === 0 ? [""] : wrapTextWithAnsi(theme.fg(color, text), width)).map((line) => ({ text: line, wide: false }));
+		const identity = [
+			...wrap(theme.bold(this.content.title)),
+			...wrap(this.content.identity, "muted"),
+			{ text: "", wide: false },
+		];
+		const body = renderMarkdownBody(this.content.body, width, this.activeTheme).map((text) => ({ text, wide: false }));
+		const labels = this.content.labels.length > 0
+			? [{ text: "", wide: false }, ...wrap("Labels:", "muted"), ...wrap(this.content.labels.join(", "))]
 			: [];
-		this.lines = [...narrative, ...relationshipSection];
+		const metadata = this.content.metadata.length > 0
+			? [{ text: "", wide: false }, ...wrap("Metadata:", "muted"), ...this.content.metadata.flatMap((line) => wrap(`  ${line}`, "dim"))]
+			: [];
+		const relationships = this.content.relationships.length > 0
+			? [
+				{ text: "", wide: false },
+				...wrap("Relationships:", "muted"),
+				...this.content.relationships.map((text) => ({ text: theme.fg("text", text), wide: true })),
+			]
+			: [];
+		this.lines = [...identity, ...body, ...labels, ...metadata, ...relationships];
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
 	}
 }
@@ -91,5 +108,5 @@ export async function showArtifactDetailView(ctx: ExtensionCommandContext, artif
 	const output = artifactDetailsText(artifact);
 	if (ctx.mode !== "tui") { ctx.ui.notify(output, "info"); return; }
 	await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-		new ArtifactDetailViewport(tui, theme, artifact, done));
+		new ArtifactDetailViewport(tui, () => ctx.ui.theme ?? theme, artifact, done));
 }

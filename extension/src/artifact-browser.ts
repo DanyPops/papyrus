@@ -18,6 +18,7 @@ export interface ArtifactBrowserConfig {
 	statusOrder: string[];
 	glyphs: Record<string, string>;
 	listOperation?: OperationName;
+	listInput?: Record<string, unknown>;
 	rowMeta(row: Artifact): string;
 	actions(row: Artifact): string[];
 	handleAction(choice: string, row: Artifact, ctx: ExtensionCommandContext): Promise<void>;
@@ -46,6 +47,7 @@ async function loadArtifacts(config: ArtifactBrowserConfig): Promise<Artifact[]>
 	return callService<Record<string, unknown>, Artifact[]>(config.listOperation ?? "artifact.query", {
 		kind: config.kind,
 		limit: BROWSER_QUERY_LIMIT,
+		...(config.listInput ?? {}),
 	});
 }
 
@@ -53,9 +55,11 @@ export async function showArtifactDetails(
 	ctx: ExtensionCommandContext,
 	id: string,
 	operation: OperationName = "artifact.show",
+	input: Record<string, unknown> = {},
 ): Promise<void> {
 	const artifact = await callService<Record<string, unknown>, Artifact | null>(operation, {
 		id,
+		...input,
 		tree: true,
 		depth: DETAIL_GRAPH_DEPTH,
 		max_nodes: DETAIL_GRAPH_NODES,

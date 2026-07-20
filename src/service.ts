@@ -40,6 +40,7 @@ import {
 } from "./domain-services.ts";
 import { taskContext } from "./task-context.ts";
 import { instantiateSkillWorkflow } from "./skill-execution.ts";
+import { Notes, type NoteDisposition } from "./note-service.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
@@ -85,6 +86,12 @@ export const EXPECTED_OPERATION_NAMES = [
 	"docs.archive",
 	"docs.reopen",
 	"docs.link",
+	"notes.capture",
+	"notes.list",
+	"notes.show",
+	"notes.consume",
+	"notes.promote",
+	"notes.archive",
 	"rules.create",
 	"rules.list",
 	"rules.show",
@@ -162,6 +169,7 @@ function handlers(
 	artifacts: ArtifactStore,
 	gates: GateRunner,
 	tasks: Tasks,
+	notes: Notes,
 	events: TaskEventStore,
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
@@ -191,6 +199,7 @@ function handlers(
 		"system.migrate": () => migrate(),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
+			if (normalized.kind === "doc" && normalized.subtype === "note") throw new Error("note creation requires notes.capture");
 			if (normalized.kind !== "task") return artifacts.create(normalized);
 			return tasks.create({
 				id: normalized.id,
@@ -229,7 +238,9 @@ function handlers(
 		}),
 		"graph.status": (input) => {
 			const id = string(input, "id");
-			if (artifacts.get(id)?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
+			const artifact = artifacts.get(id);
+			if (artifact?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
+			if (artifact?.kind === "doc" && artifact.subtype === "note") throw new Error("note lifecycle changes require a notes.* operation so disposition provenance is preserved");
 			return artifacts.setStatus(id, string(input, "status"));
 		},
 		"gates.run": (input) => {
@@ -307,6 +318,28 @@ function handlers(
 		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive"),
 		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen"),
 		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id")),
+		"notes.capture": (input) => notes.capture({
+			body: string(input, "body"), title: optionalString(input, "title"), projectRoot: string(input, "project_root"),
+			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
+		}),
+		"notes.list": (input) => notes.list({
+			projectRoot: string(input, "project_root"), status: optionalString(input, "status") as "draft" | "active" | "archived" | undefined,
+			text: optionalString(input, "text"), limit: optionalNumber(input, "limit"),
+		}),
+		"notes.show": (input) => notes.show(string(input, "id"), string(input, "project_root")),
+		"notes.consume": (input) => notes.consume(string(input, "id"), {
+			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
+			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),
+		}),
+		"notes.promote": (input) => notes.promote(string(input, "id"), string(input, "target_id"), {
+			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
+			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),
+		}),
+		"notes.archive": (input) => notes.archive(string(input, "id"), {
+			projectRoot: string(input, "project_root"), disposition: string(input, "disposition") as NoteDisposition,
+			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
+			reason: optionalString(input, "reason"),
+		}),
 		"rules.create": (input) => createRule(artifacts, {
 			title: string(input, "title"), body: optionalString(input, "body"), condition: optionalString(input, "condition"),
 			action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
@@ -364,7 +397,8 @@ export function createPapyrusService(path: string): PapyrusService {
 	const events = new SQLiteTaskEventStore(db);
 	const scopes = new SQLiteTaskScopeStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
-	const registry = handlers(artifacts, gates, tasks, events, scopes, () => migrateDb(db));
+	const notes = new Notes(artifacts);
+	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db));
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };

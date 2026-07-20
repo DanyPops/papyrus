@@ -58,6 +58,14 @@ export const TASK_HISTORY_MAX_LIMIT = 100;
 export const TASK_EVENT_MAX_EVIDENCE_BYTES = 65_536;
 export const TASK_EVENT_ACTOR_MAX_LENGTH = 128;
 export const TASK_EVENT_REASON_MAX_LENGTH = 2_000;
+/** Deferred human Note payload, inbox, and provenance bounds. */
+export const NOTE_BODY_MAX_CHARACTERS = 10_000;
+export const NOTE_TITLE_MAX_CHARACTERS = 80;
+export const NOTE_LIST_DEFAULT_LIMIT = 50;
+export const NOTE_LIST_MAX_LIMIT = 200;
+export const NOTE_HISTORY_MAX_EVENTS = 20;
+export const NOTE_PROVENANCE_MAX_LENGTH = 128;
+export const NOTE_REASON_MAX_CHARACTERS = 2_000;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
+import { noteCaptureInput, noteRowMeta } from "../extension/src/notes.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 import { skillInvocationPrompt, skillRowMeta, skillRunTaskGraph } from "../extension/src/skills.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
@@ -45,6 +47,22 @@ describe("shared artifact browser model", () => {
 describe("kind-specific frontend projections", () => {
 	it("projects document subtype and labels", () => {
 		expect(documentRowMeta(artifact({ subtype: "decision", labels: ["sqlite", "architecture"] }))).toBe("decision · sqlite, architecture");
+	});
+
+	it("exposes Notes through direct commands, a bounded inbox, and one domain tool", () => {
+		expect(noteRowMeta(artifact({ subtype: "note", extra: { noteHistory: [{ action: "captured" }, { action: "consumed" }] } }))).toBe("2 events");
+		expect(noteCaptureInput("  Review this later  ", "/workspace/papyrus")).toEqual({
+			body: "Review this later", project_root: "/workspace/papyrus", actor: "human", source: "note-command",
+		});
+		expect(noteCaptureInput("   ", "/workspace/papyrus")).toBeNull();
+		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
+		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
+		expect(extension).toContain('registerCommand("note"');
+		expect(extension).toContain('registerCommand("notes"');
+		expect(tools).toContain('name: "notes"');
+		for (const operation of ["notes.capture", "notes.list", "notes.show", "notes.consume", "notes.promote", "notes.archive"]) {
+			expect(tools).toContain(operation);
+		}
 	});
 
 	it("projects and previews rules exactly as injected", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runMigrationCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import type { OperationName } from "../src/service.ts";
 
 const PROJECT_ROOT = process.cwd();
@@ -40,6 +40,36 @@ describe("Papyrus Skill CLI", () => {
 			operation: "skills.run",
 			input: { id: "skill-1", arguments: { project: "Papyrus" }, project_root: PROJECT_ROOT, run_id: "run-001" },
 		}]);
+	});
+});
+
+describe("Papyrus Notes CLI", () => {
+	it("captures deferred intent through the authenticated daemon with stable JSON", async () => {
+		const note = { id: "note-1", title: "Review later", status: "draft" };
+		const client = new FakeClient(note);
+		expect(await runNoteCli(["capture", "Review later", "--json"], client)).toBe(JSON.stringify(note));
+		expect(client.calls).toEqual([{
+			operation: "notes.capture",
+			input: { body: "Review later", project_root: PROJECT_ROOT, actor: "human", source: "cli" },
+		}]);
+	});
+
+	it("lists, consumes, promotes, and archives project Notes", async () => {
+		const listed = new FakeClient([{ id: "note-1", title: "Review later", status: "draft" }]);
+		expect(await runNoteCli(["list", "--limit", "10"], listed)).toContain("note-1 Review later");
+		expect(listed.calls).toEqual([{ operation: "notes.list", input: { project_root: PROJECT_ROOT, limit: 10 } }]);
+
+		const consumed = new FakeClient({ id: "note-1", title: "Review later", status: "active" });
+		await runNoteCli(["consume", "note-1"], consumed);
+		expect(consumed.calls).toEqual([{ operation: "notes.consume", input: { id: "note-1", project_root: PROJECT_ROOT, actor: "agent", source: "cli" } }]);
+
+		const promoted = new FakeClient({ id: "note-1", title: "Review later", status: "archived" });
+		await runNoteCli(["promote", "note-1", "task-1", "--reason", "Task created"], promoted);
+		expect(promoted.calls).toEqual([{ operation: "notes.promote", input: { id: "note-1", target_id: "task-1", project_root: PROJECT_ROOT, actor: "agent", source: "cli", reason: "Task created" } }]);
+
+		const archived = new FakeClient({ id: "note-2", title: "Skip", status: "archived" });
+		await runNoteCli(["archive", "note-2", "declined", "--reason", "Not useful"], archived);
+		expect(archived.calls).toEqual([{ operation: "notes.archive", input: { id: "note-2", disposition: "declined", project_root: PROJECT_ROOT, actor: "human", source: "cli", reason: "Not useful" } }]);
 	});
 });
 

@@ -3,7 +3,10 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { migrateDb, openDb } from "../src/db.ts";
+import { Tasks } from "../src/task-service.ts";
 
 function legacyDatabase(path: string): void {
 	const db = new Database(path, { create: true });
@@ -61,6 +64,9 @@ describe("task lifecycle schema migration", () => {
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_scopes WHERE project_root IS NULL AND source = 'unscoped'").get() as { count: number }).count).toBe(5);
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(6);
+		expect(db.prepare("SELECT name FROM statuses WHERE kind = 'task' ORDER BY rowid LIMIT 1").get()).toEqual({ name: "done" });
+		const created = new Tasks(new SQLiteArtifactStore(db), new SQLiteGateRunner(db)).create({ title: "Created after migration" });
+		expect(created.status).toBe("todo");
 		db.close();
 	});
 

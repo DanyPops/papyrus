@@ -2,6 +2,7 @@ import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
 import { validateSkillDefinition } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { NOTE_SUBTYPE } from "./note-service.ts";
+import { isDiscourseSubtype } from "./domain/discourse-store.ts";
 
 export interface ListFilter {
 	status?: string;
@@ -29,6 +30,19 @@ function requireNotesFacade(): never {
 	throw new Error("note creation requires notes.capture");
 }
 
+function templateSubtype(artifacts: ArtifactStore, templateId: string | undefined): string | undefined {
+	if (!templateId) return undefined;
+	const defaults = artifacts.get(templateId)?.extra["defaults"];
+	if (typeof defaults !== "object" || defaults === null || Array.isArray(defaults)) return undefined;
+	const subtype = (defaults as Record<string, unknown>)["subtype"];
+	return typeof subtype === "string" ? subtype : undefined;
+}
+
+function requireMutableDocument(document: Artifact): Artifact {
+	if (isDiscourseSubtype(document.subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
+	return document;
+}
+
 export interface CreateDocumentInput {
 	title: string;
 	body?: string;
@@ -49,6 +63,7 @@ const DOCUMENT_TRANSITIONS: Record<DocumentTransition, { from: string[]; to: str
 
 export function createDocument(artifacts: ArtifactStore, input: CreateDocumentInput): Artifact {
 	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade();
+	if (isDiscourseSubtype(input.subtype ?? templateSubtype(artifacts, input.templateId))) throw new Error("forum-owned Context Mesh Docs require discourse.store");
 	return artifacts.create({
 		kind: "doc",
 		title: input.title,
@@ -76,15 +91,17 @@ export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
 }
 
 export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition): Artifact {
-	const document = requireDocument(artifacts, id);
+	const document = requireMutableDocument(requireDocument(artifacts, id));
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
 	return artifacts.setStatus(id, transition.to)!;
 }
 
 export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string): Artifact {
-	requireDocument(artifacts, id);
-	if (!artifacts.get(targetId)) throw new Error(`target artifact "${targetId}" not found`);
+	requireMutableDocument(requireDocument(artifacts, id));
+	const target = artifacts.get(targetId);
+	if (!target) throw new Error(`target artifact "${targetId}" not found`);
+	requireMutableDocument(target);
 	artifacts.link({ from: id, relation, to: targetId });
 	return showDocument(artifacts, id);
 }

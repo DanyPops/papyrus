@@ -56,7 +56,8 @@ function installService(): void {
 const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
-  papyrus migrate task-focus [--json]
+  papyrus migrate schema [--json]
+  papyrus discourse store <action> --store-id <id> [--input-json <json>] [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus notes capture <request> [--title <title>] [--json]
   papyrus notes list [--status <draft|active|archived>] [--text <query>] [--limit <count>] [--json]
@@ -120,13 +121,43 @@ function planText(plan: TaskExecutionPlan): string {
 export async function runMigrationCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
-	if (positional.length !== 1 || positional[0] !== "task-focus") {
-		throw new Error("migrate requires exactly `task-focus`");
+	if (positional.length !== 1 || positional[0] !== "schema") {
+		throw new Error("migrate requires exactly `schema`");
 	}
 	const result = await client.call<Record<string, never>, MigrationResult>("system.migrate", {});
 	if (json) return JSON.stringify(result);
 	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
 	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
+}
+
+export async function runDiscourseCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let storeId: string | undefined;
+	let operationInput: Record<string, unknown> = {};
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--store-id" || argument === "--input-json") {
+			const value = args[++index];
+			if (!value) throw new Error(`${argument} requires a value`);
+			if (argument === "--store-id") storeId = value;
+			else {
+				const parsed = JSON.parse(value) as unknown;
+				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("--input-json must be a JSON object");
+				operationInput = parsed as Record<string, unknown>;
+			}
+			continue;
+		}
+		if (argument.startsWith("--")) throw new Error(`unknown discourse option ${argument}`);
+		positional.push(argument);
+	}
+	if (positional.length !== 2 || positional[0] !== "store") throw new Error("discourse requires `store <action>`");
+	if (!storeId) throw new Error("discourse store requires --store-id");
+	const result = await client.call<Record<string, unknown>, unknown>("discourse.store", {
+		action: positional[1], store_id: storeId, ...operationInput,
+	});
+	return json ? JSON.stringify(result) : `Discourse store ${positional[1]} completed.`;
 }
 
 export async function runSkillCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
@@ -416,6 +447,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
+		return;
+	}
+	if (command === "discourse") {
+		const client = await connectPapyrusClient();
+		console.log(await runDiscourseCli(args.slice(1), client));
 		return;
 	}
 	if (command === "skills") {

@@ -143,6 +143,13 @@ describe("Papyrus task CLI", () => {
 		expect(await runTaskCli(["update", "task", "--title", "Updated", "--body", "New body"], updateClient)).toBe("Updated: task Updated");
 		expect(updateClient.calls).toEqual([{ operation: "tasks.update", input: { id: "task", title: "Updated", body: "New body", actor: "user", source: "cli" } }]);
 
+		const recoveryClient = new FakeClient({ id: "task", title: "Recovered", status: "todo" });
+		expect(await runTaskCli(["update", "task", "--status", "todo", "--reason", "legacy default"], recoveryClient)).toBe("Updated: task Recovered");
+		expect(recoveryClient.calls).toEqual([{
+			operation: "tasks.update",
+			input: { id: "task", status: "todo", reason: "legacy default", actor: "user", source: "cli" },
+		}]);
+
 		const pauseClient = new FakeClient({ artifact: { id: "task", title: "Task", status: "in-progress" }, status: "paused" });
 		expect(await runTaskCli(["pause"], pauseClient)).toBe("Focused (paused): task Task");
 		expect(pauseClient.calls).toEqual([{ operation: "tasks.pause", input: { actor: "user", source: "cli" } }]);

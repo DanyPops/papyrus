@@ -269,6 +269,7 @@ function handlers(
 			...(input["title"] !== undefined ? { title: optionalString(input, "title")! } : {}),
 			...(input["body"] !== undefined ? { body: optionalString(input, "body")! } : {}),
 			...(input["labels"] !== undefined ? { labels: optionalStringArray(input, "labels")! } : {}),
+			...(input["status"] !== undefined ? { status: string(input, "status") as "todo" } : {}),
 		}, eventContext(input)),
 		"tasks.list": (input) => tasks.list(taskFilter(input)),
 		"tasks.graph": (input) => tasks.graph(taskFilter(input)),

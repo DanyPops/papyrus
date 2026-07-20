@@ -26,9 +26,18 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
+import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
+import {
+	createArtifactDetails,
+	createArtifactListDetails,
+	createGraphDetails,
+	createModelContent,
+	createPreviewDetails,
+} from "./tool-rendering/render-model.ts";
 
-function text(t: string, details: Record<string, unknown> = {}) {
-	return { content: [{ type: "text" as const, text: t }], details };
+function text(value: string, details: unknown = {}) {
+	const modelContent = createModelContent(value);
+	return { content: [{ type: "text" as const, text: modelContent.text }], details };
 }
 
 // ---------------------------------------------------------------------------
@@ -192,15 +201,17 @@ export default async function (pi: ExtensionAPI) {
 			template_id: Type.Optional(Type.String({ description: "skill/artifact-template id whose defaults and requirements apply" })),
 			project_root: Type.Optional(Type.String({ description: "required for Tasks; defaults to Pi cwd" })),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Create artifact", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const a = await callService<Record<string, unknown>, Artifact>("artifact.create", {
 					...params,
 					...(params.kind === "task" ? { project_root: params.project_root ?? ctx.cwd } : {}),
 				});
-				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, { id: a.id });
+				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, createArtifactDetails("artifact.create", a));
 			} catch (e) {
-				return text(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -215,14 +226,16 @@ export default async function (pi: ExtensionAPI) {
 			text: Type.Optional(Type.String({ description: "substring across title and body" })),
 			limit: Type.Optional(Type.Number()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Query artifacts", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const rows = await callService<Record<string, unknown>, Artifact[]>("artifact.query", { ...params, limit: params.limit ?? 50 });
-				if (rows.length === 0) return text("No artifacts found.");
-				const lines = rows.map((r: any, i: number) => `${i + 1}. ${r.id} [${r.kind}|${r.status}] ${r.title}`);
-				return text(`${rows.length} artifact(s):\n\n${lines.join("\n")}`, { rows });
+				if (rows.length === 0) return text("No artifacts found.", createArtifactListDetails("artifact.query", rows));
+				const lines = rows.map((row, index) => `${index + 1}. ${row.id} [${row.kind}|${row.status}] ${row.title}`);
+				return text(`${rows.length} artifact(s):\n\n${lines.join("\n")}`, createArtifactListDetails("artifact.query", rows));
 			} catch (e) {
-				return text(`papyrus_query failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_query failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -244,36 +257,39 @@ export default async function (pi: ExtensionAPI) {
 			depth: Type.Optional(Type.Number({ description: "tree traversal depth; bounded by a hard ceiling" })),
 			max_nodes: Type.Optional(Type.Number({ description: "tree node cap; bounded by a hard ceiling" })),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Artifact graph", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				if (params.action === "link") {
 					await callService("graph.link", { from: params.from!, relation: params.relation!, to: params.to! });
-					return text(`Linked ${params.from} --${params.relation}--> ${params.to}`);
+					const output = `Linked ${params.from} --${params.relation}--> ${params.to}`;
+					return text(output, createPreviewDetails("graph.link", "Artifact relationship", output));
 				}
 				if (params.action === "tree") {
 					const root = params.id ?? params.from;
-					if (!root) return text("Missing id for tree");
+					if (!root) throw new Error("missing id for tree");
 					const a = await callService<Record<string, unknown>, Artifact | null>("graph.tree", {
 						id: root,
 						depth: params.depth,
 						max_nodes: params.max_nodes,
 					});
-					if (!a) return text(`Artifact ${root} not found`);
-					const edges = (a as any).edges ?? [];
-					if (edges.length === 0) return text(`${a.title} — no edges`);
+					if (!a) throw new Error(`artifact ${root} not found`);
+					const edges = a.edges ?? [];
+					if (edges.length === 0) return text(`${a.title} — no edges`, createGraphDetails("graph.tree", [a], []));
 					return text(
-						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`,
-						{ edges },
+						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((edge: any) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`,
+						createGraphDetails("graph.tree", [a], edges),
 					);
 				}
 				if (params.action === "status") {
 					const a = await callService<Record<string, unknown>, Artifact | null>("graph.status", { id: params.id!, status: params.status! });
-					if (!a) return text(`Artifact ${params.id} not found`);
-					return text(`Updated ${a.id} → [${a.status}]`, { artifact: a });
+					if (!a) throw new Error(`artifact ${params.id} not found`);
+					return text(`Updated ${a.id} → [${a.status}]`, createArtifactDetails("graph.status", a));
 				}
-				return text(`Unknown action: ${params.action}. Use 'link', 'tree', or 'status'.`);
+				throw new Error(`unknown action: ${params.action}; use link, tree, or status`);
 			} catch (e) {
-				return text(`papyrus_graph failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_graph failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -288,6 +304,8 @@ export default async function (pi: ExtensionAPI) {
 			depth: Type.Optional(Type.Number({ description: "edge traversal depth" })),
 			max_nodes: Type.Optional(Type.Number({ description: "maximum traversed nodes" })),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Show artifact", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const a = await callService<Record<string, unknown>, Artifact | null>("artifact.show", {
@@ -296,21 +314,21 @@ export default async function (pi: ExtensionAPI) {
 					depth: params.depth,
 					max_nodes: params.max_nodes,
 				});
-				if (!a) return text(`Artifact ${params.id} not found`);
+				if (!a) throw new Error(`artifact ${params.id} not found`);
 				let out = `${a.id} [${a.kind}|${a.status}]\n${a.title}\n\n${a.body}`;
 				if (Object.keys(a.extra).length > 0) {
 					out += `\n\nMetadata:\n${formatMetadata(a.extra).map((line) => `  ${line}`).join("\n")}`;
 				}
-				if ((a as any).edges?.length) {
-					out += `\n\nEdges:\n${(a as any).edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`;
+				if (a.edges?.length) {
+					out += `\n\nEdges:\n${a.edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
 				}
 				if (params.run_gates) {
 					const results = await callService<Record<string, unknown>, GateResult[]>("gates.run", { id: params.id });
-					out += `\n\nGates:\n${results.map((g: any) => `  ${g.passed ? "✓" : "✗"} ${g.gate.type}: ${g.gate.target} — ${g.output}`).join("\n")}`;
+					out += `\n\nGates:\n${results.map((gate) => `  ${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n")}`;
 				}
-				return text(out, { artifact: a });
+				return text(out, createArtifactDetails("artifact.show", a));
 			} catch (e) {
-				return text(`papyrus_show failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_show failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});

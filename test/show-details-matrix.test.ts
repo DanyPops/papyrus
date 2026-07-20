@@ -8,6 +8,9 @@ import type { OperationName } from "../src/service.ts";
 
 const theme = {
 	bold: (text: string) => text,
+	italic: (text: string) => text,
+	underline: (text: string) => text,
+	strikethrough: (text: string) => text,
 	fg: (_color: string, text: string) => text,
 } as Theme;
 
@@ -18,7 +21,7 @@ function artifact(overrides: Partial<Artifact> = {}): Artifact {
 		title: "Detailed artifact",
 		status: "active",
 		subtype: "research",
-		body: "A long body that must remain readable even when the terminal is narrow and the content wraps across several lines.",
+		body: "# Markdown heading\n\nA long body with **bold**, *italic*, [link](https://example.test), and `code` that wraps at narrow widths.",
 		labels: ["details", "matrix"],
 		extra: { owner: "Daniel", nested: { state: "verified" } },
 		created_at: "2026-01-01T00:00:00.000Z",
@@ -84,6 +87,8 @@ describe("Show details coverage matrix", () => {
 			expect(harness.notifications).toEqual([]);
 			const rendered = harness.renders.flat().join("\n");
 			expect(rendered).toContain(row.value.title);
+			expect(rendered).toContain("Markdown heading");
+			expect(rendered).not.toContain("**bold**");
 			expect(rendered).toContain("Metadata:");
 			expect(rendered).toContain("Relationships:");
 			for (const render of harness.renders.slice(1)) expect(render.every((line) => visibleWidth(line) <= 18)).toBe(true);

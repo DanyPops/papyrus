@@ -70,19 +70,38 @@ function historyLines(history: TaskEvent[]): string[] {
 	return lines;
 }
 
-export function taskDetailsText(task: Artifact, relationshipGraphLines: string[] = [], history: TaskEvent[] = []): string {
-	let output = `${TASK_STATUS_GLYPHS[task.status] ?? "?"} ${task.title}\n${task.id} [task|${task.status}]`;
-	if (task.labels.length > 0) output += `\nLabels: ${task.labels.join(", ")}`;
-	output += `\n\n${task.body || "(no body)"}`;
+export interface TaskDetailContent {
+	headline: string;
+	identity: string;
+	labels: string[];
+	body: string;
+	sections: string[][];
+}
+
+export function taskDetailContent(task: Artifact, history: TaskEvent[] = []): TaskDetailContent {
+	const sections: string[][] = [];
 	const checklist = checklistLines(task.extra["checklist"]);
-	if (checklist.length > 0) output += `\n\n${checklist.join("\n")}`;
+	if (checklist.length > 0) sections.push(checklist);
 	const gates = gateLines(task.extra["gates"]);
-	if (gates.length > 0) output += `\n\n${gates.join("\n")}`;
+	if (gates.length > 0) sections.push(gates);
 	const metadata = Object.fromEntries(Object.entries(task.extra).filter(([key]) => key !== "checklist" && key !== "gates"));
-	if (Object.keys(metadata).length > 0) {
-		output += `\n\nMetadata:\n${formatMetadata(metadata).map((line) => `  ${line}`).join("\n")}`;
-	}
-	output += `\n\n${historyLines(history).join("\n")}`;
+	if (Object.keys(metadata).length > 0) sections.push(["Metadata:", ...formatMetadata(metadata).map((line) => `  ${line}`)]);
+	sections.push(historyLines(history));
+	return {
+		headline: `${TASK_STATUS_GLYPHS[task.status] ?? "?"} ${task.title}`,
+		identity: `${task.id} [task|${task.status}]`,
+		labels: [...task.labels],
+		body: task.body || "(no body)",
+		sections,
+	};
+}
+
+export function taskDetailsText(task: Artifact, relationshipGraphLines: string[] = [], history: TaskEvent[] = []): string {
+	const content = taskDetailContent(task, history);
+	let output = `${content.headline}\n${content.identity}`;
+	if (content.labels.length > 0) output += `\nLabels: ${content.labels.join(", ")}`;
+	output += `\n\n${content.body}`;
+	for (const section of content.sections) output += `\n\n${section.join("\n")}`;
 	if (task.edges?.length) {
 		const graph = relationshipGraphLines.length > 0 ? relationshipGraphLines.join("\n") : "  (graph unavailable)";
 		output += `\n\nRelationships:\n  Dependencies point prerequisite → dependent.\n${graph}`;

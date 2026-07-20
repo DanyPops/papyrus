@@ -1,6 +1,7 @@
 import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
 import { validateSkillDefinition } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
+import { NOTE_SUBTYPE } from "./note-service.ts";
 
 export interface ListFilter {
 	status?: string;
@@ -13,6 +14,19 @@ function requireKind(artifacts: ArtifactStore, id: string, kind: string): Artifa
 	if (!artifact) throw new Error(`${kind} artifact "${id}" not found`);
 	if (artifact.kind !== kind) throw new Error(`artifact "${id}" is not a ${kind}`);
 	return artifact;
+}
+
+function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | undefined, subtype: string | undefined): boolean {
+	if (subtype === NOTE_SUBTYPE) return true;
+	if (!templateId) return false;
+	const template = artifacts.get(templateId);
+	const defaults = template?.extra["defaults"];
+	return typeof defaults === "object" && defaults !== null && !Array.isArray(defaults)
+		&& (defaults as Record<string, unknown>)["subtype"] === NOTE_SUBTYPE;
+}
+
+function requireNotesFacade(): never {
+	throw new Error("note creation requires notes.capture");
 }
 
 export interface CreateDocumentInput {
@@ -34,6 +48,7 @@ const DOCUMENT_TRANSITIONS: Record<DocumentTransition, { from: string[]; to: str
 };
 
 export function createDocument(artifacts: ArtifactStore, input: CreateDocumentInput): Artifact {
+	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade();
 	return artifacts.create({
 		kind: "doc",
 		title: input.title,
@@ -46,23 +61,29 @@ export function createDocument(artifacts: ArtifactStore, input: CreateDocumentIn
 }
 
 export function listDocuments(artifacts: ArtifactStore, filter: ListFilter): Artifact[] {
-	return artifacts.query({ kind: "doc", ...filter });
+	return artifacts.query({ kind: "doc", excludeSubtype: NOTE_SUBTYPE, ...filter });
+}
+
+function requireDocument(artifacts: ArtifactStore, id: string): Artifact {
+	const document = requireKind(artifacts, id, "doc");
+	if (document.subtype === NOTE_SUBTYPE) throw new Error("note access requires a notes.* operation");
+	return document;
 }
 
 export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
-	requireKind(artifacts, id, "doc");
+	requireDocument(artifacts, id);
 	return artifacts.get(id, { tree: true })!;
 }
 
 export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition): Artifact {
-	const document = requireKind(artifacts, id, "doc");
+	const document = requireDocument(artifacts, id);
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
 	return artifacts.setStatus(id, transition.to)!;
 }
 
 export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string): Artifact {
-	requireKind(artifacts, id, "doc");
+	requireDocument(artifacts, id);
 	if (!artifacts.get(targetId)) throw new Error(`target artifact "${targetId}" not found`);
 	artifacts.link({ from: id, relation, to: targetId });
 	return showDocument(artifacts, id);
@@ -165,6 +186,7 @@ export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput): 
 		throw new Error("workflow Skill definition cannot be mixed with legacy trigger, steps, or tools");
 	}
 	const definition = input.definition === undefined ? undefined : validateSkillDefinition(input.definition);
+	if (definition?.blueprints.docs.some((document) => document.subtype === NOTE_SUBTYPE)) requireNotesFacade();
 	return artifacts.create({
 		kind: "skill",
 		subtype: definition ? "workflow" : undefined,
@@ -182,6 +204,7 @@ export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput): 
 }
 
 export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateArtifactTemplateInput): Artifact {
+	if (input.targetKind === "doc" && input.defaults?.["subtype"] === NOTE_SUBTYPE) requireNotesFacade();
 	return artifacts.create({
 		kind: "skill",
 		subtype: "artifact-template",
@@ -197,6 +220,7 @@ export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateAr
 }
 
 export function instantiateTemplate(artifacts: ArtifactStore, templateId: string, input: CreateArtifactInput): Artifact {
+	if (rejectsNoteTemplate(artifacts, templateId, input.subtype)) requireNotesFacade();
 	return artifacts.create({ ...input, templateId });
 }
 

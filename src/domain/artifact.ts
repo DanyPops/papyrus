@@ -39,8 +39,12 @@ export interface UpdateArtifactInput {
 export interface ArtifactQuery {
 	kind?: string;
 	status?: string;
+	statuses?: string[];
+	subtype?: string;
+	excludeSubtype?: string;
 	text?: string;
 	labels?: string[];
+	extraEquals?: Record<string, string | number | boolean>;
 	limit?: number;
 }
 

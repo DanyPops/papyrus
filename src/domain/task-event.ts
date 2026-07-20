@@ -9,6 +9,7 @@ export type TaskLifecycleStatus = "todo" | "in-progress" | "review" | "rejected"
 
 export const TASK_EVENT_TYPES = [
 	"created",
+	"creation_recovered",
 	"updated",
 	"started",
 	"submitted",

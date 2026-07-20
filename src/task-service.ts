@@ -24,6 +24,7 @@ export interface UpdateTaskInput {
 	title?: string;
 	body?: string;
 	labels?: string[];
+	status?: "todo";
 }
 
 export interface TaskFilter {
@@ -148,7 +149,7 @@ export class Tasks {
 				title: input.title,
 				body: input.body,
 				subtype: input.subtype,
-				status: input.status,
+				status: input.status ?? "todo",
 				labels: input.labels,
 				extra,
 				templateId: input.templateId,
@@ -161,9 +162,39 @@ export class Tasks {
 		});
 	}
 
+	private recoverCreation(id: string, context: TaskEventContext): Artifact {
+		if (!context.reason?.trim()) throw new Error("creation recovery requires an audit reason");
+		return this.events.atomic(() => {
+			const task = this.require(id);
+			if (task.status !== "done" && task.status !== "canceled") throw new Error(`cannot recover task creation from ${task.status}`);
+			const history = this.events.history(id, { direction: "asc", limit: 2 });
+			const created = history.events[0];
+			if (history.events.length !== 1 || history.nextCursor !== undefined || created?.type !== "created" || created.toStatus !== task.status) {
+				throw new Error("task was not terminal at creation");
+			}
+			const recovered = this.artifacts.setStatus(id, "todo");
+			if (!recovered) throw new Error(`task "${id}" not found`);
+			this.appendEvent({
+				taskId: id,
+				type: "creation_recovered",
+				fromStatus: task.status as TaskStatus,
+				toStatus: "todo",
+				evidence: { result: "terminal-at-creation" },
+			}, context);
+			return recovered;
+		});
+	}
+
 	update(id: string, input: UpdateTaskInput, context: TaskEventContext = {}): Artifact {
+		if (input.status !== undefined) {
+			if (input.status !== "todo") throw new Error("task status updates only support recovering creation to todo");
+			if (input.title !== undefined || input.body !== undefined || input.labels !== undefined) {
+				throw new Error("task creation recovery cannot be combined with content updates");
+			}
+			return this.recoverCreation(id, context);
+		}
 		const fields = (["title", "body", "labels"] as const).filter((field) => input[field] !== undefined);
-		if (fields.length === 0) throw new Error("task update requires title, body, or labels");
+		if (fields.length === 0) throw new Error("task update requires title, body, or labels; status todo is only valid for creation recovery");
 		if (input.title !== undefined && (input.title.trim().length === 0 || input.title.length > TASK_TITLE_MAX_LENGTH)) {
 			throw new Error(`title must be between 1 and ${TASK_TITLE_MAX_LENGTH} characters`);
 		}

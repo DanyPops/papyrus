@@ -75,7 +75,7 @@ const USAGE = `Usage:
   papyrus tasks scope [project|all|graph <root-id>] [--json]
   papyrus tasks assign-project <id> [project-root] [--json]
   papyrus tasks focus <id> [--json]
-  papyrus tasks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
+  papyrus tasks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--status todo --reason <reason>] [--json]
   papyrus tasks complete <id> [--json]
   papyrus tasks start <id> [--json]
   papyrus tasks submit <id> [--json]
@@ -237,16 +237,21 @@ export async function runNoteCli(args: string[], client: TaskCliClient, projectR
 export async function runTaskCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
-	const updateInput: { title?: string; body?: string; labels?: string[] } = {};
+	const updateInput: { title?: string; body?: string; labels?: string[]; status?: "todo" } = {};
+	let reason: string | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--title" || argument === "--body" || argument === "--labels-json") {
+		if (argument === "--title" || argument === "--body" || argument === "--labels-json" || argument === "--status" || argument === "--reason") {
 			const value = args[++index];
 			if (value === undefined) throw new Error(`${argument} requires a value`);
 			if (argument === "--title") updateInput.title = value;
 			else if (argument === "--body") updateInput.body = value;
-			else {
+			else if (argument === "--reason") reason = value;
+			else if (argument === "--status") {
+				if (value !== "todo") throw new Error("--status only supports todo for accidental creation recovery");
+				updateInput.status = value;
+			} else {
 				const parsed = JSON.parse(value) as unknown;
 				if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) throw new Error("--labels-json requires a JSON string array");
 				updateInput.labels = parsed as string[];
@@ -256,6 +261,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		positional.push(argument);
 	}
 	const [action, id, dependencyId] = positional;
+	if (reason !== undefined && action !== "update") throw new Error("--reason is only supported by tasks update");
 	let result: unknown;
 	let human: string;
 	switch (action) {
@@ -291,8 +297,12 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "update": {
 			if (!id || dependencyId) throw new Error("tasks update requires exactly one task id");
-			if (Object.keys(updateInput).length === 0) throw new Error("tasks update requires --title, --body, or --labels-json");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.update", { id, ...updateInput, actor: "user", source: "cli" });
+			if (Object.keys(updateInput).length === 0) throw new Error("tasks update requires --title, --body, --labels-json, or --status todo");
+			if (updateInput.status !== undefined && !reason?.trim()) throw new Error("tasks update --status requires --reason");
+			if (reason !== undefined && updateInput.status === undefined) throw new Error("tasks update --reason requires --status todo");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.update", {
+				id, ...updateInput, ...(reason ? { reason } : {}), actor: "user", source: "cli",
+			});
 			result = artifact;
 			human = `Updated: ${artifactLabel(artifact)}`;
 			break;

@@ -97,6 +97,10 @@ export class ActiveTaskContinuation {
 		this.queued = false;
 	}
 
+	onCompaction(): void {
+		this.queued = false;
+	}
+
 	onHumanInput(): void {
 		this.resetProgress();
 	}

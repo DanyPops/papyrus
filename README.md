@@ -174,7 +174,9 @@ checklist: {
 
 Proof types are `file`, `symbol`, `code`, `test`, `command`, `artifact`, and `url`. Existing array checklists remain readable as legacy items with `proof: missing`; Papyrus does not invent evidence.
 
-Papyrus also injects an Alef-style reconciliation block on every agent turn while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run review before marking it done. The injection disappears when every task is done or canceled.
+Papyrus also injects an Alef-style reconciliation block at `before_agent_start` while work remains: `Current`, `Desired`, `Verify`, and `Next`. The agent is explicitly instructed to ask **“Did we accomplish this task?”** and run review before marking it done. The injection disappears when every task is done or canceled.
+
+After assembling each system-prompt addition, Papyrus emits a versioned `papyrus.context-injection.v1` observation on Pi's shared extension event bus. It contains only exact byte/character sizes, Rule count, a labeled token estimate, prompt share, sequence, and a SHA-256 payload fingerprint; Rule/Task text, prompts, project paths, and credentials are never included. Jittor can persist and assess these observations without Papyrus maintaining a second telemetry store.
 
 Task edits mutate the existing Papyrus-owned Task identity and append an `updated` event; title, body, and labels can be revised without canceling the Task or creating a replacement. Lifecycle, relationships, gates, checklist metadata, scope, and focus remain intact.
 

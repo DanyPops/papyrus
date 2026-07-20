@@ -17,6 +17,10 @@ export const GATE_OUTPUT_LIMIT = 200;
 export const GATE_MAX_BUFFER_BYTES = 1_048_576;
 export const GATE_FILE_MAX_BYTES = 1_048_576;
 
+export const PAPYRUS_CONTEXT_INJECTION_CHANNEL = "papyrus.context-injection.v1";
+export const PAPYRUS_CONTEXT_INJECTION_SCHEMA = "papyrus.context-injection/v1";
+export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
+
 /** Compact task-context limits keep recurring prompt injection bounded. */
 export const TASK_CONTEXT_CURRENT_LIMIT = 3;
 export const TASK_CONTEXT_REJECTED_LIMIT = 3;

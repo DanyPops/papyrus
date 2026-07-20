@@ -7,12 +7,14 @@
  * Injection: active rules + open tasks appended to system prompt every turn.
  *             "Are we there yet?" — the agent sees its open work items.
  */
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	TASK_DRIVER_MAX_TURNS,
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
+	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
@@ -23,6 +25,7 @@ import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
+import { buildContextInjection } from "./context-injection-telemetry.ts";
 
 function text(t: string, details: Record<string, unknown> = {}) {
 	return { content: [{ type: "text" as const, text: t }], details };
@@ -130,6 +133,9 @@ class TaskOverlay {
 
 export default async function (pi: ExtensionAPI) {
 	registerDomainTools(pi);
+	let contextInjectionSequence = 0;
+	const contextInjectionProducerId = randomUUID();
+	let previousContextInjectionFingerprint: string | undefined;
 	const taskContinuation = new ActiveTaskContinuation({
 		maxTurns: TASK_DRIVER_MAX_TURNS,
 		maxUnchangedTurns: TASK_DRIVER_MAX_UNCHANGED_TURNS,
@@ -391,17 +397,18 @@ export default async function (pi: ExtensionAPI) {
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd }),
 				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd }),
 			]);
-			let prompt = event.systemPrompt ?? "";
-			if (rules.length > 0) {
-				const block = rules.map(rulesModule.ruleInjectionPreview).join("\n");
-				prompt += `\n\n## Active rules (Papyrus)\n\n${block}\n`;
-			}
-			if (summary) {
-				prompt += `\n\n## Open tasks (Papyrus)\n\n${summary}\n`;
-			}
-			if (prompt !== (event.systemPrompt ?? "")) {
-				return { systemPrompt: prompt };
-			}
+			const injection = buildContextInjection({
+				basePrompt: event.systemPrompt ?? "",
+				rules,
+				taskSummary: summary,
+				observedAt: Date.now(),
+				sequence: ++contextInjectionSequence,
+				producerId: contextInjectionProducerId,
+				previousFingerprint: previousContextInjectionFingerprint,
+			});
+			previousContextInjectionFingerprint = injection.observation.fingerprint;
+			pi.events.emit(PAPYRUS_CONTEXT_INJECTION_CHANNEL, injection.observation);
+			if (injection.prompt !== (event.systemPrompt ?? "")) return { systemPrompt: injection.prompt };
 		} catch {
 			// DB not ready
 		}

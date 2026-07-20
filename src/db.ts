@@ -138,6 +138,67 @@ CREATE TABLE IF NOT EXISTS task_views (
 	updated_at    TEXT NOT NULL,
 	CHECK ((mode = 'graph' AND root_task_id IS NOT NULL) OR (mode != 'graph' AND root_task_id IS NULL))
 );
+CREATE TABLE IF NOT EXISTS discourse_threads (
+	store_id      TEXT NOT NULL,
+	forum_id      TEXT NOT NULL,
+	topic_id      TEXT NOT NULL,
+	thread_id     TEXT NOT NULL,
+	artifact_id   TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	PRIMARY KEY (store_id, forum_id, topic_id, thread_id)
+);
+CREATE TABLE IF NOT EXISTS discourse_posts (
+	store_id       TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	id             TEXT NOT NULL,
+	artifact_id    TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	operation_id   TEXT NOT NULL,
+	command_json   TEXT NOT NULL,
+	forum_id       TEXT NOT NULL,
+	topic_id       TEXT NOT NULL,
+	thread_id      TEXT NOT NULL,
+	author_id      TEXT NOT NULL,
+	content_json   TEXT NOT NULL,
+	timestamp      INTEGER NOT NULL,
+	correlation_id TEXT,
+	causation_id   TEXT,
+	reply_to_post_id TEXT,
+	references_json TEXT NOT NULL,
+	question_type  TEXT CHECK (question_type IN ('question', 'answer')),
+	response_id    TEXT,
+	target_id      TEXT,
+	PRIMARY KEY (store_id, id),
+	UNIQUE (store_id, operation_id),
+	UNIQUE (store_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS discourse_posts_thread_idx ON discourse_posts(store_id, forum_id, topic_id, thread_id, sequence);
+CREATE TABLE IF NOT EXISTS discourse_events (
+	store_id       TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	event_json     TEXT NOT NULL,
+	PRIMARY KEY (store_id, sequence)
+);
+CREATE TABLE IF NOT EXISTS discourse_cursors (
+	store_id       TEXT NOT NULL,
+	consumer_id    TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	PRIMARY KEY (store_id, consumer_id)
+);
+CREATE TABLE IF NOT EXISTS discourse_projection_cursors (
+	store_id       TEXT NOT NULL,
+	projection_id  TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	PRIMARY KEY (store_id, projection_id)
+);
+CREATE TRIGGER IF NOT EXISTS discourse_threads_artifact_type BEFORE INSERT ON discourse_threads
+WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-thread')
+BEGIN SELECT RAISE(ABORT, 'discourse thread artifact must be a context-thread Doc'); END;
+CREATE TRIGGER IF NOT EXISTS discourse_posts_artifact_type BEFORE INSERT ON discourse_posts
+WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-message')
+BEGIN SELECT RAISE(ABORT, 'discourse post artifact must be a context-message Doc'); END;
+CREATE TRIGGER IF NOT EXISTS discourse_artifact_type_immutable BEFORE UPDATE OF kind, subtype ON artifacts
+WHEN (EXISTS (SELECT 1 FROM discourse_threads WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-thread'))
+  OR (EXISTS (SELECT 1 FROM discourse_posts WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-message'))
+BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
 `;
 
 const SEED_SQL = `
@@ -170,6 +231,8 @@ INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task 
 INSERT OR IGNORE INTO relation_names VALUES ('triggers','This skill applies to that work (skill→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('contains','Parent contains a nested artifact (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a parent artifact (any→any)');
+INSERT OR IGNORE INTO relation_names VALUES ('reply_to','Append-only message replies to another message in the same thread');
+INSERT OR IGNORE INTO relation_names VALUES ('discusses','Message or turn concerns a verified artifact');
 CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
 `;
 
@@ -201,7 +264,7 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2 && from !== 3 && from !== 4) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
 	inTransaction(db, () => {
@@ -289,6 +352,51 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 5;
 			`);
 			applied.push("task-focus-continuation");
+		}
+		if (schemaVersion(db) === 5) {
+			db.exec(`
+				INSERT OR IGNORE INTO relation_names VALUES ('reply_to','Append-only message replies to another message in the same thread');
+				INSERT OR IGNORE INTO relation_names VALUES ('discusses','Message or turn concerns a verified artifact');
+				CREATE TABLE discourse_threads (
+					store_id TEXT NOT NULL, forum_id TEXT NOT NULL, topic_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+					artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+					PRIMARY KEY (store_id, forum_id, topic_id, thread_id)
+				);
+				CREATE TABLE discourse_posts (
+					store_id TEXT NOT NULL, sequence INTEGER NOT NULL, id TEXT NOT NULL,
+					artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id), operation_id TEXT NOT NULL,
+					command_json TEXT NOT NULL, forum_id TEXT NOT NULL, topic_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+					author_id TEXT NOT NULL, content_json TEXT NOT NULL, timestamp INTEGER NOT NULL,
+					correlation_id TEXT, causation_id TEXT, reply_to_post_id TEXT, references_json TEXT NOT NULL,
+					question_type TEXT CHECK (question_type IN ('question', 'answer')), response_id TEXT, target_id TEXT,
+					PRIMARY KEY (store_id, id), UNIQUE (store_id, operation_id), UNIQUE (store_id, sequence)
+				);
+				CREATE INDEX discourse_posts_thread_idx ON discourse_posts(store_id, forum_id, topic_id, thread_id, sequence);
+				CREATE TABLE discourse_events (
+					store_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_json TEXT NOT NULL,
+					PRIMARY KEY (store_id, sequence)
+				);
+				CREATE TABLE discourse_cursors (
+					store_id TEXT NOT NULL, consumer_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+					PRIMARY KEY (store_id, consumer_id)
+				);
+				CREATE TABLE discourse_projection_cursors (
+					store_id TEXT NOT NULL, projection_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+					PRIMARY KEY (store_id, projection_id)
+				);
+				CREATE TRIGGER discourse_threads_artifact_type BEFORE INSERT ON discourse_threads
+				WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-thread')
+				BEGIN SELECT RAISE(ABORT, 'discourse thread artifact must be a context-thread Doc'); END;
+				CREATE TRIGGER discourse_posts_artifact_type BEFORE INSERT ON discourse_posts
+				WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-message')
+				BEGIN SELECT RAISE(ABORT, 'discourse post artifact must be a context-message Doc'); END;
+				CREATE TRIGGER discourse_artifact_type_immutable BEFORE UPDATE OF kind, subtype ON artifacts
+				WHEN (EXISTS (SELECT 1 FROM discourse_threads WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-thread'))
+				  OR (EXISTS (SELECT 1 FROM discourse_posts WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-message'))
+				BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
+				PRAGMA user_version = 6;
+			`);
+			applied.push("discourse-context-mesh");
 		}
 	});
 	return { from, to: schemaVersion(db), applied };

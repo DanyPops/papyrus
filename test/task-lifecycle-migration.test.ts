@@ -45,7 +45,7 @@ describe("task lifecycle schema migration", () => {
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(1);
 		expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_focus'").get()).toBeNull();
 
-		expect(migrateDb(db)).toEqual({ from: 1, to: 5, applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation"] });
+		expect(migrateDb(db)).toEqual({ from: 1, to: 6, applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh"] });
 		const rows = db.prepare("SELECT id, status FROM artifacts ORDER BY id").all() as Array<{ id: string; status: string }>;
 		expect(rows).toEqual([
 			{ id: "done-task", status: "done" },
@@ -60,7 +60,7 @@ describe("task lifecycle schema migration", () => {
 		]);
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_scopes WHERE project_root IS NULL AND source = 'unscoped'").get() as { count: number }).count).toBe(5);
-		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(5);
+		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(6);
 		db.close();
 	});
 

@@ -182,6 +182,7 @@ papyrus tasks pause --json
 papyrus tasks unpause --json
 papyrus tasks clear-focus --json
 papyrus tasks update <id> --title "Revised title" --body "Revised body" --json
+papyrus tasks update <id> --status todo --reason "created with legacy default" --json
 papyrus tasks start <id> --json
 papyrus tasks submit <id> --json
 papyrus tasks complete <id> --json
@@ -215,7 +216,7 @@ Papyrus also injects an Alef-style reconciliation block at `before_agent_start` 
 
 After assembling each system-prompt addition, Papyrus emits a versioned `papyrus.context-injection.v1` observation on Pi's shared extension event bus. It contains only exact byte/character sizes, Rule count, a labeled token estimate, prompt share, sequence, and a SHA-256 payload fingerprint; Rule/Task text, prompts, project paths, and credentials are never included. Jittor can persist and assess these observations without Papyrus maintaining a second telemetry store.
 
-Task edits mutate the existing Papyrus-owned Task identity and append an `updated` event; title, body, and labels can be revised without canceling the Task or creating a replacement. Lifecycle, relationships, gates, checklist metadata, scope, and focus remain intact.
+Task edits mutate the existing Papyrus-owned Task identity and append an `updated` event; title, body, and labels can be revised without canceling the Task or creating a replacement. Lifecycle, relationships, gates, checklist metadata, scope, and focus remain intact. The same `update` action provides a narrowly guarded recovery for Tasks accidentally created terminal by a legacy default: `status=todo` requires an audit reason, cannot be combined with content edits, only applies when `created` is the sole lifecycle event, and appends `creation_recovered` rather than rewriting history.
 
 ## Why
 

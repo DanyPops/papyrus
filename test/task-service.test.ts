@@ -302,6 +302,22 @@ describe("Tasks port behavior", () => {
 		expect(tasks.active()?.id).toBe(child.id);
 	});
 
+	it("recovers only a Task accidentally created terminal and appends lifecycle history", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const accidental = tasks.create({ title: "Accidental terminal", status: "done" });
+		expect(() => tasks.update(accidental.id, { status: "todo" }, {})).toThrow("reason");
+		const recovered = tasks.update(accidental.id, { status: "todo" }, { actor: "agent", source: "defect-repair", reason: "created with migrated row-order default" });
+		expect(recovered.status).toBe("todo");
+		expect(tasks.history(accidental.id, { direction: "asc" }).events.map((event) => ({ type: event.type, from: event.fromStatus, to: event.toStatus }))).toEqual([
+			{ type: "created", from: undefined, to: "done" },
+			{ type: "creation_recovered", from: "done", to: "todo" },
+		]);
+
+		const legitimate = tasks.create({ title: "Legitimate completion", status: "review" });
+		tasks.complete(legitimate.id);
+		expect(() => tasks.update(legitimate.id, { status: "todo" }, { reason: "not accidental" })).toThrow("not terminal at creation");
+	});
+
 	it("enforces review, rejection, retry, and canceled lifecycle transitions", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
 		const task = tasks.create({ title: "Lifecycle" });

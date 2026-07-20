@@ -18,6 +18,18 @@ describe("Papyrus active task continuation", () => {
 		expect(driver.evaluate(null, { idle: true, pendingMessages: false }).reason).toBe("no active task");
 	});
 
+	it("releases a queued continuation after compaction and still respects Pi pending work", () => {
+		const driver = new ActiveTaskContinuation({ maxTurns: 10, maxUnchangedTurns: 4 });
+		expect(driver.evaluate(active(), { idle: true, pendingMessages: false }).action).toBe("continue");
+		expect(driver.status().queued).toBe(true);
+
+		driver.onCompaction();
+		expect(driver.status().queued).toBe(false);
+		expect(driver.evaluate(active(), { idle: true, pendingMessages: true }).reason).toBe("Pi already has pending messages");
+		expect(driver.evaluate(active(), { idle: true, pendingMessages: false }).action).toBe("continue");
+		expect(driver.status().consecutiveTurns).toBe(2);
+	});
+
 	it("pauses after bounded unchanged turns and resumes when task progress changes", () => {
 		const driver = new ActiveTaskContinuation({ maxTurns: 10, maxUnchangedTurns: 2 });
 

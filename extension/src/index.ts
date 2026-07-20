@@ -384,6 +384,7 @@ export default async function (pi: ExtensionAPI) {
 		await overlay.refresh();
 	});
 
+	pi.on("session_before_compact", () => { taskContinuation.onCompaction(); });
 	pi.on("session_compact", async () => { await overlay?.refresh(); });
 	pi.on("session_tree", async () => { await overlay?.refresh(); });
 	pi.on("session_shutdown", async () => { overlay?.dispose(); overlay = undefined; });

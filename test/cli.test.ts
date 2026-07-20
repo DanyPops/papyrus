@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runDiscourseCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import type { OperationName } from "../src/service.ts";
 
 const PROJECT_ROOT = process.cwd();
@@ -15,13 +15,32 @@ class FakeClient {
 
 describe("Papyrus migration CLI", () => {
 	it("routes the explicit task focus migration through the daemon", async () => {
-		const client = new FakeClient({ from: 4, to: 5, applied: ["task-focus-continuation"] });
-		expect(await runMigrationCli(["task-focus", "--json"], client)).toBe(JSON.stringify({
-			from: 4,
-			to: 5,
-			applied: ["task-focus-continuation"],
+		const client = new FakeClient({ from: 5, to: 6, applied: ["discourse-context-mesh"] });
+		expect(await runMigrationCli(["schema", "--json"], client)).toBe(JSON.stringify({
+			from: 5,
+			to: 6,
+			applied: ["discourse-context-mesh"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
+	});
+});
+
+describe("Papyrus Discourse store CLI", () => {
+	it("routes bounded store operations through the authenticated daemon with stable JSON", async () => {
+		const result = { items: [], truncated: false, completeness: "complete" };
+		const client = new FakeClient(result);
+		expect(await runDiscourseCli([
+			"store", "read_thread", "--store-id", "team-forum",
+			"--input-json", '{"forumId":"engineering","topicId":"reviews","threadId":"mesh","limit":10}',
+			"--json",
+		], client)).toBe(JSON.stringify(result));
+		expect(client.calls).toEqual([{
+			operation: "discourse.store",
+			input: {
+				action: "read_thread", store_id: "team-forum", forumId: "engineering",
+				topicId: "reviews", threadId: "mesh", limit: 10,
+			},
+		}]);
 	});
 });
 

@@ -3,10 +3,12 @@ import { VERSION } from "./version.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
+import { SQLiteDiscourseStore } from "./adapters/sqlite-discourse-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
+import { DISCOURSE_RELATIONS, isDiscourseSubtype } from "./domain/discourse-store.ts";
 import type { Checklist } from "./domain/checklist.ts";
 import type { TaskEventContext, TaskEventDirection } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
@@ -44,6 +46,7 @@ import { Notes, type NoteDisposition } from "./note-service.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
+	"discourse.store",
 	"artifact.create",
 	"artifact.query",
 	"artifact.show",
@@ -150,6 +153,18 @@ function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
 	return { ...rest, templateId: typeof template_id === "string" ? template_id : undefined } as CreateArtifactInput;
 }
 
+function templateSubtype(artifacts: ArtifactStore, templateId: string | undefined): string | undefined {
+	if (!templateId) return undefined;
+	const defaults = artifacts.get(templateId)?.extra["defaults"];
+	if (typeof defaults !== "object" || defaults === null || Array.isArray(defaults)) return undefined;
+	const subtype = (defaults as Record<string, unknown>)["subtype"];
+	return typeof subtype === "string" ? subtype : undefined;
+}
+
+function requireDiscourseStoreForSubtype(subtype: string | undefined): void {
+	if (isDiscourseSubtype(subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
+}
+
 export interface SchemaState {
 	current: number;
 	required: number;
@@ -170,6 +185,7 @@ function handlers(
 	gates: GateRunner,
 	tasks: Tasks,
 	notes: Notes,
+	discourse: SQLiteDiscourseStore,
 	events: TaskEventStore,
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
@@ -197,8 +213,10 @@ function handlers(
 	});
 	return {
 		"system.migrate": () => migrate(),
+		"discourse.store": (input) => discourse.execute(input),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
+			requireDiscourseStoreForSubtype(normalized.subtype ?? templateSubtype(artifacts, normalized.templateId));
 			if (normalized.kind === "doc" && normalized.subtype === "note") throw new Error("note creation requires notes.capture");
 			if (normalized.kind !== "task") return artifacts.create(normalized);
 			return tasks.create({
@@ -224,6 +242,9 @@ function handlers(
 			const from = string(input, "from");
 			const relation = string(input, "relation");
 			const to = string(input, "to");
+			if (DISCOURSE_RELATIONS.has(relation) || isDiscourseSubtype(artifacts.get(from)?.subtype) || isDiscourseSubtype(artifacts.get(to)?.subtype)) {
+				throw new Error("forum-owned Context Mesh links require discourse.store");
+			}
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
 				tasks.depend(from, to);
 			} else {
@@ -241,6 +262,7 @@ function handlers(
 			const artifact = artifacts.get(id);
 			if (artifact?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
 			if (artifact?.kind === "doc" && artifact.subtype === "note") throw new Error("note lifecycle changes require a notes.* operation so disposition provenance is preserved");
+			if (isDiscourseSubtype(artifact?.subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
 			return artifacts.setStatus(id, string(input, "status"));
 		},
 		"gates.run": (input) => {
@@ -374,6 +396,7 @@ function handlers(
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
+			requireDiscourseStoreForSubtype(templateSubtype(artifacts, templateId));
 			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input));
 			return tasks.create({
 				title: optionalString(input, "title") as string,
@@ -398,7 +421,8 @@ export function createPapyrusService(path: string): PapyrusService {
 	const scopes = new SQLiteTaskScopeStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const notes = new Notes(artifacts);
-	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db));
+	const discourse = new SQLiteDiscourseStore(db, artifacts);
+	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db));
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
@@ -410,7 +434,7 @@ export function createPapyrusService(path: string): PapyrusService {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
 			if (operation !== "system.migrate" && state().migrationRequired) {
-				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-focus`");
+				throw new MigrationRequiredError("database migration required; run `papyrus migrate schema`");
 			}
 			return handler(input);
 		},

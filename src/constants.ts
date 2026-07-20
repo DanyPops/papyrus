@@ -7,8 +7,14 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 5;
+export const SQLITE_SCHEMA_VERSION = 6;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
+/** Bounded forum persistence behind the Discourse mutation authority. */
+export const DISCOURSE_QUERY_MAX_LIMIT = 100;
+export const DISCOURSE_CONTENT_MAX_BYTES = 65_536;
+export const DISCOURSE_EVENT_RETENTION_DEFAULT = 1_000;
+export const DISCOURSE_EVENT_RETENTION_MAX = 10_000;
+export const DISCOURSE_PARTICIPANT_MAX_COUNT = 100;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
 export const GATE_COMMAND_TIMEOUT_MS = 30_000;
@@ -159,5 +165,5 @@ export const SEED_STATUSES = [
 export const SEED_RELATIONS = [
 	"references", "implements", "follows", "depends_on",
 	"documents", "blocks", "supersedes", "relates_to",
-	"gates", "triggers", "contains", "part_of",
+	"gates", "triggers", "contains", "part_of", "reply_to", "discusses",
 ] as const;

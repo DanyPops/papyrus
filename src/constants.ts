@@ -29,6 +29,11 @@ export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
 export const TASK_DETAIL_MAX_VISIBLE_LINES = 24;
 export const TASK_DETAIL_RESERVED_ROWS = 8;
 export const TASK_DETAIL_HORIZONTAL_PAN_COLUMNS = 4;
+/** Bounded navigable detail views for non-Task artifacts. */
+export const ARTIFACT_DETAIL_MIN_VISIBLE_LINES = 8;
+export const ARTIFACT_DETAIL_MAX_VISIBLE_LINES = 24;
+export const ARTIFACT_DETAIL_RESERVED_ROWS = 8;
+export const ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS = 4;
 export const TASK_GRAPH_MIN_VISIBLE_LINES = 8;
 export const TASK_GRAPH_MAX_VISIBLE_LINES = 30;
 export const TASK_GRAPH_RESERVED_ROWS = 8;

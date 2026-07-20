@@ -4,8 +4,11 @@ import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earend
 import { SEED_RELATIONS } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { OperationName } from "../../src/service.ts";
-import { formatMetadata } from "./artifact-format.ts";
+import { artifactDetailsText } from "./artifact-detail-format.ts";
+import { showArtifactDetailView } from "./artifact-detail-view.ts";
 import { callService } from "./service-client.ts";
+
+export { artifactDetailsText } from "./artifact-detail-format.ts";
 
 const BROWSER_QUERY_LIMIT = 500;
 const BROWSER_VISIBLE_ROWS = 20;
@@ -51,31 +54,34 @@ async function loadArtifacts(config: ArtifactBrowserConfig): Promise<Artifact[]>
 	});
 }
 
+export type ArtifactDetailLoader = (
+	operation: OperationName,
+	input: Record<string, unknown>,
+) => Promise<Artifact | null>;
+
+const loadArtifactDetails: ArtifactDetailLoader = (operation, input) =>
+	callService<Record<string, unknown>, Artifact | null>(operation, input);
+
 export async function showArtifactDetails(
 	ctx: ExtensionCommandContext,
 	id: string,
 	operation: OperationName = "artifact.show",
 	input: Record<string, unknown> = {},
+	load: ArtifactDetailLoader = loadArtifactDetails,
 ): Promise<void> {
-	const artifact = await callService<Record<string, unknown>, Artifact | null>(operation, {
-		id,
-		...input,
-		tree: true,
-		depth: DETAIL_GRAPH_DEPTH,
-		max_nodes: DETAIL_GRAPH_NODES,
-	});
-	if (!artifact) { ctx.ui.notify(`Artifact ${id} not found`, "error"); return; }
-	let output = `${artifact.title}\n${artifact.id} [${artifact.kind}|${artifact.status}]`;
-	if (artifact.subtype) output += ` · ${artifact.subtype}`;
-	if (artifact.body) output += `\n\n${artifact.body}`;
-	if (artifact.labels.length > 0) output += `\n\nLabels: ${artifact.labels.join(", ")}`;
-	if (Object.keys(artifact.extra).length > 0) {
-		output += `\n\nMetadata:\n${formatMetadata(artifact.extra).map((line) => `  ${line}`).join("\n")}`;
+	try {
+		const artifact = await load(operation, {
+			id,
+			...input,
+			tree: true,
+			depth: DETAIL_GRAPH_DEPTH,
+			max_nodes: DETAIL_GRAPH_NODES,
+		});
+		if (!artifact) { ctx.ui.notify(`Artifact ${id} not found`, "error"); return; }
+		await showArtifactDetailView(ctx, artifact);
+	} catch (error) {
+		ctx.ui.notify(`Show details failed: ${error instanceof Error ? error.message : error}`, "error");
 	}
-	if (artifact.edges?.length) {
-		output += `\n\nEdges:\n${artifact.edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
-	}
-	ctx.ui.notify(output, "info");
 }
 
 export async function linkFromArtifact(ctx: ExtensionCommandContext, fromId: string, fixedRelation?: string): Promise<void> {

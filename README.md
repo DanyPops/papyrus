@@ -9,7 +9,7 @@ Artifacts are rows in SQLite. Edges are typed relations. Kinds and relations are
 ```text
 Pi tools + TUI
       ↓
-tasks / docs / rules / skills domain tools
+tasks / notes / docs / rules / skills domain tools
       ↓
 Papyrus client → authenticated loopback daemon
       ↓
@@ -40,6 +40,10 @@ papyrus tasks focus <task-id>
 papyrus tasks pause
 papyrus tasks unpause
 papyrus tasks complete <task-id>
+
+# Deferred human-intent inbox
+papyrus notes capture "Review release provenance later"
+papyrus notes list --json
 ```
 
 For repository work, install the versioned ownership guard once:
@@ -94,7 +98,8 @@ The `papyrus_*` tools are the low-level graph-store API:
 Agent-facing domain tools own lifecycle invariants and sit above this store API:
 
 - **`tasks`** — create/update/list/show/plan, manage the singleton active focus, replace evidence-bearing checklists, hierarchy/dependencies, lifecycle transitions, non-blocking gates, and review completion that focuses one deterministic ready successor without claiming effort
-- **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links
+- **`notes`** — capture/list/show deferred human intent, mark it consumed, promote it to an existing Task/Doc/Rule/Skill, or archive it with an explicit disposition
+- **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links; Note mutations remain behind the Notes facade
 - **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
 - **`skills`** — create/list/show/invoke/run, enable/disable, create compatibility templates, and atomically instantiate parameterized workflow runs
 
@@ -105,11 +110,29 @@ Internally, application services depend on the `ArtifactStore` and `GateRunner` 
 ## Interactive frontends
 
 - `/tasks` — project/focused-graph scope, task lifecycle, append-only history, gates, dependencies, and nested metadata
-- `/docs` — searchable documents, lifecycle, details, and graph links
+- `/note <request>` — directly capture one project-scoped deferred request without creating a Task
+- `/notes` — searchable project Notes inbox with consume, promote, and disposition-aware archive actions
+- `/docs` — searchable non-Note documents, lifecycle, details, and graph links
 - `/rules` — severity/condition rows, exact injection preview, enable/disable, and task gating
 - `/skills` — trigger/tools rows, invocation into the editor, and artifact templates
 
-All four use daemon-backed domain operations; none opens SQLite from the Pi process.
+All frontends use daemon-backed domain operations; none opens SQLite from the Pi process.
+
+## Notes
+
+Notes are project-scoped `doc/note` artifacts for human requests that should be considered later. Capturing a Note does not create work, inject the entire inbox into prompts, or imply acceptance. The agent can use the `notes` domain tool to list and consume open Notes, decide whether to create a Task, Doc, Rule, or Skill through its owning domain tool, then promote the Note by linking that artifact. Archive requires one of `completed`, `duplicate`, `declined`, or `superseded`; promote archives with a `promoted` disposition and target ID. Capture, consumption, and disposition provenance remain in bounded Note history.
+
+The default inbox contains draft and consumed/active Notes, is bounded to 50 rows, and has a hard limit of 200. Bodies are capped at 10,000 characters. Generic document and graph lifecycle operations reject Note mutations so they cannot bypass disposition provenance.
+
+```bash
+papyrus notes capture "Investigate the retry policy" --json
+papyrus notes list --limit 25 --json
+papyrus notes show <note-id> --json
+papyrus notes consume <note-id> --json
+# Create the resulting artifact with tasks/docs/rules/skills first, then:
+papyrus notes promote <note-id> <target-id> --reason "Converted to tracked work" --json
+papyrus notes archive <note-id> declined --reason "No longer relevant" --json
+```
 
 ## Tasks
 

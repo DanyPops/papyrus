@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
-import type { Artifact, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
+import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
 import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 export type { Artifact } from "./domain/artifact.ts";
 export type { Gate, GateResult } from "./domain/gate.ts";
@@ -172,22 +172,36 @@ export function getArtifact(db: Db, id: string, opts?: { tree?: boolean; depth?:
 	return art;
 }
 
-export function queryArtifacts(db: Db, filter: {
-	kind?: string;
-	status?: string;
-	text?: string;
-	labels?: string[];
-	limit?: number;
-}): Artifact[] {
+export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 	let sql = "SELECT * FROM artifacts";
 	const conditions: string[] = [];
 	const params: unknown[] = [];
 	if (filter.kind) { conditions.push("kind = ?"); params.push(filter.kind); }
 	if (filter.status) { conditions.push("status = ?"); params.push(filter.status); }
+	if (filter.statuses) {
+		if (filter.statuses.length === 0) return [];
+		conditions.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
+		params.push(...filter.statuses);
+	}
+	if (filter.subtype) { conditions.push("subtype = ?"); params.push(filter.subtype); }
+	if (filter.excludeSubtype) { conditions.push("subtype != ?"); params.push(filter.excludeSubtype); }
 	if (filter.text) { conditions.push("(title LIKE ? OR body LIKE ?)"); params.push(`%${filter.text}%`, `%${filter.text}%`); }
+	for (const label of filter.labels ?? []) {
+		conditions.push("EXISTS (SELECT 1 FROM json_each(artifacts.labels) WHERE value = ?)");
+		params.push(label);
+	}
+	for (const [key, value] of Object.entries(filter.extraEquals ?? {})) {
+		if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(key)) throw new Error(`invalid extra query key "${key}"`);
+		conditions.push("json_extract(extra, ?) = ?");
+		params.push(`$.${key}`, value);
+	}
 	if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
 	sql += " ORDER BY updated_at DESC";
-	if (filter.limit) sql += ` LIMIT ${Math.floor(filter.limit)}`;
+	if (filter.limit !== undefined) {
+		if (!Number.isInteger(filter.limit) || filter.limit < 1) throw new Error("artifact query limit must be a positive integer");
+		sql += " LIMIT ?";
+		params.push(filter.limit);
+	}
 	const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
 	return rows.map(rowToArtifact);
 }

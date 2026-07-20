@@ -7,6 +7,7 @@ import type { TaskExecutionPlan } from "../../src/task-execution.ts";
 import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
+import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
 import { callService } from "./service-client.ts";
 
 function text(message: string, details: Record<string, unknown> = {}) {
@@ -155,6 +156,51 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				return text(artifactLine(artifact), { artifact });
 			} catch (error) {
 				return text(`tasks failed: ${error instanceof Error ? error.message : error}`);
+			}
+		},
+	});
+
+	pi.registerTool({
+		name: "notes",
+		label: "Notes",
+		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id. Archive requires an explicit disposition.",
+		parameters: Type.Object({
+			action: Type.String(),
+			id: Type.Optional(Type.String()),
+			body: Type.Optional(Type.String()),
+			title: Type.Optional(Type.String()),
+			status: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("active"), Type.Literal("archived")])),
+			text: Type.Optional(Type.String()),
+			limit: Type.Optional(Type.Number()),
+			target_id: Type.Optional(Type.String()),
+			disposition: Type.Optional(Type.Union(NOTE_DISPOSITIONS.map((value) => Type.Literal(value)))),
+			reason: Type.Optional(Type.String()),
+			session_id: Type.Optional(Type.String()),
+			project_root: Type.Optional(Type.String()),
+		}),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			try {
+				const action = params.action;
+				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "notes-tool" };
+				if (action === "capture") {
+					const artifact = await callService<Record<string, unknown>, Artifact>("notes.capture", request);
+					return text(`Captured note ${artifactLine(artifact)}`, { artifact });
+				}
+				if (action === "list") {
+					const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", request);
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No open notes.", { rows });
+				}
+				if (action === "show") {
+					const artifact = await callService<Record<string, unknown>, Artifact>("notes.show", request);
+					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, { artifact });
+				}
+				const operations = { consume: "notes.consume", promote: "notes.promote", archive: "notes.archive" } as const;
+				const operation = operations[action as keyof typeof operations];
+				if (!operation) return text(`Unknown notes action: ${action}`);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
+				return text(`${action}: ${artifactLine(artifact)}`, { artifact });
+			} catch (error) {
+				return text(`notes failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});

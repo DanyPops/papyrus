@@ -3,6 +3,7 @@
  * Dual-runtime: bun:sqlite (Bun) / node:sqlite (Node/pi host).
  * Four kinds (doc/task/rule/skill) are FK-enforced; relations are universal (any→any).
  */
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -65,6 +66,14 @@ export function inTransaction<T>(db: Db, fn: () => T): T {
 }
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS module_migrations (
+	module_id   TEXT NOT NULL,
+	version     INTEGER NOT NULL,
+	name        TEXT NOT NULL,
+	checksum    TEXT NOT NULL,
+	applied_at  TEXT NOT NULL,
+	PRIMARY KEY (module_id, version)
+);
 CREATE TABLE IF NOT EXISTS kinds (
 	name        TEXT PRIMARY KEY,
 	description TEXT
@@ -183,16 +192,81 @@ export function schemaVersion(db: Db): number {
 	return (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
 }
 
+/**
+ * One row per (module_id, version) applied migration, checksummed so a since-edited
+ * definition is detected rather than silently trusted. "core" consolidates this
+ * repository's entire pre-ledger migration history (every schemaVersion 1..CURRENT
+ * branch below) into one baseline, checked against the exact SCHEMA+SEED_SQL text those
+ * branches converge on -- new modules going forward register their own migrations
+ * independently, without touching "core" or duplicating a separate bootstrap path.
+ */
+export interface ModuleMigrationRow {
+	readonly moduleId: string;
+	readonly version: number;
+	readonly name: string;
+	readonly checksum: string;
+	readonly appliedAt: string;
+}
+
+const CORE_BASELINE_CHECKSUM = createHash("sha256").update(SCHEMA + SEED_SQL).digest("hex");
+
+export function migrationLedger(db: Db): ModuleMigrationRow[] {
+	// A database that has never reached current schema (still awaiting explicit migrateDb())
+	// has no ledger table yet -- "nothing recorded" is the correct answer, not an error.
+	const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'module_migrations'").get() != null;
+	if (!tableExists) return [];
+	const rows = db.prepare("SELECT module_id, version, name, checksum, applied_at FROM module_migrations ORDER BY module_id, version").all() as Array<{
+		module_id: string; version: number; name: string; checksum: string; applied_at: string;
+	}>;
+	return rows.map((row) => ({ moduleId: row.module_id, version: row.version, name: row.name, checksum: row.checksum, appliedAt: row.applied_at }));
+}
+
+/**
+ * Ensures the ledger correctly reflects "core" once a database is confirmed at the full
+ * current schema, however it got there: a truly empty database runs the baseline DDL and
+ * records it; a database that already reached current shape (a fresh bootstrap from a
+ * past release, or a full upgrade through the pre-ledger sequential migrateDb() chain
+ * below) is backfilled without re-running any DDL against data that already exists.
+ * Verifies the stored checksum on every open so a since-edited baseline is caught, not
+ * silently trusted.
+ */
+function ensureCoreBaseline(db: Db, alreadyAtCurrentSchema: boolean): void {
+	// Idempotent and standalone: must succeed even on a truly empty database, before the rest
+	// of SCHEMA (which also declares this table) has run.
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS module_migrations (
+			module_id   TEXT NOT NULL,
+			version     INTEGER NOT NULL,
+			name        TEXT NOT NULL,
+			checksum    TEXT NOT NULL,
+			applied_at  TEXT NOT NULL,
+			PRIMARY KEY (module_id, version)
+		);
+	`);
+	const existingRow = db.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = 1").get() as { checksum: string } | null;
+	if (existingRow != null) {
+		if (existingRow.checksum !== CORE_BASELINE_CHECKSUM) {
+			throw new Error('module migration "core" version 1 checksum mismatch: the baseline definition changed since it was applied');
+		}
+		return;
+	}
+	inTransaction(db, () => {
+		if (!alreadyAtCurrentSchema) {
+			db.exec(SCHEMA);
+			db.exec(SEED_SQL);
+			db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
+		}
+		db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', 1, 'baseline', ?, ?)")
+			.run(CORE_BASELINE_CHECKSUM, new Date().toISOString());
+	});
+}
+
 function bootstrapEmptyDatabase(db: Db): void {
 	const existing = db
 		.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1")
 		.get();
 	if (existing) throw new Error("database schema is unversioned; refusing to migrate existing data during boot");
-	inTransaction(db, () => {
-		db.exec(SCHEMA);
-		db.exec(SEED_SQL);
-		db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
-	});
+	ensureCoreBaseline(db, false);
 }
 
 export function migrateDb(db: Db): MigrationResult {
@@ -291,6 +365,7 @@ export function migrateDb(db: Db): MigrationResult {
 			applied.push("task-focus-continuation");
 		}
 	});
+	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);
 	return { from, to: schemaVersion(db), applied };
 }
 
@@ -306,6 +381,7 @@ export function openDb(path: string): Db {
 		throw new Error(`database schema ${current} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (current === 0) bootstrapEmptyDatabase(db);
+	else if (current === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);
 	db.exec("PRAGMA optimize=0x10002");
 	return db;
 }

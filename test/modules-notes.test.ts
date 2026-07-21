@@ -1,8 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { OperationRegistry } from "../src/module-registry.ts";
-import { notesOperations } from "../src/modules/notes.ts";
+import { notesOperations, NOTES_OPERATION_NAMES } from "../src/modules/notes.ts";
 import { Notes } from "../src/note-service.ts";
-import { EXPECTED_OPERATION_NAMES } from "../src/service.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { Artifact, ArtifactLink, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "../src/domain/artifact.ts";
 
@@ -58,8 +57,7 @@ describe("modules/notes — the first Papyrus-native registered module", () => {
 	it("registers exactly the notes.* operations EXPECTED_OPERATION_NAMES declares, no more, no fewer", () => {
 		const registry = new OperationRegistry();
 		registry.registerAll(notesOperations(new Notes(new FakeArtifactStore())));
-		const expectedNoteOps = EXPECTED_OPERATION_NAMES.filter((name) => name.startsWith("notes."));
-		expect(registry.list()).toEqual([...expectedNoteOps].sort());
+		expect(registry.list()).toEqual([...NOTES_OPERATION_NAMES].sort());
 	});
 
 	it("each registered operation is owned by the notes module", () => {

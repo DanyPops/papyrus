@@ -25,89 +25,46 @@ import {
 } from "./domain-services.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
-import { docsOperations } from "./modules/docs.ts";
-import { graphProjectionOperations } from "./modules/graph-projection.ts";
-import { notesOperations } from "./modules/notes.ts";
-import { rulesOperations } from "./modules/rules.ts";
-import { skillsOperations } from "./modules/skills.ts";
-import { tasksOperations } from "./modules/tasks.ts";
+import { docsOperations, DOCS_OPERATION_NAMES } from "./modules/docs.ts";
+import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./modules/graph-projection.ts";
+import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
+import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
+import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
+import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
 
+/**
+ * Operations with no registered module: the generic, cross-cutting kernel surface
+ * (artifact create/query/show, graph link/unlink/tree/status/history, gates run --
+ * no domain owns creation/linking/traversal for every kind, the same way system.migrate
+ * has no owning module) and two permanent composition-root exceptions (rules.injectable
+ * needs tasks.active(); skills.instantiate branches into tasks.create()) -- see
+ * src/modules/rules.ts and src/modules/skills.ts's module comments. discourse.store's
+ * eventual home depends on the still-open Discourse projection-target decision, not on
+ * module extraction.
+ */
+const COMPOSITION_ROOT_OPERATION_NAMES = [
+	"system.migrate", "discourse.store", "artifact.create", "artifact.query", "artifact.show",
+	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
+	"rules.injectable", "skills.instantiate",
+] as const;
+
+/**
+ * Each registered module owns its own operation-name list (src/modules/*.ts); this is a
+ * spread of those plus the composition-root exceptions above, not a second hand-
+ * maintained copy. TypeScript needs this to stay a compile-time-known array (it derives
+ * OperationName, which powers Record<OperationName, OperationHandler>'s exhaustiveness
+ * check below) — it cannot be generated from moduleRegistry.list() (a runtime value)
+ * without losing that guarantee, so this composition of `as const` arrays is the
+ * furthest this can go while keeping that safety net.
+ */
 export const EXPECTED_OPERATION_NAMES = [
-	"system.migrate",
-	"discourse.store",
-	"artifact.create",
-	"artifact.query",
-	"artifact.show",
-	"graph.link",
-	"graph.unlink",
-	"graph.tree",
-	"graph.status",
-	"graph.history",
-	"gates.run",
-	"rules.injectable",
-	"tasks.create",
-	"tasks.update",
-	"tasks.list",
-	"tasks.graph",
-	"tasks.plan",
-	"tasks.show",
-	"tasks.history",
-	"tasks.scope",
-	"tasks.set_scope",
-	"tasks.assign_project",
-	"tasks.active",
-	"tasks.focused",
-	"tasks.focus",
-	"tasks.pause",
-	"tasks.unpause",
-	"tasks.clear_focus",
-	"tasks.start",
-	"tasks.submit",
-	"tasks.complete",
-	"tasks.run_gates",
-	"tasks.set_checklist",
-	"tasks.context",
-	"tasks.reject",
-	"tasks.retry",
-	"tasks.cancel",
-	"tasks.depend",
-	"tasks.undepend",
-	"tasks.contain",
-	"tasks.uncontain",
-	"docs.create",
-	"docs.list",
-	"docs.show",
-	"docs.activate",
-	"docs.archive",
-	"docs.reopen",
-	"docs.link",
-	"docs.assign_project",
-	"notes.capture",
-	"notes.list",
-	"notes.show",
-	"notes.consume",
-	"notes.promote",
-	"notes.archive",
-	"rules.create",
-	"rules.list",
-	"rules.show",
-	"rules.preview",
-	"rules.enable",
-	"rules.disable",
-	"rules.gate",
-	"rules.assign_project",
-	"skills.create",
-	"skills.create_template",
-	"skills.list",
-	"skills.show",
-	"skills.invoke",
-	"skills.run",
-	"skills.enable",
-	"skills.disable",
-	"skills.instantiate",
-	"skills.assign_project",
-	"graph_projection.apply",
-	"graph_projection.checkpoint",
+	...COMPOSITION_ROOT_OPERATION_NAMES,
+	...TASKS_OPERATION_NAMES,
+	...DOCS_OPERATION_NAMES,
+	...NOTES_OPERATION_NAMES,
+	...RULES_OPERATION_NAMES,
+	...SKILLS_OPERATION_NAMES,
+	...GRAPH_PROJECTION_OPERATION_NAMES,
 ] as const;
 
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];

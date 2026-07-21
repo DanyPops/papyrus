@@ -5,8 +5,7 @@ import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import { GRAPH_PROJECTION_SCHEMA_VERSION } from "../src/domain/graph-projection.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
-import { graphProjectionOperations } from "../src/modules/graph-projection.ts";
-import { EXPECTED_OPERATION_NAMES } from "../src/service.ts";
+import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "../src/modules/graph-projection.ts";
 
 function fixture() {
 	const db = openDb(":memory:");
@@ -21,8 +20,7 @@ function fixture() {
 describe("graph_projection module: registration and snake_case operation input parsing", () => {
 	it("registers exactly the graph_projection.* operations EXPECTED_OPERATION_NAMES declares, no more, no fewer", () => {
 		const { registry } = fixture();
-		const expected = EXPECTED_OPERATION_NAMES.filter((name) => name.startsWith("graph_projection.")).sort();
-		expect(registry.list().filter((name) => name.startsWith("graph_projection."))).toEqual(expected);
+		expect(registry.list().filter((name) => name.startsWith("graph_projection."))).toEqual([...GRAPH_PROJECTION_OPERATION_NAMES].sort());
 	});
 
 	it("parses a raw snake_case batch and applies it", () => {

@@ -77,6 +77,11 @@ export interface SkillsModuleDeps {
 }
 
 /** Registers every skills.* operation except skills.instantiate (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
+/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. skills.instantiate is deliberately absent -- see the module comment above. */
+export const SKILLS_OPERATION_NAMES = [
+	"skills.create", "skills.create_template", "skills.list", "skills.show", "skills.invoke", "skills.run", "skills.enable", "skills.disable", "skills.assign_project",
+] as const;
+
 export function skillsOperations({ artifacts, events, scopes, artifactScopes, authority }: SkillsModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,

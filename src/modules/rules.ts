@@ -53,6 +53,11 @@ const artifactFilter = (input: OperationInput) => ({
 });
 
 /** Registers every rules.* operation except rules.injectable (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
+/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. rules.injectable is deliberately absent -- see the module comment above. */
+export const RULES_OPERATION_NAMES = [
+	"rules.create", "rules.list", "rules.show", "rules.preview", "rules.enable", "rules.disable", "rules.gate", "rules.assign_project",
+] as const;
+
 export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,

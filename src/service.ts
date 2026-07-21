@@ -42,7 +42,7 @@ import {
 } from "./domain-services.ts";
 import { taskContext } from "./task-context.ts";
 import { instantiateSkillWorkflow } from "./skill-execution.ts";
-import { Notes, type NoteDisposition } from "./note-service.ts";
+import { Notes, NOTE_SUBTYPE, type NoteDisposition } from "./note-service.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
@@ -51,6 +51,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"artifact.query",
 	"artifact.show",
 	"graph.link",
+	"graph.unlink",
 	"graph.tree",
 	"graph.status",
 	"graph.history",
@@ -82,7 +83,9 @@ export const EXPECTED_OPERATION_NAMES = [
 	"tasks.retry",
 	"tasks.cancel",
 	"tasks.depend",
+	"tasks.undepend",
 	"tasks.contain",
+	"tasks.uncontain",
 	"docs.create",
 	"docs.list",
 	"docs.show",
@@ -166,6 +169,18 @@ function requireDiscourseStoreForSubtype(subtype: string | undefined): void {
 	if (isDiscourseSubtype(subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
 }
 
+/** Low-level graph.link/graph.unlink must not bypass the domain invariants that docs.link/notes.* already enforce. */
+function requireGraphOperationAllowed(artifacts: ArtifactStore, relation: string, from: string, to: string): void {
+	const fromArtifact = artifacts.get(from);
+	const toArtifact = artifacts.get(to);
+	if (DISCOURSE_RELATIONS.has(relation) || isDiscourseSubtype(fromArtifact?.subtype) || isDiscourseSubtype(toArtifact?.subtype)) {
+		throw new Error("forum-owned Context Mesh links require discourse.store");
+	}
+	if (fromArtifact?.subtype === NOTE_SUBTYPE || toArtifact?.subtype === NOTE_SUBTYPE) {
+		throw new Error("note relationships require a notes.* operation so disposition provenance is preserved");
+	}
+}
+
 export interface SchemaState {
 	current: number;
 	required: number;
@@ -244,15 +259,28 @@ function handlers(
 			const from = string(input, "from");
 			const relation = string(input, "relation");
 			const to = string(input, "to");
-			if (DISCOURSE_RELATIONS.has(relation) || isDiscourseSubtype(artifacts.get(from)?.subtype) || isDiscourseSubtype(artifacts.get(to)?.subtype)) {
-				throw new Error("forum-owned Context Mesh links require discourse.store");
-			}
+			requireGraphOperationAllowed(artifacts, relation, from, to);
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
-				tasks.depend(from, to);
+				tasks.depend(from, to, eventContext(input));
 			} else {
 				artifacts.link({ from, relation, to }, eventContext(input));
 			}
 			return { ok: true };
+		},
+		"graph.unlink": (input) => {
+			const from = string(input, "from");
+			const relation = string(input, "relation");
+			const to = string(input, "to");
+			requireGraphOperationAllowed(artifacts, relation, from, to);
+			let removed: boolean;
+			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
+				const before = tasks.graph().nodes.find((node) => node.task.id === from)?.dependencyIds.includes(to) ?? false;
+				tasks.undepend(from, to, eventContext(input));
+				removed = before;
+			} else {
+				removed = artifacts.unlink({ from, relation, to }, eventContext(input));
+			}
+			return { removed };
 		},
 		"graph.tree": (input) => artifacts.get(string(input, "id"), {
 			tree: true,
@@ -339,8 +367,10 @@ function handlers(
 		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
 		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
 		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel", eventContext(input)),
-		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id")),
-		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id")),
+		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id"), eventContext(input)),
+		"tasks.undepend": (input) => tasks.undepend(string(input, "id"), string(input, "dependency_id"), eventContext(input)),
+		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id"), eventContext(input)),
+		"tasks.uncontain": (input) => tasks.uncontain(string(input, "parent_id"), string(input, "child_id"), eventContext(input)),
 		"docs.create": (input) => createDocument(artifacts, {
 			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,

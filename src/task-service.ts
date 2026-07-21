@@ -439,30 +439,60 @@ export class Tasks {
 		return this.artifacts.setExtra(id, { ...task.extra, checklist: validateChecklist(checklist) })!;
 	}
 
-	depend(id: string, dependencyId: string): Artifact {
-		this.require(id);
-		this.require(dependencyId);
-		const graph = this.graph();
-		assertDependencyEdgeAllowed(graph, id, dependencyId);
-		const node = graph.nodes.find((entry) => entry.task.id === id)!;
-		if (node.dependencyIds.includes(dependencyId)) return this.show(id);
-		if (node.dependencyIds.length >= TASK_EXECUTION_MAX_DEGREE) {
-			throw new Error(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
-		}
-		const successorCount = graph.nodes.filter((entry) => entry.dependencyIds.includes(dependencyId)).length;
-		if (successorCount >= TASK_EXECUTION_MAX_DEGREE) {
-			throw new Error(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
-		}
-		this.artifacts.link({ from: id, relation: "depends_on", to: dependencyId });
-		return this.show(id);
+	depend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(id);
+			this.require(dependencyId);
+			const graph = this.graph();
+			assertDependencyEdgeAllowed(graph, id, dependencyId);
+			const node = graph.nodes.find((entry) => entry.task.id === id)!;
+			if (node.dependencyIds.includes(dependencyId)) return this.show(id);
+			if (node.dependencyIds.length >= TASK_EXECUTION_MAX_DEGREE) {
+				throw new Error(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
+			}
+			const successorCount = graph.nodes.filter((entry) => entry.dependencyIds.includes(dependencyId)).length;
+			if (successorCount >= TASK_EXECUTION_MAX_DEGREE) {
+				throw new Error(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
+			}
+			this.artifacts.link({ from: id, relation: "depends_on", to: dependencyId }, context);
+			this.appendEvent({ taskId: id, type: "dependency_added", reason: context.reason }, context);
+			return this.show(id);
+		});
 	}
 
-	contain(parentId: string, childId: string): Artifact {
-		this.require(parentId);
-		this.require(childId);
-		this.artifacts.link({ from: parentId, relation: "contains", to: childId });
-		this.artifacts.link({ from: childId, relation: "part_of", to: parentId });
-		return this.show(parentId);
+	/** Idempotent: undepending an already-absent dependency is a no-op. Never starts, completes, or focuses work — only removes the edge. */
+	undepend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(id);
+			this.require(dependencyId);
+			const removed = this.artifacts.unlink({ from: id, relation: "depends_on", to: dependencyId }, context);
+			if (removed) this.appendEvent({ taskId: id, type: "dependency_removed", reason: context.reason }, context);
+			return this.show(id);
+		});
+	}
+
+	contain(parentId: string, childId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(parentId);
+			this.require(childId);
+			const alreadyContained = this.relationships(parentId).some((edge) => edge.relation === "contains" && edge.from === parentId && edge.to === childId);
+			this.artifacts.link({ from: parentId, relation: "contains", to: childId }, context);
+			this.artifacts.link({ from: childId, relation: "part_of", to: parentId }, context);
+			if (!alreadyContained) this.appendEvent({ taskId: parentId, type: "containment_added", reason: context.reason }, context);
+			return this.show(parentId);
+		});
+	}
+
+	/** Idempotent: removing an already-absent containment is a no-op. Both contains/part_of edges are removed atomically. */
+	uncontain(parentId: string, childId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(parentId);
+			this.require(childId);
+			const removedContains = this.artifacts.unlink({ from: parentId, relation: "contains", to: childId }, context);
+			this.artifacts.unlink({ from: childId, relation: "part_of", to: parentId }, context);
+			if (removedContains) this.appendEvent({ taskId: parentId, type: "containment_removed", reason: context.reason }, context);
+			return this.show(parentId);
+		});
 	}
 
 	private descendantIds(rootTaskId: string, projectTaskIds: string[]): Set<string> {

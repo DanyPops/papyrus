@@ -62,6 +62,13 @@ class FakeArtifactStore implements ArtifactStore {
 		}
 	}
 
+	unlink(link: ArtifactLink): boolean {
+		const index = this.edges.findIndex((edge) => edge.from === link.from && edge.relation === link.relation && edge.to === link.to);
+		if (index === -1) return false;
+		this.edges.splice(index, 1);
+		return true;
+	}
+
 	setStatus(id: string, status: string): Artifact | null {
 		const artifact = this.artifacts.get(id);
 		if (!artifact) return null;

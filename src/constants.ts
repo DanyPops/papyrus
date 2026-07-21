@@ -128,9 +128,9 @@ export const TOOL_DETAILS_MAX_EDGES = 200;
 export const TASK_RECONCILIATION_INSTRUCTION = [
 	"Reconcile before concluding or moving on:",
 	'• For each current task, ask: "Did we accomplish this task?"',
-	"• If yes, run its gates before marking it done; a claim is not verification.",
-	"• If no, continue with the next concrete action toward its desired state.",
-	"• Address blocked work or explicitly move failed review to rejected with the reason.",
+	"• If yes, run its gates before marking it done; a claim is not verification. A written summary is not evidence -- identify what would actually prove each requirement in the task's desired state and checklist, and treat indirect or merely-plausible signals as not sufficient.",
+	"• If no, continue with the next concrete action toward its desired state. Do not shrink the task's scope to whatever fits in this turn, and do not substitute a narrower, easier, or merely-passing-looking change for the actual desired outcome.",
+	"• Address blocked work or explicitly move failed review to rejected with the reason. Do not reject or call something blocked on the first obstacle -- only after the same blocking condition genuinely recurs, and only when the task truly cannot proceed without external input or a change outside the agent's control.",
 ].join("\n");
 
 /** $XDG_DATA_HOME/papyrus/papyrus.db */

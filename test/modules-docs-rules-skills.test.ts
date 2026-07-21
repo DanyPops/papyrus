@@ -3,6 +3,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
 import { openDb } from "../src/db.ts";
+import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { docsOperations } from "../src/modules/docs.ts";
 import { rulesOperations } from "../src/modules/rules.ts";
@@ -14,10 +15,11 @@ function fixture() {
 	const artifacts = new SQLiteArtifactStore(db);
 	const events = new SQLiteTaskEventStore(db);
 	const scopes = new SQLiteTaskScopeStore(db);
+	const authority = new AuthorityRegistry();
 	const registry = new OperationRegistry();
-	registry.registerAll(docsOperations(artifacts));
+	registry.registerAll(docsOperations(artifacts, authority));
 	registry.registerAll(rulesOperations(artifacts));
-	registry.registerAll(skillsOperations({ artifacts, events, scopes }));
+	registry.registerAll(skillsOperations({ artifacts, events, scopes, authority }));
 	return { registry, artifacts };
 }
 

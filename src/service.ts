@@ -9,6 +9,7 @@ import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import { DISCOURSE_RELATIONS, isDiscourseSubtype } from "./domain/discourse-store.ts";
+import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from "./authority-registry.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
@@ -149,20 +150,47 @@ function templateSubtype(artifacts: ArtifactStore, templateId: string | undefine
 	return typeof subtype === "string" ? subtype : undefined;
 }
 
-function requireDiscourseStoreForSubtype(subtype: string | undefined): void {
-	if (isDiscourseSubtype(subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
-}
+/**
+ * The one deep enforcement point (step 4 of reducing-papyrus-consumer-change-amplification-with-modules--pvdo)
+ * replacing the previously scattered isDiscourseSubtype/NOTE_SUBTYPE/task-kind checks that used
+ * to be re-implemented at every write call site. "generic" is the caller identity for the
+ * low-level artifact.create / graph.link / graph.unlink / graph.status surface, which owns
+ * nothing itself, so any claimed kind, subtype, or relation is rejected for it — exactly
+ * matching the historical behavior these checks replace.
+ */
+const GENERIC_CALLER = "generic";
 
-/** Low-level graph.link/graph.unlink must not bypass the domain invariants that docs.link/notes.* already enforce. */
-function requireGraphOperationAllowed(artifacts: ArtifactStore, relation: string, from: string, to: string): void {
-	const fromArtifact = artifacts.get(from);
-	const toArtifact = artifacts.get(to);
-	if (DISCOURSE_RELATIONS.has(relation) || isDiscourseSubtype(fromArtifact?.subtype) || isDiscourseSubtype(toArtifact?.subtype)) {
-		throw new Error("forum-owned Context Mesh links require discourse.store");
-	}
-	if (fromArtifact?.subtype === NOTE_SUBTYPE || toArtifact?.subtype === NOTE_SUBTYPE) {
-		throw new Error("note relationships require a notes.* operation so disposition provenance is preserved");
-	}
+const discourseAuthorityClaim: AuthorityClaim = {
+	owner: "discourse",
+	matchesArtifact: (_kind, subtype) => isDiscourseSubtype(subtype),
+	matchesRelation: (relation) => DISCOURSE_RELATIONS.has(relation),
+	denyMessage: (action) => action === "link" ? "forum-owned Context Mesh links require discourse.store" : "forum-owned Context Mesh Docs require discourse.store",
+};
+
+const notesAuthorityClaim: AuthorityClaim = {
+	owner: "notes",
+	matchesArtifact: (kind, subtype) => kind === "doc" && subtype === NOTE_SUBTYPE,
+	denyMessage: (action) => {
+		if (action === "link") return "note relationships require a notes.* operation so disposition provenance is preserved";
+		if (action === "status") return "note lifecycle changes require a notes.* operation so disposition provenance is preserved";
+		return "note creation requires notes.capture";
+	},
+};
+
+// Only ever checked for the "status" action today (graph.status): artifact.create redirects
+// kind="task" to tasks.create rather than rejecting, and graph.link/unlink never checked task
+// ownership historically. appliesToAction scopes the claim so it cannot leak into those paths.
+const tasksAuthorityClaim: AuthorityClaim = {
+	owner: "tasks",
+	matchesArtifact: (kind) => kind === "task",
+	appliesToAction: (action) => action === "status",
+	denyMessage: () => "task lifecycle changes require a tasks.* operation so history and review invariants are preserved",
+};
+
+function createAuthorityRegistry(): AuthorityRegistry {
+	const authority = new AuthorityRegistry();
+	authority.claimAll([discourseAuthorityClaim, notesAuthorityClaim, tasksAuthorityClaim]);
+	return authority;
 }
 
 export interface SchemaState {
@@ -190,7 +218,9 @@ function handlers(
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
 	moduleRegistry: OperationRegistry,
+	authority: AuthorityRegistry,
 ): Record<OperationName, OperationHandler> {
+	const genericWriter = new AuthorizedArtifactWriter(artifacts, authority, GENERIC_CALLER);
 	// Notes is the first module extracted behind the OperationRegistry (src/modules/notes.ts);
 	// these six entries stay in this completeness-checked table only as a thin forward so
 	// `Record<OperationName, OperationHandler>` still guarantees every operation has an entry
@@ -223,8 +253,8 @@ function handlers(
 		"discourse.store": (input) => discourse.execute(input),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
-			requireDiscourseStoreForSubtype(normalized.subtype ?? templateSubtype(artifacts, normalized.templateId));
-			if (normalized.kind === "doc" && normalized.subtype === "note") throw new Error("note creation requires notes.capture");
+			authority.requireArtifactAllowed(normalized.kind, normalized.subtype ?? templateSubtype(artifacts, normalized.templateId), "create", GENERIC_CALLER);
+			authority.requireArtifactAllowed(normalized.kind, normalized.subtype, "create", GENERIC_CALLER);
 			if (normalized.kind !== "task") return artifacts.create(normalized);
 			return tasks.create({
 				id: normalized.id,
@@ -249,7 +279,7 @@ function handlers(
 			const from = string(input, "from");
 			const relation = string(input, "relation");
 			const to = string(input, "to");
-			requireGraphOperationAllowed(artifacts, relation, from, to);
+			genericWriter.checkLink({ from, relation, to });
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
 				tasks.depend(from, to, eventContext(input));
 			} else {
@@ -261,7 +291,7 @@ function handlers(
 			const from = string(input, "from");
 			const relation = string(input, "relation");
 			const to = string(input, "to");
-			requireGraphOperationAllowed(artifacts, relation, from, to);
+			genericWriter.checkLink({ from, relation, to });
 			let removed: boolean;
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
 				const before = tasks.graph().nodes.find((node) => node.task.id === from)?.dependencyIds.includes(to) ?? false;
@@ -277,14 +307,7 @@ function handlers(
 			depth: optionalNumber(input, "depth"),
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
-		"graph.status": (input) => {
-			const id = string(input, "id");
-			const artifact = artifacts.get(id);
-			if (artifact?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
-			if (artifact?.kind === "doc" && artifact.subtype === "note") throw new Error("note lifecycle changes require a notes.* operation so disposition provenance is preserved");
-			if (isDiscourseSubtype(artifact?.subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
-			return artifacts.setStatus(id, string(input, "status"), eventContext(input));
-		},
+		"graph.status": (input) => genericWriter.setStatus(string(input, "id"), string(input, "status"), eventContext(input)),
 		"graph.history": (input) => artifacts.events({
 			artifactId: optionalString(input, "id"),
 			actor: optionalString(input, "actor"),
@@ -362,8 +385,11 @@ function handlers(
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
-			requireDiscourseStoreForSubtype(templateSubtype(artifacts, templateId));
-			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input), eventContext(input));
+			// Deliberately pass an unresolved kind so only the discourse claim (kind-agnostic) can match here —
+			// the historical requireDiscourseStoreForSubtype never checked notes at this call site; that check
+			// already happens inside instantiateTemplate's own rejectsNoteTemplate for the non-task branch below.
+			authority.requireArtifactAllowed(undefined, templateSubtype(artifacts, templateId), "create", GENERIC_CALLER);
+			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input), authority, eventContext(input));
 			return tasks.create({
 				title: optionalString(input, "title") as string,
 				body: optionalString(input, "body"),
@@ -388,13 +414,14 @@ export function createPapyrusService(path: string): PapyrusService {
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const notes = new Notes(artifacts);
 	const discourse = new SQLiteDiscourseStore(db, artifacts);
+	const authority = createAuthorityRegistry();
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
-	moduleRegistry.registerAll(docsOperations(artifacts));
+	moduleRegistry.registerAll(docsOperations(artifacts, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts));
-	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes }));
-	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry);
+	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, authority }));
+	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };

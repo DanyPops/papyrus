@@ -143,6 +143,22 @@ export const SEED_STATUSES = [
 ] as const;
 
 /**
+ * The initial status a newly created artifact of a kind gets when no caller-supplied
+ * status is given. This must be an explicit, named mapping — never derived from row order
+ * in the `statuses` table (SEED_STATUSES' listed order, or a migration's insertion order,
+ * is not a semantic guarantee; a migrated database can freely have a different physical
+ * row order for the same logical status set). Deriving "the default" from "whichever row
+ * happens to be first by rowid" was the root cause of a real production defect where
+ * migrated databases created new Tasks as done instead of todo.
+ */
+export const DEFAULT_STATUS_BY_KIND: Readonly<Record<string, string>> = {
+	doc: "draft",
+	task: "todo",
+	rule: "active",
+	skill: "active",
+};
+
+/**
  * Universal relation names — any kind can link to any kind.
  *
  * references:  source material (doc→doc, doc→task, doc→rule)

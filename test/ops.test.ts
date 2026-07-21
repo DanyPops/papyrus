@@ -48,6 +48,25 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	it("default status per kind is immune to status row order (the root cause of a real production defect)", () => {
+		// defaultStatusFor once picked whichever status row happened to be first by rowid --
+		// correct on a freshly seeded database, but wrong on a migrated one where a legacy
+		// status collided with a newly seeded name and kept the older, lower rowid. Reproduce
+		// that adversarial row order directly for every kind and assert the documented default
+		// still wins regardless of physical row order.
+		const { db } = tmpDb();
+		for (const [kind, correctDefault] of [["doc", "draft"], ["task", "todo"], ["rule", "active"], ["skill", "active"]] as const) {
+			const rows = db.prepare("SELECT name FROM statuses WHERE kind = ?").all(kind) as Array<{ name: string }>;
+			db.prepare("DELETE FROM statuses WHERE kind = ?").run(kind);
+			for (const row of rows) if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
+			db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(correctDefault, kind); // documented default now rowid-last
+			const rowidFirst = db.prepare("SELECT name FROM statuses WHERE kind = ? ORDER BY rowid LIMIT 1").get(kind) as { name: string };
+			expect(rowidFirst.name).not.toBe(correctDefault); // sanity: the adversarial condition actually holds
+			expect(createArtifact(db, { kind, title: `${kind}-adversarial` }).status).toBe(correctDefault);
+		}
+		db.close();
+	});
+
 	it("universal links — any kind to any kind", () => {
 		const { db } = tmpDb();
 		const doc = createArtifact(db, { kind: "doc", title: "Spec" });

@@ -59,6 +59,7 @@ const USAGE = `Usage:
   papyrus migrate schema [--json]
   papyrus discourse store <action> --store-id <id> [--input-json <json>] [--json]
   papyrus graph link <from> <relation> <to> [--json]
+  papyrus graph unlink <from> <relation> <to> [--json]
   papyrus graph tree <id> [--depth <n>] [--max-nodes <n>] [--json]
   papyrus graph status <id> <status> [--json]
   papyrus graph history [--id <artifact-id>] [--actor <actor>] [--session-id <id>] [--since <rfc3339>] [--limit <count>] [--cursor <id>] [--direction <asc|desc>] [--json]
@@ -110,8 +111,10 @@ const USAGE = `Usage:
   papyrus tasks reject <id> [--session-id <id>] [--json]
   papyrus tasks retry <id> [--session-id <id>] [--json]
   papyrus tasks cancel <id> [--session-id <id>] [--json]
-  papyrus tasks depend <id> <prerequisite-id> [--json]
-  papyrus tasks contain <parent-id> <child-id> [--json]
+  papyrus tasks depend <id> <prerequisite-id> [--reason <reason>] [--session-id <id>] [--json]
+  papyrus tasks undepend <id> <prerequisite-id> [--reason <reason>] [--session-id <id>] [--json]
+  papyrus tasks contain <parent-id> <child-id> [--reason <reason>] [--session-id <id>] [--json]
+  papyrus tasks uncontain <parent-id> <child-id> [--reason <reason>] [--session-id <id>] [--json]
   papyrus tasks create --title <title> [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--gates-json <json>] [--checklist-json <json>] [--template-id <id>] [--parent-id <id>] [--depends-on-json <json>] [--session-id <id>] [--json]
   papyrus tasks list [--status <status>] [--text <query>] [--limit <count>] [--scope <project|graph|all>] [--root-task-id <id>] [--session-id <id>] [--json]
   papyrus tasks show <id> [--json]
@@ -393,6 +396,12 @@ export async function runGraphCli(args: string[], client: TaskCliClient): Promis
 		const result = await client.call<Record<string, unknown>, { ok: boolean }>("graph.link", { from: first, relation: second, to: third });
 		return json ? JSON.stringify(result) : `Linked ${first} --${second}--> ${third}`;
 	}
+	if (action === "unlink") {
+		if (positional.length !== 4) throw new Error("graph unlink requires <from> <relation> <to>");
+		const result = await client.call<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: first, relation: second, to: third });
+		if (json) return JSON.stringify(result);
+		return result.removed ? `Unlinked ${first} --${second}--> ${third}` : `No such relationship: ${first} --${second}--> ${third}`;
+	}
 	if (action === "tree") {
 		if (positional.length !== 2) throw new Error("graph tree requires exactly one artifact id");
 		const artifact = await client.call<Record<string, unknown>, CliArtifact & { edges?: Array<{ from: string; relation: string; to: string }> }>("graph.tree", { id: first, depth, max_nodes: maxNodes });
@@ -407,7 +416,7 @@ export async function runGraphCli(args: string[], client: TaskCliClient): Promis
 		const artifact = await client.call<Record<string, unknown>, CliArtifact>("graph.status", { id: first, status: second });
 		return json ? JSON.stringify(artifact) : `Updated ${artifact.id} → [${artifact.status}]`;
 	}
-	if (action !== "history") throw new Error("graph action must be link, tree, status, or history");
+	if (action !== "history") throw new Error("graph action must be link, unlink, tree, status, or history");
 	const page = await client.call<Record<string, unknown>, import("./domain/artifact-event.ts").ArtifactEventPage>("graph.history", input);
 	if (json) return JSON.stringify(page);
 	if (page.events.length === 0) return "No recorded events.";
@@ -821,7 +830,8 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		positional.push(argument);
 	}
 	const [action, id, dependencyId] = positional;
-	if (reason !== undefined && action !== "update") throw new Error("--reason is only supported by tasks update");
+	const reasonSupportedActions = new Set(["update", "depend", "undepend", "contain", "uncontain"]);
+	if (reason !== undefined && !reasonSupportedActions.has(action ?? "")) throw new Error("--reason is only supported by tasks update, depend, undepend, contain, and uncontain");
 	const sessionScope = sessionId ? { session_id: sessionId } : {};
 	let result: unknown;
 	let human: string;
@@ -912,9 +922,20 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "contain": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks contain requires a parent id and child id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.contain", { parent_id: id, child_id: dependencyId });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.contain", {
+				parent_id: id, child_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+			});
 			result = artifact;
 			human = `Contained: ${dependencyId} → ${artifactLabel(artifact)}`;
+			break;
+		}
+		case "uncontain": {
+			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks uncontain requires a parent id and child id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.uncontain", {
+				parent_id: id, child_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+			});
+			result = artifact;
+			human = `Removed ${dependencyId} from ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "update": {
@@ -1029,16 +1050,24 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "depend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks depend requires a task id and prerequisite id");
-			const artifact = await client.call<{ id: string; dependency_id: string }, CliArtifact>("tasks.depend", {
-				id,
-				dependency_id: dependencyId,
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.depend", {
+				id, dependency_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
 			});
 			result = artifact;
 			human = `Dependency added: ${artifactLabel(artifact)} waits for ${dependencyId}`;
 			break;
 		}
+		case "undepend": {
+			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks undepend requires a task id and prerequisite id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.undepend", {
+				id, dependency_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+			});
+			result = artifact;
+			human = `Dependency removed: ${artifactLabel(artifact)} no longer waits for ${dependencyId}`;
+			break;
+		}
 		default:
-			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, depend, contain, run-gates, or set-checklist");
+			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, depend, undepend, contain, uncontain, run-gates, or set-checklist");
 	}
 	return json ? JSON.stringify(result) : human;
 }

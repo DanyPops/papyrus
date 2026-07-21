@@ -253,10 +253,11 @@ export default async function (pi: ExtensionAPI) {
 		description:
 			"Link artifacts with typed edges (any kind → any kind), view subgraph, update status, or read the mutation event log. " +
 			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers, contains, part_of. " +
-			"ACTIONS: link (from+relation+to), tree (id → bounded BFS subgraph), status (id+status → lifecycle), " +
+			"ACTIONS: link (from+relation+to), unlink (from+relation+to — idempotent, no error if already absent; for Task depends_on/contains prefer the tasks tool's undepend/uncontain), " +
+			"tree (id → bounded BFS subgraph), status (id+status → lifecycle), " +
 			"history (who did what, when — requires id, actor, or session_id).",
 		parameters: Type.Object({
-			action: Type.String({ description: "link | tree | status | history" }),
+			action: Type.String({ description: "link | unlink | tree | status | history" }),
 			from: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			to: Type.Optional(Type.String()),
@@ -277,6 +278,11 @@ export default async function (pi: ExtensionAPI) {
 					await callService("graph.link", { from: params.from!, relation: params.relation!, to: params.to! });
 					const output = `Linked ${params.from} --${params.relation}--> ${params.to}`;
 					return text(output, createPreviewDetails("graph.link", "Artifact relationship", output));
+				}
+				if (params.action === "unlink") {
+					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: params.from!, relation: params.relation!, to: params.to! });
+					const output = result.removed ? `Unlinked ${params.from} --${params.relation}--> ${params.to}` : `No such relationship: ${params.from} --${params.relation}--> ${params.to}`;
+					return text(output, createPreviewDetails("graph.unlink", "Artifact relationship", output));
 				}
 				if (params.action === "tree") {
 					const root = params.id ?? params.from;

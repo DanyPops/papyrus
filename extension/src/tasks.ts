@@ -111,18 +111,42 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
 		if (action.type !== "action" || !action.row) continue;
 
-		const active = graph.nodes.find((node) => node.task.id === action.row!.id)?.active === true;
-		const focusStatus = graph.nodes.find((node) => node.task.id === action.row!.id)?.focusStatus;
+		const node = graph.nodes.find((entry) => entry.task.id === action.row!.id);
+		const active = node?.active === true;
+		const focusStatus = node?.focusStatus;
 		const choices = [
 			"Show details",
 			"Edit task",
 			...(!active && action.row.status !== "done" && action.row.status !== "canceled" ? ["Make active"] : []),
 			...(active ? [focusStatus === "paused" ? "Resume focus" : "Pause focus", "Clear focus"] : []),
 			...(action.row.status === "review" ? ["Run gates"] : []),
+			...((node?.dependencyIds.length ?? 0) > 0 ? ["Remove dependency"] : []),
+			...((node?.parentIds.length ?? 0) > 0 ? ["Remove from parent"] : []),
 			...(STATUS_ACTIONS[action.row.status] ?? []),
 		];
 		const choice = await ctx.ui.select(action.row.title, choices);
 		if (!choice) continue;
+
+		if (choice === "Remove dependency" || choice === "Remove from parent") {
+			const relatedIds = choice === "Remove dependency" ? node!.dependencyIds : node!.parentIds;
+			const relatedTitles = relatedIds.map((relatedId) => `${graph.nodes.find((entry) => entry.task.id === relatedId)?.task.title ?? relatedId} · ${relatedId}`);
+			const selected = await ctx.ui.select(choice === "Remove dependency" ? "Remove which dependency?" : "Remove from which parent?", relatedTitles);
+			if (!selected) continue;
+			const relatedId = relatedIds[relatedTitles.indexOf(selected)]!;
+			try {
+				if (choice === "Remove dependency") {
+					await callService("tasks.undepend", { id: action.row.id, dependency_id: relatedId, actor: "user", source: "tasks-tui", session_id: sessionId });
+					ctx.ui.notify(`Removed dependency on ${relatedId}`, "info");
+				} else {
+					await callService("tasks.uncontain", { parent_id: relatedId, child_id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+					ctx.ui.notify(`Removed from parent ${relatedId}`, "info");
+				}
+			} catch (error) {
+				ctx.ui.notify(`Relationship removal failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
+			graph = await loadTaskGraph(ctx.cwd, sessionId);
+			continue;
+		}
 
 		if (choice === "Show details") {
 			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });

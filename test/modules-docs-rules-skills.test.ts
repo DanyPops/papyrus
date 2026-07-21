@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
@@ -15,11 +16,12 @@ function fixture() {
 	const artifacts = new SQLiteArtifactStore(db);
 	const events = new SQLiteTaskEventStore(db);
 	const scopes = new SQLiteTaskScopeStore(db);
+	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const authority = new AuthorityRegistry();
 	const registry = new OperationRegistry();
-	registry.registerAll(docsOperations(artifacts, authority));
-	registry.registerAll(rulesOperations(artifacts));
-	registry.registerAll(skillsOperations({ artifacts, events, scopes, authority }));
+	registry.registerAll(docsOperations(artifacts, artifactScopes, authority));
+	registry.registerAll(rulesOperations(artifacts, artifactScopes));
+	registry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
 	return { registry, artifacts };
 }
 

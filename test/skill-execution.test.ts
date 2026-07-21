@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
@@ -38,7 +39,7 @@ const definition = {
 function fixture() {
 	const db = openDb(":memory:");
 	const artifacts = new SQLiteArtifactStore(db);
-	const skill = createSkill(artifacts, { title: "Project change", definition }, new AuthorityRegistry());
+	const skill = createSkill(artifacts, new SQLiteArtifactScopeStore(db), { title: "Project change", definition }, new AuthorityRegistry());
 	return { db, artifacts, skill };
 }
 

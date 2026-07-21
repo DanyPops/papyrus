@@ -133,3 +133,48 @@ describe("documents domain service", () => {
 		db.close();
 	});
 });
+
+// Regression: the Task-creation defect (fixed in Tasks.create by hardcoding an explicit
+// status instead of falling through to defaultStatusFor's "first status row by rowid"
+// heuristic) is a bug *class*, not a one-off. defaultStatusFor picks whichever status a
+// migration or manual edit happened to insert first for a kind -- any creation path that
+// omits status is equally exposed. Reproduce the adversarial condition directly (reorder
+// a kind's status rows so the wrong one is rowid-first) and assert every creation path
+// that has no caller-supplied status still lands on its documented default regardless.
+describe("artifact creation is immune to status seed/row order for every kind, not only tasks", () => {
+	function adversariallyReorderStatuses(db: ReturnType<typeof openDb>, kind: string, correctDefault: string): void {
+		// Simulate what a migration or manual repair can do: delete and reinsert a kind's status
+		// rows so a status other than the documented default gets the lowest (earliest) rowid.
+		const rows = db.prepare("SELECT name FROM statuses WHERE kind = ?").all(kind) as Array<{ name: string }>;
+		db.prepare("DELETE FROM statuses WHERE kind = ?").run(kind);
+		for (const row of rows) {
+			if (row.name === correctDefault) continue; // reinsert every other status first
+			db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
+		}
+		db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(correctDefault, kind); // documented default now rowid-last
+		const rowidFirst = db.prepare("SELECT name FROM statuses WHERE kind = ? ORDER BY rowid LIMIT 1").get(kind) as { name: string };
+		expect(rowidFirst.name).not.toBe(correctDefault); // sanity: the adversarial condition actually holds
+	}
+
+	it("creates a Document as draft even when another doc status is rowid-first", () => {
+		const { db, artifacts, authority } = fixture();
+		adversariallyReorderStatuses(db, "doc", "draft");
+		expect(createDocument(artifacts, { title: "Adversarial" }, authority).status).toBe("draft");
+		db.close();
+	});
+
+	it("creates a Rule as active even when another rule status is rowid-first", () => {
+		const { db, artifacts } = fixture();
+		adversariallyReorderStatuses(db, "rule", "active");
+		expect(createRule(artifacts, { title: "Adversarial" }).status).toBe("active");
+		db.close();
+	});
+
+	it("creates a Skill and an artifact template as active even when another skill status is rowid-first", () => {
+		const { db, artifacts, authority } = fixture();
+		adversariallyReorderStatuses(db, "skill", "active");
+		expect(createSkill(artifacts, { title: "Adversarial" }, authority).status).toBe("active");
+		expect(createArtifactTemplate(artifacts, { title: "Adversarial template", targetKind: "doc" }, authority).status).toBe("active");
+		db.close();
+	});
+});

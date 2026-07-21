@@ -1,3 +1,4 @@
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
@@ -6,7 +7,22 @@ import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/n
 import { NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 import { skillInvocationPrompt, skillRowMeta, skillRunTaskGraph } from "../extension/src/skills.ts";
+import {
+	DOC_STATUS_PRESENTATION,
+	NOTE_STATUS_PRESENTATION,
+	RULE_STATUS_PRESENTATION,
+	severityColor,
+	SKILL_STATUS_PRESENTATION,
+} from "../extension/src/artifact-status-presentation.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
+
+const theme = {
+	bold: (text: string) => text,
+	italic: (text: string) => text,
+	underline: (text: string) => text,
+	strikethrough: (text: string) => text,
+	fg: (_color: string, text: string) => text,
+} as Theme;
 
 function artifact(overrides: Partial<Artifact>): Artifact {
 	return {
@@ -47,7 +63,7 @@ describe("shared artifact browser model", () => {
 
 describe("kind-specific frontend projections", () => {
 	it("projects document subtype and labels", () => {
-		expect(documentRowMeta(artifact({ subtype: "decision", labels: ["sqlite", "architecture"] }))).toBe("decision · sqlite, architecture");
+		expect(documentRowMeta(artifact({ subtype: "decision", labels: ["sqlite", "architecture"] }), theme)).toBe("decision · sqlite, architecture");
 	});
 
 	it("exposes Notes through direct commands, a bounded inbox, and one domain tool", () => {
@@ -79,8 +95,16 @@ describe("kind-specific frontend projections", () => {
 			body: "",
 			extra: { severity: "block", condition: "before commit", action: "Run bun test" },
 		});
-		expect(ruleRowMeta(rule)).toBe("BLOCK · when before commit");
+		expect(ruleRowMeta(rule, theme)).toBe("BLOCK · when before commit");
 		expect(ruleInjectionPreview(rule)).toContain("• Architecture (when: before commit)\n  Run bun test");
+	});
+
+	it("colors rule severity distinctly, so BLOCK/WARN/INFO are never visually identical", () => {
+		const distinguishingTheme = { ...theme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
+		const severities = ["block", "warn", "info"] as const;
+		const rendered = severities.map((severity) => ruleRowMeta(artifact({ kind: "rule", extra: { severity, condition: "x" } }), distinguishingTheme));
+		const colorsUsed = new Set(rendered.map((line) => line.match(/^<(\w+)>/)?.[1]));
+		expect(colorsUsed.size).toBe(3); // block, warn, info each get a genuinely different color, not the same fallback
 	});
 
 	it("projects skills and produces an invocation prompt", () => {
@@ -126,7 +150,49 @@ describe("kind-specific frontend projections", () => {
 		expect(graph.rootIds).toEqual([task.id]);
 		expect(graph.nodes[0]).toMatchObject({ task: { id: task.id }, dependencyIds: [] });
 	});
+});
 
+describe("status presentation: every browsable kind's statuses are colored, not just glyphed", () => {
+	for (const [kindLabel, presentation] of [
+		["rule", RULE_STATUS_PRESENTATION],
+		["doc", DOC_STATUS_PRESENTATION],
+		["note", NOTE_STATUS_PRESENTATION],
+		["skill", SKILL_STATUS_PRESENTATION],
+	] as const) {
+		it(`${kindLabel}: every status has a distinct color from every other status in the same kind`, () => {
+			const entries = Object.entries(presentation);
+			const colors = entries.map(([, value]) => value.color);
+			expect(new Set(colors).size).toBe(colors.length); // no two statuses share a color within one kind
+			for (const [status, value] of entries) {
+				expect(value.glyph.length).toBeGreaterThan(0);
+				expect(value.label.length).toBeGreaterThan(0);
+				expect(status).toBeTruthy();
+			}
+		});
+	}
+
+	it("active is never the same color as deprecated/archived/draft, across every kind", () => {
+		// This is the exact, literal complaint this feature closes: "hard to understand which
+		// rules are active" traces to active/deprecated differing only by glyph shape (filled vs
+		// hollow circle), not color. Lock in that active always reads as success-green.
+		for (const presentation of [RULE_STATUS_PRESENTATION, SKILL_STATUS_PRESENTATION]) {
+			expect(presentation["active"]!.color).toBe("success");
+			expect(presentation["deprecated"]!.color).not.toBe("success");
+		}
+		expect(DOC_STATUS_PRESENTATION["active"]!.color).toBe("success");
+		expect(NOTE_STATUS_PRESENTATION["active"]!.color).toBe("success");
+	});
+
+	it("maps every rule severity to a distinct color, defaulting unknown severities to muted rather than throwing", () => {
+		expect(severityColor("block")).toBe("error");
+		expect(severityColor("warn")).toBe("warning");
+		expect(severityColor("info")).toBe("accent");
+		expect(severityColor("BLOCK")).toBe("error"); // case-insensitive, since severity is often stored uppercased for display
+		expect(severityColor("unknown-severity")).toBe("muted");
+	});
+});
+
+describe("kind-specific frontend projections (continued)", () => {
 	it("identifies artifact templates in the skills browser", () => {
 		const template = artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "task" } });
 		expect(skillRowMeta(template)).toBe("template → task");

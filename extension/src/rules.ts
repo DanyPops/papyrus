@@ -1,14 +1,14 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
+import { RULE_STATUS_PRESENTATION, severityColor } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 
-const RULE_GLYPHS: Record<string, string> = { active: "●", deprecated: "○" };
-
-export function ruleRowMeta(rule: Artifact): string {
-	const severity = typeof rule.extra["severity"] === "string" ? rule.extra["severity"].toUpperCase() : "INFO";
+export function ruleRowMeta(rule: Artifact, theme: Theme): string {
+	const severity = typeof rule.extra["severity"] === "string" ? rule.extra["severity"] : "info";
+	const severityText = theme.fg(severityColor(severity), severity.toUpperCase());
 	const condition = typeof rule.extra["condition"] === "string" ? `when ${rule.extra["condition"]}` : "always";
-	return `${severity} · ${condition}`;
+	return `${severityText} · ${condition}`;
 }
 
 export function ruleInjectionPreview(rule: Pick<Artifact, "title" | "body" | "extra">): string {
@@ -23,7 +23,7 @@ export async function showRules(ctx: ExtensionCommandContext): Promise<void> {
 		title: "Rules",
 		listOperation: "rules.list",
 		statusOrder: ["active", "deprecated"],
-		glyphs: RULE_GLYPHS,
+		presentation: RULE_STATUS_PRESENTATION,
 		rowMeta: ruleRowMeta,
 		actions: (rule) => ["Show details", "Preview injection", "Link gated task", rule.status === "active" ? "Disable" : "Enable"],
 		handleAction: async (choice, rule, commandCtx) => {

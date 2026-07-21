@@ -3,9 +3,8 @@ import { NOTE_LIST_MAX_LIMIT } from "../../src/constants.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
+import { NOTE_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
-
-const NOTE_GLYPHS: Record<string, string> = { draft: "○", active: "●", archived: "■" };
 
 export function noteRowMeta(note: Artifact): string {
 	const history = Array.isArray(note.extra["noteHistory"]) ? note.extra["noteHistory"].length : 0;
@@ -53,7 +52,7 @@ export async function showNotes(ctx: ExtensionCommandContext): Promise<void> {
 		listOperation: "notes.list",
 		listInput: noteListInput(ctx.cwd),
 		statusOrder: ["draft", "active", "archived"],
-		glyphs: NOTE_GLYPHS,
+		presentation: NOTE_STATUS_PRESENTATION,
 		rowMeta: noteRowMeta,
 		actions: (note) => [
 			"Show details",

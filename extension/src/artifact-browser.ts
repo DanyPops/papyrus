@@ -1,9 +1,10 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { SEED_RELATIONS } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { OperationName } from "../../src/service.ts";
+import type { StatusPresentation } from "./artifact-status-presentation.ts";
 import { artifactDetailsText } from "./artifact-detail-format.ts";
 import { showArtifactDetailView } from "./artifact-detail-view.ts";
 import { callService } from "./service-client.ts";
@@ -19,10 +20,10 @@ export interface ArtifactBrowserConfig {
 	kind: string;
 	title: string;
 	statusOrder: string[];
-	glyphs: Record<string, string>;
+	presentation: Record<string, StatusPresentation>;
 	listOperation?: OperationName;
 	listInput?: Record<string, unknown>;
-	rowMeta(row: Artifact): string;
+	rowMeta(row: Artifact, theme: Theme): string;
 	actions(row: Artifact): string[];
 	handleAction(choice: string, row: Artifact, ctx: ExtensionCommandContext): Promise<void>;
 }
@@ -156,7 +157,11 @@ function renderPanel(
 						.join(theme.fg("muted", " · "));
 				const spacing = Math.max(1, width - visibleWidth(title) - visibleWidth(hint));
 				const summary = statusSummary(rows, config.statusOrder)
-					.map(({ status, count }) => `${config.glyphs[status] ?? status} ${count} ${status}`)
+					.map(({ status, count }) => {
+						const presentation = config.presentation[status];
+						const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : status;
+						return `${glyph} ${count} ${status}`;
+					})
 					.join(", ");
 				return [
 					truncateToWidth(`${title}${" ".repeat(spacing)}${hint}`, width, ""),
@@ -176,10 +181,11 @@ function renderPanel(
 					const row = filtered[index]!;
 					const selected = index === selectedIndex;
 					const cursor = selected ? theme.fg("accent", "❯") : " ";
-					const glyph = config.glyphs[row.status] ?? "?";
+					const presentation = config.presentation[row.status];
+					const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : "?";
 					const title = selected ? theme.bold(row.title) : row.title;
-					const meta = config.rowMeta(row);
-					lines.push(truncateToWidth(`${cursor} ${glyph} ${title}${meta ? theme.fg("dim", ` · ${meta}`) : ""}`, width, ""));
+					const meta = config.rowMeta(row, theme);
+					lines.push(truncateToWidth(`${cursor} ${glyph} ${title}${meta ? `${theme.fg("dim", " · ")}${meta}` : ""}`, width, ""));
 				}
 				lines.push(theme.fg("muted", `  ${selectedIndex + 1}/${filtered.length} ${config.kind}`));
 				return lines;

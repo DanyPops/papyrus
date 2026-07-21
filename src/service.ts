@@ -4,6 +4,7 @@ import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteDiscourseStore } from "./adapters/sqlite-discourse-store.ts";
+import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
@@ -80,6 +81,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"docs.archive",
 	"docs.reopen",
 	"docs.link",
+	"docs.assign_project",
 	"notes.capture",
 	"notes.list",
 	"notes.show",
@@ -93,6 +95,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"rules.enable",
 	"rules.disable",
 	"rules.gate",
+	"rules.assign_project",
 	"skills.create",
 	"skills.create_template",
 	"skills.list",
@@ -102,6 +105,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"skills.enable",
 	"skills.disable",
 	"skills.instantiate",
+	"skills.assign_project",
 	"graph_projection.apply",
 	"graph_projection.checkpoint",
 ] as const;
@@ -365,6 +369,7 @@ function handlers(
 		"docs.archive": forwardToModule("docs.archive"),
 		"docs.reopen": forwardToModule("docs.reopen"),
 		"docs.link": forwardToModule("docs.link"),
+		"docs.assign_project": forwardToModule("docs.assign_project"),
 		"notes.capture": forwardToModule("notes.capture"),
 		"notes.list": forwardToModule("notes.list"),
 		"notes.show": forwardToModule("notes.show"),
@@ -378,6 +383,7 @@ function handlers(
 		"rules.enable": forwardToModule("rules.enable"),
 		"rules.disable": forwardToModule("rules.disable"),
 		"rules.gate": forwardToModule("rules.gate"),
+		"rules.assign_project": forwardToModule("rules.assign_project"),
 		"skills.create": forwardToModule("skills.create"),
 		"skills.create_template": forwardToModule("skills.create_template"),
 		"skills.list": forwardToModule("skills.list"),
@@ -386,6 +392,7 @@ function handlers(
 		"skills.run": forwardToModule("skills.run"),
 		"skills.enable": forwardToModule("skills.enable"),
 		"skills.disable": forwardToModule("skills.disable"),
+		"skills.assign_project": forwardToModule("skills.assign_project"),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
@@ -421,13 +428,14 @@ export function createPapyrusService(path: string): PapyrusService {
 	const notes = new Notes(artifacts);
 	const discourse = new SQLiteDiscourseStore(db, artifacts);
 	const projections = new SQLiteGraphProjectionStore(db);
+	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const authority = createAuthorityRegistry();
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
-	moduleRegistry.registerAll(docsOperations(artifacts, authority));
-	moduleRegistry.registerAll(rulesOperations(artifacts));
-	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, authority }));
+	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
+	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
+	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {

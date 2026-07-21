@@ -243,6 +243,13 @@ CREATE TABLE IF NOT EXISTS graph_projection_identities (
 	PRIMARY KEY (producer_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_projection_identities(artifact_id);
+CREATE TABLE IF NOT EXISTS artifact_scopes (
+	artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
+	project_root  TEXT,
+	source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+	assigned_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
 `;
 
 const SEED_SQL = `
@@ -574,6 +581,19 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 9;
 			`);
 			applied.push("graph-projection-protocol");
+		}
+		if (schemaVersion(db) === 9) {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS artifact_scopes (
+					artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
+					project_root  TEXT,
+					source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+					assigned_at   TEXT NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
+				PRAGMA user_version = 10;
+			`);
+			applied.push("docs-rules-skills-project-scope");
 		}
 	});
 	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);

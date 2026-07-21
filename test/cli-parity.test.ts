@@ -98,6 +98,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "docs.archive", result: artifact, invoke: (c) => runDocsCli(["archive", "a1", "--json"], c) },
 	{ operation: "docs.reopen", result: artifact, invoke: (c) => runDocsCli(["reopen", "a1", "--json"], c) },
 	{ operation: "docs.link", result: artifact, invoke: (c) => runDocsCli(["link", "a1", "relates_to", "a2", "--json"], c) },
+	{ operation: "docs.assign_project", result: artifact, invoke: (c) => runDocsCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c) },
 	{ operation: "notes.capture", result: artifact, invoke: (c) => runNoteCli(["capture", "a request", "--json"], c) },
 	{ operation: "notes.list", result: artifactList, invoke: (c) => runNoteCli(["list", "--json"], c) },
 	{ operation: "notes.show", result: artifact, invoke: (c) => runNoteCli(["show", "a1", "--json"], c) },
@@ -111,6 +112,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "rules.enable", result: artifact, invoke: (c) => runRulesCli(["enable", "a1", "--json"], c) },
 	{ operation: "rules.disable", result: artifact, invoke: (c) => runRulesCli(["disable", "a1", "--json"], c) },
 	{ operation: "rules.gate", result: artifact, invoke: (c) => runRulesCli(["gate", "r1", "t1", "--json"], c) },
+	{ operation: "rules.assign_project", result: artifact, invoke: (c) => runRulesCli(["assign-project", "r1", "/workspace/papyrus", "--json"], c) },
 	{ operation: "skills.create", result: artifact, invoke: (c) => runSkillCli(["create", "--title", "T", "--json"], c) },
 	{ operation: "skills.create_template", result: artifact, invoke: (c) => runSkillCli(["create-template", "--title", "T", "--target-kind", "doc", "--json"], c) },
 	{ operation: "skills.list", result: artifactList, invoke: (c) => runSkillCli(["list", "--json"], c) },
@@ -119,6 +121,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "skills.run", result: { runId: "r1", created: { tasks: [], rules: [], docs: [] }, rootTaskIds: [], execution: { nodes: [] } }, invoke: (c) => runSkillCli(["run", "a1", "--json"], c) },
 	{ operation: "skills.enable", result: artifact, invoke: (c) => runSkillCli(["enable", "a1", "--json"], c) },
 	{ operation: "skills.disable", result: artifact, invoke: (c) => runSkillCli(["disable", "a1", "--json"], c) },
+	{ operation: "skills.assign_project", result: artifact, invoke: (c) => runSkillCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c) },
 	{ operation: "skills.instantiate", result: artifact, invoke: (c) => runSkillCli(["instantiate", "a1", "--json"], c) },
 ];
 

@@ -17,8 +17,9 @@
  * extraction.
  */
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import { createArtifactTemplate, createSkill, listSkills, showSkill, skillInvocation, transitionSkill } from "../domain-services.ts";
+import { assignSkillProject, createArtifactTemplate, createSkill, listSkills, showSkill, skillInvocation, transitionSkill } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
+import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
@@ -63,32 +64,37 @@ const artifactFilter = (input: OperationInput) => ({
 	status: optionalString(input, "status"),
 	text: optionalString(input, "text"),
 	limit: optionalNumber(input, "limit"),
+	projectRoot: optionalString(input, "project_root"),
 });
 
 export interface SkillsModuleDeps {
 	artifacts: ArtifactStore;
 	events: TaskEventStore;
 	scopes: TaskScopeStore;
+	/** Docs/Rules/Skills project scoping (distinct from `scopes`, which is Task-run project scoping for skills.run's materialized blueprint tasks). */
+	artifactScopes: ArtifactScopeStore;
 	authority: AuthorityRegistry;
 }
 
 /** Registers every skills.* operation except skills.instantiate (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
-export function skillsOperations({ artifacts, events, scopes, authority }: SkillsModuleDeps): OperationDefinition[] {
+export function skillsOperations({ artifacts, events, scopes, artifactScopes, authority }: SkillsModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,
 	});
 	return [
-		define("skills.create", (input: OperationInput) => createSkill(artifacts, {
+		define("skills.create", (input: OperationInput) => createSkill(artifacts, artifactScopes, {
 			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
 			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
 			definition: input["definition"],
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
+			projectRoot: optionalString(input, "project_root"),
 		}, authority, eventContext(input))),
-		define("skills.create_template", (input: OperationInput) => createArtifactTemplate(artifacts, {
+		define("skills.create_template", (input: OperationInput) => createArtifactTemplate(artifacts, artifactScopes, {
 			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
 			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
+			projectRoot: optionalString(input, "project_root"),
 		}, authority, eventContext(input))),
-		define("skills.list", (input: OperationInput) => listSkills(artifacts, artifactFilter(input))),
+		define("skills.list", (input: OperationInput) => listSkills(artifacts, artifactScopes, artifactFilter(input))),
 		define("skills.show", (input: OperationInput) => showSkill(artifacts, string(input, "id"))),
 		define("skills.invoke", (input: OperationInput) => skillInvocation(artifacts, string(input, "id"))),
 		define("skills.run", (input: OperationInput) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
@@ -97,5 +103,6 @@ export function skillsOperations({ artifacts, events, scopes, authority }: Skill
 		}, { events, scopes, projectRoot: string(input, "project_root"), context: eventContextFor(input, "skill-run") })),
 		define("skills.enable", (input: OperationInput) => transitionSkill(artifacts, string(input, "id"), "enable", eventContext(input))),
 		define("skills.disable", (input: OperationInput) => transitionSkill(artifacts, string(input, "id"), "disable", eventContext(input))),
+		define("skills.assign_project", (input: OperationInput) => assignSkillProject(artifacts, artifactScopes, string(input, "id"), optionalString(input, "project_root"))),
 	];
 }

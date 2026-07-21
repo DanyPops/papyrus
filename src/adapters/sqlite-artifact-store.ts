@@ -12,7 +12,7 @@ import type {
 	UpdateArtifactInput,
 } from "../domain/artifact.ts";
 import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "../domain/artifact-event.ts";
-import { createArtifact, getArtifact, linkArtifacts, queryArtifactEvents, queryArtifacts, updateArtifactContent, updateExtra, updateStatus } from "../ops.ts";
+import { createArtifact, getArtifact, linkArtifacts, queryArtifactEvents, queryArtifacts, unlinkArtifacts, updateArtifactContent, updateExtra, updateStatus } from "../ops.ts";
 
 export class SQLiteArtifactStore implements AtomicArtifactStore {
 	constructor(private readonly db: Db) {}
@@ -35,6 +35,10 @@ export class SQLiteArtifactStore implements AtomicArtifactStore {
 
 	link(link: ArtifactLink, context?: ArtifactEventContext): void {
 		linkArtifacts(this.db, link.from, link.relation, link.to, context);
+	}
+
+	unlink(link: ArtifactLink, context?: ArtifactEventContext): boolean {
+		return unlinkArtifacts(this.db, link.from, link.relation, link.to, context);
 	}
 
 	setStatus(id: string, status: string, context?: ArtifactEventContext): Artifact | null {

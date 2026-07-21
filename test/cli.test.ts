@@ -45,7 +45,7 @@ describe("Papyrus graph history CLI", () => {
 
 	it("requires a known action", async () => {
 		const client = new FakeClient({});
-		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, tree, status, or history");
+		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, unlink, tree, status, or history");
 	});
 });
 
@@ -195,7 +195,7 @@ describe("Papyrus task CLI", () => {
 		await runTaskCli(["depend", "task", "prerequisite", "--json"], dependencyClient);
 		expect(dependencyClient.calls).toEqual([{
 			operation: "tasks.depend",
-			input: { id: "task", dependency_id: "prerequisite" },
+			input: { id: "task", dependency_id: "prerequisite", actor: "user", source: "cli" },
 		}]);
 
 		const startClient = new FakeClient({ id: "task", title: "Task", status: "in-progress" });

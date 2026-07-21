@@ -335,6 +335,19 @@ export function linkArtifacts(db: Db, fromId: string, relation: string, toId: st
 	});
 }
 
+/** Idempotent: removing an already-absent relationship is a no-op that returns false, not an error. */
+export function unlinkArtifacts(db: Db, fromId: string, relation: string, toId: string, context?: ArtifactEventContext): boolean {
+	let removed = false;
+	inTransaction(db, () => {
+		const existed = db.prepare("SELECT 1 FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?").get(fromId, relation, toId);
+		if (!existed) return;
+		db.prepare("DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?").run(fromId, relation, toId);
+		appendArtifactEvent(db, { artifactId: fromId, type: "unlinked", relation, relatedId: toId, ...context });
+		removed = true;
+	});
+	return removed;
+}
+
 export function updateArtifactContent(db: Db, id: string, input: UpdateArtifactInput, context?: ArtifactEventContext): Artifact | null {
 	const artifact = getArtifact(db, id);
 	if (!artifact) return null;

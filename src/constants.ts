@@ -30,6 +30,23 @@ export const PAPYRUS_TASK_FOCUS_CHANNEL = "papyrus.task-focus.v1";
 export const PAPYRUS_TASK_FOCUS_SCHEMA = "papyrus.task-focus/v1";
 export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
 
+/**
+ * A Papyrus Rule's condition+action+body is injected into EVERY relevant turn's system
+ * prompt for the lifetime of the rule -- the same permanent, always-on-context role as an
+ * Agent Skill's name+description (per the Agent Skills spec's progressive-disclosure model:
+ * metadata ~100 tokens, always loaded; full instructions <5000 tokens, loaded only on
+ * activation). Anthropic's own context-engineering guidance is not a hard length rule but a
+ * signal-density principle -- "the smallest possible set of high-signal tokens", explicitly
+ * NOT "minimal means short" -- so RULE_TEXT_SOFT_TARGET_CHARACTERS is a target to aim for,
+ * not a rejection threshold. RULE_TEXT_HARD_LIMIT_CHARACTERS is the actual enforced ceiling,
+ * generous enough to allow a real rule to breathe, but catching genuinely runaway bloat that
+ * would tax every single turn. Above the hard limit, split into a short Rule (condition +
+ * the invariant) plus a linked Doc for full reasoning -- the pattern this codebase's own
+ * active rules already use via "Source: Lexicon <path>" references.
+ */
+export const RULE_TEXT_SOFT_TARGET_CHARACTERS = 600;
+export const RULE_TEXT_HARD_LIMIT_CHARACTERS = 4000;
+
 /** Compact task-context limits keep recurring prompt injection bounded. */
 export const TASK_CONTEXT_CURRENT_LIMIT = 3;
 export const TASK_CONTEXT_REJECTED_LIMIT = 3;

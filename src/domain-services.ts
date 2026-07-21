@@ -1,4 +1,4 @@
-import { ARTIFACT_SCOPE_MAX_ARTIFACTS } from "./constants.ts";
+import { ARTIFACT_SCOPE_MAX_ARTIFACTS, RULE_TEXT_HARD_LIMIT_CHARACTERS } from "./constants.ts";
 import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
 import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
@@ -174,7 +174,27 @@ export interface CreateRuleInput {
 
 export type RuleTransition = "enable" | "disable";
 
+/**
+ * A Rule's condition+action+body is injected into every relevant turn for the rule's entire
+ * lifetime -- a permanent tax on every future turn's context budget, not a one-time cost.
+ * Rejects (rather than silently truncating or merely warning) once a rule is unambiguously
+ * bloated, since a silently-truncated rule would inject different text than what its author
+ * reviewed, and a warning nobody reads is not a bound. See RULE_TEXT_HARD_LIMIT_CHARACTERS's
+ * own comment in constants.ts for the research this threshold is grounded in.
+ */
+function assertRuleTextWithinBounds(condition: string | undefined, action: string | undefined, body: string | undefined): void {
+	const combined = (condition ?? "").length + (action ?? "").length + (body ?? "").length;
+	if (combined > RULE_TEXT_HARD_LIMIT_CHARACTERS) {
+		throw new Error(
+			`rule condition+action+body is ${combined} characters, exceeding the ${RULE_TEXT_HARD_LIMIT_CHARACTERS}-character bound. ` +
+				"A Rule is injected into every relevant turn for its entire lifetime -- this is a permanent context-budget tax, not a one-time cost. " +
+				"Split it: keep a short Rule (the condition and the invariant itself), and move the full reasoning, examples, and research into a linked Doc.",
+		);
+	}
+}
+
 export function createRule(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreateRuleInput, context?: ArtifactEventContext): Artifact {
+	assertRuleTextWithinBounds(input.condition, input.action, input.body);
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 	const rule = artifacts.create({
 		kind: "rule",

@@ -66,25 +66,27 @@ const USAGE = `Usage:
   papyrus notes consume <id> [--reason <reason>] [--json]
   papyrus notes promote <id> <target-id> [--reason <reason>] [--json]
   papyrus notes archive <id> <completed|duplicate|declined|superseded> [--reason <reason>] [--json]
-  papyrus tasks plan [--json]
-  papyrus tasks graph [--json]
-  papyrus tasks active [--json]
-  papyrus tasks focused [--json]
-  papyrus tasks pause [--json]
-  papyrus tasks unpause [--json]
-  papyrus tasks clear-focus [--json]
+  papyrus tasks plan [--session-id <id>] [--json]
+  papyrus tasks graph [--session-id <id>] [--json]
+  papyrus tasks active [--session-id <id>] [--json]
+  papyrus tasks focused [--session-id <id>] [--json]
+  papyrus tasks pause [--session-id <id>] [--json]
+  papyrus tasks unpause [--session-id <id>] [--json]
+  papyrus tasks clear-focus [--session-id <id>] [--json]
   papyrus tasks history <id> [--json]
   papyrus tasks scope [project|all|graph <root-id>] [--json]
   papyrus tasks assign-project <id> [project-root] [--json]
-  papyrus tasks focus <id> [--json]
+  papyrus tasks focus <id> [--session-id <id>] [--json]
   papyrus tasks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--status todo --reason <reason>] [--json]
-  papyrus tasks complete <id> [--json]
-  papyrus tasks start <id> [--json]
-  papyrus tasks submit <id> [--json]
-  papyrus tasks reject <id> [--json]
-  papyrus tasks retry <id> [--json]
-  papyrus tasks cancel <id> [--json]
-  papyrus tasks depend <id> <prerequisite-id> [--json]`;
+  papyrus tasks complete <id> [--session-id <id>] [--json]
+  papyrus tasks start <id> [--session-id <id>] [--json]
+  papyrus tasks submit <id> [--session-id <id>] [--json]
+  papyrus tasks reject <id> [--session-id <id>] [--json]
+  papyrus tasks retry <id> [--session-id <id>] [--json]
+  papyrus tasks cancel <id> [--session-id <id>] [--json]
+  papyrus tasks depend <id> <prerequisite-id> [--json]
+
+A "--session-id" scopes Task Focus to one agent session; omit it to use the shared "global" Focus (today's behavior).`;
 
 function usage(): never {
 	console.error(USAGE);
@@ -308,9 +310,15 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 	const positional: string[] = [];
 	const updateInput: { title?: string; body?: string; labels?: string[]; status?: "todo" } = {};
 	let reason: string | undefined;
+	let sessionId: string | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
+		if (argument === "--session-id") {
+			sessionId = args[++index];
+			if (!sessionId) throw new Error("--session-id requires a value");
+			continue;
+		}
 		if (argument === "--title" || argument === "--body" || argument === "--labels-json" || argument === "--status" || argument === "--reason") {
 			const value = args[++index];
 			if (value === undefined) throw new Error(`${argument} requires a value`);
@@ -331,19 +339,20 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 	}
 	const [action, id, dependencyId] = positional;
 	if (reason !== undefined && action !== "update") throw new Error("--reason is only supported by tasks update");
+	const sessionScope = sessionId ? { session_id: sessionId } : {};
 	let result: unknown;
 	let human: string;
 	switch (action) {
 		case "active": {
 			if (id) throw new Error("tasks active accepts no positional arguments");
-			const active = await client.call<Record<string, string>, CliArtifact | null>("tasks.active", { project_root: projectRoot });
+			const active = await client.call<Record<string, unknown>, CliArtifact | null>("tasks.active", { project_root: projectRoot, ...sessionScope });
 			result = active;
 			human = active ? `Active: ${artifactLabel(active)}` : "No active task.";
 			break;
 		}
 		case "focused": {
 			if (id) throw new Error("tasks focused accepts no positional arguments");
-			const focus = await client.call<Record<string, string>, { artifact: CliArtifact; status: "active" | "paused"; updatedAt: string } | null>("tasks.focused", { project_root: projectRoot });
+			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: "active" | "paused"; updatedAt: string } | null>("tasks.focused", { project_root: projectRoot, ...sessionScope });
 			result = focus;
 			human = focus ? `Focused (${focus.status}): ${artifactLabel(focus.artifact)}` : "No focused task.";
 			break;
@@ -352,14 +361,14 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "unpause": {
 			if (id) throw new Error(`tasks ${action} accepts no positional arguments`);
 			const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
-			const focus = await client.call<Record<string, string>, { artifact: CliArtifact; status: string }>(operation, { actor: "user", source: "cli" });
+			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: string }>(operation, { actor: "user", source: "cli", ...sessionScope });
 			result = focus;
 			human = `Focused (${focus.status}): ${artifactLabel(focus.artifact)}`;
 			break;
 		}
 		case "clear-focus": {
 			if (id) throw new Error("tasks clear-focus accepts no positional arguments");
-			const cleared = await client.call<Record<string, string>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli" });
+			const cleared = await client.call<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli", ...sessionScope });
 			result = cleared;
 			human = cleared.cleared ? "Task focus cleared." : "No focused task.";
 			break;
@@ -418,17 +427,17 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "focus": {
 			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
-			const active = await client.call<Record<string, string>, CliArtifact>("tasks.focus", { id, actor: "user", source: "cli" });
+			const active = await client.call<Record<string, unknown>, CliArtifact>("tasks.focus", { id, actor: "user", source: "cli", ...sessionScope });
 			result = active;
 			human = `Active: ${artifactLabel(active)}`;
 			break;
 		}
 		case "graph": {
 			if (id) throw new Error("tasks graph accepts no positional arguments");
-			const graph = await client.call<{ limit: number; project_root: string }, {
+			const graph = await client.call<Record<string, unknown>, {
 				nodes: Array<{ dependencyIds: string[]; childIds: string[] }>;
 				rootIds: string[];
-			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1, project_root: projectRoot });
+			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1, project_root: projectRoot, ...sessionScope });
 			result = graph;
 			const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 			const children = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
@@ -437,14 +446,14 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "plan": {
 			if (id) throw new Error("tasks plan accepts no positional arguments");
-			const plan = await client.call<Record<string, string>, TaskExecutionPlan>("tasks.plan", { project_root: projectRoot });
+			const plan = await client.call<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", { project_root: projectRoot, ...sessionScope });
 			result = plan;
 			human = planText(plan);
 			break;
 		}
 		case "complete": {
 			if (!id || dependencyId) throw new Error("tasks complete requires exactly one task id");
-			const completion = await client.call<Record<string, string>, CliCompletion>("tasks.complete", { id, actor: "user", source: "cli" });
+			const completion = await client.call<Record<string, unknown>, CliCompletion>("tasks.complete", { id, actor: "user", source: "cli", ...sessionScope });
 			result = completion;
 			const lines = [`${completion.completed ? "Completed" : "Rejected"}: ${artifactLabel(completion.artifact)}`];
 			if (completion.focused) lines.push(`Active: ${artifactLabel(completion.focused)}`);
@@ -457,7 +466,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "start": {
 			if (!id || dependencyId) throw new Error("tasks start requires exactly one task id");
-			const artifact = await client.call<Record<string, string>, CliArtifact>("tasks.start", { id, actor: "user", source: "cli" });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.start", { id, actor: "user", source: "cli", ...sessionScope });
 			result = artifact;
 			human = `Started: ${artifactLabel(artifact)}`;
 			break;
@@ -468,7 +477,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "cancel": {
 			if (!id || dependencyId) throw new Error(`tasks ${action} requires exactly one task id`);
 			const operation = `tasks.${action}` as "tasks.submit" | "tasks.reject" | "tasks.retry" | "tasks.cancel";
-			const artifact = await client.call<Record<string, string>, CliArtifact>(operation, { id, actor: "user", source: "cli" });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>(operation, { id, actor: "user", source: "cli", ...sessionScope });
 			result = artifact;
 			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
 			break;

@@ -67,6 +67,7 @@ class TaskOverlay {
 	private tui: any | undefined;
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 	private projectRoot: string | undefined;
+	private sessionId: string | undefined;
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -77,11 +78,14 @@ class TaskOverlay {
 	}
 
 	setProjectRoot(projectRoot: string): void { this.projectRoot = projectRoot; }
+	// Scopes the widget's "active" glyph to this Pi session's own Focus, so a second
+	// concurrent agent's focused task never shows as active in this session's widget.
+	setSessionId(sessionId: string): void { this.sessionId = sessionId; }
 
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
 		try {
-			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500, project_root: this.projectRoot });
+			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500, project_root: this.projectRoot, session_id: this.sessionId });
 		} catch {
 			this.snapshot = { nodes: [], rootIds: [] };
 		}
@@ -133,6 +137,7 @@ class TaskOverlay {
 		this.tui = undefined;
 		this.uiCtx = undefined;
 		this.projectRoot = undefined;
+		this.sessionId = undefined;
 	}
 }
 
@@ -153,7 +158,8 @@ export default async function (pi: ExtensionAPI) {
 	const driveActiveTasks = async (ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
 		try {
-			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd });
+			const sessionId = ctx.sessionManager.getSessionId();
+			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd, session_id: sessionId });
 			const decision = taskContinuation.evaluate(active, {
 				idle: ctx.isIdle(),
 				pendingMessages: ctx.hasPendingMessages(),
@@ -169,6 +175,7 @@ export default async function (pi: ExtensionAPI) {
 					actor: "system",
 					source: "task-continuation",
 					reason: automaticPauseReason(decision.reason),
+					session_id: sessionId,
 				});
 				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
 			}
@@ -362,6 +369,7 @@ export default async function (pi: ExtensionAPI) {
 		description: "Browse and manage Papyrus tasks (interactive)",
 		handler: async (_args, ctx) => {
 			overlay?.setProjectRoot(ctx.cwd);
+			overlay?.setSessionId(ctx.sessionManager.getSessionId());
 			await tasksModule.showTasks(ctx);
 			await overlay?.refresh();
 		},
@@ -394,6 +402,7 @@ export default async function (pi: ExtensionAPI) {
 		overlay ??= new TaskOverlay();
 		overlay.setUI(ctx.ui);
 		overlay.setProjectRoot(ctx.cwd);
+		overlay.setSessionId(ctx.sessionManager.getSessionId());
 		await overlay.refresh();
 	});
 
@@ -413,13 +422,14 @@ export default async function (pi: ExtensionAPI) {
 	// agent_settled is intentionally later than agent_end: Pi guarantees that
 	// retry, compaction retry, and queued follow-up processing have finished.
 
-	pi.on("input", async (event) => {
+	pi.on("input", async (event, ctx) => {
 		if (event.source === "extension") return;
 		taskContinuation.onHumanInput();
 		try {
-			const focus = await callService<Record<string, never>, { status: string; pauseReason?: string } | null>("tasks.focused", {});
+			const sessionId = ctx.sessionManager.getSessionId();
+			const focus = await callService<Record<string, unknown>, { status: string; pauseReason?: string } | null>("tasks.focused", { session_id: sessionId });
 			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
-				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation" });
+				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation", session_id: sessionId });
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.
@@ -434,9 +444,10 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		try {
+			const sessionId = ctx.sessionManager.getSessionId();
 			const [rules, summary] = await Promise.all([
-				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd }),
-				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd }),
+				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
+				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId }),
 			]);
 			const injection = buildContextInjection({
 				basePrompt: event.systemPrompt ?? "",

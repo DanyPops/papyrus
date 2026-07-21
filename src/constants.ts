@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 7;
+export const SQLITE_SCHEMA_VERSION = 8;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 /** Bounded forum persistence behind the Discourse mutation authority. */
 export const DISCOURSE_QUERY_MAX_LIMIT = 100;
@@ -81,6 +81,11 @@ export const NOTE_REASON_MAX_CHARACTERS = 2_000;
 export const ARTIFACT_EVENT_ACTOR_MAX_LENGTH = 128;
 export const ARTIFACT_EVENT_HISTORY_DEFAULT_LIMIT = 25;
 export const ARTIFACT_EVENT_HISTORY_MAX_LIMIT = 200;
+/** Per-agent-session Task Focus scoping. "global" is the default scope for callers that don't supply a session id (CLI, legacy behavior). */
+export const TASK_FOCUS_DEFAULT_SCOPE = "global";
+export const TASK_FOCUS_SCOPE_MAX_LENGTH = 128;
+/** Hard cap on distinct concurrent focus scopes (sessions); oldest-updated scope is evicted beyond this. */
+export const TASK_FOCUS_MAX_SCOPES = 500;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;

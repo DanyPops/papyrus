@@ -170,6 +170,26 @@ describe("Papyrus task CLI", () => {
 		expect(client.calls).toEqual([{ operation: "tasks.plan", input: { project_root: PROJECT_ROOT } }]);
 	});
 
+	it("omits session_id by default, preserving today's shared global Focus behavior", async () => {
+		const client = new FakeClient(null);
+		await runTaskCli(["active"], client);
+		expect(client.calls).toEqual([{ operation: "tasks.active", input: { project_root: PROJECT_ROOT } }]);
+	});
+
+	it("threads --session-id through Focus-related task operations", async () => {
+		const active = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
+		await runTaskCli(["active", "--session-id", "ses-alice"], active);
+		expect(active.calls).toEqual([{ operation: "tasks.active", input: { project_root: PROJECT_ROOT, session_id: "ses-alice" } }]);
+
+		const focus = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
+		await runTaskCli(["focus", "task", "--session-id", "ses-alice"], focus);
+		expect(focus.calls).toEqual([{ operation: "tasks.focus", input: { id: "task", actor: "user", source: "cli", session_id: "ses-alice" } }]);
+
+		const pause = new FakeClient({ artifact: { id: "task", title: "Task", status: "in-progress" }, status: "paused" });
+		await runTaskCli(["pause", "--session-id", "ses-alice"], pause);
+		expect(pause.calls).toEqual([{ operation: "tasks.pause", input: { actor: "user", source: "cli", session_id: "ses-alice" } }]);
+	});
+
 	it("routes dependency and start mutations through authenticated task operations", async () => {
 		const dependencyClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
 		await runTaskCli(["depend", "task", "prerequisite", "--json"], dependencyClient);

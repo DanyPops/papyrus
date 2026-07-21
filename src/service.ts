@@ -211,6 +211,7 @@ function handlers(
 		projectRoot: string(input, "project_root"),
 		scope: optionalString(input, "scope") as TaskViewMode | undefined,
 		rootTaskId: optionalString(input, "root_task_id"),
+		sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 	});
 	return {
 		"system.migrate": () => migrate(),
@@ -334,7 +335,7 @@ function handlers(
 		"tasks.complete": (input) => tasks.completeAsync(string(input, "id"), eventContext(input)),
 		"tasks.run_gates": (input) => tasks.runGates(string(input, "id"), eventContext(input)),
 		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
-		"tasks.context": (input) => taskContext(artifacts, tasks.active()?.id, new Set(tasks.list(taskFilter(input)).map((task) => task.id))),
+		"tasks.context": (input) => taskContext(artifacts, tasks.active(taskFilter(input))?.id, new Set(tasks.list(taskFilter(input)).map((task) => task.id))),
 		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
 		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
 		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel", eventContext(input)),

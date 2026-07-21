@@ -83,6 +83,15 @@ const taskFilter = (input: OperationInput) => ({
  * this is not "another module's infrastructure", it is the shared port every module writes
  * through.
  */
+/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
+export const TASKS_OPERATION_NAMES = [
+	"tasks.create", "tasks.update", "tasks.list", "tasks.graph", "tasks.plan", "tasks.show", "tasks.history",
+	"tasks.scope", "tasks.set_scope", "tasks.assign_project", "tasks.active", "tasks.focused", "tasks.focus",
+	"tasks.pause", "tasks.unpause", "tasks.clear_focus", "tasks.start", "tasks.submit", "tasks.complete",
+	"tasks.run_gates", "tasks.set_checklist", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel",
+	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain",
+] as const;
+
 export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,

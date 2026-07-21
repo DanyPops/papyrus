@@ -39,6 +39,11 @@ function optionalNumber(input: OperationInput, key: string): number | undefined 
 	return value;
 }
 
+/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
+export const NOTES_OPERATION_NAMES = [
+	"notes.capture", "notes.list", "notes.show", "notes.consume", "notes.promote", "notes.archive",
+] as const;
+
 /** Registers every notes.* operation against one Notes instance. Behavior is unchanged from the prior inline handlers in src/service.ts. */
 export function notesOperations(notes: Notes): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({

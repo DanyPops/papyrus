@@ -50,6 +50,11 @@ const artifactFilter = (input: OperationInput) => ({
 });
 
 /** Registers every docs.* operation against the shared ArtifactStore port. Behavior is unchanged from the prior inline handlers in src/service.ts. */
+/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
+export const DOCS_OPERATION_NAMES = [
+	"docs.create", "docs.list", "docs.show", "docs.activate", "docs.archive", "docs.reopen", "docs.link", "docs.assign_project",
+] as const;
+
 export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore, authority: AuthorityRegistry): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,

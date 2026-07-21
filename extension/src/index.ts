@@ -26,6 +26,7 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
+import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
 	createArtifactDetails,
@@ -146,6 +147,7 @@ class TaskOverlay {
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
+	setTaskFocusEventBus(pi);
 	registerDomainTools(pi);
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
@@ -171,12 +173,13 @@ export default async function (pi: ExtensionAPI) {
 					display: false,
 				}, { triggerTurn: true, deliverAs: "nextTurn" });
 			} else if (decision.action === "pause") {
-				await callService("tasks.pause", {
+				const paused = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>("tasks.pause", {
 					actor: "system",
 					source: "task-continuation",
 					reason: automaticPauseReason(decision.reason),
 					session_id: sessionId,
 				});
+				emitTaskFocusEvent({ taskId: paused.artifact.id, sessionId, status: "paused" });
 				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
 			}
 		} catch {
@@ -433,9 +436,10 @@ export default async function (pi: ExtensionAPI) {
 		taskContinuation.onHumanInput();
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const focus = await callService<Record<string, unknown>, { status: string; pauseReason?: string } | null>("tasks.focused", { session_id: sessionId });
+			const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>("tasks.focused", { session_id: sessionId });
 			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
 				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation", session_id: sessionId });
+				emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId, status: "unpaused" });
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.

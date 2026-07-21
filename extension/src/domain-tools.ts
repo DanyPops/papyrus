@@ -7,6 +7,7 @@ import type { TaskExecutionPlan } from "../../src/task-execution.ts";
 import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
+import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
 import { callService } from "./service-client.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -114,10 +115,12 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "pause" || action === "unpause") {
 					const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, request);
+					emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId: request.session_id as string, status: action === "pause" ? "paused" : "unpaused" });
 					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
 				}
 				if (action === "clear_focus") {
 					const result = await callService<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", request);
+					if (result.cleared) emitTaskFocusEvent({ taskId: null, sessionId: request.session_id as string, status: "cleared" });
 					const output = result.cleared ? "Task focus cleared." : "No focused task.";
 					return text(output, createPreviewDetails("tasks.clear_focus", "Task focus", output));
 				}
@@ -190,6 +193,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown tasks action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
+				if (operation === "tasks.focus") emitTaskFocusEvent({ taskId: artifact.id, sessionId: request.session_id as string, status: "focused" });
 				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
 			} catch (error) {
 				throw new Error(`tasks failed: ${error instanceof Error ? error.message : error}`);

@@ -25,6 +25,9 @@ export const GATE_FILE_MAX_BYTES = 1_048_576;
 
 export const PAPYRUS_CONTEXT_INJECTION_CHANNEL = "papyrus.context-injection.v1";
 export const PAPYRUS_CONTEXT_INJECTION_SCHEMA = "papyrus.context-injection/v1";
+/** Broadcasts which task is focused, content-free (taskId/sessionId/status/timestamp only), so other extensions (e.g. a token-cost router) can correlate their own telemetry without Papyrus depending on them. */
+export const PAPYRUS_TASK_FOCUS_CHANNEL = "papyrus.task-focus.v1";
+export const PAPYRUS_TASK_FOCUS_SCHEMA = "papyrus.task-focus/v1";
 export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
 
 /** Compact task-context limits keep recurring prompt injection bounded. */

@@ -2,7 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
-import { noteCaptureInput, noteRowMeta } from "../extension/src/notes.ts";
+import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
+import { NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 import { skillInvocationPrompt, skillRowMeta, skillRunTaskGraph } from "../extension/src/skills.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
@@ -55,6 +56,12 @@ describe("kind-specific frontend projections", () => {
 			body: "Review this later", project_root: "/workspace/papyrus", actor: "human", source: "note-command",
 		});
 		expect(noteCaptureInput("   ", "/workspace/papyrus")).toBeNull();
+		// Regression: the generic artifact browser defaults to a 500-row page, which exceeds
+		// notes.list's own NOTE_LIST_MAX_LIMIT (200) and made /notes fail with an opaque
+		// extension error instead of ever rendering. The Notes inbox must request within its
+		// own bound explicitly rather than relying on the browser's generic default.
+		expect(noteListInput("/workspace/papyrus")).toEqual({ project_root: "/workspace/papyrus", limit: NOTE_LIST_MAX_LIMIT });
+		expect(NOTE_LIST_MAX_LIMIT).toBeLessThan(500);
 		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
 		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
 		expect(extension).toContain('registerCommand("note"');

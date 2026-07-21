@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { NOTE_LIST_MAX_LIMIT } from "../../src/constants.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
@@ -15,6 +16,18 @@ export function noteCaptureInput(request: string, projectRoot: string): Record<s
 	const body = request.trim();
 	if (!body) return null;
 	return { body, project_root: projectRoot, actor: "human", source: "note-command" };
+}
+
+/**
+ * The generic artifact browser (extension/src/artifact-browser.ts) requests a fixed 500-row
+ * page by default, but notes.list enforces its own tighter NOTE_LIST_MAX_LIMIT (200) — an
+ * unqualified /notes call exceeded that bound and the browser surfaced the daemon's rejection
+ * as an opaque extension error instead of ever rendering. Passing an explicit limit here that
+ * respects the Notes-specific bound is the fix; the generic browser's default stays as-is
+ * since no other kind's list operation has a bound below 500.
+ */
+export function noteListInput(projectRoot: string): Record<string, unknown> {
+	return { project_root: projectRoot, limit: NOTE_LIST_MAX_LIMIT };
 }
 
 export async function captureNote(request: string, ctx: ExtensionCommandContext): Promise<Artifact | null> {
@@ -38,7 +51,7 @@ export async function showNotes(ctx: ExtensionCommandContext): Promise<void> {
 		kind: "note",
 		title: "Notes inbox",
 		listOperation: "notes.list",
-		listInput: { project_root: ctx.cwd },
+		listInput: noteListInput(ctx.cwd),
 		statusOrder: ["draft", "active", "archived"],
 		glyphs: NOTE_GLYPHS,
 		rowMeta: noteRowMeta,

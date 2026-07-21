@@ -1,4 +1,5 @@
 import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
+import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import { validateSkillDefinition } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { NOTE_SUBTYPE } from "./note-service.ts";
@@ -61,7 +62,7 @@ const DOCUMENT_TRANSITIONS: Record<DocumentTransition, { from: string[]; to: str
 	reopen: { from: ["archived"], to: "draft" },
 };
 
-export function createDocument(artifacts: ArtifactStore, input: CreateDocumentInput): Artifact {
+export function createDocument(artifacts: ArtifactStore, input: CreateDocumentInput, context?: ArtifactEventContext): Artifact {
 	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade();
 	if (isDiscourseSubtype(input.subtype ?? templateSubtype(artifacts, input.templateId))) throw new Error("forum-owned Context Mesh Docs require discourse.store");
 	return artifacts.create({
@@ -72,7 +73,7 @@ export function createDocument(artifacts: ArtifactStore, input: CreateDocumentIn
 		labels: input.labels,
 		extra: input.extra,
 		templateId: input.templateId,
-	});
+	}, context);
 }
 
 export function listDocuments(artifacts: ArtifactStore, filter: ListFilter): Artifact[] {
@@ -90,19 +91,19 @@ export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
 	return artifacts.get(id, { tree: true })!;
 }
 
-export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition): Artifact {
+export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition, context?: ArtifactEventContext): Artifact {
 	const document = requireMutableDocument(requireDocument(artifacts, id));
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
-	return artifacts.setStatus(id, transition.to)!;
+	return artifacts.setStatus(id, transition.to, context)!;
 }
 
-export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string): Artifact {
+export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, context?: ArtifactEventContext): Artifact {
 	requireMutableDocument(requireDocument(artifacts, id));
 	const target = artifacts.get(targetId);
 	if (!target) throw new Error(`target artifact "${targetId}" not found`);
 	requireMutableDocument(target);
-	artifacts.link({ from: id, relation, to: targetId });
+	artifacts.link({ from: id, relation, to: targetId }, context);
 	return showDocument(artifacts, id);
 }
 
@@ -118,7 +119,7 @@ export interface CreateRuleInput {
 
 export type RuleTransition = "enable" | "disable";
 
-export function createRule(artifacts: ArtifactStore, input: CreateRuleInput): Artifact {
+export function createRule(artifacts: ArtifactStore, input: CreateRuleInput, context?: ArtifactEventContext): Artifact {
 	return artifacts.create({
 		kind: "rule",
 		title: input.title,
@@ -130,7 +131,7 @@ export function createRule(artifacts: ArtifactStore, input: CreateRuleInput): Ar
 			...(input.action ? { action: input.action } : {}),
 			severity: input.severity ?? "info",
 		},
-	});
+	}, context);
 }
 
 export function listRules(artifacts: ArtifactStore, filter: ListFilter): Artifact[] {
@@ -161,18 +162,18 @@ export function previewRule(artifacts: ArtifactStore, id: string): string {
 	return `• ${rule.title}${condition}\n  ${action}`;
 }
 
-export function transitionRule(artifacts: ArtifactStore, id: string, action: RuleTransition): Artifact {
+export function transitionRule(artifacts: ArtifactStore, id: string, action: RuleTransition, context?: ArtifactEventContext): Artifact {
 	const rule = requireKind(artifacts, id, "rule");
 	const expected = action === "enable" ? "deprecated" : "active";
 	const target = action === "enable" ? "active" : "deprecated";
 	if (rule.status !== expected) throw new Error(`cannot ${action} rule from ${rule.status}`);
-	return artifacts.setStatus(id, target)!;
+	return artifacts.setStatus(id, target, context)!;
 }
 
-export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskId: string): Artifact {
+export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskId: string, context?: ArtifactEventContext): Artifact {
 	requireKind(artifacts, ruleId, "rule");
 	requireKind(artifacts, taskId, "task");
-	artifacts.link({ from: ruleId, relation: "gates", to: taskId });
+	artifacts.link({ from: ruleId, relation: "gates", to: taskId }, context);
 	return showRule(artifacts, ruleId);
 }
 
@@ -198,7 +199,7 @@ export interface CreateArtifactTemplateInput {
 
 export type SkillTransition = "enable" | "disable";
 
-export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput): Artifact {
+export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput, context?: ArtifactEventContext): Artifact {
 	if (input.definition !== undefined && (input.trigger !== undefined || input.steps !== undefined || input.tools !== undefined)) {
 		throw new Error("workflow Skill definition cannot be mixed with legacy trigger, steps, or tools");
 	}
@@ -217,10 +218,10 @@ export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput): 
 			...(input.steps ? { steps: input.steps } : {}),
 			...(input.tools ? { tools: input.tools } : {}),
 		},
-	});
+	}, context);
 }
 
-export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateArtifactTemplateInput): Artifact {
+export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateArtifactTemplateInput, context?: ArtifactEventContext): Artifact {
 	if (input.targetKind === "doc" && input.defaults?.["subtype"] === NOTE_SUBTYPE) requireNotesFacade();
 	return artifacts.create({
 		kind: "skill",
@@ -233,12 +234,12 @@ export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateAr
 			defaults: input.defaults ?? {},
 			required: input.required ?? ["title"],
 		},
-	});
+	}, context);
 }
 
-export function instantiateTemplate(artifacts: ArtifactStore, templateId: string, input: CreateArtifactInput): Artifact {
+export function instantiateTemplate(artifacts: ArtifactStore, templateId: string, input: CreateArtifactInput, context?: ArtifactEventContext): Artifact {
 	if (rejectsNoteTemplate(artifacts, templateId, input.subtype)) requireNotesFacade();
-	return artifacts.create({ ...input, templateId });
+	return artifacts.create({ ...input, templateId }, context);
 }
 
 export function listSkills(artifacts: ArtifactStore, filter: ListFilter): Artifact[] {
@@ -278,10 +279,10 @@ export function skillInvocation(artifacts: ArtifactStore, id: string): string {
 	].join("\n");
 }
 
-export function transitionSkill(artifacts: ArtifactStore, id: string, action: SkillTransition): Artifact {
+export function transitionSkill(artifacts: ArtifactStore, id: string, action: SkillTransition, context?: ArtifactEventContext): Artifact {
 	const skill = requireKind(artifacts, id, "skill");
 	const expected = action === "enable" ? "deprecated" : "active";
 	const target = action === "enable" ? "active" : "deprecated";
 	if (skill.status !== expected) throw new Error(`cannot ${action} skill from ${skill.status}`);
-	return artifacts.setStatus(id, target)!;
+	return artifacts.setStatus(id, target, context)!;
 }

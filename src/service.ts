@@ -53,6 +53,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	"graph.link",
 	"graph.tree",
 	"graph.status",
+	"graph.history",
 	"gates.run",
 	"rules.injectable",
 	"tasks.create",
@@ -248,7 +249,7 @@ function handlers(
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
 				tasks.depend(from, to);
 			} else {
-				artifacts.link({ from, relation, to });
+				artifacts.link({ from, relation, to }, eventContext(input));
 			}
 			return { ok: true };
 		},
@@ -263,8 +264,17 @@ function handlers(
 			if (artifact?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
 			if (artifact?.kind === "doc" && artifact.subtype === "note") throw new Error("note lifecycle changes require a notes.* operation so disposition provenance is preserved");
 			if (isDiscourseSubtype(artifact?.subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
-			return artifacts.setStatus(id, string(input, "status"));
+			return artifacts.setStatus(id, string(input, "status"), eventContext(input));
 		},
+		"graph.history": (input) => artifacts.events({
+			artifactId: optionalString(input, "id"),
+			actor: optionalString(input, "actor"),
+			sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
+			since: optionalString(input, "since"),
+			limit: optionalNumber(input, "limit"),
+			cursor: optionalNumber(input, "cursor"),
+			direction: optionalString(input, "direction") as "asc" | "desc" | undefined,
+		}),
 		"gates.run": (input) => {
 			const id = string(input, "id");
 			return artifacts.get(id)?.kind === "task"
@@ -334,13 +344,13 @@ function handlers(
 			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
-		}),
+		}, eventContext(input)),
 		"docs.list": (input) => listDocuments(artifacts, artifactFilter(input)),
 		"docs.show": (input) => showDocument(artifacts, string(input, "id")),
-		"docs.activate": (input) => transitionDocument(artifacts, string(input, "id"), "activate"),
-		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive"),
-		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen"),
-		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id")),
+		"docs.activate": (input) => transitionDocument(artifacts, string(input, "id"), "activate", eventContext(input)),
+		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive", eventContext(input)),
+		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen", eventContext(input)),
+		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id"), eventContext(input)),
 		"notes.capture": (input) => notes.capture({
 			body: string(input, "body"), title: optionalString(input, "title"), projectRoot: string(input, "project_root"),
 			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
@@ -368,23 +378,23 @@ function handlers(
 			action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
 			severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}),
+		}, eventContext(input)),
 		"rules.list": (input) => listRules(artifacts, artifactFilter(input)),
 		"rules.show": (input) => showRule(artifacts, string(input, "id")),
 		"rules.preview": (input) => previewRule(artifacts, string(input, "id")),
-		"rules.enable": (input) => transitionRule(artifacts, string(input, "id"), "enable"),
-		"rules.disable": (input) => transitionRule(artifacts, string(input, "id"), "disable"),
-		"rules.gate": (input) => gateTaskWithRule(artifacts, string(input, "id"), string(input, "task_id")),
+		"rules.enable": (input) => transitionRule(artifacts, string(input, "id"), "enable", eventContext(input)),
+		"rules.disable": (input) => transitionRule(artifacts, string(input, "id"), "disable", eventContext(input)),
+		"rules.gate": (input) => gateTaskWithRule(artifacts, string(input, "id"), string(input, "task_id"), eventContext(input)),
 		"skills.create": (input) => createSkill(artifacts, {
 			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
 			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
 			definition: input["definition"],
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}),
+		}, eventContext(input)),
 		"skills.create_template": (input) => createArtifactTemplate(artifacts, {
 			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
 			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
-		}),
+		}, eventContext(input)),
 		"skills.list": (input) => listSkills(artifacts, artifactFilter(input)),
 		"skills.show": (input) => showSkill(artifacts, string(input, "id")),
 		"skills.invoke": (input) => skillInvocation(artifacts, string(input, "id")),
@@ -392,13 +402,13 @@ function handlers(
 			runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
 			arguments: input["arguments"] as Record<string, unknown> | undefined,
 		}, { events, scopes, projectRoot: string(input, "project_root"), context: eventContextFor(input, "skill-run") }),
-		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable"),
-		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable"),
+		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable", eventContext(input)),
+		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable", eventContext(input)),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
 			requireDiscourseStoreForSubtype(templateSubtype(artifacts, templateId));
-			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input));
+			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input), eventContext(input));
 			return tasks.create({
 				title: optionalString(input, "title") as string,
 				body: optionalString(input, "body"),

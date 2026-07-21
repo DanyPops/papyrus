@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
-import { DAEMON_UNIT_NAME, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
+import { DAEMON_UNIT_NAME, TASK_EXECUTION_MAX_NODES, dbPath } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
+import { openDb } from "./db.ts";
+import { applyIdMigration, mirrorDatabase, planIdMigration, verifyIdMigration, type IdMigrationPlan } from "./id-migration.ts";
 import type { GateResult } from "./domain/gate.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskBlockage, TaskCompletion } from "./task-service.ts";
@@ -41,6 +43,15 @@ function systemctl(...args: string[]): void {
 	execFileSync("systemctl", ["--user", ...args], { stdio: "inherit" });
 }
 
+function isDaemonActive(): boolean {
+	try {
+		execFileSync("systemctl", ["--user", "is-active", "--quiet", DAEMON_UNIT_NAME]);
+		return true;
+	} catch {
+		return false; // non-zero exit means inactive/failed/not-found -- treated the same, safely, as "not running"
+	}
+}
+
 function installService(): void {
 	const path = unitPath();
 	mkdirSync(dirname(path), { recursive: true });
@@ -57,6 +68,9 @@ const USAGE = `Usage:
   papyrus serve
   papyrus service <install|start|stop|restart|status>
   papyrus migrate schema [--json]
+  papyrus migrate-ids mirror [--db <path>] --out <mirror-path> [--json]
+  papyrus migrate-ids validate --mirror <mirror-path> [--idmap <path>] [--json]
+  papyrus migrate-ids promote --mirror <mirror-path> [--db <path>] [--idmap <path>] [--force] [--json]
   papyrus discourse store <action> --store-id <id> [--input-json <json>] [--json]
   papyrus graph link <from> <relation> <to> [--json]
   papyrus graph unlink <from> <relation> <to> [--json]
@@ -181,6 +195,110 @@ export async function runMigrationCli(args: string[], client: TaskCliClient): Pr
 	if (json) return JSON.stringify(result);
 	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
 	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
+}
+
+function readIdMap(sidecarPath: string): IdMigrationPlan {
+	const raw = JSON.parse(readFileSync(sidecarPath, "utf8")) as { idMap: Record<string, string> };
+	return { idMap: new Map(Object.entries(raw.idMap)) };
+}
+
+/**
+ * Offline, file-path-based -- deliberately not a daemon operation. Required sequence:
+ * mirror (produces a migrated copy + an inspectable id-map sidecar, touches nothing live) ->
+ * validate (re-checks the mirror in a fresh process, using only the sidecar) ->
+ * promote (re-validates, then swaps the mirror into place; refuses while the daemon is active).
+ * See src/id-migration.ts's module doc comment for why each step exists and what it does not cover.
+ */
+export function runIdMigrationCli(args: string[]): string {
+	const [subcommand, ...rest] = args;
+	const json = rest.includes("--json");
+	const flag = (name: string): string | undefined => {
+		const index = rest.indexOf(`--${name}`);
+		return index === -1 ? undefined : rest[index + 1];
+	};
+
+	if (subcommand === "mirror") {
+		const source = flag("db") ?? dbPath();
+		const mirrorPath = flag("out");
+		if (!mirrorPath) throw new Error("migrate-ids mirror requires --out <path>");
+		const sourceDb = openDb(source);
+		try { mirrorDatabase(sourceDb, mirrorPath); } finally { sourceDb.close(); }
+
+		const mirror = openDb(mirrorPath);
+		let plan: IdMigrationPlan;
+		let report: ReturnType<typeof applyIdMigration>;
+		try {
+			plan = planIdMigration(mirror);
+			report = applyIdMigration(mirror, plan);
+		} finally {
+			mirror.close();
+		}
+		const sidecarPath = `${mirrorPath}.idmap.json`;
+		writeFileSync(sidecarPath, JSON.stringify({ idMap: Object.fromEntries(plan.idMap) }, null, 2));
+
+		const result = { source, mirrorPath, sidecarPath, ...report };
+		if (json) return JSON.stringify(result);
+		return [
+			`Mirrored ${source} -> ${mirrorPath}`,
+			`Remapped ${report.artifactsRemapped} artifact id(s), ${report.edgesRemapped} edge row(s), ${report.textOccurrencesRemapped} embedded text mention(s).`,
+			`Id map: ${sidecarPath}`,
+			`Next: papyrus migrate-ids validate --mirror ${mirrorPath}`,
+		].join("\n");
+	}
+
+	if (subcommand === "validate") {
+		const mirrorPath = flag("mirror");
+		if (!mirrorPath) throw new Error("migrate-ids validate requires --mirror <path>");
+		const plan = readIdMap(flag("idmap") ?? `${mirrorPath}.idmap.json`);
+		const mirror = openDb(mirrorPath);
+		let result: ReturnType<typeof verifyIdMigration>;
+		try { result = verifyIdMigration(mirror, plan); } finally { mirror.close(); }
+		if (json) return JSON.stringify(result);
+		if (result.ok) return `Validation passed: ${plan.idMap.size} artifact id(s) correctly migrated.\nNext: papyrus migrate-ids promote --mirror ${mirrorPath}`;
+		return `Validation FAILED:\n${result.problems.map((problem) => `  - ${problem}`).join("\n")}\nDo not promote this mirror.`;
+	}
+
+	if (subcommand === "promote") {
+		const mirrorPath = flag("mirror");
+		if (!mirrorPath) throw new Error("migrate-ids promote requires --mirror <path>");
+		const target = flag("db") ?? dbPath();
+		const force = rest.includes("--force");
+		if (isDaemonActive() && !force) {
+			throw new Error(`refusing to promote while ${DAEMON_UNIT_NAME} is active -- stop it first (papyrus service stop), or pass --force if you have already verified it is safe`);
+		}
+		const plan = readIdMap(flag("idmap") ?? `${mirrorPath}.idmap.json`);
+		const mirror = openDb(mirrorPath);
+		let result: ReturnType<typeof verifyIdMigration>;
+		try { result = verifyIdMigration(mirror, plan); } finally { mirror.close(); }
+		if (!result.ok) {
+			throw new Error(`refusing to promote: mirror failed validation (${result.problems.length} problem(s)) -- run migrate-ids validate for details`);
+		}
+		let backupPath: string | undefined;
+		if (existsSync(target)) {
+			// Fold target's own WAL into its main file first -- otherwise a stale -wal/-shm left
+			// behind after the file swap below would make SQLite replay target's OWN pre-
+			// migration state back on top of the freshly copied (already-checkpointed) mirror on
+			// next open, silently discarding the migration. Copying only the main .db file while
+			// a WAL sidecar for the *old* file identity still sits at the same path is exactly
+			// the bug this closes.
+			const targetDb = openDb(target);
+			targetDb.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+			targetDb.close();
+			backupPath = `${target}.pre-id-migration-${Date.now()}.bak`;
+			copyFileSync(target, backupPath);
+			for (const sidecar of [`${target}-wal`, `${target}-shm`]) if (existsSync(sidecar)) unlinkSync(sidecar);
+		}
+		copyFileSync(mirrorPath, target);
+		const result2 = { target, backupPath };
+		if (json) return JSON.stringify(result2);
+		return [
+			`Promoted ${mirrorPath} -> ${target}`,
+			...(backupPath ? [`Previous database backed up to ${backupPath}`] : []),
+			"Restart papyrus.service for the daemon to pick this up.",
+		].join("\n");
+	}
+
+	throw new Error("migrate-ids requires one of: mirror, validate, promote");
 }
 
 export async function runDiscourseCli(args: string[], client: TaskCliClient): Promise<string> {
@@ -1098,6 +1216,10 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "migrate") {
 		const client = await connectPapyrusClient();
 		console.log(await runMigrationCli(args.slice(1), client));
+		return;
+	}
+	if (command === "migrate-ids") {
+		console.log(runIdMigrationCli(args.slice(1)));
 		return;
 	}
 	if (command === "graph") {

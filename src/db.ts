@@ -299,11 +299,7 @@ export function schemaVersion(db: Db): number {
 
 /**
  * One row per (module_id, version) applied migration, checksummed so a since-edited
- * definition is detected rather than silently trusted. "core" consolidates this
- * repository's entire pre-ledger migration history (every schemaVersion 1..CURRENT
- * branch below) into one baseline, checked against the exact SCHEMA+SEED_SQL text those
- * branches converge on -- new modules going forward register their own migrations
- * independently, without touching "core" or duplicating a separate bootstrap path.
+ * definition is detected rather than silently trusted.
  */
 export interface ModuleMigrationRow {
 	readonly moduleId: string;
@@ -313,7 +309,25 @@ export interface ModuleMigrationRow {
 	readonly appliedAt: string;
 }
 
-const CORE_BASELINE_CHECKSUM = createHash("sha256").update(SCHEMA + SEED_SQL).digest("hex");
+/**
+ * "core"'s ledger history. Each entry's checksum is a FROZEN, hardcoded literal, computed
+ * once at the moment that version was introduced and embedded here permanently -- never
+ * recomputed from the live, evolving SCHEMA/SEED_SQL constants. That distinction is the
+ * entire point: an earlier version of this file computed the checksum from the current
+ * SCHEMA text every time, which meant "core version 1" silently redefined itself every
+ * time SCHEMA grew, and would have thrown a checksum-mismatch error against every
+ * database that had already recorded the OLDER value -- including a real, already-
+ * deployed production database. Only the LAST entry's DDL actually runs (SCHEMA+SEED_SQL,
+ * the full current shape) for a truly fresh database; every earlier entry is pure
+ * historical bookkeeping, backfilled alongside it without being replayed, so a new
+ * database is not forced to pass through migrations it never structurally needed. A
+ * database that already recorded an earlier version keeps that exact checksum forever;
+ * adding schema later means appending a new entry here, never editing an existing one.
+ */
+const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; checksum: string }> = [
+	{ version: 1, name: "baseline", checksum: "af81e9f51d915ba538af3f468dc044bda5e2c5a5f5037e9c7c01540f87288763" },
+	{ version: 2, name: "docs-rules-skills-project-scope", checksum: "8b16d8f631ad628f4799ff09b1ebe8be28343e4f677d52bf2a39a8bedc19e64e" },
+];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
 	// A database that has never reached current schema (still awaiting explicit migrateDb())
@@ -327,15 +341,19 @@ export function migrationLedger(db: Db): ModuleMigrationRow[] {
 }
 
 /**
- * Ensures the ledger correctly reflects "core" once a database is confirmed at the full
- * current schema, however it got there: a truly empty database runs the baseline DDL and
- * records it; a database that already reached current shape (a fresh bootstrap from a
- * past release, or a full upgrade through the pre-ledger sequential migrateDb() chain
- * below) is backfilled without re-running any DDL against data that already exists.
- * Verifies the stored checksum on every open so a since-edited baseline is caught, not
- * silently trusted.
+ * Ensures the ledger correctly reflects every entry in CORE_LEDGER_VERSIONS once a
+ * database is confirmed at the full current schema, however it got there: a truly empty
+ * database runs the current bootstrap DDL once (for the last/current entry only) and
+ * backfills every entry as historical bookkeeping; a database that already reached
+ * current shape (a fresh bootstrap from a past release, or a full upgrade through the
+ * pre-ledger sequential migrateDb() chain below) is backfilled without re-running any DDL
+ * against data that already exists. Verifies every already-recorded entry's stored
+ * checksum on every open so a since-edited definition is caught, not silently trusted --
+ * and because each entry's checksum is frozen at introduction (see the constant's own
+ * comment), an already-recorded entry can never spuriously mismatch just because a later
+ * entry was appended.
  */
-function ensureCoreBaseline(db: Db, alreadyAtCurrentSchema: boolean): void {
+function ensureCoreLedger(db: Db, alreadyAtCurrentSchema: boolean): void {
 	// Idempotent and standalone: must succeed even on a truly empty database, before the rest
 	// of SCHEMA (which also declares this table) has run.
 	db.exec(`
@@ -348,21 +366,24 @@ function ensureCoreBaseline(db: Db, alreadyAtCurrentSchema: boolean): void {
 			PRIMARY KEY (module_id, version)
 		);
 	`);
-	const existingRow = db.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = 1").get() as { checksum: string } | null;
-	if (existingRow != null) {
-		if (existingRow.checksum !== CORE_BASELINE_CHECKSUM) {
-			throw new Error('module migration "core" version 1 checksum mismatch: the baseline definition changed since it was applied');
-		}
-		return;
-	}
 	inTransaction(db, () => {
-		if (!alreadyAtCurrentSchema) {
-			db.exec(SCHEMA);
-			db.exec(SEED_SQL);
-			db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
+		for (const [index, entry] of CORE_LEDGER_VERSIONS.entries()) {
+			const existingRow = db.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = ?").get(entry.version) as { checksum: string } | null;
+			if (existingRow != null) {
+				if (existingRow.checksum !== entry.checksum) {
+					throw new Error(`module migration "core" version ${entry.version} checksum mismatch: the frozen definition for this version was edited after it was applied`);
+				}
+				continue;
+			}
+			const isLast = index === CORE_LEDGER_VERSIONS.length - 1;
+			if (isLast && !alreadyAtCurrentSchema) {
+				db.exec(SCHEMA);
+				db.exec(SEED_SQL);
+				db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
+			}
+			db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', ?, ?, ?, ?)")
+				.run(entry.version, entry.name, entry.checksum, new Date().toISOString());
 		}
-		db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', 1, 'baseline', ?, ?)")
-			.run(CORE_BASELINE_CHECKSUM, new Date().toISOString());
 	});
 }
 
@@ -371,7 +392,7 @@ function bootstrapEmptyDatabase(db: Db): void {
 		.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1")
 		.get();
 	if (existing) throw new Error("database schema is unversioned; refusing to migrate existing data during boot");
-	ensureCoreBaseline(db, false);
+	ensureCoreLedger(db, false);
 }
 
 export function migrateDb(db: Db): MigrationResult {
@@ -596,7 +617,7 @@ export function migrateDb(db: Db): MigrationResult {
 			applied.push("docs-rules-skills-project-scope");
 		}
 	});
-	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);
+	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreLedger(db, true);
 	return { from, to: schemaVersion(db), applied };
 }
 
@@ -612,7 +633,7 @@ export function openDb(path: string): Db {
 		throw new Error(`database schema ${current} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (current === 0) bootstrapEmptyDatabase(db);
-	else if (current === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);
+	else if (current === SQLITE_SCHEMA_VERSION) ensureCoreLedger(db, true);
 	db.exec("PRAGMA optimize=0x10002");
 	return db;
 }

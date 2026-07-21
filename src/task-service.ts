@@ -34,6 +34,8 @@ export interface TaskFilter {
 	projectRoot?: string;
 	scope?: TaskViewMode;
 	rootTaskId?: string;
+	/** Requesting agent session id — scopes Task Focus reads so concurrent agents see only their own Focus. Defaults to a shared "global" scope when omitted. */
+	sessionId?: string;
 }
 
 export type TaskStatus = TaskLifecycleStatus;
@@ -280,7 +282,7 @@ export class Tasks {
 			throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
 		}
 		const byId = new Map(tasks.map((task) => [task.id, task]));
-		const focus = this.focusStore.get();
+		const focus = this.focusStore.get(filter.sessionId);
 		const focusedId = focus?.taskId;
 		const nodes = new Map(tasks.map((task) => [task.id, {
 			task,
@@ -326,11 +328,11 @@ export class Tasks {
 	}
 
 	focused(filter?: TaskFilter): TaskFocus | null {
-		const focus = this.focusStore.get();
+		const focus = this.focusStore.get(filter?.sessionId);
 		if (!focus) return null;
 		const task = this.artifacts.get(focus.taskId);
 		if (!task || task.kind !== "task" || task.status === "done" || task.status === "canceled") {
-			this.focusStore.clear(focus.taskId);
+			this.focusStore.clear(focus.taskId, filter?.sessionId);
 			return null;
 		}
 		if (filter?.projectRoot && !this.list(filter).some((candidate) => candidate.id === task.id)) return null;
@@ -346,7 +348,7 @@ export class Tasks {
 		return this.events.atomic(() => {
 			const task = this.require(id);
 			if (task.status === "done" || task.status === "canceled") throw new Error(`cannot focus task from ${task.status}`);
-			this.focusStore.set(id);
+			this.focusStore.set(id, context.sessionId);
 			this.appendEvent({ taskId: id, type: "focus_set" }, context);
 			return task;
 		});
@@ -354,9 +356,9 @@ export class Tasks {
 
 	pauseFocus(context: TaskEventContext = {}): TaskFocus {
 		return this.events.atomic(() => {
-			const focus = this.focused();
+			const focus = this.focused({ sessionId: context.sessionId });
 			if (!focus) throw new Error("no focused task");
-			const state = this.focusStore.pause(focus.artifact.id, context.reason);
+			const state = this.focusStore.pause(focus.artifact.id, context.reason, context.sessionId);
 			this.appendEvent({ taskId: focus.artifact.id, type: "focus_paused" }, context);
 			return { artifact: focus.artifact, status: state.status, updatedAt: state.updatedAt, ...(state.pauseReason ? { pauseReason: state.pauseReason } : {}) };
 		});
@@ -364,9 +366,9 @@ export class Tasks {
 
 	unpauseFocus(context: TaskEventContext = {}): TaskFocus {
 		return this.events.atomic(() => {
-			const focus = this.focused();
+			const focus = this.focused({ sessionId: context.sessionId });
 			if (!focus) throw new Error("no focused task");
-			const state = this.focusStore.unpause(focus.artifact.id);
+			const state = this.focusStore.unpause(focus.artifact.id, context.sessionId);
 			this.appendEvent({ taskId: focus.artifact.id, type: "focus_unpaused" }, context);
 			return { artifact: focus.artifact, status: state.status, updatedAt: state.updatedAt };
 		});
@@ -374,9 +376,9 @@ export class Tasks {
 
 	clearFocus(context: TaskEventContext = {}): { cleared: boolean } {
 		return this.events.atomic(() => {
-			const focus = this.focusStore.get();
+			const focus = this.focusStore.get(context.sessionId);
 			if (focus) this.appendEvent({ taskId: focus.taskId, type: "focus_cleared" }, context);
-			this.focusStore.clear();
+			this.focusStore.clear(undefined, context.sessionId);
 			return { cleared: focus !== undefined };
 		});
 	}
@@ -389,14 +391,14 @@ export class Tasks {
 			if (action === "start") {
 				const blocking = this.dependencyIds(id).filter((dependencyId) => this.require(dependencyId).status !== "done");
 				if (blocking.length > 0) throw new Error(`task "${id}" is blocked by dependencies: ${blocking.join(", ")}`);
-				this.focusStore.set(id);
+				this.focusStore.set(id, context.sessionId);
 			}
 			const updated = this.artifacts.setStatus(id, transition.to)!;
 			const eventType = { start: "started", submit: "submitted", reject: "review_rejected", retry: "retried", cancel: "canceled" }[action] as AppendTaskEvent["type"];
 			this.appendEvent({ taskId: id, type: eventType, fromStatus: task.status as TaskStatus, toStatus: transition.to }, context);
 			if (action === "start" || action === "retry") this.propagateProgressToAncestors(id, context);
-			if (action === "retry") this.focusStore.set(id);
-			if (action === "cancel") this.focusStore.clear(id);
+			if (action === "retry") this.focusStore.set(id, context.sessionId);
+			if (action === "cancel") this.focusStore.clearEverywhere(id);
 			return updated;
 		});
 	}
@@ -437,30 +439,60 @@ export class Tasks {
 		return this.artifacts.setExtra(id, { ...task.extra, checklist: validateChecklist(checklist) })!;
 	}
 
-	depend(id: string, dependencyId: string): Artifact {
-		this.require(id);
-		this.require(dependencyId);
-		const graph = this.graph();
-		assertDependencyEdgeAllowed(graph, id, dependencyId);
-		const node = graph.nodes.find((entry) => entry.task.id === id)!;
-		if (node.dependencyIds.includes(dependencyId)) return this.show(id);
-		if (node.dependencyIds.length >= TASK_EXECUTION_MAX_DEGREE) {
-			throw new Error(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
-		}
-		const successorCount = graph.nodes.filter((entry) => entry.dependencyIds.includes(dependencyId)).length;
-		if (successorCount >= TASK_EXECUTION_MAX_DEGREE) {
-			throw new Error(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
-		}
-		this.artifacts.link({ from: id, relation: "depends_on", to: dependencyId });
-		return this.show(id);
+	depend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(id);
+			this.require(dependencyId);
+			const graph = this.graph();
+			assertDependencyEdgeAllowed(graph, id, dependencyId);
+			const node = graph.nodes.find((entry) => entry.task.id === id)!;
+			if (node.dependencyIds.includes(dependencyId)) return this.show(id);
+			if (node.dependencyIds.length >= TASK_EXECUTION_MAX_DEGREE) {
+				throw new Error(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
+			}
+			const successorCount = graph.nodes.filter((entry) => entry.dependencyIds.includes(dependencyId)).length;
+			if (successorCount >= TASK_EXECUTION_MAX_DEGREE) {
+				throw new Error(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
+			}
+			this.artifacts.link({ from: id, relation: "depends_on", to: dependencyId }, context);
+			this.appendEvent({ taskId: id, type: "dependency_added", reason: context.reason }, context);
+			return this.show(id);
+		});
 	}
 
-	contain(parentId: string, childId: string): Artifact {
-		this.require(parentId);
-		this.require(childId);
-		this.artifacts.link({ from: parentId, relation: "contains", to: childId });
-		this.artifacts.link({ from: childId, relation: "part_of", to: parentId });
-		return this.show(parentId);
+	/** Idempotent: undepending an already-absent dependency is a no-op. Never starts, completes, or focuses work — only removes the edge. */
+	undepend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(id);
+			this.require(dependencyId);
+			const removed = this.artifacts.unlink({ from: id, relation: "depends_on", to: dependencyId }, context);
+			if (removed) this.appendEvent({ taskId: id, type: "dependency_removed", reason: context.reason }, context);
+			return this.show(id);
+		});
+	}
+
+	contain(parentId: string, childId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(parentId);
+			this.require(childId);
+			const alreadyContained = this.relationships(parentId).some((edge) => edge.relation === "contains" && edge.from === parentId && edge.to === childId);
+			this.artifacts.link({ from: parentId, relation: "contains", to: childId }, context);
+			this.artifacts.link({ from: childId, relation: "part_of", to: parentId }, context);
+			if (!alreadyContained) this.appendEvent({ taskId: parentId, type: "containment_added", reason: context.reason }, context);
+			return this.show(parentId);
+		});
+	}
+
+	/** Idempotent: removing an already-absent containment is a no-op. Both contains/part_of edges are removed atomically. */
+	uncontain(parentId: string, childId: string, context: TaskEventContext = {}): Artifact {
+		return this.events.atomic(() => {
+			this.require(parentId);
+			this.require(childId);
+			const removedContains = this.artifacts.unlink({ from: parentId, relation: "contains", to: childId }, context);
+			this.artifacts.unlink({ from: childId, relation: "part_of", to: parentId }, context);
+			if (removedContains) this.appendEvent({ taskId: parentId, type: "containment_removed", reason: context.reason }, context);
+			return this.show(parentId);
+		});
 	}
 
 	private descendantIds(rootTaskId: string, projectTaskIds: string[]): Set<string> {
@@ -575,7 +607,7 @@ export class Tasks {
 					attemptId,
 					evidence: { gates, checklist, result: "rejected" },
 				}, context);
-				return { artifact, gates, checklist, completed: false, focused: this.active(), blocked: [] };
+				return { artifact, gates, checklist, completed: false, focused: this.active({ sessionId: context.sessionId }), blocked: [] };
 			});
 		}
 		return this.events.atomic(() => this.finish(id, attemptId, gates, checklist, context, options));
@@ -597,7 +629,7 @@ export class Tasks {
 			attemptId,
 			evidence: { gates, checklist, result: "completed" },
 		}, context);
-		this.focusStore.clear(id);
+		this.focusStore.clearEverywhere(id);
 		const blocked: TaskBlockage[] = [];
 		let focused: Artifact | null = null;
 		for (const successorId of [...successorIds].sort()) {
@@ -610,7 +642,7 @@ export class Tasks {
 				continue;
 			}
 			if (options.focusSuccessor !== false && !focused) {
-				this.focusStore.set(successor.id);
+				this.focusStore.set(successor.id, context.sessionId);
 				focused = successor;
 			}
 		}

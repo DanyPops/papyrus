@@ -9,6 +9,16 @@ import { inTransaction } from "./db.ts";
 import { DEFAULT_STATUS_BY_KIND } from "./constants.ts";
 import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
 import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
+import {
+	normalizeArtifactEventQuery,
+	resolveArtifactEvent,
+	type AppendArtifactEvent,
+	type ArtifactEvent,
+	type ArtifactEventContext,
+	type ArtifactEventPage,
+	type ArtifactEventQuery,
+	type ArtifactEventType,
+} from "./domain/artifact-event.ts";
 export type { Artifact } from "./domain/artifact.ts";
 export type { Gate, GateResult } from "./domain/gate.ts";
 export type CreateInput = CreateArtifactInput;
@@ -93,15 +103,6 @@ function resolveCreateInput(db: Db, input: CreateInput): ResolvedCreateInput {
 	return merged as ResolvedCreateInput;
 }
 
-function slugify(s: string): string {
-	return s
-		.toLowerCase()
-		.replace(/[^a-z0-9\s-]/g, "")
-		.trim()
-		.replace(/\s+/g, "-")
-		.slice(0, 60) + "-" + Math.random().toString(36).slice(2, 6);
-}
-
 function defaultStatusFor(db: Db, kind: string): string {
 	// Explicit per-kind mapping, never row order -- see DEFAULT_STATUS_BY_KIND's doc comment
 	// for the production defect this replaced (row order is not a semantic guarantee).
@@ -127,9 +128,114 @@ function rowToArtifact(row: Record<string, unknown>): Artifact {
 	};
 }
 
-export function createArtifact(db: Db, input: CreateInput): Artifact {
+/**
+ * Appends one immutable row to the generic, kind-agnostic mutation event log.
+ * This is the one choke point every ArtifactStore mutation funnels through, so every
+ * kind (doc, task, rule, skill) gets an audit trail for free — no domain call site
+ * can skip it. See src/domain/artifact-event.ts for why actor/source always default
+ * to explicit sentinels rather than a silently blank column.
+ */
+export function appendArtifactEvent(db: Db, input: AppendArtifactEvent): ArtifactEvent {
+	const event = resolveArtifactEvent(input);
+	const now = new Date().toISOString();
+	let id: number | bigint = 0;
+	inTransaction(db, () => {
+		const result = db.prepare(`
+			INSERT INTO artifact_events (
+				artifact_id, occurred_at, event_type, actor, source, session_id,
+				from_status, to_status, relation, related_id, event_schema_version
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		`).run(
+			event.artifactId,
+			now,
+			event.type,
+			event.actor,
+			event.source,
+			event.sessionId ?? null,
+			event.fromStatus ?? null,
+			event.toStatus ?? null,
+			event.relation ?? null,
+			event.relatedId ?? null,
+		);
+		id = result.lastInsertRowid;
+	});
+	return {
+		id: Number(id),
+		artifactId: event.artifactId,
+		occurredAt: now,
+		type: event.type,
+		actor: event.actor,
+		source: event.source,
+		...(event.sessionId === undefined ? {} : { sessionId: event.sessionId }),
+		...(event.fromStatus === undefined ? {} : { fromStatus: event.fromStatus }),
+		...(event.toStatus === undefined ? {} : { toStatus: event.toStatus }),
+		...(event.relation === undefined ? {} : { relation: event.relation }),
+		...(event.relatedId === undefined ? {} : { relatedId: event.relatedId }),
+		schemaVersion: 1,
+	};
+}
+
+interface ArtifactEventRow {
+	id: number;
+	artifact_id: string;
+	occurred_at: string;
+	event_type: ArtifactEventType;
+	actor: string;
+	source: string;
+	session_id: string | null;
+	from_status: string | null;
+	to_status: string | null;
+	relation: string | null;
+	related_id: string | null;
+	event_schema_version: 1;
+}
+
+function mapArtifactEventRow(row: ArtifactEventRow): ArtifactEvent {
+	return {
+		id: row.id,
+		artifactId: row.artifact_id,
+		occurredAt: row.occurred_at,
+		type: row.event_type,
+		actor: row.actor,
+		source: row.source,
+		...(row.session_id === null ? {} : { sessionId: row.session_id }),
+		...(row.from_status === null ? {} : { fromStatus: row.from_status }),
+		...(row.to_status === null ? {} : { toStatus: row.to_status }),
+		...(row.relation === null ? {} : { relation: row.relation }),
+		...(row.related_id === null ? {} : { relatedId: row.related_id }),
+		schemaVersion: row.event_schema_version,
+	};
+}
+
+/** Bounded query over the generic mutation event log — requires artifactId, actor, or sessionId to stay indexed. */
+export function queryArtifactEvents(db: Db, query: ArtifactEventQuery): ArtifactEventPage {
+	const { artifactId, actor, sessionId, since, limit, direction, cursor } = normalizeArtifactEventQuery(query);
+	const conditions: string[] = [];
+	const params: unknown[] = [];
+	if (artifactId) { conditions.push("(artifact_id = ? OR related_id = ?)"); params.push(artifactId, artifactId); }
+	if (actor) { conditions.push("actor = ?"); params.push(actor); }
+	if (sessionId) { conditions.push("session_id = ?"); params.push(sessionId); }
+	if (since) { conditions.push("occurred_at >= ?"); params.push(since); }
+	const comparator = direction === "desc" ? "<" : ">";
+	if (cursor !== undefined) { conditions.push(`id ${comparator} ?`); params.push(cursor); }
+	const order = direction === "desc" ? "DESC" : "ASC";
+	const rows = db.prepare(`
+		SELECT * FROM artifact_events
+		WHERE ${conditions.join(" AND ")}
+		ORDER BY occurred_at ${order}, id ${order}
+		LIMIT ?
+	`).all(...params, limit + 1) as ArtifactEventRow[];
+	const hasMore = rows.length > limit;
+	const events = rows.slice(0, limit).map(mapArtifactEventRow);
+	return { events, ...(hasMore ? { nextCursor: events.at(-1)!.id } : {}) };
+}
+
+export function createArtifact(db: Db, input: CreateInput, context?: ArtifactEventContext): Artifact {
 	const resolved = resolveCreateInput(db, input);
-	const id = resolved.id ?? slugify(resolved.title);
+	// id is an opaque backend identity, never derived from title -- a title-derived slug
+	// conflated "identity" with "human-readable label" and leaked a bit of randomness into
+	// both. crypto.randomUUID() is native to Bun/Node; no dependency needed for this.
+	const id = resolved.id ?? crypto.randomUUID();
 	const status = resolved.status ?? defaultStatusFor(db, resolved.kind);
 	const now = new Date().toISOString();
 	const labels = JSON.stringify(resolved.labels ?? []);
@@ -140,6 +246,7 @@ export function createArtifact(db: Db, input: CreateInput): Artifact {
 			"INSERT INTO artifacts (id, kind, title, status, subtype, body, labels, extra, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		);
 		stmt.run(id, resolved.kind, resolved.title, status, subtype, resolved.body ?? "", labels, extra, now, now);
+		appendArtifactEvent(db, { artifactId: id, type: "created", toStatus: status, ...context });
 	});
 	return getArtifact(db, id)!;
 }
@@ -211,7 +318,7 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 	return rows.map(rowToArtifact);
 }
 
-export function linkArtifacts(db: Db, fromId: string, relation: string, toId: string): void {
+export function linkArtifacts(db: Db, fromId: string, relation: string, toId: string, context?: ArtifactEventContext): void {
 	const fromArt = getArtifact(db, fromId);
 	const toArt = getArtifact(db, toId);
 	if (!fromArt || !toArt) throw new Error("artifact not found");
@@ -219,11 +326,28 @@ export function linkArtifacts(db: Db, fromId: string, relation: string, toId: st
 	const allowed = db.prepare("SELECT 1 FROM relation_names WHERE name = ?").get(relation);
 	if (!allowed) throw new Error(`unknown relation "${relation}" — register it first`);
 	inTransaction(db, () => {
+		const existed = db.prepare("SELECT 1 FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?").get(fromId, relation, toId);
 		db.prepare("INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)").run(fromId, relation, toId);
+		if (!existed) {
+			appendArtifactEvent(db, { artifactId: fromId, type: "linked", relation, relatedId: toId, ...context });
+		}
 	});
 }
 
-export function updateArtifactContent(db: Db, id: string, input: UpdateArtifactInput): Artifact | null {
+/** Idempotent: removing an already-absent relationship is a no-op that returns false, not an error. */
+export function unlinkArtifacts(db: Db, fromId: string, relation: string, toId: string, context?: ArtifactEventContext): boolean {
+	let removed = false;
+	inTransaction(db, () => {
+		const existed = db.prepare("SELECT 1 FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?").get(fromId, relation, toId);
+		if (!existed) return;
+		db.prepare("DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?").run(fromId, relation, toId);
+		appendArtifactEvent(db, { artifactId: fromId, type: "unlinked", relation, relatedId: toId, ...context });
+		removed = true;
+	});
+	return removed;
+}
+
+export function updateArtifactContent(db: Db, id: string, input: UpdateArtifactInput, context?: ArtifactEventContext): Artifact | null {
 	const artifact = getArtifact(db, id);
 	if (!artifact) return null;
 	const now = new Date().toISOString();
@@ -235,11 +359,12 @@ export function updateArtifactContent(db: Db, id: string, input: UpdateArtifactI
 			now,
 			id,
 		);
+		appendArtifactEvent(db, { artifactId: id, type: "updated", ...context });
 	});
 	return getArtifact(db, id);
 }
 
-export function updateStatus(db: Db, id: string, status: string): Artifact | null {
+export function updateStatus(db: Db, id: string, status: string, context?: ArtifactEventContext): Artifact | null {
 	const art = getArtifact(db, id);
 	if (!art) return null;
 	// Validate status is registered for this kind
@@ -248,15 +373,17 @@ export function updateStatus(db: Db, id: string, status: string): Artifact | nul
 	const now = new Date().toISOString();
 	inTransaction(db, () => {
 		db.prepare("UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?").run(status, now, id);
+		appendArtifactEvent(db, { artifactId: id, type: "status_changed", fromStatus: art.status, toStatus: status, ...context });
 	});
 	return getArtifact(db, id);
 }
 
-export function updateExtra(db: Db, id: string, extra: Record<string, unknown>): Artifact | null {
+export function updateExtra(db: Db, id: string, extra: Record<string, unknown>, context?: ArtifactEventContext): Artifact | null {
 	if (!getArtifact(db, id)) return null;
 	const now = new Date().toISOString();
 	inTransaction(db, () => {
 		db.prepare("UPDATE artifacts SET extra = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(extra), now, id);
+		appendArtifactEvent(db, { artifactId: id, type: "extra_set", ...context });
 	});
 	return getArtifact(db, id);
 }

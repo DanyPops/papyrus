@@ -107,8 +107,8 @@ CREATE TABLE IF NOT EXISTS relation_names (
 	description TEXT
 );
 CREATE TABLE IF NOT EXISTS task_focus (
-	scope       TEXT PRIMARY KEY CHECK (scope = 'global'),
-	task_id     TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	scope       TEXT PRIMARY KEY,
+	task_id     TEXT NOT NULL REFERENCES artifacts(id),
 	status      TEXT NOT NULL CHECK (status IN ('active', 'paused')),
 	pause_reason TEXT,
 	updated_at  TEXT NOT NULL
@@ -147,6 +147,109 @@ CREATE TABLE IF NOT EXISTS task_views (
 	updated_at    TEXT NOT NULL,
 	CHECK ((mode = 'graph' AND root_task_id IS NOT NULL) OR (mode != 'graph' AND root_task_id IS NULL))
 );
+CREATE TABLE IF NOT EXISTS discourse_threads (
+	store_id      TEXT NOT NULL,
+	forum_id      TEXT NOT NULL,
+	topic_id      TEXT NOT NULL,
+	thread_id     TEXT NOT NULL,
+	artifact_id   TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	PRIMARY KEY (store_id, forum_id, topic_id, thread_id)
+);
+CREATE TABLE IF NOT EXISTS discourse_posts (
+	store_id       TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	id             TEXT NOT NULL,
+	artifact_id    TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	operation_id   TEXT NOT NULL,
+	command_json   TEXT NOT NULL,
+	forum_id       TEXT NOT NULL,
+	topic_id       TEXT NOT NULL,
+	thread_id      TEXT NOT NULL,
+	author_id      TEXT NOT NULL,
+	content_json   TEXT NOT NULL,
+	timestamp      INTEGER NOT NULL,
+	correlation_id TEXT,
+	causation_id   TEXT,
+	reply_to_post_id TEXT,
+	references_json TEXT NOT NULL,
+	question_type  TEXT CHECK (question_type IN ('question', 'answer')),
+	response_id    TEXT,
+	target_id      TEXT,
+	PRIMARY KEY (store_id, id),
+	UNIQUE (store_id, operation_id),
+	UNIQUE (store_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS discourse_posts_thread_idx ON discourse_posts(store_id, forum_id, topic_id, thread_id, sequence);
+CREATE TABLE IF NOT EXISTS discourse_events (
+	store_id       TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	event_json     TEXT NOT NULL,
+	PRIMARY KEY (store_id, sequence)
+);
+CREATE TABLE IF NOT EXISTS discourse_cursors (
+	store_id       TEXT NOT NULL,
+	consumer_id    TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	PRIMARY KEY (store_id, consumer_id)
+);
+CREATE TABLE IF NOT EXISTS discourse_projection_cursors (
+	store_id       TEXT NOT NULL,
+	projection_id  TEXT NOT NULL,
+	sequence       INTEGER NOT NULL,
+	PRIMARY KEY (store_id, projection_id)
+);
+CREATE TRIGGER IF NOT EXISTS discourse_threads_artifact_type BEFORE INSERT ON discourse_threads
+WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-thread')
+BEGIN SELECT RAISE(ABORT, 'discourse thread artifact must be a context-thread Doc'); END;
+CREATE TRIGGER IF NOT EXISTS discourse_posts_artifact_type BEFORE INSERT ON discourse_posts
+WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-message')
+BEGIN SELECT RAISE(ABORT, 'discourse post artifact must be a context-message Doc'); END;
+CREATE TRIGGER IF NOT EXISTS discourse_artifact_type_immutable BEFORE UPDATE OF kind, subtype ON artifacts
+WHEN (EXISTS (SELECT 1 FROM discourse_threads WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-thread'))
+  OR (EXISTS (SELECT 1 FROM discourse_posts WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-message'))
+BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
+CREATE TABLE IF NOT EXISTS artifact_events (
+	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+	artifact_id          TEXT NOT NULL REFERENCES artifacts(id),
+	occurred_at          TEXT NOT NULL,
+	event_type           TEXT NOT NULL,
+	actor                TEXT NOT NULL,
+	source               TEXT NOT NULL,
+	session_id           TEXT,
+	from_status          TEXT,
+	to_status            TEXT,
+	relation             TEXT,
+	related_id           TEXT,
+	event_schema_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS artifact_events_artifact_idx ON artifact_events(artifact_id, occurred_at, id);
+CREATE INDEX IF NOT EXISTS artifact_events_related_idx ON artifact_events(related_id, occurred_at, id);
+CREATE INDEX IF NOT EXISTS artifact_events_actor_idx ON artifact_events(actor, occurred_at, id);
+CREATE INDEX IF NOT EXISTS artifact_events_session_idx ON artifact_events(session_id, occurred_at, id);
+CREATE TRIGGER IF NOT EXISTS artifact_events_no_update BEFORE UPDATE ON artifact_events
+BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS artifact_events_no_delete BEFORE DELETE ON artifact_events
+BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+CREATE TABLE IF NOT EXISTS graph_projection_checkpoints (
+	producer_id    TEXT PRIMARY KEY,
+	last_sequence  INTEGER NOT NULL,
+	last_batch_id  TEXT NOT NULL,
+	applied_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS graph_projection_identities (
+	producer_id   TEXT NOT NULL,
+	external_id   TEXT NOT NULL,
+	artifact_id   TEXT NOT NULL REFERENCES artifacts(id),
+	PRIMARY KEY (producer_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_projection_identities(artifact_id);
+CREATE TABLE IF NOT EXISTS artifact_scopes (
+	artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
+	project_root  TEXT,
+	source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+	assigned_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
 `;
 
 const SEED_SQL = `
@@ -179,6 +282,8 @@ INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task 
 INSERT OR IGNORE INTO relation_names VALUES ('triggers','This skill applies to that work (skill→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('contains','Parent contains a nested artifact (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a parent artifact (any→any)');
+INSERT OR IGNORE INTO relation_names VALUES ('reply_to','Append-only message replies to another message in the same thread');
+INSERT OR IGNORE INTO relation_names VALUES ('discusses','Message or turn concerns a verified artifact');
 CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
 `;
 
@@ -194,11 +299,7 @@ export function schemaVersion(db: Db): number {
 
 /**
  * One row per (module_id, version) applied migration, checksummed so a since-edited
- * definition is detected rather than silently trusted. "core" consolidates this
- * repository's entire pre-ledger migration history (every schemaVersion 1..CURRENT
- * branch below) into one baseline, checked against the exact SCHEMA+SEED_SQL text those
- * branches converge on -- new modules going forward register their own migrations
- * independently, without touching "core" or duplicating a separate bootstrap path.
+ * definition is detected rather than silently trusted.
  */
 export interface ModuleMigrationRow {
 	readonly moduleId: string;
@@ -208,7 +309,25 @@ export interface ModuleMigrationRow {
 	readonly appliedAt: string;
 }
 
-const CORE_BASELINE_CHECKSUM = createHash("sha256").update(SCHEMA + SEED_SQL).digest("hex");
+/**
+ * "core"'s ledger history. Each entry's checksum is a FROZEN, hardcoded literal, computed
+ * once at the moment that version was introduced and embedded here permanently -- never
+ * recomputed from the live, evolving SCHEMA/SEED_SQL constants. That distinction is the
+ * entire point: an earlier version of this file computed the checksum from the current
+ * SCHEMA text every time, which meant "core version 1" silently redefined itself every
+ * time SCHEMA grew, and would have thrown a checksum-mismatch error against every
+ * database that had already recorded the OLDER value -- including a real, already-
+ * deployed production database. Only the LAST entry's DDL actually runs (SCHEMA+SEED_SQL,
+ * the full current shape) for a truly fresh database; every earlier entry is pure
+ * historical bookkeeping, backfilled alongside it without being replayed, so a new
+ * database is not forced to pass through migrations it never structurally needed. A
+ * database that already recorded an earlier version keeps that exact checksum forever;
+ * adding schema later means appending a new entry here, never editing an existing one.
+ */
+const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; checksum: string }> = [
+	{ version: 1, name: "baseline", checksum: "af81e9f51d915ba538af3f468dc044bda5e2c5a5f5037e9c7c01540f87288763" },
+	{ version: 2, name: "docs-rules-skills-project-scope", checksum: "8b16d8f631ad628f4799ff09b1ebe8be28343e4f677d52bf2a39a8bedc19e64e" },
+];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
 	// A database that has never reached current schema (still awaiting explicit migrateDb())
@@ -222,15 +341,19 @@ export function migrationLedger(db: Db): ModuleMigrationRow[] {
 }
 
 /**
- * Ensures the ledger correctly reflects "core" once a database is confirmed at the full
- * current schema, however it got there: a truly empty database runs the baseline DDL and
- * records it; a database that already reached current shape (a fresh bootstrap from a
- * past release, or a full upgrade through the pre-ledger sequential migrateDb() chain
- * below) is backfilled without re-running any DDL against data that already exists.
- * Verifies the stored checksum on every open so a since-edited baseline is caught, not
- * silently trusted.
+ * Ensures the ledger correctly reflects every entry in CORE_LEDGER_VERSIONS once a
+ * database is confirmed at the full current schema, however it got there: a truly empty
+ * database runs the current bootstrap DDL once (for the last/current entry only) and
+ * backfills every entry as historical bookkeeping; a database that already reached
+ * current shape (a fresh bootstrap from a past release, or a full upgrade through the
+ * pre-ledger sequential migrateDb() chain below) is backfilled without re-running any DDL
+ * against data that already exists. Verifies every already-recorded entry's stored
+ * checksum on every open so a since-edited definition is caught, not silently trusted --
+ * and because each entry's checksum is frozen at introduction (see the constant's own
+ * comment), an already-recorded entry can never spuriously mismatch just because a later
+ * entry was appended.
  */
-function ensureCoreBaseline(db: Db, alreadyAtCurrentSchema: boolean): void {
+function ensureCoreLedger(db: Db, alreadyAtCurrentSchema: boolean): void {
 	// Idempotent and standalone: must succeed even on a truly empty database, before the rest
 	// of SCHEMA (which also declares this table) has run.
 	db.exec(`
@@ -243,21 +366,24 @@ function ensureCoreBaseline(db: Db, alreadyAtCurrentSchema: boolean): void {
 			PRIMARY KEY (module_id, version)
 		);
 	`);
-	const existingRow = db.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = 1").get() as { checksum: string } | null;
-	if (existingRow != null) {
-		if (existingRow.checksum !== CORE_BASELINE_CHECKSUM) {
-			throw new Error('module migration "core" version 1 checksum mismatch: the baseline definition changed since it was applied');
-		}
-		return;
-	}
 	inTransaction(db, () => {
-		if (!alreadyAtCurrentSchema) {
-			db.exec(SCHEMA);
-			db.exec(SEED_SQL);
-			db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
+		for (const [index, entry] of CORE_LEDGER_VERSIONS.entries()) {
+			const existingRow = db.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = ?").get(entry.version) as { checksum: string } | null;
+			if (existingRow != null) {
+				if (existingRow.checksum !== entry.checksum) {
+					throw new Error(`module migration "core" version ${entry.version} checksum mismatch: the frozen definition for this version was edited after it was applied`);
+				}
+				continue;
+			}
+			const isLast = index === CORE_LEDGER_VERSIONS.length - 1;
+			if (isLast && !alreadyAtCurrentSchema) {
+				db.exec(SCHEMA);
+				db.exec(SEED_SQL);
+				db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
+			}
+			db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', ?, ?, ?, ?)")
+				.run(entry.version, entry.name, entry.checksum, new Date().toISOString());
 		}
-		db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', 1, 'baseline', ?, ?)")
-			.run(CORE_BASELINE_CHECKSUM, new Date().toISOString());
 	});
 }
 
@@ -266,7 +392,7 @@ function bootstrapEmptyDatabase(db: Db): void {
 		.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1")
 		.get();
 	if (existing) throw new Error("database schema is unversioned; refusing to migrate existing data during boot");
-	ensureCoreBaseline(db, false);
+	ensureCoreLedger(db, false);
 }
 
 export function migrateDb(db: Db): MigrationResult {
@@ -275,7 +401,7 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2 && from !== 3 && from !== 4) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5 && from !== 6 && from !== 7) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
 	inTransaction(db, () => {
@@ -364,8 +490,134 @@ export function migrateDb(db: Db): MigrationResult {
 			`);
 			applied.push("task-focus-continuation");
 		}
+		if (schemaVersion(db) === 5) {
+			db.exec(`
+				INSERT OR IGNORE INTO relation_names VALUES ('reply_to','Append-only message replies to another message in the same thread');
+				INSERT OR IGNORE INTO relation_names VALUES ('discusses','Message or turn concerns a verified artifact');
+				CREATE TABLE discourse_threads (
+					store_id TEXT NOT NULL, forum_id TEXT NOT NULL, topic_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+					artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+					PRIMARY KEY (store_id, forum_id, topic_id, thread_id)
+				);
+				CREATE TABLE discourse_posts (
+					store_id TEXT NOT NULL, sequence INTEGER NOT NULL, id TEXT NOT NULL,
+					artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id), operation_id TEXT NOT NULL,
+					command_json TEXT NOT NULL, forum_id TEXT NOT NULL, topic_id TEXT NOT NULL, thread_id TEXT NOT NULL,
+					author_id TEXT NOT NULL, content_json TEXT NOT NULL, timestamp INTEGER NOT NULL,
+					correlation_id TEXT, causation_id TEXT, reply_to_post_id TEXT, references_json TEXT NOT NULL,
+					question_type TEXT CHECK (question_type IN ('question', 'answer')), response_id TEXT, target_id TEXT,
+					PRIMARY KEY (store_id, id), UNIQUE (store_id, operation_id), UNIQUE (store_id, sequence)
+				);
+				CREATE INDEX discourse_posts_thread_idx ON discourse_posts(store_id, forum_id, topic_id, thread_id, sequence);
+				CREATE TABLE discourse_events (
+					store_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_json TEXT NOT NULL,
+					PRIMARY KEY (store_id, sequence)
+				);
+				CREATE TABLE discourse_cursors (
+					store_id TEXT NOT NULL, consumer_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+					PRIMARY KEY (store_id, consumer_id)
+				);
+				CREATE TABLE discourse_projection_cursors (
+					store_id TEXT NOT NULL, projection_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+					PRIMARY KEY (store_id, projection_id)
+				);
+				CREATE TRIGGER discourse_threads_artifact_type BEFORE INSERT ON discourse_threads
+				WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-thread')
+				BEGIN SELECT RAISE(ABORT, 'discourse thread artifact must be a context-thread Doc'); END;
+				CREATE TRIGGER discourse_posts_artifact_type BEFORE INSERT ON discourse_posts
+				WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-message')
+				BEGIN SELECT RAISE(ABORT, 'discourse post artifact must be a context-message Doc'); END;
+				CREATE TRIGGER discourse_artifact_type_immutable BEFORE UPDATE OF kind, subtype ON artifacts
+				WHEN (EXISTS (SELECT 1 FROM discourse_threads WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-thread'))
+				  OR (EXISTS (SELECT 1 FROM discourse_posts WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-message'))
+				BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
+				PRAGMA user_version = 6;
+			`);
+			applied.push("discourse-context-mesh");
+		}
+		if (schemaVersion(db) === 6) {
+			db.exec(`
+				CREATE TABLE artifact_events (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+					occurred_at TEXT NOT NULL,
+					event_type TEXT NOT NULL,
+					actor TEXT NOT NULL,
+					source TEXT NOT NULL,
+					session_id TEXT,
+					from_status TEXT,
+					to_status TEXT,
+					relation TEXT,
+					related_id TEXT,
+					event_schema_version INTEGER NOT NULL DEFAULT 1
+				);
+				CREATE INDEX artifact_events_artifact_idx ON artifact_events(artifact_id, occurred_at, id);
+				CREATE INDEX artifact_events_related_idx ON artifact_events(related_id, occurred_at, id);
+				CREATE INDEX artifact_events_actor_idx ON artifact_events(actor, occurred_at, id);
+				CREATE INDEX artifact_events_session_idx ON artifact_events(session_id, occurred_at, id);
+				CREATE TRIGGER artifact_events_no_update BEFORE UPDATE ON artifact_events
+				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+				CREATE TRIGGER artifact_events_no_delete BEFORE DELETE ON artifact_events
+				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+				PRAGMA user_version = 7;
+			`);
+			applied.push("artifact-event-log");
+		}
+		if (schemaVersion(db) === 7) {
+			db.exec(`
+				CREATE TABLE task_focus_v7 (
+					scope TEXT PRIMARY KEY,
+					task_id TEXT NOT NULL REFERENCES artifacts(id),
+					status TEXT NOT NULL CHECK (status IN ('active', 'paused')),
+					pause_reason TEXT,
+					updated_at TEXT NOT NULL
+				);
+				INSERT INTO task_focus_v7 SELECT scope, task_id, status, pause_reason, updated_at FROM task_focus;
+				DROP TABLE task_focus;
+				ALTER TABLE task_focus_v7 RENAME TO task_focus;
+				PRAGMA user_version = 8;
+			`);
+			applied.push("task-focus-session-scope");
+		}
+		if (schemaVersion(db) === 8) {
+			// IF NOT EXISTS here, unlike earlier migration branches: a fully-bootstrapped
+			// :memory: fixture (used by unrelated tests that only roll user_version back to
+			// simulate an older *file* database) already has every table the current bootstrap
+			// DDL declares, this one included -- so this branch must be safe to run whether or
+			// not that already happened, not assume a truly-old database created it first.
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS graph_projection_checkpoints (
+					producer_id    TEXT PRIMARY KEY,
+					last_sequence  INTEGER NOT NULL,
+					last_batch_id  TEXT NOT NULL,
+					applied_at     TEXT NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS graph_projection_identities (
+					producer_id   TEXT NOT NULL,
+					external_id   TEXT NOT NULL,
+					artifact_id   TEXT NOT NULL REFERENCES artifacts(id),
+					PRIMARY KEY (producer_id, external_id)
+				);
+				CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_projection_identities(artifact_id);
+				PRAGMA user_version = 9;
+			`);
+			applied.push("graph-projection-protocol");
+		}
+		if (schemaVersion(db) === 9) {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS artifact_scopes (
+					artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
+					project_root  TEXT,
+					source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+					assigned_at   TEXT NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
+				PRAGMA user_version = 10;
+			`);
+			applied.push("docs-rules-skills-project-scope");
+		}
 	});
-	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);
+	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreLedger(db, true);
 	return { from, to: schemaVersion(db), applied };
 }
 
@@ -381,7 +633,7 @@ export function openDb(path: string): Db {
 		throw new Error(`database schema ${current} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (current === 0) bootstrapEmptyDatabase(db);
-	else if (current === SQLITE_SCHEMA_VERSION) ensureCoreBaseline(db, true);
+	else if (current === SQLITE_SCHEMA_VERSION) ensureCoreLedger(db, true);
 	db.exec("PRAGMA optimize=0x10002");
 	return db;
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runDiscourseCli, runGraphCli, runIdMigrationCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { openDb } from "../src/db.ts";
+import { createArtifact, linkArtifacts } from "../src/ops.ts";
 import type { OperationName } from "../src/service.ts";
 
 const PROJECT_ROOT = process.cwd();
@@ -15,13 +20,119 @@ class FakeClient {
 
 describe("Papyrus migration CLI", () => {
 	it("routes the explicit task focus migration through the daemon", async () => {
-		const client = new FakeClient({ from: 4, to: 5, applied: ["task-focus-continuation"] });
-		expect(await runMigrationCli(["task-focus", "--json"], client)).toBe(JSON.stringify({
-			from: 4,
-			to: 5,
-			applied: ["task-focus-continuation"],
+		const client = new FakeClient({ from: 5, to: 6, applied: ["discourse-context-mesh"] });
+		expect(await runMigrationCli(["schema", "--json"], client)).toBe(JSON.stringify({
+			from: 5,
+			to: 6,
+			applied: ["discourse-context-mesh"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
+	});
+});
+
+describe("Papyrus migrate-ids CLI: mirror, then validate, then promote -- never any other order", () => {
+	function seededDbFile(path: string): void {
+		const db = openDb(path);
+		const a = createArtifact(db, { kind: "doc", title: "A" });
+		const b = createArtifact(db, { kind: "doc", title: "B", body: `references ${a.id}` });
+		linkArtifacts(db, a.id, "references", b.id);
+		db.close();
+	}
+
+	it("mirrors, validates, and promotes end to end, and refuses to promote an unvalidated or failed mirror", () => {
+		const dir = mkdtempSync(join(tmpdir(), "papyrus-cli-id-migration-"));
+		const source = join(dir, "papyrus.db");
+		const mirror = join(dir, "papyrus.mirror.db");
+		seededDbFile(source);
+
+		const mirrorOutput = runIdMigrationCli(["mirror", "--db", source, "--out", mirror, "--json"]);
+		const mirrorResult = JSON.parse(mirrorOutput) as { artifactsRemapped: number; sidecarPath: string };
+		expect(mirrorResult.artifactsRemapped).toBe(2);
+		const sidecar = JSON.parse(readFileSync(mirrorResult.sidecarPath, "utf8")) as { idMap: Record<string, string> };
+		expect(Object.keys(sidecar.idMap)).toHaveLength(2);
+
+		const validateOutput = runIdMigrationCli(["validate", "--mirror", mirror, "--json"]);
+		expect(JSON.parse(validateOutput)).toEqual({ ok: true, problems: [] });
+
+		// The original file is untouched by mirror+validate -- still has the pre-migration ids.
+		const untouchedOriginal = openDb(source);
+		const originalIds = (untouchedOriginal.prepare("SELECT id FROM artifacts").all() as Array<{ id: string }>).map((row) => row.id);
+		untouchedOriginal.close();
+		expect(originalIds.sort()).toEqual(Object.keys(sidecar.idMap).sort());
+
+		const promoteOutput = runIdMigrationCli(["promote", "--mirror", mirror, "--db", source, "--force", "--json"]);
+		const promoteResult = JSON.parse(promoteOutput) as { target: string; backupPath: string };
+		expect(promoteResult.target).toBe(source);
+		expect(readFileSync(promoteResult.backupPath)).toBeInstanceOf(Buffer); // pre-migration backup was actually written
+
+		const promoted = openDb(source);
+		const promotedIds = (promoted.prepare("SELECT id FROM artifacts").all() as Array<{ id: string }>).map((row) => row.id);
+		promoted.close();
+		expect(promotedIds.sort()).toEqual(Object.values(sidecar.idMap).sort()); // production now has the new ids
+	});
+
+	it("refuses to promote a mirror that fails validation", () => {
+		const dir = mkdtempSync(join(tmpdir(), "papyrus-cli-id-migration-"));
+		const source = join(dir, "papyrus.db");
+		const mirror = join(dir, "papyrus.mirror.db");
+		seededDbFile(source);
+		runIdMigrationCli(["mirror", "--db", source, "--out", mirror, "--json"]);
+
+		// Sabotage the mirror after the fact, simulating a broken migration.
+		const db = openDb(mirror);
+		db.exec("PRAGMA foreign_keys = OFF");
+		db.exec("UPDATE edges SET from_id = 'not-a-real-id' WHERE rowid = (SELECT rowid FROM edges LIMIT 1)");
+		db.close();
+
+		expect(() => runIdMigrationCli(["promote", "--mirror", mirror, "--db", source, "--force", "--json"])).toThrow(/failed validation/);
+		// Production is untouched by the refused promotion.
+		const stillOriginal = openDb(source);
+		const stillOriginalTitles = (stillOriginal.prepare("SELECT title FROM artifacts ORDER BY title").all() as Array<{ title: string }>).map((row) => row.title);
+		stillOriginal.close();
+		expect(stillOriginalTitles).toEqual(["A", "B"]);
+	});
+});
+
+describe("Papyrus graph history CLI", () => {
+	it("routes bounded who-did-what-when queries through the authenticated daemon with stable JSON", async () => {
+		const page = { events: [{ id: 1, artifactId: "doc-1", occurredAt: "2026-01-01T00:00:00.000Z", type: "created", actor: "agent", source: "pi", schemaVersion: 1 }] };
+		const client = new FakeClient(page);
+		expect(await runGraphCli(["history", "--id", "doc-1", "--json"], client)).toBe(JSON.stringify(page));
+		expect(client.calls).toEqual([{ operation: "graph.history", input: { id: "doc-1" } }]);
+	});
+
+	it("parses actor, session, and pagination flags, and renders human-readable output", async () => {
+		const page = { events: [] as unknown[] };
+		const client = new FakeClient(page);
+		expect(await runGraphCli(["history", "--actor", "agent-a", "--session-id", "ses-1", "--limit", "10", "--cursor", "3", "--direction", "asc"], client)).toBe("No recorded events.");
+		expect(client.calls).toEqual([{
+			operation: "graph.history",
+			input: { actor: "agent-a", session_id: "ses-1", limit: 10, cursor: 3, direction: "asc" },
+		}]);
+	});
+
+	it("requires a known action", async () => {
+		const client = new FakeClient({});
+		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, unlink, tree, status, or history");
+	});
+});
+
+describe("Papyrus Discourse store CLI", () => {
+	it("routes bounded store operations through the authenticated daemon with stable JSON", async () => {
+		const result = { items: [], truncated: false, completeness: "complete" };
+		const client = new FakeClient(result);
+		expect(await runDiscourseCli([
+			"store", "read_thread", "--store-id", "team-forum",
+			"--input-json", '{"forumId":"engineering","topicId":"reviews","threadId":"mesh","limit":10}',
+			"--json",
+		], client)).toBe(JSON.stringify(result));
+		expect(client.calls).toEqual([{
+			operation: "discourse.store",
+			input: {
+				action: "read_thread", store_id: "team-forum", forumId: "engineering",
+				topicId: "reviews", threadId: "mesh", limit: 10,
+			},
+		}]);
 	});
 });
 
@@ -127,12 +238,32 @@ describe("Papyrus task CLI", () => {
 		expect(client.calls).toEqual([{ operation: "tasks.plan", input: { project_root: PROJECT_ROOT } }]);
 	});
 
+	it("omits session_id by default, preserving today's shared global Focus behavior", async () => {
+		const client = new FakeClient(null);
+		await runTaskCli(["active"], client);
+		expect(client.calls).toEqual([{ operation: "tasks.active", input: { project_root: PROJECT_ROOT } }]);
+	});
+
+	it("threads --session-id through Focus-related task operations", async () => {
+		const active = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
+		await runTaskCli(["active", "--session-id", "ses-alice"], active);
+		expect(active.calls).toEqual([{ operation: "tasks.active", input: { project_root: PROJECT_ROOT, session_id: "ses-alice" } }]);
+
+		const focus = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
+		await runTaskCli(["focus", "task", "--session-id", "ses-alice"], focus);
+		expect(focus.calls).toEqual([{ operation: "tasks.focus", input: { id: "task", actor: "user", source: "cli", session_id: "ses-alice" } }]);
+
+		const pause = new FakeClient({ artifact: { id: "task", title: "Task", status: "in-progress" }, status: "paused" });
+		await runTaskCli(["pause", "--session-id", "ses-alice"], pause);
+		expect(pause.calls).toEqual([{ operation: "tasks.pause", input: { actor: "user", source: "cli", session_id: "ses-alice" } }]);
+	});
+
 	it("routes dependency and start mutations through authenticated task operations", async () => {
 		const dependencyClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
 		await runTaskCli(["depend", "task", "prerequisite", "--json"], dependencyClient);
 		expect(dependencyClient.calls).toEqual([{
 			operation: "tasks.depend",
-			input: { id: "task", dependency_id: "prerequisite" },
+			input: { id: "task", dependency_id: "prerequisite", actor: "user", source: "cli" },
 		}]);
 
 		const startClient = new FakeClient({ id: "task", title: "Task", status: "in-progress" });

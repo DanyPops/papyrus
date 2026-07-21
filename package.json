@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "cli": "bun src/cli.ts",
     "serve": "bun src/cli.ts serve",
     "service:install": "bun src/cli.ts service install",
@@ -23,7 +24,8 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "typescript": "^5.7.3"
   },
   "repository": {
     "type": "git",

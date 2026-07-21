@@ -7,8 +7,14 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 5;
+export const SQLITE_SCHEMA_VERSION = 10;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
+/** Bounded forum persistence behind the Discourse mutation authority. */
+export const DISCOURSE_QUERY_MAX_LIMIT = 100;
+export const DISCOURSE_CONTENT_MAX_BYTES = 65_536;
+export const DISCOURSE_EVENT_RETENTION_DEFAULT = 1_000;
+export const DISCOURSE_EVENT_RETENTION_MAX = 10_000;
+export const DISCOURSE_PARTICIPANT_MAX_COUNT = 100;
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
 export const GATE_COMMAND_TIMEOUT_MS = 30_000;
@@ -19,6 +25,9 @@ export const GATE_FILE_MAX_BYTES = 1_048_576;
 
 export const PAPYRUS_CONTEXT_INJECTION_CHANNEL = "papyrus.context-injection.v1";
 export const PAPYRUS_CONTEXT_INJECTION_SCHEMA = "papyrus.context-injection/v1";
+/** Broadcasts which task is focused, content-free (taskId/sessionId/status/timestamp only), so other extensions (e.g. a token-cost router) can correlate their own telemetry without Papyrus depending on them. */
+export const PAPYRUS_TASK_FOCUS_CHANNEL = "papyrus.task-focus.v1";
+export const PAPYRUS_TASK_FOCUS_SCHEMA = "papyrus.task-focus/v1";
 export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
 
 /** Compact task-context limits keep recurring prompt injection bounded. */
@@ -71,8 +80,23 @@ export const NOTE_LIST_MAX_LIMIT = 200;
 export const NOTE_HISTORY_MAX_EVENTS = 20;
 export const NOTE_PROVENANCE_MAX_LENGTH = 128;
 export const NOTE_REASON_MAX_CHARACTERS = 2_000;
+/** Generic, kind-agnostic mutation event log bounds (doc/task/rule/skill share one log). */
+export const ARTIFACT_EVENT_ACTOR_MAX_LENGTH = 128;
+export const ARTIFACT_EVENT_HISTORY_DEFAULT_LIMIT = 25;
+export const ARTIFACT_EVENT_HISTORY_MAX_LIMIT = 200;
+/** Bounds for the generic graph projection protocol (external bounded contexts). */
+export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
+export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;
+export const GRAPH_PROJECTION_ID_MAX_LENGTH = 256;
+/** Per-agent-session Task Focus scoping. "global" is the default scope for callers that don't supply a session id (CLI, legacy behavior). */
+export const TASK_FOCUS_DEFAULT_SCOPE = "global";
+export const TASK_FOCUS_SCOPE_MAX_LENGTH = 128;
+/** Hard cap on distinct concurrent focus scopes (sessions); oldest-updated scope is evicted beyond this. */
+export const TASK_FOCUS_MAX_SCOPES = 500;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
+/** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */
+export const ARTIFACT_SCOPE_MAX_ARTIFACTS = 1_000;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
@@ -93,14 +117,23 @@ export const DEFAULT_METADATA_DEPTH = 6;
 export const DEFAULT_METADATA_ITEMS = 100;
 export const MAX_METADATA_DEPTH = 12;
 export const MAX_METADATA_ITEMS = 500;
+/** Independent bounds for model-facing tool content and persisted renderer details. */
+export const TOOL_MODEL_CONTENT_MAX_CHARACTERS = 12_000;
+export const TOOL_DETAILS_BODY_MAX_CHARACTERS = 20_000;
+export const TOOL_DETAILS_FIELD_MAX_CHARACTERS = 1_000;
+export const TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS = 1_000;
+export const TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS = 131_072;
+export const TOOL_COLLAPSED_ROW_LIMIT = 5;
+export const TOOL_DETAILS_MAX_ITEMS = 100;
+export const TOOL_DETAILS_MAX_EDGES = 200;
 
 /** Reconciliation instruction appended whenever Papyrus has open work. */
 export const TASK_RECONCILIATION_INSTRUCTION = [
 	"Reconcile before concluding or moving on:",
 	'• For each current task, ask: "Did we accomplish this task?"',
-	"• If yes, run its gates before marking it done; a claim is not verification.",
-	"• If no, continue with the next concrete action toward its desired state.",
-	"• Address blocked work or explicitly move failed review to rejected with the reason.",
+	"• If yes, run its gates before marking it done; a claim is not verification. A written summary is not evidence -- identify what would actually prove each requirement in the task's desired state and checklist, and treat indirect or merely-plausible signals as not sufficient.",
+	"• If no, continue with the next concrete action toward its desired state. Do not shrink the task's scope to whatever fits in this turn, and do not substitute a narrower, easier, or merely-passing-looking change for the actual desired outcome.",
+	"• Address blocked work or explicitly move failed review to rejected with the reason. Do not reject or call something blocked on the first obstacle -- only after the same blocking condition genuinely recurs, and only when the task truly cannot proceed without external input or a change outside the agent's control.",
 ].join("\n");
 
 /** $XDG_DATA_HOME/papyrus/papyrus.db */
@@ -175,5 +208,5 @@ export const DEFAULT_STATUS_BY_KIND: Readonly<Record<string, string>> = {
 export const SEED_RELATIONS = [
 	"references", "implements", "follows", "depends_on",
 	"documents", "blocks", "supersedes", "relates_to",
-	"gates", "triggers", "contains", "part_of",
+	"gates", "triggers", "contains", "part_of", "reply_to", "discusses",
 ] as const;

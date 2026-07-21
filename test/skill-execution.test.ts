@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import { createSkill } from "../src/domain-services.ts";
 import { instantiateSkillWorkflow } from "../src/skill-execution.ts";
@@ -37,11 +39,31 @@ const definition = {
 function fixture() {
 	const db = openDb(":memory:");
 	const artifacts = new SQLiteArtifactStore(db);
-	const skill = createSkill(artifacts, { title: "Project change", definition });
+	const skill = createSkill(artifacts, new SQLiteArtifactScopeStore(db), { title: "Project change", definition }, new AuthorityRegistry());
 	return { db, artifacts, skill };
 }
 
 describe("Papyrus Skill workflow execution", () => {
+	it("creates docs, rules, and tasks with their correct default status even when status row order is adversarial", () => {
+		// instantiateSkillWorkflow's persist() creates docs/rules/tasks via a direct
+		// artifacts.create call, bypassing createDocument/createRule/Tasks.create entirely --
+		// so it only stays correct because of ops.ts's defaultStatusFor fix, not because of any
+		// per-call-site hardening. Prove that directly rather than trusting it by inspection.
+		const { db, artifacts, skill } = fixture();
+		for (const [kind, correctDefault] of [["doc", "draft"], ["rule", "active"], ["task", "todo"]] as const) {
+			const rows = db.prepare("SELECT name FROM statuses WHERE kind = ?").all(kind) as Array<{ name: string }>;
+			db.prepare("DELETE FROM statuses WHERE kind = ?").run(kind);
+			for (const row of rows) if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
+			db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(correctDefault, kind);
+		}
+
+		const result = instantiateSkillWorkflow(artifacts, skill.id, { runId: "run-adversarial", arguments: { project: "Papyrus" } });
+
+		expect(artifacts.get(result.created.docs[0]!)?.status).toBe("draft");
+		expect(artifacts.get(result.created.rules[0]!)?.status).toBe("active");
+		for (const taskId of result.created.tasks) expect(artifacts.get(taskId)?.status).toBe("todo");
+	});
+
 	it("renders and atomically persists a connected deterministic run", () => {
 		const { db, artifacts, skill } = fixture();
 

@@ -3,111 +3,68 @@ import { VERSION } from "./version.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
+import { SQLiteDiscourseStore } from "./adapters/sqlite-discourse-store.ts";
+import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
+import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
-import type { Checklist } from "./domain/checklist.ts";
-import type { TaskEventContext, TaskEventDirection } from "./domain/task-event.ts";
+import { DISCOURSE_RELATIONS, isDiscourseSubtype } from "./domain/discourse-store.ts";
+import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from "./authority-registry.ts";
+import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
 import {
-	createArtifactTemplate,
-	createDocument,
-	createRule,
-	createSkill,
-	linkDocument,
-	gateTaskWithRule,
 	instantiateTemplate,
-	listDocuments,
-	listRules,
 	listInjectableRules,
-	listSkills,
-	previewRule,
-	showDocument,
-	showRule,
-	showSkill,
-	skillInvocation,
-	transitionDocument,
-	transitionRule,
-	transitionSkill,
-	type DocumentRelation,
 } from "./domain-services.ts";
-import { taskContext } from "./task-context.ts";
-import { instantiateSkillWorkflow } from "./skill-execution.ts";
-import { Notes, type NoteDisposition } from "./note-service.ts";
+import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
+import { OperationRegistry } from "./module-registry.ts";
+import { docsOperations, DOCS_OPERATION_NAMES } from "./modules/docs.ts";
+import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./modules/graph-projection.ts";
+import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
+import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
+import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
+import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
 
+/**
+ * Operations with no registered module: the generic, cross-cutting kernel surface
+ * (artifact create/query/show, graph link/unlink/tree/status/history, gates run --
+ * no domain owns creation/linking/traversal for every kind, the same way system.migrate
+ * has no owning module) and two permanent composition-root exceptions (rules.injectable
+ * needs tasks.active(); skills.instantiate branches into tasks.create()) -- see
+ * src/modules/rules.ts and src/modules/skills.ts's module comments. discourse.store's
+ * eventual home depends on the still-open Discourse projection-target decision, not on
+ * module extraction.
+ */
+const COMPOSITION_ROOT_OPERATION_NAMES = [
+	"system.migrate", "discourse.store", "artifact.create", "artifact.query", "artifact.show",
+	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
+	"rules.injectable", "skills.instantiate",
+] as const;
+
+/**
+ * Each registered module owns its own operation-name list (src/modules/*.ts); this is a
+ * spread of those plus the composition-root exceptions above, not a second hand-
+ * maintained copy. TypeScript needs this to stay a compile-time-known array (it derives
+ * OperationName, which powers Record<OperationName, OperationHandler>'s exhaustiveness
+ * check below) — it cannot be generated from moduleRegistry.list() (a runtime value)
+ * without losing that guarantee, so this composition of `as const` arrays is the
+ * furthest this can go while keeping that safety net.
+ */
 export const EXPECTED_OPERATION_NAMES = [
-	"system.migrate",
-	"artifact.create",
-	"artifact.query",
-	"artifact.show",
-	"graph.link",
-	"graph.tree",
-	"graph.status",
-	"gates.run",
-	"rules.injectable",
-	"tasks.create",
-	"tasks.update",
-	"tasks.list",
-	"tasks.graph",
-	"tasks.plan",
-	"tasks.show",
-	"tasks.history",
-	"tasks.scope",
-	"tasks.set_scope",
-	"tasks.assign_project",
-	"tasks.active",
-	"tasks.focused",
-	"tasks.focus",
-	"tasks.pause",
-	"tasks.unpause",
-	"tasks.clear_focus",
-	"tasks.start",
-	"tasks.submit",
-	"tasks.complete",
-	"tasks.run_gates",
-	"tasks.set_checklist",
-	"tasks.context",
-	"tasks.reject",
-	"tasks.retry",
-	"tasks.cancel",
-	"tasks.depend",
-	"tasks.contain",
-	"docs.create",
-	"docs.list",
-	"docs.show",
-	"docs.activate",
-	"docs.archive",
-	"docs.reopen",
-	"docs.link",
-	"notes.capture",
-	"notes.list",
-	"notes.show",
-	"notes.consume",
-	"notes.promote",
-	"notes.archive",
-	"rules.create",
-	"rules.list",
-	"rules.show",
-	"rules.preview",
-	"rules.enable",
-	"rules.disable",
-	"rules.gate",
-	"skills.create",
-	"skills.create_template",
-	"skills.list",
-	"skills.show",
-	"skills.invoke",
-	"skills.run",
-	"skills.enable",
-	"skills.disable",
-	"skills.instantiate",
+	...COMPOSITION_ROOT_OPERATION_NAMES,
+	...TASKS_OPERATION_NAMES,
+	...DOCS_OPERATION_NAMES,
+	...NOTES_OPERATION_NAMES,
+	...RULES_OPERATION_NAMES,
+	...SKILLS_OPERATION_NAMES,
+	...GRAPH_PROJECTION_OPERATION_NAMES,
 ] as const;
 
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
@@ -150,6 +107,57 @@ function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
 	return { ...rest, templateId: typeof template_id === "string" ? template_id : undefined } as CreateArtifactInput;
 }
 
+function templateSubtype(artifacts: ArtifactStore, templateId: string | undefined): string | undefined {
+	if (!templateId) return undefined;
+	const defaults = artifacts.get(templateId)?.extra["defaults"];
+	if (typeof defaults !== "object" || defaults === null || Array.isArray(defaults)) return undefined;
+	const subtype = (defaults as Record<string, unknown>)["subtype"];
+	return typeof subtype === "string" ? subtype : undefined;
+}
+
+/**
+ * The one deep enforcement point (step 4 of reducing-papyrus-consumer-change-amplification-with-modules--pvdo)
+ * replacing the previously scattered isDiscourseSubtype/NOTE_SUBTYPE/task-kind checks that used
+ * to be re-implemented at every write call site. "generic" is the caller identity for the
+ * low-level artifact.create / graph.link / graph.unlink / graph.status surface, which owns
+ * nothing itself, so any claimed kind, subtype, or relation is rejected for it — exactly
+ * matching the historical behavior these checks replace.
+ */
+const GENERIC_CALLER = "generic";
+
+const discourseAuthorityClaim: AuthorityClaim = {
+	owner: "discourse",
+	matchesArtifact: (_kind, subtype) => isDiscourseSubtype(subtype),
+	matchesRelation: (relation) => DISCOURSE_RELATIONS.has(relation),
+	denyMessage: (action) => action === "link" ? "forum-owned Context Mesh links require discourse.store" : "forum-owned Context Mesh Docs require discourse.store",
+};
+
+const notesAuthorityClaim: AuthorityClaim = {
+	owner: "notes",
+	matchesArtifact: (kind, subtype) => kind === "doc" && subtype === NOTE_SUBTYPE,
+	denyMessage: (action) => {
+		if (action === "link") return "note relationships require a notes.* operation so disposition provenance is preserved";
+		if (action === "status") return "note lifecycle changes require a notes.* operation so disposition provenance is preserved";
+		return "note creation requires notes.capture";
+	},
+};
+
+// Only ever checked for the "status" action today (graph.status): artifact.create redirects
+// kind="task" to tasks.create rather than rejecting, and graph.link/unlink never checked task
+// ownership historically. appliesToAction scopes the claim so it cannot leak into those paths.
+const tasksAuthorityClaim: AuthorityClaim = {
+	owner: "tasks",
+	matchesArtifact: (kind) => kind === "task",
+	appliesToAction: (action) => action === "status",
+	denyMessage: () => "task lifecycle changes require a tasks.* operation so history and review invariants are preserved",
+};
+
+function createAuthorityRegistry(): AuthorityRegistry {
+	const authority = new AuthorityRegistry();
+	authority.claimAll([discourseAuthorityClaim, notesAuthorityClaim, tasksAuthorityClaim]);
+	return authority;
+}
+
 export interface SchemaState {
 	current: number;
 	required: number;
@@ -170,10 +178,19 @@ function handlers(
 	gates: GateRunner,
 	tasks: Tasks,
 	notes: Notes,
+	discourse: SQLiteDiscourseStore,
 	events: TaskEventStore,
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
+	moduleRegistry: OperationRegistry,
+	authority: AuthorityRegistry,
 ): Record<OperationName, OperationHandler> {
+	const genericWriter = new AuthorizedArtifactWriter(artifacts, authority, GENERIC_CALLER);
+	// Notes is the first module extracted behind the OperationRegistry (src/modules/notes.ts);
+	// these six entries stay in this completeness-checked table only as a thin forward so
+	// `Record<OperationName, OperationHandler>` still guarantees every operation has an entry
+	// at compile time. The actual notes.* logic now lives in the module, not here.
+	const forwardToModule = (name: OperationName): OperationHandler => (input) => moduleRegistry.get(name)!.execute(input);
 	const eventContext = (input: OperationInput): TaskEventContext => ({
 		actor: optionalString(input, "actor"),
 		source: optionalString(input, "source"),
@@ -194,12 +211,15 @@ function handlers(
 		projectRoot: string(input, "project_root"),
 		scope: optionalString(input, "scope") as TaskViewMode | undefined,
 		rootTaskId: optionalString(input, "root_task_id"),
+		sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 	});
 	return {
 		"system.migrate": () => migrate(),
+		"discourse.store": (input) => discourse.execute(input),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
-			if (normalized.kind === "doc" && normalized.subtype === "note") throw new Error("note creation requires notes.capture");
+			authority.requireArtifactAllowed(normalized.kind, normalized.subtype ?? templateSubtype(artifacts, normalized.templateId), "create", GENERIC_CALLER);
+			authority.requireArtifactAllowed(normalized.kind, normalized.subtype, "create", GENERIC_CALLER);
 			if (normalized.kind !== "task") return artifacts.create(normalized);
 			return tasks.create({
 				id: normalized.id,
@@ -224,25 +244,44 @@ function handlers(
 			const from = string(input, "from");
 			const relation = string(input, "relation");
 			const to = string(input, "to");
+			genericWriter.checkLink({ from, relation, to });
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
-				tasks.depend(from, to);
+				tasks.depend(from, to, eventContext(input));
 			} else {
-				artifacts.link({ from, relation, to });
+				artifacts.link({ from, relation, to }, eventContext(input));
 			}
 			return { ok: true };
+		},
+		"graph.unlink": (input) => {
+			const from = string(input, "from");
+			const relation = string(input, "relation");
+			const to = string(input, "to");
+			genericWriter.checkLink({ from, relation, to });
+			let removed: boolean;
+			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
+				const before = tasks.graph().nodes.find((node) => node.task.id === from)?.dependencyIds.includes(to) ?? false;
+				tasks.undepend(from, to, eventContext(input));
+				removed = before;
+			} else {
+				removed = artifacts.unlink({ from, relation, to }, eventContext(input));
+			}
+			return { removed };
 		},
 		"graph.tree": (input) => artifacts.get(string(input, "id"), {
 			tree: true,
 			depth: optionalNumber(input, "depth"),
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
-		"graph.status": (input) => {
-			const id = string(input, "id");
-			const artifact = artifacts.get(id);
-			if (artifact?.kind === "task") throw new Error("task lifecycle changes require a tasks.* operation so history and review invariants are preserved");
-			if (artifact?.kind === "doc" && artifact.subtype === "note") throw new Error("note lifecycle changes require a notes.* operation so disposition provenance is preserved");
-			return artifacts.setStatus(id, string(input, "status"));
-		},
+		"graph.status": (input) => genericWriter.setStatus(string(input, "id"), string(input, "status"), eventContext(input)),
+		"graph.history": (input) => artifacts.events({
+			artifactId: optionalString(input, "id"),
+			actor: optionalString(input, "actor"),
+			sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
+			since: optionalString(input, "since"),
+			limit: optionalNumber(input, "limit"),
+			cursor: optionalNumber(input, "cursor"),
+			direction: optionalString(input, "direction") as "asc" | "desc" | undefined,
+		}),
 		"gates.run": (input) => {
 			const id = string(input, "id");
 			return artifacts.get(id)?.kind === "task"
@@ -251,131 +290,74 @@ function handlers(
 		},
 		"rules.injectable": (input) => listInjectableRules(artifacts, tasks.active(taskFilter(input))?.id)
 			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
-		"tasks.create": (input) => tasks.create({
-			title: string(input, "title"),
-			body: optionalString(input, "body"),
-			status: optionalString(input, "status") as TaskStatus | undefined,
-			labels: input["labels"] as string[] | undefined,
-			extra: input["extra"] as Record<string, unknown> | undefined,
-			gates: input["gates"] as Parameters<Tasks["create"]>[0]["gates"],
-			checklist: input["checklist"] as Checklist | undefined,
-			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
-			parentId: optionalString(input, "parent_id") ?? optionalString(input, "parentId"),
-			dependsOn: (input["depends_on"] ?? input["dependsOn"]) as string[] | undefined,
-			projectRoot: string(input, "project_root"),
-			projectSource: "cwd",
-		}, eventContext(input)),
-		"tasks.update": (input) => tasks.update(string(input, "id"), {
-			...(input["title"] !== undefined ? { title: optionalString(input, "title")! } : {}),
-			...(input["body"] !== undefined ? { body: optionalString(input, "body")! } : {}),
-			...(input["labels"] !== undefined ? { labels: optionalStringArray(input, "labels")! } : {}),
-			...(input["status"] !== undefined ? { status: string(input, "status") as "todo" } : {}),
-		}, eventContext(input)),
-		"tasks.list": (input) => tasks.list(taskFilter(input)),
-		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
-		"tasks.plan": (input) => projectTaskExecution(tasks.graph(taskFilter(input))),
-		"tasks.show": (input) => tasks.show(string(input, "id")),
-		"tasks.history": (input) => tasks.history(string(input, "id"), {
-			limit: optionalNumber(input, "limit"),
-			cursor: optionalNumber(input, "cursor"),
-			direction: optionalString(input, "direction") as TaskEventDirection | undefined,
-		}),
-		"tasks.scope": (input) => tasks.scopeSelection(string(input, "project_root")),
-		"tasks.set_scope": (input) => tasks.setView(
-			string(input, "project_root"),
-			string(input, "scope") as TaskViewMode,
-			optionalString(input, "root_task_id"),
-		),
-		"tasks.assign_project": (input) => tasks.assignProject(
-			string(input, "id"),
-			string(input, "project_root"),
-			eventContext(input),
-		),
-		"tasks.active": (input) => tasks.active(taskFilter(input)),
-		"tasks.focused": (input) => tasks.focused(taskFilter(input)),
-		"tasks.focus": (input) => tasks.focus(string(input, "id"), eventContext(input)),
-		"tasks.pause": (input) => tasks.pauseFocus(eventContext(input)),
-		"tasks.unpause": (input) => tasks.unpauseFocus(eventContext(input)),
-		"tasks.clear_focus": (input) => tasks.clearFocus(eventContext(input)),
-		"tasks.start": (input) => tasks.transition(string(input, "id"), "start", eventContext(input)),
-		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit", eventContext(input)),
-		"tasks.complete": (input) => tasks.completeAsync(string(input, "id"), eventContext(input)),
-		"tasks.run_gates": (input) => tasks.runGates(string(input, "id"), eventContext(input)),
-		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
-		"tasks.context": (input) => taskContext(artifacts, tasks.active()?.id, new Set(tasks.list(taskFilter(input)).map((task) => task.id))),
-		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
-		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
-		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel", eventContext(input)),
-		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id")),
-		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id")),
-		"docs.create": (input) => createDocument(artifacts, {
-			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
-			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
-		}),
-		"docs.list": (input) => listDocuments(artifacts, artifactFilter(input)),
-		"docs.show": (input) => showDocument(artifacts, string(input, "id")),
-		"docs.activate": (input) => transitionDocument(artifacts, string(input, "id"), "activate"),
-		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive"),
-		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen"),
-		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id")),
-		"notes.capture": (input) => notes.capture({
-			body: string(input, "body"), title: optionalString(input, "title"), projectRoot: string(input, "project_root"),
-			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
-		}),
-		"notes.list": (input) => notes.list({
-			projectRoot: string(input, "project_root"), status: optionalString(input, "status") as "draft" | "active" | "archived" | undefined,
-			text: optionalString(input, "text"), limit: optionalNumber(input, "limit"),
-		}),
-		"notes.show": (input) => notes.show(string(input, "id"), string(input, "project_root")),
-		"notes.consume": (input) => notes.consume(string(input, "id"), {
-			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
-			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),
-		}),
-		"notes.promote": (input) => notes.promote(string(input, "id"), string(input, "target_id"), {
-			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
-			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),
-		}),
-		"notes.archive": (input) => notes.archive(string(input, "id"), {
-			projectRoot: string(input, "project_root"), disposition: string(input, "disposition") as NoteDisposition,
-			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
-			reason: optionalString(input, "reason"),
-		}),
-		"rules.create": (input) => createRule(artifacts, {
-			title: string(input, "title"), body: optionalString(input, "body"), condition: optionalString(input, "condition"),
-			action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
-			severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
-			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}),
-		"rules.list": (input) => listRules(artifacts, artifactFilter(input)),
-		"rules.show": (input) => showRule(artifacts, string(input, "id")),
-		"rules.preview": (input) => previewRule(artifacts, string(input, "id")),
-		"rules.enable": (input) => transitionRule(artifacts, string(input, "id"), "enable"),
-		"rules.disable": (input) => transitionRule(artifacts, string(input, "id"), "disable"),
-		"rules.gate": (input) => gateTaskWithRule(artifacts, string(input, "id"), string(input, "task_id")),
-		"skills.create": (input) => createSkill(artifacts, {
-			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
-			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
-			definition: input["definition"],
-			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}),
-		"skills.create_template": (input) => createArtifactTemplate(artifacts, {
-			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
-			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
-		}),
-		"skills.list": (input) => listSkills(artifacts, artifactFilter(input)),
-		"skills.show": (input) => showSkill(artifacts, string(input, "id")),
-		"skills.invoke": (input) => skillInvocation(artifacts, string(input, "id")),
-		"skills.run": (input) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
-			runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
-			arguments: input["arguments"] as Record<string, unknown> | undefined,
-		}, { events, scopes, projectRoot: string(input, "project_root"), context: eventContextFor(input, "skill-run") }),
-		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable"),
-		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable"),
+		"tasks.create": forwardToModule("tasks.create"),
+		"tasks.update": forwardToModule("tasks.update"),
+		"tasks.list": forwardToModule("tasks.list"),
+		"tasks.graph": forwardToModule("tasks.graph"),
+		"tasks.plan": forwardToModule("tasks.plan"),
+		"tasks.show": forwardToModule("tasks.show"),
+		"tasks.history": forwardToModule("tasks.history"),
+		"tasks.scope": forwardToModule("tasks.scope"),
+		"tasks.set_scope": forwardToModule("tasks.set_scope"),
+		"tasks.assign_project": forwardToModule("tasks.assign_project"),
+		"tasks.active": forwardToModule("tasks.active"),
+		"tasks.focused": forwardToModule("tasks.focused"),
+		"tasks.focus": forwardToModule("tasks.focus"),
+		"tasks.pause": forwardToModule("tasks.pause"),
+		"tasks.unpause": forwardToModule("tasks.unpause"),
+		"tasks.clear_focus": forwardToModule("tasks.clear_focus"),
+		"tasks.start": forwardToModule("tasks.start"),
+		"tasks.submit": forwardToModule("tasks.submit"),
+		"tasks.complete": forwardToModule("tasks.complete"),
+		"tasks.run_gates": forwardToModule("tasks.run_gates"),
+		"tasks.set_checklist": forwardToModule("tasks.set_checklist"),
+		"tasks.context": forwardToModule("tasks.context"),
+		"tasks.reject": forwardToModule("tasks.reject"),
+		"tasks.retry": forwardToModule("tasks.retry"),
+		"tasks.cancel": forwardToModule("tasks.cancel"),
+		"tasks.depend": forwardToModule("tasks.depend"),
+		"tasks.undepend": forwardToModule("tasks.undepend"),
+		"tasks.contain": forwardToModule("tasks.contain"),
+		"tasks.uncontain": forwardToModule("tasks.uncontain"),
+		"docs.create": forwardToModule("docs.create"),
+		"docs.list": forwardToModule("docs.list"),
+		"docs.show": forwardToModule("docs.show"),
+		"docs.activate": forwardToModule("docs.activate"),
+		"docs.archive": forwardToModule("docs.archive"),
+		"docs.reopen": forwardToModule("docs.reopen"),
+		"docs.link": forwardToModule("docs.link"),
+		"docs.assign_project": forwardToModule("docs.assign_project"),
+		"notes.capture": forwardToModule("notes.capture"),
+		"notes.list": forwardToModule("notes.list"),
+		"notes.show": forwardToModule("notes.show"),
+		"notes.consume": forwardToModule("notes.consume"),
+		"notes.promote": forwardToModule("notes.promote"),
+		"notes.archive": forwardToModule("notes.archive"),
+		"rules.create": forwardToModule("rules.create"),
+		"rules.list": forwardToModule("rules.list"),
+		"rules.show": forwardToModule("rules.show"),
+		"rules.preview": forwardToModule("rules.preview"),
+		"rules.enable": forwardToModule("rules.enable"),
+		"rules.disable": forwardToModule("rules.disable"),
+		"rules.gate": forwardToModule("rules.gate"),
+		"rules.assign_project": forwardToModule("rules.assign_project"),
+		"skills.create": forwardToModule("skills.create"),
+		"skills.create_template": forwardToModule("skills.create_template"),
+		"skills.list": forwardToModule("skills.list"),
+		"skills.show": forwardToModule("skills.show"),
+		"skills.invoke": forwardToModule("skills.invoke"),
+		"skills.run": forwardToModule("skills.run"),
+		"skills.enable": forwardToModule("skills.enable"),
+		"skills.disable": forwardToModule("skills.disable"),
+		"skills.assign_project": forwardToModule("skills.assign_project"),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
-			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input));
+			// Deliberately pass an unresolved kind so only the discourse claim (kind-agnostic) can match here —
+			// the historical requireDiscourseStoreForSubtype never checked notes at this call site; that check
+			// already happens inside instantiateTemplate's own rejectsNoteTemplate for the non-task branch below.
+			authority.requireArtifactAllowed(undefined, templateSubtype(artifacts, templateId), "create", GENERIC_CALLER);
+			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input), authority, eventContext(input));
 			return tasks.create({
 				title: optionalString(input, "title") as string,
 				body: optionalString(input, "body"),
@@ -387,6 +369,8 @@ function handlers(
 				projectSource: "cwd",
 			}, eventContextFor(input, "template-instantiation"));
 		},
+		"graph_projection.apply": forwardToModule("graph_projection.apply"),
+		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 	};
 }
 
@@ -399,7 +383,18 @@ export function createPapyrusService(path: string): PapyrusService {
 	const scopes = new SQLiteTaskScopeStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const notes = new Notes(artifacts);
-	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db));
+	const discourse = new SQLiteDiscourseStore(db, artifacts);
+	const projections = new SQLiteGraphProjectionStore(db);
+	const artifactScopes = new SQLiteArtifactScopeStore(db);
+	const authority = createAuthorityRegistry();
+	const moduleRegistry = new OperationRegistry();
+	moduleRegistry.registerAll(notesOperations(notes));
+	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
+	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
+	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
+	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
+	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
+	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };
@@ -411,7 +406,7 @@ export function createPapyrusService(path: string): PapyrusService {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
 			if (operation !== "system.migrate" && state().migrationRequired) {
-				throw new MigrationRequiredError("database migration required; run `papyrus migrate task-focus`");
+				throw new MigrationRequiredError("database migration required; run `papyrus migrate schema`");
 			}
 			return handler(input);
 		},

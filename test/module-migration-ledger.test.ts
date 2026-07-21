@@ -8,13 +8,15 @@ import { SQLITE_SCHEMA_VERSION } from "../src/constants.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 
 describe("module migration ledger", () => {
-	it("backfills a checksummed core baseline row for a freshly bootstrapped database", () => {
+	it("backfills every entry in the core ledger history for a freshly bootstrapped database", () => {
 		const db = openDb(":memory:");
 		const ledger = migrationLedger(db);
-		expect(ledger).toHaveLength(1);
+		expect(ledger.length).toBeGreaterThanOrEqual(2); // every historical core version is backfilled, not just the latest
 		expect(ledger[0]).toMatchObject({ moduleId: "core", version: 1, name: "baseline" });
-		expect(ledger[0]!.checksum).toMatch(/^[0-9a-f]{64}$/); // sha256 hex, not a placeholder
-		expect(ledger[0]!.appliedAt).toBeTruthy();
+		for (const row of ledger) {
+			expect(row.checksum).toMatch(/^[0-9a-f]{64}$/); // sha256 hex, not a placeholder
+			expect(row.appliedAt).toBeTruthy();
+		}
 		expect(schemaVersion(db)).toBe(SQLITE_SCHEMA_VERSION); // PRAGMA user_version stays informational, still consistent
 	});
 
@@ -43,7 +45,7 @@ describe("module migration ledger", () => {
 
 		const reopened = openDb(path);
 		const ledger = migrationLedger(reopened);
-		expect(ledger).toHaveLength(1);
+		expect(ledger.length).toBeGreaterThanOrEqual(2);
 		expect(ledger[0]).toMatchObject({ moduleId: "core", version: 1, name: "baseline" });
 		// Backfill must not re-run DDL against a database that already has all its tables and data.
 		const artifact = new SQLiteArtifactStore(reopened).create({ kind: "doc", title: "Already here" });
@@ -81,12 +83,36 @@ describe("module migration ledger", () => {
 		db.close();
 	});
 
-	it("throws if a ledger row's stored checksum no longer matches the currently defined baseline migration", () => {
+	it("throws if a ledger row's stored checksum no longer matches its frozen definition", () => {
 		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-drift-")), "papyrus.db");
 		const fresh = openDb(path);
 		fresh.prepare("UPDATE module_migrations SET checksum = 'tampered' WHERE module_id = 'core' AND version = 1").run();
 		fresh.close();
 		expect(() => openDb(path)).toThrow(/checksum/);
+	});
+
+	it("regression: a database that only recorded an earlier core version (like the real, already-deployed production database) is backfilled with later versions, never mismatched", () => {
+		// Reproduces the exact production incident this fix closes. Before this fix, "core
+		// version 1"'s checksum was computed from the CURRENT SCHEMA+SEED_SQL text every time
+		// the process started, so it silently redefined itself the moment SCHEMA grew for any
+		// reason -- which would have thrown "checksum mismatch" against the real production
+		// database (which had already recorded version 1 under an older, smaller schema) the
+		// next time it opened under newer code, even though nothing about that database was
+		// actually wrong. Simulate exactly that database shape: only version 1 recorded, none
+		// of the later versions.
+		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-legacy-v1-only-")), "papyrus.db");
+		const db = openDb(path);
+		db.exec("DELETE FROM module_migrations WHERE version > 1");
+		db.close();
+
+		// Reopening (the same code path a daemon restart takes) must not throw, and must
+		// backfill every later version without disturbing the already-recorded version 1.
+		const reopened = openDb(path);
+		const ledger = migrationLedger(reopened);
+		const version1 = ledger.find((row) => row.version === 1)!;
+		expect(version1.checksum).toBe("af81e9f51d915ba538af3f468dc044bda5e2c5a5f5037e9c7c01540f87288763"); // the real, already-deployed value, untouched
+		expect(ledger.length).toBeGreaterThanOrEqual(2); // later versions were backfilled, not skipped or errored
+		reopened.close();
 	});
 
 	it("keeps the pre-ledger explicit migrate path's behavior and reporting completely unchanged", () => {

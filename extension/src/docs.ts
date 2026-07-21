@@ -1,9 +1,9 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
+import { DOC_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 
-const DOC_GLYPHS: Record<string, string> = { draft: "○", active: "●", archived: "■" };
 const DOC_ACTIONS: Record<string, string[]> = {
 	draft: ["Activate", "Archive"],
 	active: ["Archive"],
@@ -11,8 +11,9 @@ const DOC_ACTIONS: Record<string, string[]> = {
 };
 const DOC_RELATIONS = ["references", "documents", "supersedes", "relates_to", "contains", "part_of"];
 
-export function documentRowMeta(document: Artifact): string {
-	return [document.subtype, document.labels.join(", ")].filter(Boolean).join(" · ");
+export function documentRowMeta(document: Artifact, theme: Theme): string {
+	const subtype = document.subtype ? theme.fg("accent", document.subtype) : "";
+	return [subtype, document.labels.join(", ")].filter(Boolean).join(" · ");
 }
 
 export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
@@ -21,7 +22,7 @@ export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
 		title: "Documents",
 		listOperation: "docs.list",
 		statusOrder: ["draft", "active", "archived"],
-		glyphs: DOC_GLYPHS,
+		presentation: DOC_STATUS_PRESENTATION,
 		rowMeta: documentRowMeta,
 		actions: (document) => ["Show details", "Link artifact", ...(DOC_ACTIONS[document.status] ?? [])],
 		handleAction: async (choice, document, commandCtx) => {

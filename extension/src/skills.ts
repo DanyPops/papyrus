@@ -3,10 +3,9 @@ import type { Artifact } from "../../src/domain/artifact.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
+import { SKILL_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 import { showTaskGraph } from "./task-graph.ts";
-
-const SKILL_GLYPHS: Record<string, string> = { active: "●", deprecated: "○" };
 
 function strings(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -73,7 +72,7 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 		title: "Skills",
 		listOperation: "skills.list",
 		statusOrder: ["active", "deprecated"],
-		glyphs: SKILL_GLYPHS,
+		presentation: SKILL_STATUS_PRESENTATION,
 		rowMeta: skillRowMeta,
 		actions: (skill) => [
 			"Show details",

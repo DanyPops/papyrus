@@ -175,6 +175,49 @@ describe("Relationship removal on terminal Tasks", () => {
 	});
 });
 
+describe("cross-project Task dependency and containment edges are allowed by design", () => {
+	// See decision-task-dependency-and-containment-edges-may-cross-pro-ysns: project_root is a
+	// personal default-view filter, not a multi-tenancy boundary, so linking across projects is
+	// intentionally unrestricted. This test locks that decision in against silent regression.
+	it("allows creating and removing a dependency between Tasks in different projects", () => {
+		const { tasks } = fixture();
+		const a = tasks.create({ title: "A", projectRoot: "/repo/one", projectSource: "explicit" });
+		const b = tasks.create({ title: "B", projectRoot: "/repo/two", projectSource: "explicit" });
+
+		expect(() => tasks.depend(a.id, b.id)).not.toThrow();
+		expect(tasks.graph().nodes.find((n) => n.task.id === a.id)?.dependencyIds).toEqual([b.id]);
+
+		expect(() => tasks.undepend(a.id, b.id)).not.toThrow();
+		expect(tasks.graph().nodes.find((n) => n.task.id === a.id)?.dependencyIds).toEqual([]);
+	});
+
+	it("allows creating and removing containment between Tasks in different projects", () => {
+		const { tasks } = fixture();
+		const parent = tasks.create({ title: "Parent", projectRoot: "/repo/one", projectSource: "explicit" });
+		const child = tasks.create({ title: "Child", projectRoot: "/repo/two", projectSource: "explicit" });
+
+		expect(() => tasks.contain(parent.id, child.id)).not.toThrow();
+		expect(tasks.graph().nodes.find((n) => n.task.id === parent.id)?.childIds).toEqual([child.id]);
+
+		expect(() => tasks.uncontain(parent.id, child.id)).not.toThrow();
+	});
+
+	it("a project-scoped list excludes the cross-project counterpart, but scope=all still shows both", () => {
+		const { tasks } = fixture();
+		const a = tasks.create({ title: "A", projectRoot: "/repo/one", projectSource: "explicit" });
+		const b = tasks.create({ title: "B", projectRoot: "/repo/two", projectSource: "explicit" });
+		tasks.depend(a.id, b.id);
+
+		const scopedToOne = tasks.list({ projectRoot: "/repo/one" }).map((t) => t.id);
+		expect(scopedToOne).toContain(a.id);
+		expect(scopedToOne).not.toContain(b.id);
+
+		const all = tasks.list({ projectRoot: "/repo/one", scope: "all" }).map((t) => t.id);
+		expect(all).toContain(a.id);
+		expect(all).toContain(b.id);
+	});
+});
+
 describe("graph.link/graph.unlink preserve Note lifecycle protections", () => {
 	it("rejects linking or unlinking a Note through the low-level graph operations", async () => {
 		const service = createPapyrusService(":memory:");

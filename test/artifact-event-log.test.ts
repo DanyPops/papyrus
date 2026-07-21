@@ -183,7 +183,7 @@ describe("generic mutation event log — explicit migration", () => {
 			PRAGMA user_version = 6;
 		`);
 
-		expect(migrateDb(db)).toEqual({ from: 6, to: 8, applied: ["artifact-event-log", "task-focus-session-scope"] });
+		expect(migrateDb(db)).toEqual({ from: 6, to: 9, applied: ["artifact-event-log", "task-focus-session-scope", "graph-projection-protocol"] });
 		expect(db.prepare("SELECT COUNT(*) AS count FROM artifact_events").get()).toEqual({ count: 0 });
 
 		const artifacts = new SQLiteArtifactStore(db);

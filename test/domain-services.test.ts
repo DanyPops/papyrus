@@ -94,6 +94,23 @@ describe("rules domain service", () => {
 		expect(listRules(artifacts, scopes, {})).toHaveLength(1);
 		db.close();
 	});
+
+	it("rejects a rule whose condition+action+body exceeds the permanent-context-tax bound", () => {
+		const { db, artifacts, scopes } = fixture();
+		const oversized = "x".repeat(4001);
+		expect(() => createRule(artifacts, scopes, { title: "Bloated", body: oversized })).toThrow(/4000-character bound/);
+		// A rule right at the boundary, or comfortably under it, is unaffected.
+		expect(() => createRule(artifacts, scopes, { title: "Fits", body: "x".repeat(4000) })).not.toThrow();
+		expect(() => createRule(artifacts, scopes, { title: "Small", condition: "before commit", action: "Run tests", body: "Short reasoning" })).not.toThrow();
+		// The bound is on the SUM of condition+action+body, not any single field alone.
+		expect(() => createRule(artifacts, scopes, {
+			title: "Split across fields",
+			condition: "x".repeat(1500),
+			action: "x".repeat(1500),
+			body: "x".repeat(1500),
+		})).toThrow(/4000-character bound/);
+		db.close();
+	});
 });
 
 describe("skills domain service", () => {

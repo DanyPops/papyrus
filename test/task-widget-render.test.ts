@@ -17,6 +17,7 @@ const projection: TaskWidgetProjection = {
 		depth: 0,
 		hasOpenChildren: false,
 		active: true,
+		parentCount: 1,
 	}],
 	openTotal: 49,
 	total: 110,
@@ -43,5 +44,14 @@ describe("task widget rendering", () => {
 
 	it("renders nothing when no actionable work remains", () => {
 		expect(renderTaskWidgetLines(theme, { ...projection, rows: [], openTotal: 0 }, 80)).toEqual([]);
+	});
+
+	it("flags a task with more than one parent, since containment is a DAG and this bounded widget can only show one position", () => {
+		const singleParent = renderTaskWidgetLines(theme, projection, 80)[1]!;
+		expect(singleParent).not.toContain("⥂"); // the normal, single-parent case carries no marker
+
+		const multiParent = { ...projection, rows: [{ ...projection.rows[0]!, parentCount: 3 }] };
+		const line = renderTaskWidgetLines(theme, multiParent, 80)[1]!;
+		expect(line).toContain("⥂3"); // flags it also lives under 2 other parents not shown here
 	});
 });

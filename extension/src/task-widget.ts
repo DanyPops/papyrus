@@ -8,6 +8,18 @@ export interface TaskWidgetRow {
 	hasOpenChildren: boolean;
 	active: boolean;
 	focusStatus?: "active" | "paused";
+	/**
+	 * Task containment is a DAG, not a tree: a task may have more than one parent (design
+	 * decision -- see decide-and-execute... no single-parent enforcement was ever wanted).
+	 * This bounded widget still renders one spanning tree (it only has room for one position
+	 * per task), so a multi-parent task is only ever shown once, under whichever parent this
+	 * walk reaches first -- exactly the git-log-graph / npm-ls-dedup pattern of picking one
+	 * canonical position and flagging the rest, rather than silently dropping the information.
+	 * parentCount > 1 means "this task also lives under other parents not shown here" --
+	 * the full DAG (every parent edge, not just one) is always available via the task graph's
+	 * composition view, which renders true multi-parent edges through Mermaid's flowchart layout.
+	 */
+	parentCount: number;
 }
 
 export interface TaskWidgetProjection {
@@ -36,7 +48,7 @@ export function buildTaskWidgetProjection(
 		if (!node) return;
 		visited.add(id);
 		const open = isOpen(node.task);
-		if (open) ordered.push({ task: node.task, depth: openDepth, hasOpenChildren: false, active: node.active === true, focusStatus: node.focusStatus });
+		if (open) ordered.push({ task: node.task, depth: openDepth, hasOpenChildren: false, active: node.active === true, focusStatus: node.focusStatus, parentCount: node.parentIds.length });
 		const childDepth = open ? openDepth + 1 : openDepth;
 		for (const childId of node.childIds) visit(childId, childDepth);
 	};

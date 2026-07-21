@@ -56,6 +56,20 @@ describe("task widget projection", () => {
 		expect(projection.rows.find((row) => row.active)?.task.id).toBe("focused");
 	});
 
+	it("projects parentCount from the DAG's actual parentIds, so a multi-parent task can be flagged rather than silently shown as single-parent", () => {
+		const shared: TaskGraph = {
+			nodes: [
+				node(task("parent-a", "Parent A", "in-progress"), [], ["shared"]),
+				node(task("parent-b", "Parent B", "in-progress"), [], ["shared"]),
+				node(task("shared", "Shared child", "todo"), ["parent-a", "parent-b"], []),
+			],
+			rootIds: ["parent-a", "parent-b"],
+		};
+		const projection = buildTaskWidgetProjection(shared, 10);
+		expect(projection.rows.find((row) => row.task.id === "shared")?.parentCount).toBe(2);
+		expect(projection.rows.find((row) => row.task.id === "parent-a")?.parentCount).toBe(0);
+	});
+
 	it("returns no rows when every task is terminal", () => {
 		const terminal: TaskGraph = {
 			nodes: [node(task("done", "Done", "done")), node(task("canceled", "Canceled", "canceled"))],

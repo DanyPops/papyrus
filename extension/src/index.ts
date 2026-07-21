@@ -57,7 +57,12 @@ export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjec
 		const focus = row.active ? theme.fg("accent", row.focusStatus === "paused" ? "Ⅱ" : "▶") : " ";
 		const presentation = TASK_STATUS_PRESENTATION[row.task.status as TaskStatus];
 		const glyph = presentation ? theme.fg(presentation.color, presentation.glyph) : theme.fg("muted", "?");
-		lines.push(truncateToWidth(`${focus} ${hierarchy} ${glyph} ${row.task.title}`, width, "…"));
+		// Task containment is a DAG: a task with more than one parent is only ever shown once in
+		// this bounded tree (under whichever parent this walk reached first). Flag it rather than
+		// silently hiding that it also lives elsewhere -- see /tasks graph's composition view for
+		// the full multi-parent picture.
+		const multiParent = row.parentCount > 1 ? theme.fg("dim", ` ⥂${row.parentCount}`) : "";
+		lines.push(truncateToWidth(`${focus} ${hierarchy} ${glyph} ${row.task.title}${multiParent}`, width, "…"));
 	}
 	return lines;
 }

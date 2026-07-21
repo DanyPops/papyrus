@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runDiscourseCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runDiscourseCli, runGraphCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import type { OperationName } from "../src/service.ts";
 
 const PROJECT_ROOT = process.cwd();
@@ -22,6 +22,30 @@ describe("Papyrus migration CLI", () => {
 			applied: ["discourse-context-mesh"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
+	});
+});
+
+describe("Papyrus graph history CLI", () => {
+	it("routes bounded who-did-what-when queries through the authenticated daemon with stable JSON", async () => {
+		const page = { events: [{ id: 1, artifactId: "doc-1", occurredAt: "2026-01-01T00:00:00.000Z", type: "created", actor: "agent", source: "pi", schemaVersion: 1 }] };
+		const client = new FakeClient(page);
+		expect(await runGraphCli(["history", "--id", "doc-1", "--json"], client)).toBe(JSON.stringify(page));
+		expect(client.calls).toEqual([{ operation: "graph.history", input: { id: "doc-1" } }]);
+	});
+
+	it("parses actor, session, and pagination flags, and renders human-readable output", async () => {
+		const page = { events: [] as unknown[] };
+		const client = new FakeClient(page);
+		expect(await runGraphCli(["history", "--actor", "agent-a", "--session-id", "ses-1", "--limit", "10", "--cursor", "3", "--direction", "asc"], client)).toBe("No recorded events.");
+		expect(client.calls).toEqual([{
+			operation: "graph.history",
+			input: { actor: "agent-a", session_id: "ses-1", limit: 10, cursor: 3, direction: "asc" },
+		}]);
+	});
+
+	it("requires the history subcommand", async () => {
+		const client = new FakeClient({});
+		await expect(runGraphCli([], client)).rejects.toThrow("graph requires `history`");
 	});
 });
 

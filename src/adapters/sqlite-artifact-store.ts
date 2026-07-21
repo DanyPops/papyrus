@@ -11,7 +11,8 @@ import type {
 	RelationshipQuery,
 	UpdateArtifactInput,
 } from "../domain/artifact.ts";
-import { createArtifact, getArtifact, linkArtifacts, queryArtifacts, updateArtifactContent, updateExtra, updateStatus } from "../ops.ts";
+import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "../domain/artifact-event.ts";
+import { createArtifact, getArtifact, linkArtifacts, queryArtifactEvents, queryArtifacts, updateArtifactContent, updateExtra, updateStatus } from "../ops.ts";
 
 export class SQLiteArtifactStore implements AtomicArtifactStore {
 	constructor(private readonly db: Db) {}
@@ -20,8 +21,8 @@ export class SQLiteArtifactStore implements AtomicArtifactStore {
 		return inTransaction(this.db, operation);
 	}
 
-	create(input: CreateArtifactInput): Artifact {
-		return createArtifact(this.db, input);
+	create(input: CreateArtifactInput, context?: ArtifactEventContext): Artifact {
+		return createArtifact(this.db, input, context);
 	}
 
 	get(id: string, options?: ArtifactGraphOptions): Artifact | null {
@@ -32,20 +33,24 @@ export class SQLiteArtifactStore implements AtomicArtifactStore {
 		return queryArtifacts(this.db, filter);
 	}
 
-	link(link: ArtifactLink): void {
-		linkArtifacts(this.db, link.from, link.relation, link.to);
+	link(link: ArtifactLink, context?: ArtifactEventContext): void {
+		linkArtifacts(this.db, link.from, link.relation, link.to, context);
 	}
 
-	setStatus(id: string, status: string): Artifact | null {
-		return updateStatus(this.db, id, status);
+	setStatus(id: string, status: string, context?: ArtifactEventContext): Artifact | null {
+		return updateStatus(this.db, id, status, context);
 	}
 
-	setExtra(id: string, extra: Record<string, unknown>): Artifact | null {
-		return updateExtra(this.db, id, extra);
+	setExtra(id: string, extra: Record<string, unknown>, context?: ArtifactEventContext): Artifact | null {
+		return updateExtra(this.db, id, extra, context);
 	}
 
-	updateContent(id: string, input: UpdateArtifactInput): Artifact | null {
-		return updateArtifactContent(this.db, id, input);
+	updateContent(id: string, input: UpdateArtifactInput, context?: ArtifactEventContext): Artifact | null {
+		return updateArtifactContent(this.db, id, input, context);
+	}
+
+	events(query: ArtifactEventQuery): ArtifactEventPage {
+		return queryArtifactEvents(this.db, query);
 	}
 
 	relationships(filter: RelationshipQuery = {}): ArtifactEdge[] {

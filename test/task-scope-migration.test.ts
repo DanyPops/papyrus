@@ -19,6 +19,9 @@ describe("task project scope migration", () => {
 			DROP TABLE discourse_events;
 			DROP TABLE discourse_posts;
 			DROP TABLE discourse_threads;
+			DROP TRIGGER artifact_events_no_update;
+			DROP TRIGGER artifact_events_no_delete;
+			DROP TABLE artifact_events;
 			ALTER TABLE task_focus RENAME TO task_focus_v5;
 			CREATE TABLE task_focus (scope TEXT PRIMARY KEY CHECK (scope = 'global'), task_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id), updated_at TEXT NOT NULL);
 			INSERT INTO task_focus (scope, task_id, updated_at) SELECT scope, task_id, updated_at FROM task_focus_v5;
@@ -28,7 +31,7 @@ describe("task project scope migration", () => {
 		db.close();
 
 		db = openDb(path);
-		expect(migrateDb(db)).toEqual({ from: 3, to: 6, applied: ["task-project-scope", "task-focus-continuation", "discourse-context-mesh"] });
+		expect(migrateDb(db)).toEqual({ from: 3, to: 7, applied: ["task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log"] });
 		expect(db.prepare("SELECT project_root, source FROM task_scopes").get()).toEqual({ project_root: null, source: "unscoped" });
 		expect(db.prepare("SELECT COUNT(*) AS count FROM task_views").get()).toEqual({ count: 0 });
 		db.close();

@@ -9,6 +9,7 @@ import type {
 	RelationshipQuery,
 	UpdateArtifactInput,
 } from "../src/domain/artifact.ts";
+import type { ArtifactEventPage, ArtifactEventQuery } from "../src/domain/artifact-event.ts";
 import type { GateResult } from "../src/domain/gate.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
@@ -91,6 +92,10 @@ class FakeArtifactStore implements ArtifactStore {
 			.filter((edge) => !ids || ids.has(edge.from) || ids.has(edge.to))
 			.slice(0, filter.limit ?? this.edges.length)
 			.map((edge) => ({ ...edge }));
+	}
+
+	events(_query: ArtifactEventQuery): ArtifactEventPage {
+		return { events: [] };
 	}
 }
 

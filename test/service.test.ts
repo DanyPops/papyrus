@@ -73,19 +73,22 @@ describe("Papyrus operation service", () => {
 			DROP TABLE discourse_events;
 			DROP TABLE discourse_posts;
 			DROP TABLE discourse_threads;
+			DROP TRIGGER artifact_events_no_update;
+			DROP TRIGGER artifact_events_no_delete;
+			DROP TABLE artifact_events;
 			PRAGMA user_version = 1;
 		`);
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 6, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 1, required: 7, migrationRequired: true });
 		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate schema");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 6,
-			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh"],
+			to: 7,
+			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log"],
 		});
-		expect(service.schemaState()).toEqual({ current: 6, required: 6, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 7, required: 7, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
 		service.close();
 	});
@@ -244,7 +247,7 @@ describe("Papyrus operation service", () => {
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: VERSION,
-			schema: { current: 6, required: 6, migrationRequired: false },
+			schema: { current: 7, required: 7, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", { title: "Client task", project_root: PROJECT_ROOT });
 		expect(task.kind).toBe("task");

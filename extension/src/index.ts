@@ -244,11 +244,12 @@ export default async function (pi: ExtensionAPI) {
 		name: "papyrus_graph",
 		label: "Papyrus Graph",
 		description:
-			"Link artifacts with typed edges (any kind → any kind), view subgraph, or update status. " +
+			"Link artifacts with typed edges (any kind → any kind), view subgraph, update status, or read the mutation event log. " +
 			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers, contains, part_of. " +
-			"ACTIONS: link (from+relation+to), tree (id → bounded BFS subgraph), status (id+status → lifecycle).",
+			"ACTIONS: link (from+relation+to), tree (id → bounded BFS subgraph), status (id+status → lifecycle), " +
+			"history (who did what, when — requires id, actor, or session_id).",
 		parameters: Type.Object({
-			action: Type.String({ description: "link | tree | status" }),
+			action: Type.String({ description: "link | tree | status | history" }),
 			from: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			to: Type.Optional(Type.String()),
@@ -256,6 +257,10 @@ export default async function (pi: ExtensionAPI) {
 			status: Type.Optional(Type.String()),
 			depth: Type.Optional(Type.Number({ description: "tree traversal depth; bounded by a hard ceiling" })),
 			max_nodes: Type.Optional(Type.Number({ description: "tree node cap; bounded by a hard ceiling" })),
+			actor: Type.Optional(Type.String({ description: "history: filter by actor" })),
+			session_id: Type.Optional(Type.String({ description: "history: filter by session" })),
+			since: Type.Optional(Type.String({ description: "history: RFC3339 lower bound" })),
+			limit: Type.Optional(Type.Number({ description: "history: bounded page size" })),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Artifact graph", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -287,7 +292,15 @@ export default async function (pi: ExtensionAPI) {
 					if (!a) throw new Error(`artifact ${params.id} not found`);
 					return text(`Updated ${a.id} → [${a.status}]`, createArtifactDetails("graph.status", a));
 				}
-				throw new Error(`unknown action: ${params.action}; use link, tree, or status`);
+				if (params.action === "history") {
+					const page = await callService<Record<string, unknown>, { events: Array<Record<string, unknown>> }>("graph.history", {
+						id: params.id, actor: params.actor, session_id: params.session_id, since: params.since, limit: params.limit,
+					});
+					if (page.events.length === 0) return text("No recorded events.", createPreviewDetails("graph.history", "Mutation event log", "No recorded events."));
+					const output = page.events.map((event) => `${event["occurredAt"]} ${event["artifactId"]} ${event["type"]} · ${event["actor"]}/${event["source"]}`).join("\n");
+					return text(output, createPreviewDetails("graph.history", "Mutation event log", output));
+				}
+				throw new Error(`unknown action: ${params.action}; use link, tree, status, or history`);
 			} catch (e) {
 				throw new Error(`papyrus_graph failed: ${e instanceof Error ? e.message : e}`);
 			}

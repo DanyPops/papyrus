@@ -92,6 +92,9 @@ describe("append-only task lifecycle history", () => {
 			DROP TABLE discourse_events;
 			DROP TABLE discourse_posts;
 			DROP TABLE discourse_threads;
+			DROP TRIGGER artifact_events_no_update;
+			DROP TRIGGER artifact_events_no_delete;
+			DROP TABLE artifact_events;
 			ALTER TABLE task_focus RENAME TO task_focus_v5;
 			CREATE TABLE task_focus (scope TEXT PRIMARY KEY CHECK (scope = 'global'), task_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id), updated_at TEXT NOT NULL);
 			INSERT INTO task_focus (scope, task_id, updated_at) SELECT scope, task_id, updated_at FROM task_focus_v5;
@@ -102,7 +105,7 @@ describe("append-only task lifecycle history", () => {
 
 		db = openDb(path);
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
-		expect(migrateDb(db)).toEqual({ from: 2, to: 6, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh"] });
+		expect(migrateDb(db)).toEqual({ from: 2, to: 7, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log"] });
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		db.close();
 	});

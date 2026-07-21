@@ -16,6 +16,7 @@
  * port dependency pre-existing; untangling it is a separate, larger concern than this
  * extraction.
  */
+import type { AuthorityRegistry } from "../authority-registry.ts";
 import { createArtifactTemplate, createSkill, listSkills, showSkill, skillInvocation, transitionSkill } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -68,10 +69,11 @@ export interface SkillsModuleDeps {
 	artifacts: ArtifactStore;
 	events: TaskEventStore;
 	scopes: TaskScopeStore;
+	authority: AuthorityRegistry;
 }
 
 /** Registers every skills.* operation except skills.instantiate (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
-export function skillsOperations({ artifacts, events, scopes }: SkillsModuleDeps): OperationDefinition[] {
+export function skillsOperations({ artifacts, events, scopes, authority }: SkillsModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,
 	});
@@ -81,11 +83,11 @@ export function skillsOperations({ artifacts, events, scopes }: SkillsModuleDeps
 			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
 			definition: input["definition"],
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}, eventContext(input))),
+		}, authority, eventContext(input))),
 		define("skills.create_template", (input: OperationInput) => createArtifactTemplate(artifacts, {
 			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
 			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
-		}, eventContext(input))),
+		}, authority, eventContext(input))),
 		define("skills.list", (input: OperationInput) => listSkills(artifacts, artifactFilter(input))),
 		define("skills.show", (input: OperationInput) => showSkill(artifacts, string(input, "id"))),
 		define("skills.invoke", (input: OperationInput) => skillInvocation(artifacts, string(input, "id"))),

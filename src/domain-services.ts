@@ -3,7 +3,7 @@ import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import { validateSkillDefinition } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { NOTE_SUBTYPE } from "./note-service.ts";
-import { isDiscourseSubtype } from "./domain/discourse-store.ts";
+import type { AuthorityRegistry } from "./authority-registry.ts";
 
 export interface ListFilter {
 	status?: string;
@@ -27,7 +27,9 @@ function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | unde
 		&& (defaults as Record<string, unknown>)["subtype"] === NOTE_SUBTYPE;
 }
 
-function requireNotesFacade(): never {
+/** caller never owns NOTE_SUBTYPE, so requireArtifactAllowed always throws — the trailing throw only satisfies TypeScript's control-flow analysis for a `never`-returning function. */
+function requireNotesFacade(authority: AuthorityRegistry, caller: string): never {
+	authority.requireArtifactAllowed("doc", NOTE_SUBTYPE, "create", caller);
 	throw new Error("note creation requires notes.capture");
 }
 
@@ -39,8 +41,8 @@ function templateSubtype(artifacts: ArtifactStore, templateId: string | undefine
 	return typeof subtype === "string" ? subtype : undefined;
 }
 
-function requireMutableDocument(document: Artifact): Artifact {
-	if (isDiscourseSubtype(document.subtype)) throw new Error("forum-owned Context Mesh Docs require discourse.store");
+function requireMutableDocument(document: Artifact, authority: AuthorityRegistry): Artifact {
+	authority.requireArtifactAllowed(document.kind, document.subtype, "status", "docs");
 	return document;
 }
 
@@ -62,9 +64,9 @@ const DOCUMENT_TRANSITIONS: Record<DocumentTransition, { from: string[]; to: str
 	reopen: { from: ["archived"], to: "draft" },
 };
 
-export function createDocument(artifacts: ArtifactStore, input: CreateDocumentInput, context?: ArtifactEventContext): Artifact {
-	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade();
-	if (isDiscourseSubtype(input.subtype ?? templateSubtype(artifacts, input.templateId))) throw new Error("forum-owned Context Mesh Docs require discourse.store");
+export function createDocument(artifacts: ArtifactStore, input: CreateDocumentInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade(authority, "docs");
+	authority.requireArtifactAllowed("doc", input.subtype ?? templateSubtype(artifacts, input.templateId), "create", "docs");
 	return artifacts.create({
 		kind: "doc",
 		title: input.title,
@@ -91,18 +93,18 @@ export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
 	return artifacts.get(id, { tree: true })!;
 }
 
-export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition, context?: ArtifactEventContext): Artifact {
-	const document = requireMutableDocument(requireDocument(artifacts, id));
+export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+	const document = requireMutableDocument(requireDocument(artifacts, id), authority);
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
 	return artifacts.setStatus(id, transition.to, context)!;
 }
 
-export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, context?: ArtifactEventContext): Artifact {
-	requireMutableDocument(requireDocument(artifacts, id));
+export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+	requireMutableDocument(requireDocument(artifacts, id), authority);
 	const target = artifacts.get(targetId);
 	if (!target) throw new Error(`target artifact "${targetId}" not found`);
-	requireMutableDocument(target);
+	requireMutableDocument(target, authority);
 	artifacts.link({ from: id, relation, to: targetId }, context);
 	return showDocument(artifacts, id);
 }
@@ -199,12 +201,12 @@ export interface CreateArtifactTemplateInput {
 
 export type SkillTransition = "enable" | "disable";
 
-export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput, context?: ArtifactEventContext): Artifact {
+export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
 	if (input.definition !== undefined && (input.trigger !== undefined || input.steps !== undefined || input.tools !== undefined)) {
 		throw new Error("workflow Skill definition cannot be mixed with legacy trigger, steps, or tools");
 	}
 	const definition = input.definition === undefined ? undefined : validateSkillDefinition(input.definition);
-	if (definition?.blueprints.docs.some((document) => document.subtype === NOTE_SUBTYPE)) requireNotesFacade();
+	if (definition?.blueprints.docs.some((document) => document.subtype === NOTE_SUBTYPE)) requireNotesFacade(authority, "skills");
 	return artifacts.create({
 		kind: "skill",
 		subtype: definition ? "workflow" : undefined,
@@ -221,8 +223,8 @@ export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput, c
 	}, context);
 }
 
-export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateArtifactTemplateInput, context?: ArtifactEventContext): Artifact {
-	if (input.targetKind === "doc" && input.defaults?.["subtype"] === NOTE_SUBTYPE) requireNotesFacade();
+export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateArtifactTemplateInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+	if (input.targetKind === "doc" && input.defaults?.["subtype"] === NOTE_SUBTYPE) requireNotesFacade(authority, "skills");
 	return artifacts.create({
 		kind: "skill",
 		subtype: "artifact-template",
@@ -237,8 +239,8 @@ export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateAr
 	}, context);
 }
 
-export function instantiateTemplate(artifacts: ArtifactStore, templateId: string, input: CreateArtifactInput, context?: ArtifactEventContext): Artifact {
-	if (rejectsNoteTemplate(artifacts, templateId, input.subtype)) requireNotesFacade();
+export function instantiateTemplate(artifacts: ArtifactStore, templateId: string, input: CreateArtifactInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+	if (rejectsNoteTemplate(artifacts, templateId, input.subtype)) requireNotesFacade(authority, "skills");
 	return artifacts.create({ ...input, templateId }, context);
 }
 

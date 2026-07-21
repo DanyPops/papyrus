@@ -58,6 +58,7 @@ const USAGE = `Usage:
   papyrus service <install|start|stop|restart|status>
   papyrus migrate schema [--json]
   papyrus discourse store <action> --store-id <id> [--input-json <json>] [--json]
+  papyrus graph history [--id <artifact-id>] [--actor <actor>] [--session-id <id>] [--since <rfc3339>] [--limit <count>] [--cursor <id>] [--direction <asc|desc>] [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus notes capture <request> [--title <title>] [--json]
   papyrus notes list [--status <draft|active|archived>] [--text <query>] [--limit <count>] [--json]
@@ -203,6 +204,43 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 		`Scoped rules: ${result.created.rules.join(", ") || "none"}`,
 		...result.execution.nodes.map((node) => `[${node.state}] ${node.id} ${node.title}`),
 	].join("\n");
+}
+
+export async function runGraphCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	const input: Record<string, unknown> = {};
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		const flags: Record<string, string> = {
+			"--id": "id", "--actor": "actor", "--session-id": "session_id", "--since": "since",
+			"--direction": "direction",
+		};
+		if (argument in flags) {
+			const value = args[++index];
+			if (!value) throw new Error(`${argument} requires a value`);
+			input[flags[argument]!] = value;
+			continue;
+		}
+		if (argument === "--limit" || argument === "--cursor") {
+			const value = args[++index];
+			if (!value || Number.isNaN(Number(value))) throw new Error(`${argument} requires a numeric value`);
+			input[argument.slice(2)] = Number(value);
+			continue;
+		}
+		if (argument.startsWith("--")) throw new Error(`unknown graph option ${argument}`);
+		positional.push(argument);
+	}
+	if (positional.length !== 1 || positional[0] !== "history") throw new Error("graph requires `history` with --id, --actor, or --session-id");
+	const page = await client.call<Record<string, unknown>, import("./domain/artifact-event.ts").ArtifactEventPage>("graph.history", input);
+	if (json) return JSON.stringify(page);
+	if (page.events.length === 0) return "No recorded events.";
+	return page.events.map((event) => {
+		const transition = event.fromStatus || event.toStatus ? ` ${event.fromStatus ?? "\u2205"} \u2192 ${event.toStatus ?? "\u2205"}` : "";
+		const relation = event.relation ? ` ${event.relation} \u2192 ${event.relatedId}` : "";
+		return `${event.occurredAt} ${event.artifactId} ${event.type}${transition}${relation} \u00b7 ${event.actor}/${event.source}${event.sessionId ? ` \u00b7 ${event.sessionId}` : ""}`;
+	}).join("\n");
 }
 
 export async function runNoteCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
@@ -477,6 +515,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "migrate") {
 		const client = await connectPapyrusClient();
 		console.log(await runMigrationCli(args.slice(1), client));
+		return;
+	}
+	if (command === "graph") {
+		const client = await connectPapyrusClient();
+		console.log(await runGraphCli(args.slice(1), client));
 		return;
 	}
 	if (command !== "service") usage();

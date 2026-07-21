@@ -199,6 +199,28 @@ CREATE TRIGGER IF NOT EXISTS discourse_artifact_type_immutable BEFORE UPDATE OF 
 WHEN (EXISTS (SELECT 1 FROM discourse_threads WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-thread'))
   OR (EXISTS (SELECT 1 FROM discourse_posts WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-message'))
 BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
+CREATE TABLE IF NOT EXISTS artifact_events (
+	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+	artifact_id          TEXT NOT NULL REFERENCES artifacts(id),
+	occurred_at          TEXT NOT NULL,
+	event_type           TEXT NOT NULL,
+	actor                TEXT NOT NULL,
+	source               TEXT NOT NULL,
+	session_id           TEXT,
+	from_status          TEXT,
+	to_status            TEXT,
+	relation             TEXT,
+	related_id           TEXT,
+	event_schema_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS artifact_events_artifact_idx ON artifact_events(artifact_id, occurred_at, id);
+CREATE INDEX IF NOT EXISTS artifact_events_related_idx ON artifact_events(related_id, occurred_at, id);
+CREATE INDEX IF NOT EXISTS artifact_events_actor_idx ON artifact_events(actor, occurred_at, id);
+CREATE INDEX IF NOT EXISTS artifact_events_session_idx ON artifact_events(session_id, occurred_at, id);
+CREATE TRIGGER IF NOT EXISTS artifact_events_no_update BEFORE UPDATE ON artifact_events
+BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS artifact_events_no_delete BEFORE DELETE ON artifact_events
+BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
 `;
 
 const SEED_SQL = `
@@ -264,7 +286,7 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5 && from !== 6) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
 	inTransaction(db, () => {
@@ -397,6 +419,34 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 6;
 			`);
 			applied.push("discourse-context-mesh");
+		}
+		if (schemaVersion(db) === 6) {
+			db.exec(`
+				CREATE TABLE artifact_events (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+					occurred_at TEXT NOT NULL,
+					event_type TEXT NOT NULL,
+					actor TEXT NOT NULL,
+					source TEXT NOT NULL,
+					session_id TEXT,
+					from_status TEXT,
+					to_status TEXT,
+					relation TEXT,
+					related_id TEXT,
+					event_schema_version INTEGER NOT NULL DEFAULT 1
+				);
+				CREATE INDEX artifact_events_artifact_idx ON artifact_events(artifact_id, occurred_at, id);
+				CREATE INDEX artifact_events_related_idx ON artifact_events(related_id, occurred_at, id);
+				CREATE INDEX artifact_events_actor_idx ON artifact_events(actor, occurred_at, id);
+				CREATE INDEX artifact_events_session_idx ON artifact_events(session_id, occurred_at, id);
+				CREATE TRIGGER artifact_events_no_update BEFORE UPDATE ON artifact_events
+				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+				CREATE TRIGGER artifact_events_no_delete BEFORE DELETE ON artifact_events
+				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+				PRAGMA user_version = 7;
+			`);
+			applied.push("artifact-event-log");
 		}
 	});
 	return { from, to: schemaVersion(db), applied };

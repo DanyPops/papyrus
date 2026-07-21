@@ -46,10 +46,29 @@ export interface SkillTaskBlueprint {
 	extra?: Record<string, unknown>;
 }
 
+/**
+ * A pipeline step that nests another workflow Skill's run inside this one -- the Jenkins
+ * "trigger downstream job and wait" / Ansible "include_tasks" primitive. `skillId` is late-
+ * bound: existence and workflow-subtype are checked at execution time (skill-execution.ts),
+ * not here, since this validator has no store access. `dependsOn`/`parent` place this step in
+ * the SAME dependency graph as ordinary task blueprints -- a task can depend on a skill-call
+ * ref (meaning: depend on every task the nested run creates), and a skill-call's own `parent`
+ * contains the nested run's root tasks under an outer task.
+ */
+export interface SkillCallBlueprint {
+	ref: string;
+	title: string;
+	skillId: string;
+	arguments?: Record<string, unknown>;
+	dependsOn?: string[];
+	parent?: string;
+}
+
 export interface SkillBlueprints {
 	docs: SkillDocBlueprint[];
 	rules: SkillRuleBlueprint[];
 	tasks: SkillTaskBlueprint[];
+	skills: SkillCallBlueprint[];
 }
 
 export interface SkillBlueprintLink {
@@ -142,19 +161,34 @@ function placeholders(value: unknown, result: Set<string> = new Set()): Set<stri
 	return result;
 }
 
-function assertAcyclic(tasks: SkillTaskBlueprint[]): void {
-	const byRef = new Map(tasks.map((task) => [task.ref, task]));
+/** Steps sharing one dependency graph: ordinary tasks and skill-call pipeline steps alike. */
+interface DependentStep {
+	ref: string;
+	dependsOn?: string[];
+}
+
+function assertAcyclic(steps: DependentStep[]): void {
+	const byRef = new Map(steps.map((step) => [step.ref, step]));
 	const visiting = new Set<string>();
 	const visited = new Set<string>();
 	const visit = (ref: string): void => {
-		if (visiting.has(ref)) throw new Error(`skill task dependency cycle includes "${ref}"`);
+		if (visiting.has(ref)) throw new Error(`skill step dependency cycle includes "${ref}"`);
 		if (visited.has(ref)) return;
 		visiting.add(ref);
 		for (const dependency of byRef.get(ref)?.dependsOn ?? []) visit(dependency);
 		visiting.delete(ref);
 		visited.add(ref);
 	};
-	for (const task of tasks) visit(task.ref);
+	for (const step of steps) visit(step.ref);
+}
+
+function validateSkillCallBlueprint(value: unknown): SkillCallBlueprint {
+	const source = record(value, "skill call blueprint");
+	const ref = string(source["ref"], "skill call blueprint ref");
+	if (!NAME_PATTERN.test(ref)) throw new Error(`invalid skill blueprint ref "${ref}"`);
+	const title = string(source["title"], "skill call blueprint title");
+	const skillId = string(source["skillId"], "skill call blueprint skillId");
+	return { ...source, ref, title, skillId } as SkillCallBlueprint;
 }
 
 export function validateSkillDefinition(value: unknown): SkillDefinition {
@@ -165,23 +199,38 @@ export function validateSkillDefinition(value: unknown): SkillDefinition {
 	const docs = array(rawBlueprints["docs"] ?? [], "skill doc blueprints").map((entry) => validateBlueprint<SkillDocBlueprint>(entry, "doc"));
 	const rules = array(rawBlueprints["rules"] ?? [], "skill rule blueprints").map((entry) => validateBlueprint<SkillRuleBlueprint>(entry, "rule"));
 	const tasks = array(rawBlueprints["tasks"] ?? [], "skill task blueprints").map((entry) => validateBlueprint<SkillTaskBlueprint>(entry, "task"));
-	const all = [...docs, ...rules, ...tasks];
+	const skillCalls = array(rawBlueprints["skills"] ?? [], "skill call blueprints").map(validateSkillCallBlueprint);
+	const all = [...docs, ...rules, ...tasks, ...skillCalls];
 	if (all.length === 0 || all.length > SKILL_MAX_BLUEPRINTS) throw new Error(`skill blueprints must contain 1-${SKILL_MAX_BLUEPRINTS} artifacts`);
 	const refs = new Set<string>();
 	for (const blueprint of all) {
 		if (refs.has(blueprint.ref)) throw new Error(`duplicate skill blueprint ref "${blueprint.ref}"`);
 		refs.add(blueprint.ref);
 	}
+	// Tasks and skill-call pipeline steps share one dependency graph: a task may depend on a
+	// skill-call ref (meaning: depend on every task that nested run creates), and vice versa.
+	const stepRefs = new Set<string>([...tasks.map((task) => task.ref), ...skillCalls.map((call) => call.ref)]);
 	for (const task of tasks) {
 		if (task.dependsOn !== undefined && !Array.isArray(task.dependsOn)) throw new Error(`skill task "${task.ref}" dependsOn must be an array`);
 		for (const dependency of task.dependsOn ?? []) {
-			if (!tasks.some((candidate) => candidate.ref === dependency)) throw new Error(`unknown skill task dependency ref "${dependency}"`);
+			if (!stepRefs.has(dependency)) throw new Error(`unknown skill task dependency ref "${dependency}"`);
 		}
+		// parent stays task-only: containment under a skill-call step's exploded task SET has no
+		// single natural parent, so parent must name an actual task blueprint.
 		if (task.parent !== undefined && !tasks.some((candidate) => candidate.ref === task.parent)) {
 			throw new Error(`unknown skill task parent ref "${task.parent}"`);
 		}
 	}
-	assertAcyclic(tasks);
+	for (const call of skillCalls) {
+		if (call.dependsOn !== undefined && !Array.isArray(call.dependsOn)) throw new Error(`skill call "${call.ref}" dependsOn must be an array`);
+		for (const dependency of call.dependsOn ?? []) {
+			if (!stepRefs.has(dependency)) throw new Error(`unknown skill call dependency ref "${dependency}"`);
+		}
+		if (call.parent !== undefined && !tasks.some((candidate) => candidate.ref === call.parent)) {
+			throw new Error(`unknown skill call parent ref "${call.parent}"`);
+		}
+	}
+	assertAcyclic([...tasks, ...skillCalls]);
 	for (const name of placeholders(all)) {
 		if (!Object.hasOwn(inputs, name)) throw new Error(`unknown skill input placeholder "${name}"`);
 	}
@@ -196,7 +245,7 @@ export function validateSkillDefinition(value: unknown): SkillDefinition {
 		return { from, relation, to };
 	});
 	if (links.length > SKILL_MAX_LINKS) throw new Error(`skill links exceed ${SKILL_MAX_LINKS}`);
-	return { version: 1, inputs, blueprints: { docs, rules, tasks }, links };
+	return { version: 1, inputs, blueprints: { docs, rules, tasks, skills: skillCalls }, links };
 }
 
 export function resolveSkillArguments(definition: SkillDefinition, value: unknown): Record<string, SkillArgumentValue> {

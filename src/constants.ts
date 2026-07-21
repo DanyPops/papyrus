@@ -74,6 +74,28 @@ export const SKILL_MAX_ENUM_VALUES = 32;
 export const SKILL_MAX_BLUEPRINTS = 100;
 export const SKILL_MAX_LINKS = 500;
 export const SKILL_MAX_RENDERED_BYTES = 1_048_576;
+
+/**
+ * Skills are special: invoking one queries Papyrus for whatever it's actually graph-linked
+ * to (existing Tasks/Rules/Docs via ordinary edges, not just its own static body/extra
+ * fields), and a Skill can link to and invoke other Skills. Both traversals are bounded and
+ * cycle-safe -- a skill-calls-skill edge cycle must not infinite-loop invocation, matching
+ * the cycle-safety discipline already established for ConversationJournal reply chains and
+ * task dependency graphs.
+ */
+export const SKILL_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
+export const SKILL_INVOCATION_MAX_CALL_DEPTH = 4;
+
+/**
+ * At the core, a workflow Skill creates Tasks and begins a pipeline -- an Ansible playbook or
+ * a Jenkins job, not just a text prompt. A pipeline step can itself trigger another workflow
+ * Skill's run (a nested sub-pipeline, like a Jenkins job triggering a downstream job and
+ * waiting for it), bounded and cycle-safe: a real skill-calls-skill cycle during EXECUTION
+ * (not just invocation preview) must fail loudly and roll back the whole atomic run, not
+ * silently truncate, since a silently-truncated pipeline would leave a confusing partial
+ * Task graph behind.
+ */
+export const SKILL_WORKFLOW_MAX_NESTING_DEPTH = 4;
 export const SKILL_RUN_ID_MAX_LENGTH = 64;
 /** Bounded automatic Pi continuations while a focused Papyrus Task remains. */
 export const TASK_DRIVER_MAX_TURNS = 20;

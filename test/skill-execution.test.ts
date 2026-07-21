@@ -80,6 +80,7 @@ describe("Papyrus Skill workflow execution", () => {
 				docs: ["run-001-context"],
 				rules: ["run-001-safety"],
 				tasks: ["run-001-verify", "run-001-change"],
+				skillRuns: [],
 			},
 			rootTaskIds: ["run-001-verify"],
 			execution: expect.any(Object),

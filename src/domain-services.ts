@@ -69,6 +69,10 @@ export function createDocument(artifacts: ArtifactStore, input: CreateDocumentIn
 	authority.requireArtifactAllowed("doc", input.subtype ?? templateSubtype(artifacts, input.templateId), "create", "docs");
 	return artifacts.create({
 		kind: "doc",
+		// Explicit, not defaultStatusFor's "first status row by rowid" fallback -- the same
+		// heuristic that made Task creation non-deterministic on a migrated database. Every
+		// creation path that has no caller-supplied initial status must set one explicitly.
+		status: "draft",
 		title: input.title,
 		body: input.body,
 		subtype: input.subtype,
@@ -124,6 +128,7 @@ export type RuleTransition = "enable" | "disable";
 export function createRule(artifacts: ArtifactStore, input: CreateRuleInput, context?: ArtifactEventContext): Artifact {
 	return artifacts.create({
 		kind: "rule",
+		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
 		title: input.title,
 		body: input.body,
 		labels: input.labels,
@@ -209,6 +214,7 @@ export function createSkill(artifacts: ArtifactStore, input: CreateSkillInput, a
 	if (definition?.blueprints.docs.some((document) => document.subtype === NOTE_SUBTYPE)) requireNotesFacade(authority, "skills");
 	return artifacts.create({
 		kind: "skill",
+		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
 		subtype: definition ? "workflow" : undefined,
 		title: input.title,
 		body: input.body,
@@ -227,6 +233,7 @@ export function createArtifactTemplate(artifacts: ArtifactStore, input: CreateAr
 	if (input.targetKind === "doc" && input.defaults?.["subtype"] === NOTE_SUBTYPE) requireNotesFacade(authority, "skills");
 	return artifacts.create({
 		kind: "skill",
+		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
 		subtype: "artifact-template",
 		title: input.title,
 		body: input.body,

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
+import { DEFAULT_STATUS_BY_KIND } from "./constants.ts";
 import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
 import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 import {
@@ -112,9 +113,13 @@ function slugify(s: string): string {
 }
 
 function defaultStatusFor(db: Db, kind: string): string {
-	// First-inserted status per kind (seed order defines the default)
-	const row = db.prepare("SELECT name FROM statuses WHERE kind = ? ORDER BY rowid LIMIT 1").get(kind) as { name: string } | null;
-	return row?.name ?? "draft";
+	// Explicit per-kind mapping, never row order -- see DEFAULT_STATUS_BY_KIND's doc comment
+	// for the production defect this replaced (row order is not a semantic guarantee).
+	const candidate = DEFAULT_STATUS_BY_KIND[kind];
+	if (candidate === undefined) throw new Error(`no default status is configured for kind "${kind}"`);
+	const exists = db.prepare("SELECT 1 FROM statuses WHERE kind = ? AND name = ?").get(kind, candidate);
+	if (!exists) throw new Error(`configured default status "${candidate}" for kind "${kind}" is not a registered status`);
+	return candidate;
 }
 
 function rowToArtifact(row: Record<string, unknown>): Artifact {

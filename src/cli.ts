@@ -78,6 +78,8 @@ const USAGE = `Usage:
   papyrus graph status <id> <status> [--json]
   papyrus graph history [--id <artifact-id>] [--actor <actor>] [--session-id <id>] [--since <rfc3339>] [--limit <count>] [--cursor <id>] [--direction <asc|desc>] [--json]
   papyrus gates run <id> [--json]
+  papyrus graph-projection apply --batch-json <json> [--json]
+  papyrus graph-projection checkpoint --producer-id <id> [--json]
   papyrus artifact create --kind <kind> [--title <title>] [--status <status>] [--subtype <subtype>] [--body <body>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--json]
   papyrus artifact query [--kind <kind>] [--status <status>] [--text <query>] [--limit <count>] [--json]
   papyrus artifact show <id> [--depth <n>] [--max-nodes <n>] [--json]
@@ -814,6 +816,33 @@ export async function runGatesCli(args: string[], client: TaskCliClient): Promis
 		: results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
 }
 
+export async function runGraphProjectionCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let batch: Record<string, unknown> | undefined;
+	let producerId: string | undefined;
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--batch-json") { batch = parseJsonObjectFlag(args[++index], "--batch-json"); continue; }
+		if (argument === "--producer-id") { producerId = args[++index]; if (!producerId) throw new Error("--producer-id requires a value"); continue; }
+		positional.push(argument);
+	}
+	const [action] = positional;
+	if (action === "apply") {
+		if (!batch) throw new Error("graph-projection apply requires --batch-json");
+		const result = await client.call<Record<string, unknown>, unknown>("graph_projection.apply", batch);
+		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+	}
+	if (action === "checkpoint") {
+		if (!producerId) throw new Error("graph-projection checkpoint requires --producer-id");
+		const result = await client.call<Record<string, unknown>, unknown>("graph_projection.checkpoint", { producer_id: producerId });
+		if (json) return JSON.stringify(result);
+		return result === null ? `No projection checkpoint for producer "${producerId}".` : JSON.stringify(result, null, 2);
+	}
+	throw new Error("graph-projection action must be apply or checkpoint");
+}
+
 export async function runNoteCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
@@ -1245,6 +1274,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "gates") {
 		const client = await connectPapyrusClient();
 		console.log(await runGatesCli(args.slice(1), client));
+		return;
+	}
+	if (command === "graph-projection") {
+		const client = await connectPapyrusClient();
+		console.log(await runGraphProjectionCli(args.slice(1), client));
 		return;
 	}
 	if (command !== "service") usage();

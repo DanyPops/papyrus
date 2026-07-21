@@ -4,6 +4,7 @@ import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteDiscourseStore } from "./adapters/sqlite-discourse-store.ts";
+import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
@@ -24,6 +25,7 @@ import {
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
 import { docsOperations } from "./modules/docs.ts";
+import { graphProjectionOperations } from "./modules/graph-projection.ts";
 import { notesOperations } from "./modules/notes.ts";
 import { rulesOperations } from "./modules/rules.ts";
 import { skillsOperations } from "./modules/skills.ts";
@@ -100,6 +102,8 @@ export const EXPECTED_OPERATION_NAMES = [
 	"skills.enable",
 	"skills.disable",
 	"skills.instantiate",
+	"graph_projection.apply",
+	"graph_projection.checkpoint",
 ] as const;
 
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
@@ -401,6 +405,8 @@ function handlers(
 				projectSource: "cwd",
 			}, eventContextFor(input, "template-instantiation"));
 		},
+		"graph_projection.apply": forwardToModule("graph_projection.apply"),
+		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 	};
 }
 
@@ -414,6 +420,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const notes = new Notes(artifacts);
 	const discourse = new SQLiteDiscourseStore(db, artifacts);
+	const projections = new SQLiteGraphProjectionStore(db);
 	const authority = createAuthorityRegistry();
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
@@ -421,6 +428,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(docsOperations(artifacts, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts));
 	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, authority }));
+	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);

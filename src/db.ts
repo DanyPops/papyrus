@@ -221,6 +221,19 @@ CREATE TRIGGER IF NOT EXISTS artifact_events_no_update BEFORE UPDATE ON artifact
 BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS artifact_events_no_delete BEFORE DELETE ON artifact_events
 BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+CREATE TABLE IF NOT EXISTS graph_projection_checkpoints (
+	producer_id    TEXT PRIMARY KEY,
+	last_sequence  INTEGER NOT NULL,
+	last_batch_id  TEXT NOT NULL,
+	applied_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS graph_projection_identities (
+	producer_id   TEXT NOT NULL,
+	external_id   TEXT NOT NULL,
+	artifact_id   TEXT NOT NULL REFERENCES artifacts(id),
+	PRIMARY KEY (producer_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_projection_identities(artifact_id);
 `;
 
 const SEED_SQL = `
@@ -463,6 +476,30 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 8;
 			`);
 			applied.push("task-focus-session-scope");
+		}
+		if (schemaVersion(db) === 8) {
+			// IF NOT EXISTS here, unlike earlier migration branches: a fully-bootstrapped
+			// :memory: fixture (used by unrelated tests that only roll user_version back to
+			// simulate an older *file* database) already has every table the current bootstrap
+			// DDL declares, this one included -- so this branch must be safe to run whether or
+			// not that already happened, not assume a truly-old database created it first.
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS graph_projection_checkpoints (
+					producer_id    TEXT PRIMARY KEY,
+					last_sequence  INTEGER NOT NULL,
+					last_batch_id  TEXT NOT NULL,
+					applied_at     TEXT NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS graph_projection_identities (
+					producer_id   TEXT NOT NULL,
+					external_id   TEXT NOT NULL,
+					artifact_id   TEXT NOT NULL REFERENCES artifacts(id),
+					PRIMARY KEY (producer_id, external_id)
+				);
+				CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_projection_identities(artifact_id);
+				PRAGMA user_version = 9;
+			`);
+			applied.push("graph-projection-protocol");
 		}
 	});
 	return { from, to: schemaVersion(db), applied };

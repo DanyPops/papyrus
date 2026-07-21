@@ -141,7 +141,7 @@ describe("session-scoped Task Focus — explicit migration", () => {
 			PRAGMA user_version = 7;
 		`);
 
-		expect(migrateDb(db)).toEqual({ from: 7, to: 8, applied: ["task-focus-session-scope"] });
+		expect(migrateDb(db)).toEqual({ from: 7, to: 9, applied: ["task-focus-session-scope", "graph-projection-protocol"] });
 
 		const focusStore = new SQLiteTaskFocusStore(db);
 		const artifacts = new SQLiteArtifactStore(db);

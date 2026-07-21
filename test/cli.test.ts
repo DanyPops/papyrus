@@ -43,9 +43,9 @@ describe("Papyrus graph history CLI", () => {
 		}]);
 	});
 
-	it("requires the history subcommand", async () => {
+	it("requires a known action", async () => {
 		const client = new FakeClient({});
-		await expect(runGraphCli([], client)).rejects.toThrow("graph requires `history`");
+		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, tree, status, or history");
 	});
 });
 

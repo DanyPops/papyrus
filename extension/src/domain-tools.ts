@@ -74,7 +74,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const action = params.action;
-				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool" };
+				// Defaults to this Pi session's own id so Focus reads/writes are isolated per agent
+				// without depending on the model to know or supply its own session identity.
+				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: params.session_id ?? ctx.sessionManager.getSessionId() };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
 					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));

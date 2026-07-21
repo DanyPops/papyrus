@@ -98,8 +98,8 @@ CREATE TABLE IF NOT EXISTS relation_names (
 	description TEXT
 );
 CREATE TABLE IF NOT EXISTS task_focus (
-	scope       TEXT PRIMARY KEY CHECK (scope = 'global'),
-	task_id     TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+	scope       TEXT PRIMARY KEY,
+	task_id     TEXT NOT NULL REFERENCES artifacts(id),
 	status      TEXT NOT NULL CHECK (status IN ('active', 'paused')),
 	pause_reason TEXT,
 	updated_at  TEXT NOT NULL
@@ -286,7 +286,7 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5 && from !== 6) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5 && from !== 6 && from !== 7) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
 	inTransaction(db, () => {
@@ -447,6 +447,22 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 7;
 			`);
 			applied.push("artifact-event-log");
+		}
+		if (schemaVersion(db) === 7) {
+			db.exec(`
+				CREATE TABLE task_focus_v7 (
+					scope TEXT PRIMARY KEY,
+					task_id TEXT NOT NULL REFERENCES artifacts(id),
+					status TEXT NOT NULL CHECK (status IN ('active', 'paused')),
+					pause_reason TEXT,
+					updated_at TEXT NOT NULL
+				);
+				INSERT INTO task_focus_v7 SELECT scope, task_id, status, pause_reason, updated_at FROM task_focus;
+				DROP TABLE task_focus;
+				ALTER TABLE task_focus_v7 RENAME TO task_focus;
+				PRAGMA user_version = 8;
+			`);
+			applied.push("task-focus-session-scope");
 		}
 	});
 	return { from, to: schemaVersion(db), applied };

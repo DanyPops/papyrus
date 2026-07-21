@@ -6,8 +6,7 @@ import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
-import { tasksOperations } from "../src/modules/tasks.ts";
-import { EXPECTED_OPERATION_NAMES } from "../src/service.ts";
+import { tasksOperations, TASKS_OPERATION_NAMES } from "../src/modules/tasks.ts";
 import { Tasks } from "../src/task-service.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";
@@ -25,8 +24,7 @@ function fixture() {
 describe("modules/tasks — the second Papyrus-native registered module", () => {
 	it("registers exactly the tasks.* operations EXPECTED_OPERATION_NAMES declares, no more, no fewer", () => {
 		const { registry } = fixture();
-		const expectedTaskOps = EXPECTED_OPERATION_NAMES.filter((name) => name.startsWith("tasks."));
-		expect(registry.list()).toEqual([...expectedTaskOps].sort());
+		expect(registry.list()).toEqual([...TASKS_OPERATION_NAMES].sort());
 	});
 
 	it("each registered operation is owned by the tasks module", () => {

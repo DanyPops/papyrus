@@ -67,6 +67,9 @@ function parseBatch(input: OperationInput): GraphProjectionBatch {
 }
 
 /** Registers graph_projection.apply and graph_projection.checkpoint against one GraphProjection instance. */
+/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
+export const GRAPH_PROJECTION_OPERATION_NAMES = ["graph_projection.apply", "graph_projection.checkpoint"] as const;
+
 export function graphProjectionOperations(artifacts: ArtifactStore, store: GraphProjectionStore, authority: AuthorityRegistry): OperationDefinition[] {
 	const projection = new GraphProjection(artifacts, store, authority);
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({

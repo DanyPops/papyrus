@@ -6,10 +6,9 @@ import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts
 import { openDb } from "../src/db.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
-import { docsOperations } from "../src/modules/docs.ts";
-import { rulesOperations } from "../src/modules/rules.ts";
-import { skillsOperations } from "../src/modules/skills.ts";
-import { EXPECTED_OPERATION_NAMES } from "../src/service.ts";
+import { docsOperations, DOCS_OPERATION_NAMES } from "../src/modules/docs.ts";
+import { rulesOperations, RULES_OPERATION_NAMES } from "../src/modules/rules.ts";
+import { skillsOperations, SKILLS_OPERATION_NAMES } from "../src/modules/skills.ts";
 
 function fixture() {
 	const db = openDb(":memory:");
@@ -28,9 +27,8 @@ function fixture() {
 describe("modules/docs — a Papyrus-native registered module", () => {
 	it("registers exactly the docs.* operations EXPECTED_OPERATION_NAMES declares", () => {
 		const { registry } = fixture();
-		const expected = EXPECTED_OPERATION_NAMES.filter((name) => name.startsWith("docs."));
 		const registered = registry.list().filter((name) => name.startsWith("docs."));
-		expect(registered).toEqual([...expected].sort());
+		expect(registered).toEqual([...DOCS_OPERATION_NAMES].sort());
 	});
 
 	it("delegates create/show/lifecycle to the same field mapping as the prior inline handlers", async () => {
@@ -47,9 +45,8 @@ describe("modules/docs — a Papyrus-native registered module", () => {
 describe("modules/rules — a Papyrus-native registered module (excluding rules.injectable)", () => {
 	it("registers exactly the rules.* operations EXPECTED_OPERATION_NAMES declares, except the documented rules.injectable exception", () => {
 		const { registry } = fixture();
-		const expected = EXPECTED_OPERATION_NAMES.filter((name) => name.startsWith("rules.") && name !== "rules.injectable");
 		const registered = registry.list().filter((name) => name.startsWith("rules."));
-		expect(registered).toEqual([...expected].sort());
+		expect(registered).toEqual([...RULES_OPERATION_NAMES].sort());
 		expect(registry.has("rules.injectable")).toBe(false);
 	});
 
@@ -65,9 +62,8 @@ describe("modules/rules — a Papyrus-native registered module (excluding rules.
 describe("modules/skills — a Papyrus-native registered module (excluding skills.instantiate)", () => {
 	it("registers exactly the skills.* operations EXPECTED_OPERATION_NAMES declares, except the documented skills.instantiate exception", () => {
 		const { registry } = fixture();
-		const expected = EXPECTED_OPERATION_NAMES.filter((name) => name.startsWith("skills.") && name !== "skills.instantiate");
 		const registered = registry.list().filter((name) => name.startsWith("skills."));
-		expect(registered).toEqual([...expected].sort());
+		expect(registered).toEqual([...SKILLS_OPERATION_NAMES].sort());
 		expect(registry.has("skills.instantiate")).toBe(false);
 	});
 

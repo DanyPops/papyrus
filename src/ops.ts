@@ -103,15 +103,6 @@ function resolveCreateInput(db: Db, input: CreateInput): ResolvedCreateInput {
 	return merged as ResolvedCreateInput;
 }
 
-function slugify(s: string): string {
-	return s
-		.toLowerCase()
-		.replace(/[^a-z0-9\s-]/g, "")
-		.trim()
-		.replace(/\s+/g, "-")
-		.slice(0, 60) + "-" + Math.random().toString(36).slice(2, 6);
-}
-
 function defaultStatusFor(db: Db, kind: string): string {
 	// Explicit per-kind mapping, never row order -- see DEFAULT_STATUS_BY_KIND's doc comment
 	// for the production defect this replaced (row order is not a semantic guarantee).
@@ -241,7 +232,10 @@ export function queryArtifactEvents(db: Db, query: ArtifactEventQuery): Artifact
 
 export function createArtifact(db: Db, input: CreateInput, context?: ArtifactEventContext): Artifact {
 	const resolved = resolveCreateInput(db, input);
-	const id = resolved.id ?? slugify(resolved.title);
+	// id is an opaque backend identity, never derived from title -- a title-derived slug
+	// conflated "identity" with "human-readable label" and leaked a bit of randomness into
+	// both. crypto.randomUUID() is native to Bun/Node; no dependency needed for this.
+	const id = resolved.id ?? crypto.randomUUID();
 	const status = resolved.status ?? defaultStatusFor(db, resolved.kind);
 	const now = new Date().toISOString();
 	const labels = JSON.stringify(resolved.labels ?? []);

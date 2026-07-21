@@ -20,6 +20,31 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	it("generates a UUID id when none is supplied, never a title-derived value, and never mutates the title", () => {
+		// id is an opaque backend identity; title is pure human-authored content. Neither may
+		// leak into the other -- the id must not contain any recognizable fragment of the
+		// title (proving it isn't slugified from it), and the title must come back byte-for-
+		// byte as supplied (proving nothing generated ever gets mixed into it).
+		const UUID_V4_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+		const { db } = tmpDb();
+		const title = "Some Human-Authored Title With Spaces";
+		const artifact = createArtifact(db, { kind: "doc", title });
+		expect(artifact.id).toMatch(UUID_V4_SHAPE);
+		expect(artifact.title).toBe(title);
+		expect(artifact.id.toLowerCase()).not.toContain("some");
+		expect(artifact.id.toLowerCase()).not.toContain("human");
+		const other = createArtifact(db, { kind: "doc", title });
+		expect(other.id).not.toBe(artifact.id); // two artifacts with the same title never collide
+		db.close();
+	});
+
+	it("honors a caller-supplied id verbatim, unaffected by UUID generation", () => {
+		const { db } = tmpDb();
+		const artifact = createArtifact(db, { kind: "doc", title: "Explicit id", id: "caller-chosen-id" });
+		expect(artifact.id).toBe("caller-chosen-id");
+		db.close();
+	});
+
 	it("create + query each kind", () => {
 		const { db } = tmpDb();
 		const doc = createArtifact(db, { kind: "doc", title: "Architecture overview", subtype: "design" });

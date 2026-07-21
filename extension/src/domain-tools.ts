@@ -247,7 +247,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "docs",
 		label: "Documents",
-		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link. Prefer this over low-level papyrus_* tools for document work.",
+		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Prefer this over low-level papyrus_* tools for document work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -262,6 +262,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			template_id: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			target_id: Type.Optional(Type.String()),
+			project_root: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Documents", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -280,7 +281,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const artifact = await callService<Record<string, unknown>, Artifact>("docs.show", params);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("docs.show", artifact));
 				}
-				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link" } as const;
+				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link", assign_project: "docs.assign_project" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown docs action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
@@ -294,13 +295,14 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "rules",
 		label: "Rules",
-		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate. Active rules inject into the agent system prompt.",
+		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
 			severity: Type.Optional(Type.String()), labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), task_id: Type.Optional(Type.String()),
+			project_root: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Rules", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -319,7 +321,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const preview = await callService<Record<string, unknown>, string>("rules.preview", params);
 					return text(preview, createPreviewDetails("rules.preview", "Rule preview", preview));
 				}
-				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate" } as const;
+				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate", assign_project: "rules.assign_project" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown rules action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
@@ -333,7 +335,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
-		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate. run validates arguments and atomically creates one scoped workflow run.",
+		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
@@ -381,7 +383,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						roots: run.rootTaskIds,
 					}));
 				}
-				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate" } as const;
+				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate", assign_project: "skills.assign_project" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown skills action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, action === "instantiate" ? request : params);

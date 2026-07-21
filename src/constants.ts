@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 9;
+export const SQLITE_SCHEMA_VERSION = 10;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 /** Bounded forum persistence behind the Discourse mutation authority. */
 export const DISCOURSE_QUERY_MAX_LIMIT = 100;
@@ -92,6 +92,8 @@ export const TASK_FOCUS_SCOPE_MAX_LENGTH = 128;
 export const TASK_FOCUS_MAX_SCOPES = 500;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
+/** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */
+export const ARTIFACT_SCOPE_MAX_ARTIFACTS = 1_000;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;

@@ -83,26 +83,29 @@ const USAGE = `Usage:
   papyrus artifact create --kind <kind> [--title <title>] [--status <status>] [--subtype <subtype>] [--body <body>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--json]
   papyrus artifact query [--kind <kind>] [--status <status>] [--text <query>] [--limit <count>] [--json]
   papyrus artifact show <id> [--depth <n>] [--max-nodes <n>] [--json]
-  papyrus docs create --title <title> [--body <body>] [--subtype <subtype>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--json]
-  papyrus docs list [--status <status>] [--text <query>] [--limit <count>] [--json]
+  papyrus docs create --title <title> [--body <body>] [--subtype <subtype>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--project-root <path>] [--json]
+  papyrus docs list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus docs show <id> [--json]
   papyrus docs activate|archive|reopen <id> [--json]
   papyrus docs link <id> <relation> <target-id> [--json]
-  papyrus rules create --title <title> [--body <body>] [--condition <text>] [--rule-action <text>] [--severity block|warn|info] [--labels-json <json>] [--extra-json <json>] [--json]
-  papyrus rules list [--status <status>] [--text <query>] [--limit <count>] [--json]
+  papyrus docs assign-project <id> [project-root] [--json]
+  papyrus rules create --title <title> [--body <body>] [--condition <text>] [--rule-action <text>] [--severity block|warn|info] [--labels-json <json>] [--extra-json <json>] [--project-root <path>] [--json]
+  papyrus rules list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus rules show <id> [--json]
   papyrus rules preview <id> [--json]
   papyrus rules enable|disable <id> [--json]
   papyrus rules gate <rule-id> <task-id> [--json]
   papyrus rules injectable [--json]
+  papyrus rules assign-project <id> [project-root] [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
-  papyrus skills create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--definition-json <json>] [--labels-json <json>] [--extra-json <json>] [--json]
-  papyrus skills create-template --title <title> --target-kind <kind> [--defaults-json <json>] [--required-json <json>] [--body <body>] [--labels-json <json>] [--json]
-  papyrus skills list [--status <status>] [--text <query>] [--limit <count>] [--json]
+  papyrus skills create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--definition-json <json>] [--labels-json <json>] [--extra-json <json>] [--project-root <path>] [--json]
+  papyrus skills create-template --title <title> --target-kind <kind> [--defaults-json <json>] [--required-json <json>] [--body <body>] [--labels-json <json>] [--project-root <path>] [--json]
+  papyrus skills list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus skills show <id> [--json]
   papyrus skills invoke <id> [--json]
   papyrus skills enable|disable <id> [--json]
   papyrus skills instantiate <template-id> [--title <title>] [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--json]
+  papyrus skills assign-project <id> [project-root] [--json]
   papyrus notes capture <request> [--title <title>] [--json]
   papyrus notes list [--status <draft|active|archived>] [--text <query>] [--limit <count>] [--json]
   papyrus notes show <id> [--json]
@@ -352,6 +355,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 	let status: string | undefined;
 	let text: string | undefined;
 	let limit: number | undefined;
+	let skillProjectRoot: string | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
@@ -375,6 +379,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 		if (argument === "--required-json") { required = parseJsonStringArrayFlag(args[++index], "--required-json"); continue; }
 		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
 		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
+		if (argument === "--project-root") { skillProjectRoot = args[++index]; if (!skillProjectRoot) throw new Error("--project-root requires a value"); continue; }
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -384,7 +389,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 		if (argument.startsWith("--")) throw new Error(`unknown skills option ${argument}`);
 		positional.push(argument);
 	}
-	const [action, id] = positional;
+	const [action, id, second] = positional;
 	if (action === "run") {
 		if (positional.length !== 2) throw new Error("skills requires `run <id>`");
 		const input: Record<string, unknown> = { id, arguments: arguments_, project_root: projectRoot };
@@ -410,7 +415,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 		case "create": {
 			if (id) throw new Error("skills create accepts no positional arguments");
 			if (!title) throw new Error("skills create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.create", { title, body, trigger, steps, tools, definition, labels, extra });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.create", { title, body, trigger, steps, tools, definition, labels, extra, project_root: skillProjectRoot });
 			result = artifact;
 			human = `Created skill: ${artifactLabel(artifact)}`;
 			break;
@@ -419,7 +424,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 			if (id) throw new Error("skills create-template accepts no positional arguments");
 			if (!title || !targetKind) throw new Error("skills create-template requires --title and --target-kind");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.create_template", {
-				title, target_kind: targetKind, defaults, required, body, labels,
+				title, target_kind: targetKind, defaults, required, body, labels, project_root: skillProjectRoot,
 			});
 			result = artifact;
 			human = `Created template: ${artifactLabel(artifact)}`;
@@ -427,9 +432,16 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 		}
 		case "list": {
 			if (id) throw new Error("skills list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("skills.list", { status, text, limit });
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("skills.list", { status, text, limit, project_root: skillProjectRoot });
 			result = rows;
 			human = rows.length === 0 ? "No skills found." : rows.map((row) => artifactLabel(row)).join("\n");
+			break;
+		}
+		case "assign-project": {
+			if (!id) throw new Error("skills assign-project requires <id> [project-root]");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.assign_project", { id, project_root: second });
+			result = artifact;
+			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
 			break;
 		}
 		case "show": {
@@ -465,7 +477,7 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 			break;
 		}
 		default:
-			throw new Error("skills action must be run, create, create-template, list, show, invoke, enable, disable, or instantiate");
+			throw new Error("skills action must be run, create, create-template, list, show, invoke, enable, disable, instantiate, or assign-project");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -559,6 +571,7 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 	let status: string | undefined;
 	let text: string | undefined;
 	let limit: number | undefined;
+	let projectRoot: string | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
@@ -570,6 +583,7 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 		if (argument === "--template-id") { templateId = args[++index]; if (!templateId) throw new Error("--template-id requires a value"); continue; }
 		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
 		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
+		if (argument === "--project-root") { projectRoot = args[++index]; if (!projectRoot) throw new Error("--project-root requires a value"); continue; }
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -586,16 +600,23 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 		case "create": {
 			if (id) throw new Error("docs create accepts no positional arguments");
 			if (!title) throw new Error("docs create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.create", { title, body, subtype, labels, extra, template_id: templateId });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.create", { title, body, subtype, labels, extra, template_id: templateId, project_root: projectRoot });
 			result = artifact;
 			human = `Created document: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "list": {
 			if (id) throw new Error("docs list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("docs.list", { status, text, limit });
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("docs.list", { status, text, limit, project_root: projectRoot });
 			result = rows;
 			human = rows.length === 0 ? "No documents found." : rows.map((row) => artifactLabel(row)).join("\n");
+			break;
+		}
+		case "assign-project": {
+			if (!id || third !== undefined) throw new Error("docs assign-project requires <id> [project-root]");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.assign_project", { id, project_root: second });
+			result = artifact;
+			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
 			break;
 		}
 		case "show": {
@@ -622,7 +643,7 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 			break;
 		}
 		default:
-			throw new Error("docs action must be create, list, show, activate, archive, reopen, or link");
+			throw new Error("docs action must be create, list, show, activate, archive, reopen, link, or assign-project");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -640,6 +661,7 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 	let status: string | undefined;
 	let text: string | undefined;
 	let limit: number | undefined;
+	let ruleProjectRoot: string | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
@@ -652,6 +674,7 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
 		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
 		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
+		if (argument === "--project-root") { ruleProjectRoot = args[++index]; if (!ruleProjectRoot) throw new Error("--project-root requires a value"); continue; }
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -661,23 +684,30 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 		if (argument.startsWith("--")) throw new Error(`unknown rules option ${argument}`);
 		positional.push(argument);
 	}
-	const [action, id, second] = positional;
+	const [action, id, second, third] = positional;
 	let result: unknown;
 	let human: string;
 	switch (action) {
 		case "create": {
 			if (id) throw new Error("rules create accepts no positional arguments");
 			if (!title) throw new Error("rules create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.create", { title, body, condition, rule_action: ruleAction, severity, labels, extra });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.create", { title, body, condition, rule_action: ruleAction, severity, labels, extra, project_root: ruleProjectRoot });
 			result = artifact;
 			human = `Created rule: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "list": {
 			if (id) throw new Error("rules list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("rules.list", { status, text, limit });
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("rules.list", { status, text, limit, project_root: ruleProjectRoot });
 			result = rows;
 			human = rows.length === 0 ? "No rules found." : rows.map((row) => artifactLabel(row)).join("\n");
+			break;
+		}
+		case "assign-project": {
+			if (!id || third !== undefined) throw new Error("rules assign-project requires <id> [project-root]");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.assign_project", { id, project_root: second });
+			result = artifact;
+			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
 			break;
 		}
 		case "show": {
@@ -717,7 +747,7 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 			break;
 		}
 		default:
-			throw new Error("rules action must be create, list, show, preview, enable, disable, gate, or injectable");
+			throw new Error("rules action must be create, list, show, preview, enable, disable, gate, injectable, or assign-project");
 	}
 	return json ? JSON.stringify(result) : human;
 }

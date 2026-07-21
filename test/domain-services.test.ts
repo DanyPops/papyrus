@@ -134,6 +134,43 @@ describe("skills domain service", () => {
 		expect(document.subtype).toBe("research");
 		db.close();
 	});
+
+	it("skills are special: invoking one queries Papyrus for its real linked artifacts, not just its own static extra fields", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const spec = createDocument(artifacts, scopes, { title: "API spec", subtype: "design" }, authority);
+		const skill = createSkill(artifacts, scopes, { title: "Implement endpoint", trigger: "adding an endpoint", steps: ["Write test"] }, authority);
+		artifacts.link({ from: skill.id, relation: "references", to: spec.id });
+
+		const invocation = skillInvocation(artifacts, skill.id);
+		expect(invocation).toContain("Linked context (query Papyrus for full detail before proceeding):");
+		expect(invocation).toContain(`- references doc "API spec" (${spec.id})`);
+	});
+
+	it("skills can call other skills: invoking the caller recursively composes the linked skill's own invocation", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const inner = createSkill(artifacts, scopes, { title: "Inner skill", trigger: "never directly", steps: ["Do the inner thing"] }, authority);
+		const outer = createSkill(artifacts, scopes, { title: "Outer skill", trigger: "starting work", steps: ["Do the outer thing"] }, authority);
+		artifacts.link({ from: outer.id, relation: "triggers", to: inner.id });
+
+		const invocation = skillInvocation(artifacts, outer.id);
+		expect(invocation).toContain('Apply Papyrus skill "Outer skill"');
+		expect(invocation).toContain(`Also invoke linked skill (triggers) "Inner skill" (${inner.id}):`);
+		expect(invocation).toContain('Apply Papyrus skill "Inner skill"');
+		expect(invocation).toContain("Do the inner thing");
+		db.close();
+	});
+
+	it("degrades a skill-calls-skill cycle to a marker instead of infinite-looping the invocation preview", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const a = createSkill(artifacts, scopes, { title: "A", trigger: "x", steps: [] }, authority);
+		const b = createSkill(artifacts, scopes, { title: "B", trigger: "x", steps: [] }, authority);
+		artifacts.link({ from: a.id, relation: "triggers", to: b.id });
+		artifacts.link({ from: b.id, relation: "triggers", to: a.id });
+
+		const invocation = skillInvocation(artifacts, a.id); // must return, not hang or throw
+		expect(invocation).toContain("already invoked above in this chain, not repeated");
+		db.close();
+	});
 });
 
 describe("documents domain service", () => {

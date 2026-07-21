@@ -80,6 +80,82 @@ describe("Papyrus Skill definitions", () => {
 					{ ref: "second", title: "Second", dependsOn: ["first"] },
 				],
 			},
-		})).toThrow("skill task dependency cycle");
+		})).toThrow("skill step dependency cycle");
+	});
+});
+
+describe("Papyrus Skill definitions: skill-call pipeline steps", () => {
+	const withSkillCall = {
+		...definition,
+		blueprints: {
+			...definition.blueprints,
+			skills: [{ ref: "nested", title: "Nested step", skillId: "some-other-skill-id", dependsOn: ["verify"] }],
+		},
+	};
+
+	it("validates a skill-call blueprint sharing the task dependency graph, with skillId left unresolved for execution time", () => {
+		const validated = validateSkillDefinition(withSkillCall);
+		expect(validated.blueprints.skills).toEqual([{ ref: "nested", title: "Nested step", skillId: "some-other-skill-id", dependsOn: ["verify"] }]);
+	});
+
+	it("lets an ordinary task depend on a skill-call ref, and vice versa", () => {
+		const validated = validateSkillDefinition({
+			...definition,
+			blueprints: {
+				...definition.blueprints,
+				tasks: [...definition.blueprints.tasks, { ref: "after", title: "After nested", dependsOn: ["nested"] }],
+				skills: [{ ref: "nested", title: "Nested step", skillId: "other-skill" }],
+			},
+		});
+		expect(validated.blueprints.tasks.find((task) => task.ref === "after")?.dependsOn).toEqual(["nested"]);
+	});
+
+	it("rejects a skill-call referencing an unknown dependency or parent ref", () => {
+		expect(() => validateSkillDefinition({
+			...definition,
+			blueprints: { ...definition.blueprints, skills: [{ ref: "nested", title: "Nested", skillId: "x", dependsOn: ["missing"] }] },
+		})).toThrow('unknown skill call dependency ref "missing"');
+		expect(() => validateSkillDefinition({
+			...definition,
+			blueprints: { ...definition.blueprints, skills: [{ ref: "nested", title: "Nested", skillId: "x", parent: "missing" }] },
+		})).toThrow('unknown skill call parent ref "missing"');
+	});
+
+	it("rejects a skill-call parent naming another skill-call ref -- containment must resolve to a real task", () => {
+		expect(() => validateSkillDefinition({
+			...definition,
+			blueprints: {
+				...definition.blueprints,
+				skills: [
+					{ ref: "first", title: "First", skillId: "x" },
+					{ ref: "second", title: "Second", skillId: "y", parent: "first" },
+				],
+			},
+		})).toThrow('unknown skill call parent ref "first"');
+	});
+
+	it("rejects a dependency cycle spanning a task and a skill-call step together", () => {
+		expect(() => validateSkillDefinition({
+			...definition,
+			blueprints: {
+				...definition.blueprints,
+				tasks: [{ ref: "a", title: "A", dependsOn: ["b"] }],
+				skills: [{ ref: "b", title: "B", skillId: "x", dependsOn: ["a"] }],
+			},
+		})).toThrow("skill step dependency cycle");
+	});
+
+	it("rejects a skill-call ref colliding with a task or doc ref -- one shared ref namespace", () => {
+		expect(() => validateSkillDefinition({
+			...definition,
+			blueprints: { ...definition.blueprints, skills: [{ ref: "verify", title: "Collides with a task ref", skillId: "x" }] },
+		})).toThrow('duplicate skill blueprint ref "verify"');
+	});
+
+	it("rejects a skill-call blueprint missing a skillId", () => {
+		expect(() => validateSkillDefinition({
+			...definition,
+			blueprints: { ...definition.blueprints, skills: [{ ref: "nested", title: "Nested" }] },
+		})).toThrow("skill call blueprint skillId");
 	});
 });

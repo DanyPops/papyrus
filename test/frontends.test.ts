@@ -136,7 +136,7 @@ describe("kind-specific frontend projections", () => {
 			skillId: workflow.id,
 			runId: "run",
 			arguments: { project: "Papyrus" },
-			created: { docs: ["run-context"], rules: ["run-rule"], tasks: [task.id] },
+			created: { docs: ["run-context"], rules: ["run-rule"], tasks: [task.id], skillRuns: [] },
 			rootTaskIds: [task.id],
 			execution: {
 				layers: [[task.id]],

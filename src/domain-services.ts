@@ -1,4 +1,9 @@
-import { ARTIFACT_SCOPE_MAX_ARTIFACTS, RULE_TEXT_HARD_LIMIT_CHARACTERS } from "./constants.ts";
+import {
+	ARTIFACT_SCOPE_MAX_ARTIFACTS,
+	RULE_TEXT_HARD_LIMIT_CHARACTERS,
+	SKILL_INVOCATION_MAX_CALL_DEPTH,
+	SKILL_INVOCATION_MAX_LINKED_ARTIFACTS,
+} from "./constants.ts";
 import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
 import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
@@ -348,8 +353,7 @@ export function showSkill(artifacts: ArtifactStore, id: string): Artifact {
 	return artifacts.get(id, { tree: true })!;
 }
 
-export function skillInvocation(artifacts: ArtifactStore, id: string): string {
-	const skill = requireKind(artifacts, id, "skill");
+function skillInvocationBody(skill: Artifact): string {
 	if (skill.subtype === "artifact-template") {
 		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_id: ${skill.id}\nAsk for or infer all required template fields, then call the skills domain tool instantiate action.`;
 	}
@@ -374,6 +378,48 @@ export function skillInvocation(artifacts: ArtifactStore, id: string): string {
 		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
 		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
 	].join("\n");
+}
+
+/**
+ * Skills are special: invoking one queries Papyrus for the skill's real outgoing graph edges
+ * -- not just its own static body/extra fields -- so a Skill linked to existing Tasks, Rules,
+ * or Docs surfaces that linked context on invocation. A Skill can also link to and invoke
+ * OTHER Skills (any relation whose target is itself a Skill, e.g. the same "triggers" relation
+ * workflow execution already uses for skill-to-task edges): invoking the parent recursively
+ * composes the linked skill's own invocation. Bounded and cycle-safe -- a skill-calls-skill
+ * edge cycle degrades to a marker instead of infinite-looping, matching the cycle-safety
+ * discipline already established for ConversationJournal reply chains and task dependency
+ * graphs. `visited` and `depth` are recursion-internal; callers should not pass them.
+ */
+export function skillInvocation(artifacts: ArtifactStore, id: string, visited: Set<string> = new Set(), depth = 0): string {
+	const skill = requireKind(artifacts, id, "skill");
+	visited.add(id);
+	const sections = [skillInvocationBody(skill)];
+
+	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, SKILL_INVOCATION_MAX_LINKED_ARTIFACTS);
+	const linkedArtifactLines: string[] = [];
+	const linkedSkillSections: string[] = [];
+	for (const edge of edges) {
+		const target = artifacts.get(edge.to);
+		if (!target) continue; // dangling edge -- defensive, should not happen
+		if (target.kind !== "skill") {
+			linkedArtifactLines.push(`- ${edge.relation} ${target.kind} "${target.title}" (${target.id})`);
+			continue;
+		}
+		if (visited.has(target.id)) {
+			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" (${target.id}) -- already invoked above in this chain, not repeated.`);
+		} else if (depth + 1 > SKILL_INVOCATION_MAX_CALL_DEPTH) {
+			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" (${target.id}) -- call depth limit reached, invoke it separately.`);
+		} else {
+			const nested = skillInvocation(artifacts, target.id, visited, depth + 1);
+			linkedSkillSections.push(`Also invoke linked skill (${edge.relation}) "${target.title}" (${target.id}):\n${nested}`);
+		}
+	}
+	if (linkedArtifactLines.length > 0) {
+		sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedArtifactLines].join("\n"));
+	}
+	for (const section of linkedSkillSections) sections.push(section);
+	return sections.join("\n\n");
 }
 
 export function transitionSkill(artifacts: ArtifactStore, id: string, action: SkillTransition, context?: ArtifactEventContext): Artifact {

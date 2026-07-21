@@ -172,4 +172,67 @@ describe("Papyrus task CLI", () => {
 			expect(lifecycleClient.calls).toEqual([{ operation: `tasks.${action}`, input: { id: "task", actor: "user", source: "cli" } }]);
 		}
 	});
+
+	it("creates a task through the daemon client -- the daemon operation already supports this; only the CLI route was missing", async () => {
+		const client = new FakeClient({ id: "new-task", title: "New task", status: "todo" });
+		const output = await runTaskCli([
+			"create", "--title", "New task", "--body", "Body text", "--status", "todo",
+			"--labels-json", '["a","b"]', "--extra-json", '{"k":"v"}',
+			"--gates-json", '[{"type":"command","target":"bun test"}]',
+			"--checklist-json", '{"done":{"proof":[{"type":"artifact","target":"x"}]}}',
+			"--template-id", "tmpl-1", "--parent-id", "epic-1", "--depends-on-json", '["prereq-1"]',
+		], client);
+		expect(client.calls).toEqual([{
+			operation: "tasks.create",
+			input: {
+				title: "New task", body: "Body text", status: "todo", labels: ["a", "b"], extra: { k: "v" },
+				gates: [{ type: "command", target: "bun test" }],
+				checklist: { done: { proof: [{ type: "artifact", target: "x" }] } },
+				template_id: "tmpl-1", parent_id: "epic-1", depends_on: ["prereq-1"],
+				project_root: PROJECT_ROOT, actor: "user", source: "cli",
+			},
+		}]);
+		expect(output).toBe("Created task: new-task New task");
+	});
+
+	it("creates a task with only the required --title, defaulting everything else", async () => {
+		const client = new FakeClient({ id: "t", title: "T", status: "todo" });
+		await runTaskCli(["create", "--title", "T", "--json"], client);
+		expect(client.calls).toEqual([{
+			operation: "tasks.create",
+			input: { title: "T", project_root: PROJECT_ROOT, actor: "user", source: "cli" },
+		}]);
+	});
+
+	it("rejects tasks create with no --title rather than silently sending an invalid request", async () => {
+		const client = new FakeClient({});
+		await expect(runTaskCli(["create"], client)).rejects.toThrow("tasks create requires --title");
+		expect(client.calls).toEqual([]);
+	});
+
+	it("lists tasks through the daemon client", async () => {
+		const rows = [{ id: "a", title: "A", status: "todo" }, { id: "b", title: "B", status: "done" }];
+		const client = new FakeClient(rows);
+		const output = await runTaskCli(["list", "--status", "todo", "--text", "query", "--limit", "10"], client);
+		expect(client.calls).toEqual([{
+			operation: "tasks.list",
+			input: { status: "todo", text: "query", limit: 10, project_root: PROJECT_ROOT },
+		}]);
+		expect(output).toBe("a A\nb B");
+
+		const emptyClient = new FakeClient([]);
+		expect(await runTaskCli(["list"], emptyClient)).toBe("No tasks found.");
+	});
+
+	it("shows one task through the daemon client", async () => {
+		const client = new FakeClient({ id: "task", title: "Task", status: "todo", body: "Details" });
+		const output = await runTaskCli(["show", "task"], client);
+		expect(client.calls).toEqual([{ operation: "tasks.show", input: { id: "task" } }]);
+		expect(output).toBe("task Task\n\nDetails");
+	});
+
+	it("rejects tasks show without exactly one task id", async () => {
+		const client = new FakeClient({});
+		await expect(runTaskCli(["show"], client)).rejects.toThrow("tasks show requires exactly one task id");
+	});
 });

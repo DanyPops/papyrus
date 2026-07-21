@@ -82,7 +82,10 @@ const USAGE = `Usage:
   papyrus tasks reject <id> [--json]
   papyrus tasks retry <id> [--json]
   papyrus tasks cancel <id> [--json]
-  papyrus tasks depend <id> <prerequisite-id> [--json]`;
+  papyrus tasks depend <id> <prerequisite-id> [--json]
+  papyrus tasks create --title <title> [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--gates-json <json>] [--checklist-json <json>] [--template-id <id>] [--parent-id <id>] [--depends-on-json <json>] [--json]
+  papyrus tasks list [--status <status>] [--text <query>] [--limit <count>] [--json]
+  papyrus tasks show <id> [--json]`;
 
 function usage(): never {
 	console.error(USAGE);
@@ -97,6 +100,20 @@ type CliCompletion = Omit<TaskCompletion, "artifact" | "blocked"> & {
 	blocked: Array<Omit<TaskBlockage, "artifact"> & { artifact: CliArtifact }>;
 	gates: GateResult[];
 };
+
+function parseJsonObjectFlag(value: string | undefined, flag: string): Record<string, unknown> {
+	if (value === undefined) throw new Error(`${flag} requires a value`);
+	const parsed = JSON.parse(value) as unknown;
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error(`${flag} must be a JSON object`);
+	return parsed as Record<string, unknown>;
+}
+
+function parseJsonStringArrayFlag(value: string | undefined, flag: string): string[] {
+	if (value === undefined) throw new Error(`${flag} requires a value`);
+	const parsed = JSON.parse(value) as unknown;
+	if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) throw new Error(`${flag} must be a JSON string array`);
+	return parsed as string[];
+}
 
 function artifactLabel(artifact: CliArtifact): string {
 	return `${artifact.id} ${artifact.title}`;
@@ -237,24 +254,48 @@ export async function runNoteCli(args: string[], client: TaskCliClient, projectR
 export async function runTaskCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
-	const updateInput: { title?: string; body?: string; labels?: string[]; status?: "todo" } = {};
 	let reason: string | undefined;
+	let title: string | undefined;
+	let body: string | undefined;
+	let labels: string[] | undefined;
+	// Deliberately unrestricted here -- tasks update alone restricts this to "todo" (accidental-
+	// creation recovery only), enforced in that case body, not in parsing shared by every action.
+	let status: string | undefined;
+	let extra: Record<string, unknown> | undefined;
+	let gates: unknown[] | undefined;
+	let checklist: Record<string, unknown> | undefined;
+	let templateId: string | undefined;
+	let parentId: string | undefined;
+	let dependsOn: string[] | undefined;
+	let text: string | undefined;
+	let limit: number | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--title" || argument === "--body" || argument === "--labels-json" || argument === "--status" || argument === "--reason") {
+		if (argument === "--title" || argument === "--body" || argument === "--labels-json" || argument === "--status" || argument === "--reason"
+			|| argument === "--extra-json" || argument === "--gates-json" || argument === "--checklist-json" || argument === "--template-id"
+			|| argument === "--parent-id" || argument === "--depends-on-json" || argument === "--text" || argument === "--limit") {
 			const value = args[++index];
 			if (value === undefined) throw new Error(`${argument} requires a value`);
-			if (argument === "--title") updateInput.title = value;
-			else if (argument === "--body") updateInput.body = value;
+			if (argument === "--title") title = value;
+			else if (argument === "--body") body = value;
 			else if (argument === "--reason") reason = value;
-			else if (argument === "--status") {
-				if (value !== "todo") throw new Error("--status only supports todo for accidental creation recovery");
-				updateInput.status = value;
-			} else {
+			else if (argument === "--status") status = value;
+			else if (argument === "--extra-json") extra = parseJsonObjectFlag(value, "--extra-json");
+			else if (argument === "--checklist-json") checklist = parseJsonObjectFlag(value, "--checklist-json");
+			else if (argument === "--template-id") templateId = value;
+			else if (argument === "--parent-id") parentId = value;
+			else if (argument === "--depends-on-json") dependsOn = parseJsonStringArrayFlag(value, "--depends-on-json");
+			else if (argument === "--text") text = value;
+			else if (argument === "--limit") {
+				if (Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
+				limit = Number(value);
+			} else if (argument === "--gates-json") {
 				const parsed = JSON.parse(value) as unknown;
-				if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) throw new Error("--labels-json requires a JSON string array");
-				updateInput.labels = parsed as string[];
+				if (!Array.isArray(parsed)) throw new Error("--gates-json must be a JSON array");
+				gates = parsed;
+			} else {
+				labels = parseJsonStringArrayFlag(value, "--labels-json");
 			}
 			continue;
 		}
@@ -297,6 +338,14 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "update": {
 			if (!id || dependencyId) throw new Error("tasks update requires exactly one task id");
+			const updateInput: { title?: string; body?: string; labels?: string[]; status?: "todo" } = {};
+			if (title !== undefined) updateInput.title = title;
+			if (body !== undefined) updateInput.body = body;
+			if (labels !== undefined) updateInput.labels = labels;
+			if (status !== undefined) {
+				if (status !== "todo") throw new Error("--status only supports todo for accidental creation recovery");
+				updateInput.status = status;
+			}
 			if (Object.keys(updateInput).length === 0) throw new Error("tasks update requires --title, --body, --labels-json, or --status todo");
 			if (updateInput.status !== undefined && !reason?.trim()) throw new Error("tasks update --status requires --reason");
 			if (reason !== undefined && updateInput.status === undefined) throw new Error("tasks update --reason requires --status todo");
@@ -305,6 +354,45 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			});
 			result = artifact;
 			human = `Updated: ${artifactLabel(artifact)}`;
+			break;
+		}
+		case "create": {
+			if (id) throw new Error("tasks create accepts no positional arguments");
+			if (!title) throw new Error("tasks create requires --title");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.create", {
+				title,
+				...(body !== undefined ? { body } : {}),
+				...(status !== undefined ? { status } : {}),
+				...(labels !== undefined ? { labels } : {}),
+				...(extra !== undefined ? { extra } : {}),
+				...(gates !== undefined ? { gates } : {}),
+				...(checklist !== undefined ? { checklist } : {}),
+				...(templateId !== undefined ? { template_id: templateId } : {}),
+				...(parentId !== undefined ? { parent_id: parentId } : {}),
+				...(dependsOn !== undefined ? { depends_on: dependsOn } : {}),
+				project_root: projectRoot, actor: "user", source: "cli",
+			});
+			result = artifact;
+			human = `Created task: ${artifactLabel(artifact)}`;
+			break;
+		}
+		case "list": {
+			if (id) throw new Error("tasks list accepts no positional arguments");
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("tasks.list", {
+				...(status !== undefined ? { status } : {}),
+				...(text !== undefined ? { text } : {}),
+				...(limit !== undefined ? { limit } : {}),
+				project_root: projectRoot,
+			});
+			result = rows;
+			human = rows.length === 0 ? "No tasks found." : rows.map((row) => artifactLabel(row)).join("\n");
+			break;
+		}
+		case "show": {
+			if (!id || dependencyId) throw new Error("tasks show requires exactly one task id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.show", { id });
+			result = artifact;
+			human = `${artifactLabel(artifact)}\n\n${artifact.body ?? ""}`;
 			break;
 		}
 		case "history": {
@@ -415,7 +503,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			break;
 		}
 		default:
-			throw new Error("tasks action must be active, focused, focus, pause, unpause, clear-focus, update, graph, plan, history, scope, assign-project, complete, start, submit, reject, retry, cancel, or depend");
+			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, history, scope, assign-project, complete, start, submit, reject, retry, cancel, or depend");
 	}
 	return json ? JSON.stringify(result) : human;
 }

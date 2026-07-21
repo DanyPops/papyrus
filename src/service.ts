@@ -17,31 +17,15 @@ import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
 import {
-	createArtifactTemplate,
-	createDocument,
-	createRule,
-	createSkill,
-	linkDocument,
-	gateTaskWithRule,
 	instantiateTemplate,
-	listDocuments,
-	listRules,
 	listInjectableRules,
-	listSkills,
-	previewRule,
-	showDocument,
-	showRule,
-	showSkill,
-	skillInvocation,
-	transitionDocument,
-	transitionRule,
-	transitionSkill,
-	type DocumentRelation,
 } from "./domain-services.ts";
-import { instantiateSkillWorkflow } from "./skill-execution.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
+import { docsOperations } from "./modules/docs.ts";
 import { notesOperations } from "./modules/notes.ts";
+import { rulesOperations } from "./modules/rules.ts";
+import { skillsOperations } from "./modules/skills.ts";
 import { tasksOperations } from "./modules/tasks.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
@@ -347,54 +331,34 @@ function handlers(
 		"tasks.undepend": forwardToModule("tasks.undepend"),
 		"tasks.contain": forwardToModule("tasks.contain"),
 		"tasks.uncontain": forwardToModule("tasks.uncontain"),
-		"docs.create": (input) => createDocument(artifacts, {
-			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
-			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
-		}, eventContext(input)),
-		"docs.list": (input) => listDocuments(artifacts, artifactFilter(input)),
-		"docs.show": (input) => showDocument(artifacts, string(input, "id")),
-		"docs.activate": (input) => transitionDocument(artifacts, string(input, "id"), "activate", eventContext(input)),
-		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive", eventContext(input)),
-		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen", eventContext(input)),
-		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id"), eventContext(input)),
+		"docs.create": forwardToModule("docs.create"),
+		"docs.list": forwardToModule("docs.list"),
+		"docs.show": forwardToModule("docs.show"),
+		"docs.activate": forwardToModule("docs.activate"),
+		"docs.archive": forwardToModule("docs.archive"),
+		"docs.reopen": forwardToModule("docs.reopen"),
+		"docs.link": forwardToModule("docs.link"),
 		"notes.capture": forwardToModule("notes.capture"),
 		"notes.list": forwardToModule("notes.list"),
 		"notes.show": forwardToModule("notes.show"),
 		"notes.consume": forwardToModule("notes.consume"),
 		"notes.promote": forwardToModule("notes.promote"),
 		"notes.archive": forwardToModule("notes.archive"),
-		"rules.create": (input) => createRule(artifacts, {
-			title: string(input, "title"), body: optionalString(input, "body"), condition: optionalString(input, "condition"),
-			action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
-			severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
-			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}, eventContext(input)),
-		"rules.list": (input) => listRules(artifacts, artifactFilter(input)),
-		"rules.show": (input) => showRule(artifacts, string(input, "id")),
-		"rules.preview": (input) => previewRule(artifacts, string(input, "id")),
-		"rules.enable": (input) => transitionRule(artifacts, string(input, "id"), "enable", eventContext(input)),
-		"rules.disable": (input) => transitionRule(artifacts, string(input, "id"), "disable", eventContext(input)),
-		"rules.gate": (input) => gateTaskWithRule(artifacts, string(input, "id"), string(input, "task_id"), eventContext(input)),
-		"skills.create": (input) => createSkill(artifacts, {
-			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
-			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
-			definition: input["definition"],
-			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-		}, eventContext(input)),
-		"skills.create_template": (input) => createArtifactTemplate(artifacts, {
-			title: string(input, "title"), targetKind: string(input, "target_kind"), defaults: input["defaults"] as Record<string, unknown> | undefined,
-			required: input["required"] as string[] | undefined, body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
-		}, eventContext(input)),
-		"skills.list": (input) => listSkills(artifacts, artifactFilter(input)),
-		"skills.show": (input) => showSkill(artifacts, string(input, "id")),
-		"skills.invoke": (input) => skillInvocation(artifacts, string(input, "id")),
-		"skills.run": (input) => instantiateSkillWorkflow(artifacts, string(input, "id"), {
-			runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
-			arguments: input["arguments"] as Record<string, unknown> | undefined,
-		}, { events, scopes, projectRoot: string(input, "project_root"), context: eventContextFor(input, "skill-run") }),
-		"skills.enable": (input) => transitionSkill(artifacts, string(input, "id"), "enable", eventContext(input)),
-		"skills.disable": (input) => transitionSkill(artifacts, string(input, "id"), "disable", eventContext(input)),
+		"rules.create": forwardToModule("rules.create"),
+		"rules.list": forwardToModule("rules.list"),
+		"rules.show": forwardToModule("rules.show"),
+		"rules.preview": forwardToModule("rules.preview"),
+		"rules.enable": forwardToModule("rules.enable"),
+		"rules.disable": forwardToModule("rules.disable"),
+		"rules.gate": forwardToModule("rules.gate"),
+		"skills.create": forwardToModule("skills.create"),
+		"skills.create_template": forwardToModule("skills.create_template"),
+		"skills.list": forwardToModule("skills.list"),
+		"skills.show": forwardToModule("skills.show"),
+		"skills.invoke": forwardToModule("skills.invoke"),
+		"skills.run": forwardToModule("skills.run"),
+		"skills.enable": forwardToModule("skills.enable"),
+		"skills.disable": forwardToModule("skills.disable"),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
@@ -427,6 +391,9 @@ export function createPapyrusService(path: string): PapyrusService {
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
+	moduleRegistry.registerAll(docsOperations(artifacts));
+	moduleRegistry.registerAll(rulesOperations(artifacts));
+	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes }));
 	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);

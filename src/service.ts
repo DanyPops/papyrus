@@ -9,14 +9,12 @@ import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import { DISCOURSE_RELATIONS, isDiscourseSubtype } from "./domain/discourse-store.ts";
-import type { Checklist } from "./domain/checklist.ts";
-import type { TaskEventContext, TaskEventDirection } from "./domain/task-event.ts";
+import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { projectTaskExecution } from "./task-execution.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
 import {
 	createArtifactTemplate,
@@ -40,11 +38,11 @@ import {
 	transitionSkill,
 	type DocumentRelation,
 } from "./domain-services.ts";
-import { taskContext } from "./task-context.ts";
 import { instantiateSkillWorkflow } from "./skill-execution.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
 import { notesOperations } from "./modules/notes.ts";
+import { tasksOperations } from "./modules/tasks.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
@@ -320,65 +318,35 @@ function handlers(
 		},
 		"rules.injectable": (input) => listInjectableRules(artifacts, tasks.active(taskFilter(input))?.id)
 			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
-		"tasks.create": (input) => tasks.create({
-			title: string(input, "title"),
-			body: optionalString(input, "body"),
-			status: optionalString(input, "status") as TaskStatus | undefined,
-			labels: input["labels"] as string[] | undefined,
-			extra: input["extra"] as Record<string, unknown> | undefined,
-			gates: input["gates"] as Parameters<Tasks["create"]>[0]["gates"],
-			checklist: input["checklist"] as Checklist | undefined,
-			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
-			parentId: optionalString(input, "parent_id") ?? optionalString(input, "parentId"),
-			dependsOn: (input["depends_on"] ?? input["dependsOn"]) as string[] | undefined,
-			projectRoot: string(input, "project_root"),
-			projectSource: "cwd",
-		}, eventContext(input)),
-		"tasks.update": (input) => tasks.update(string(input, "id"), {
-			...(input["title"] !== undefined ? { title: optionalString(input, "title")! } : {}),
-			...(input["body"] !== undefined ? { body: optionalString(input, "body")! } : {}),
-			...(input["labels"] !== undefined ? { labels: optionalStringArray(input, "labels")! } : {}),
-			...(input["status"] !== undefined ? { status: string(input, "status") as "todo" } : {}),
-		}, eventContext(input)),
-		"tasks.list": (input) => tasks.list(taskFilter(input)),
-		"tasks.graph": (input) => tasks.graph(taskFilter(input)),
-		"tasks.plan": (input) => projectTaskExecution(tasks.graph(taskFilter(input))),
-		"tasks.show": (input) => tasks.show(string(input, "id")),
-		"tasks.history": (input) => tasks.history(string(input, "id"), {
-			limit: optionalNumber(input, "limit"),
-			cursor: optionalNumber(input, "cursor"),
-			direction: optionalString(input, "direction") as TaskEventDirection | undefined,
-		}),
-		"tasks.scope": (input) => tasks.scopeSelection(string(input, "project_root")),
-		"tasks.set_scope": (input) => tasks.setView(
-			string(input, "project_root"),
-			string(input, "scope") as TaskViewMode,
-			optionalString(input, "root_task_id"),
-		),
-		"tasks.assign_project": (input) => tasks.assignProject(
-			string(input, "id"),
-			string(input, "project_root"),
-			eventContext(input),
-		),
-		"tasks.active": (input) => tasks.active(taskFilter(input)),
-		"tasks.focused": (input) => tasks.focused(taskFilter(input)),
-		"tasks.focus": (input) => tasks.focus(string(input, "id"), eventContext(input)),
-		"tasks.pause": (input) => tasks.pauseFocus(eventContext(input)),
-		"tasks.unpause": (input) => tasks.unpauseFocus(eventContext(input)),
-		"tasks.clear_focus": (input) => tasks.clearFocus(eventContext(input)),
-		"tasks.start": (input) => tasks.transition(string(input, "id"), "start", eventContext(input)),
-		"tasks.submit": (input) => tasks.transition(string(input, "id"), "submit", eventContext(input)),
-		"tasks.complete": (input) => tasks.completeAsync(string(input, "id"), eventContext(input)),
-		"tasks.run_gates": (input) => tasks.runGates(string(input, "id"), eventContext(input)),
-		"tasks.set_checklist": (input) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist),
-		"tasks.context": (input) => taskContext(artifacts, tasks.active(taskFilter(input))?.id, new Set(tasks.list(taskFilter(input)).map((task) => task.id))),
-		"tasks.reject": (input) => tasks.transition(string(input, "id"), "reject", eventContext(input)),
-		"tasks.retry": (input) => tasks.transition(string(input, "id"), "retry", eventContext(input)),
-		"tasks.cancel": (input) => tasks.transition(string(input, "id"), "cancel", eventContext(input)),
-		"tasks.depend": (input) => tasks.depend(string(input, "id"), string(input, "dependency_id"), eventContext(input)),
-		"tasks.undepend": (input) => tasks.undepend(string(input, "id"), string(input, "dependency_id"), eventContext(input)),
-		"tasks.contain": (input) => tasks.contain(string(input, "parent_id"), string(input, "child_id"), eventContext(input)),
-		"tasks.uncontain": (input) => tasks.uncontain(string(input, "parent_id"), string(input, "child_id"), eventContext(input)),
+		"tasks.create": forwardToModule("tasks.create"),
+		"tasks.update": forwardToModule("tasks.update"),
+		"tasks.list": forwardToModule("tasks.list"),
+		"tasks.graph": forwardToModule("tasks.graph"),
+		"tasks.plan": forwardToModule("tasks.plan"),
+		"tasks.show": forwardToModule("tasks.show"),
+		"tasks.history": forwardToModule("tasks.history"),
+		"tasks.scope": forwardToModule("tasks.scope"),
+		"tasks.set_scope": forwardToModule("tasks.set_scope"),
+		"tasks.assign_project": forwardToModule("tasks.assign_project"),
+		"tasks.active": forwardToModule("tasks.active"),
+		"tasks.focused": forwardToModule("tasks.focused"),
+		"tasks.focus": forwardToModule("tasks.focus"),
+		"tasks.pause": forwardToModule("tasks.pause"),
+		"tasks.unpause": forwardToModule("tasks.unpause"),
+		"tasks.clear_focus": forwardToModule("tasks.clear_focus"),
+		"tasks.start": forwardToModule("tasks.start"),
+		"tasks.submit": forwardToModule("tasks.submit"),
+		"tasks.complete": forwardToModule("tasks.complete"),
+		"tasks.run_gates": forwardToModule("tasks.run_gates"),
+		"tasks.set_checklist": forwardToModule("tasks.set_checklist"),
+		"tasks.context": forwardToModule("tasks.context"),
+		"tasks.reject": forwardToModule("tasks.reject"),
+		"tasks.retry": forwardToModule("tasks.retry"),
+		"tasks.cancel": forwardToModule("tasks.cancel"),
+		"tasks.depend": forwardToModule("tasks.depend"),
+		"tasks.undepend": forwardToModule("tasks.undepend"),
+		"tasks.contain": forwardToModule("tasks.contain"),
+		"tasks.uncontain": forwardToModule("tasks.uncontain"),
 		"docs.create": (input) => createDocument(artifacts, {
 			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
@@ -458,6 +426,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	const discourse = new SQLiteDiscourseStore(db, artifacts);
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
+	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
 	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);

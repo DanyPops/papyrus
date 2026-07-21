@@ -9,6 +9,7 @@ import type {
 	RelationshipQuery,
 	UpdateArtifactInput,
 } from "../src/domain/artifact.ts";
+import type { ArtifactEventPage, ArtifactEventQuery } from "../src/domain/artifact-event.ts";
 import type { GateResult } from "../src/domain/gate.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
@@ -61,6 +62,13 @@ class FakeArtifactStore implements ArtifactStore {
 		}
 	}
 
+	unlink(link: ArtifactLink): boolean {
+		const index = this.edges.findIndex((edge) => edge.from === link.from && edge.relation === link.relation && edge.to === link.to);
+		if (index === -1) return false;
+		this.edges.splice(index, 1);
+		return true;
+	}
+
 	setStatus(id: string, status: string): Artifact | null {
 		const artifact = this.artifacts.get(id);
 		if (!artifact) return null;
@@ -91,6 +99,10 @@ class FakeArtifactStore implements ArtifactStore {
 			.filter((edge) => !ids || ids.has(edge.from) || ids.has(edge.to))
 			.slice(0, filter.limit ?? this.edges.length)
 			.map((edge) => ({ ...edge }));
+	}
+
+	events(_query: ArtifactEventQuery): ArtifactEventPage {
+		return { events: [] };
 	}
 }
 

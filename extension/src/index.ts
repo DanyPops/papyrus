@@ -26,9 +26,19 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
+import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
+import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
+import {
+	createArtifactDetails,
+	createArtifactListDetails,
+	createGraphDetails,
+	createModelContent,
+	createPreviewDetails,
+} from "./tool-rendering/render-model.ts";
 
-function text(t: string, details: Record<string, unknown> = {}) {
-	return { content: [{ type: "text" as const, text: t }], details };
+function text(value: string, details: unknown = {}) {
+	const modelContent = createModelContent(value);
+	return { content: [{ type: "text" as const, text: modelContent.text }], details };
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +68,7 @@ class TaskOverlay {
 	private tui: any | undefined;
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 	private projectRoot: string | undefined;
+	private sessionId: string | undefined;
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -68,11 +79,14 @@ class TaskOverlay {
 	}
 
 	setProjectRoot(projectRoot: string): void { this.projectRoot = projectRoot; }
+	// Scopes the widget's "active" glyph to this Pi session's own Focus, so a second
+	// concurrent agent's focused task never shows as active in this session's widget.
+	setSessionId(sessionId: string): void { this.sessionId = sessionId; }
 
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
 		try {
-			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500, project_root: this.projectRoot });
+			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500, project_root: this.projectRoot, session_id: this.sessionId });
 		} catch {
 			this.snapshot = { nodes: [], rootIds: [] };
 		}
@@ -124,6 +138,7 @@ class TaskOverlay {
 		this.tui = undefined;
 		this.uiCtx = undefined;
 		this.projectRoot = undefined;
+		this.sessionId = undefined;
 	}
 }
 
@@ -132,6 +147,7 @@ class TaskOverlay {
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
+	setTaskFocusEventBus(pi);
 	registerDomainTools(pi);
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
@@ -144,7 +160,8 @@ export default async function (pi: ExtensionAPI) {
 	const driveActiveTasks = async (ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
 		try {
-			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd });
+			const sessionId = ctx.sessionManager.getSessionId();
+			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd, session_id: sessionId });
 			const decision = taskContinuation.evaluate(active, {
 				idle: ctx.isIdle(),
 				pendingMessages: ctx.hasPendingMessages(),
@@ -156,11 +173,13 @@ export default async function (pi: ExtensionAPI) {
 					display: false,
 				}, { triggerTurn: true, deliverAs: "nextTurn" });
 			} else if (decision.action === "pause") {
-				await callService("tasks.pause", {
+				const paused = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>("tasks.pause", {
 					actor: "system",
 					source: "task-continuation",
 					reason: automaticPauseReason(decision.reason),
+					session_id: sessionId,
 				});
+				emitTaskFocusEvent({ taskId: paused.artifact.id, sessionId, status: "paused" });
 				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
 			}
 		} catch {
@@ -192,15 +211,17 @@ export default async function (pi: ExtensionAPI) {
 			template_id: Type.Optional(Type.String({ description: "skill/artifact-template id whose defaults and requirements apply" })),
 			project_root: Type.Optional(Type.String({ description: "required for Tasks; defaults to Pi cwd" })),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Create artifact", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			try {
 				const a = await callService<Record<string, unknown>, Artifact>("artifact.create", {
 					...params,
 					...(params.kind === "task" ? { project_root: params.project_root ?? ctx.cwd } : {}),
 				});
-				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, { id: a.id });
+				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, createArtifactDetails("artifact.create", a));
 			} catch (e) {
-				return text(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -215,14 +236,16 @@ export default async function (pi: ExtensionAPI) {
 			text: Type.Optional(Type.String({ description: "substring across title and body" })),
 			limit: Type.Optional(Type.Number()),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Query artifacts", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const rows = await callService<Record<string, unknown>, Artifact[]>("artifact.query", { ...params, limit: params.limit ?? 50 });
-				if (rows.length === 0) return text("No artifacts found.");
-				const lines = rows.map((r: any, i: number) => `${i + 1}. ${r.id} [${r.kind}|${r.status}] ${r.title}`);
-				return text(`${rows.length} artifact(s):\n\n${lines.join("\n")}`, { rows });
+				if (rows.length === 0) return text("No artifacts found.", createArtifactListDetails("artifact.query", rows));
+				const lines = rows.map((row, index) => `${index + 1}. ${row.id} [${row.kind}|${row.status}] ${row.title}`);
+				return text(`${rows.length} artifact(s):\n\n${lines.join("\n")}`, createArtifactListDetails("artifact.query", rows));
 			} catch (e) {
-				return text(`papyrus_query failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_query failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -231,11 +254,13 @@ export default async function (pi: ExtensionAPI) {
 		name: "papyrus_graph",
 		label: "Papyrus Graph",
 		description:
-			"Link artifacts with typed edges (any kind → any kind), view subgraph, or update status. " +
+			"Link artifacts with typed edges (any kind → any kind), view subgraph, update status, or read the mutation event log. " +
 			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers, contains, part_of. " +
-			"ACTIONS: link (from+relation+to), tree (id → bounded BFS subgraph), status (id+status → lifecycle).",
+			"ACTIONS: link (from+relation+to), unlink (from+relation+to — idempotent, no error if already absent; for Task depends_on/contains prefer the tasks tool's undepend/uncontain), " +
+			"tree (id → bounded BFS subgraph), status (id+status → lifecycle), " +
+			"history (who did what, when — requires id, actor, or session_id).",
 		parameters: Type.Object({
-			action: Type.String({ description: "link | tree | status" }),
+			action: Type.String({ description: "link | unlink | tree | status | history" }),
 			from: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			to: Type.Optional(Type.String()),
@@ -243,37 +268,57 @@ export default async function (pi: ExtensionAPI) {
 			status: Type.Optional(Type.String()),
 			depth: Type.Optional(Type.Number({ description: "tree traversal depth; bounded by a hard ceiling" })),
 			max_nodes: Type.Optional(Type.Number({ description: "tree node cap; bounded by a hard ceiling" })),
+			actor: Type.Optional(Type.String({ description: "history: filter by actor" })),
+			session_id: Type.Optional(Type.String({ description: "history: filter by session" })),
+			since: Type.Optional(Type.String({ description: "history: RFC3339 lower bound" })),
+			limit: Type.Optional(Type.Number({ description: "history: bounded page size" })),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Artifact graph", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				if (params.action === "link") {
 					await callService("graph.link", { from: params.from!, relation: params.relation!, to: params.to! });
-					return text(`Linked ${params.from} --${params.relation}--> ${params.to}`);
+					const output = `Linked ${params.from} --${params.relation}--> ${params.to}`;
+					return text(output, createPreviewDetails("graph.link", "Artifact relationship", output));
+				}
+				if (params.action === "unlink") {
+					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: params.from!, relation: params.relation!, to: params.to! });
+					const output = result.removed ? `Unlinked ${params.from} --${params.relation}--> ${params.to}` : `No such relationship: ${params.from} --${params.relation}--> ${params.to}`;
+					return text(output, createPreviewDetails("graph.unlink", "Artifact relationship", output));
 				}
 				if (params.action === "tree") {
 					const root = params.id ?? params.from;
-					if (!root) return text("Missing id for tree");
+					if (!root) throw new Error("missing id for tree");
 					const a = await callService<Record<string, unknown>, Artifact | null>("graph.tree", {
 						id: root,
 						depth: params.depth,
 						max_nodes: params.max_nodes,
 					});
-					if (!a) return text(`Artifact ${root} not found`);
-					const edges = (a as any).edges ?? [];
-					if (edges.length === 0) return text(`${a.title} — no edges`);
+					if (!a) throw new Error(`artifact ${root} not found`);
+					const edges = a.edges ?? [];
+					if (edges.length === 0) return text(`${a.title} — no edges`, createGraphDetails("graph.tree", [a], []));
 					return text(
-						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`,
-						{ edges },
+						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((edge: any) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`,
+						createGraphDetails("graph.tree", [a], edges),
 					);
 				}
 				if (params.action === "status") {
 					const a = await callService<Record<string, unknown>, Artifact | null>("graph.status", { id: params.id!, status: params.status! });
-					if (!a) return text(`Artifact ${params.id} not found`);
-					return text(`Updated ${a.id} → [${a.status}]`, { artifact: a });
+					if (!a) throw new Error(`artifact ${params.id} not found`);
+					return text(`Updated ${a.id} → [${a.status}]`, createArtifactDetails("graph.status", a));
 				}
-				return text(`Unknown action: ${params.action}. Use 'link', 'tree', or 'status'.`);
+				if (params.action === "history") {
+					const page = await callService<Record<string, unknown>, { events: Array<Record<string, unknown>> }>("graph.history", {
+						id: params.id, actor: params.actor, session_id: params.session_id, since: params.since, limit: params.limit,
+					});
+					if (page.events.length === 0) return text("No recorded events.", createPreviewDetails("graph.history", "Mutation event log", "No recorded events."));
+					const output = page.events.map((event) => `${event["occurredAt"]} ${event["artifactId"]} ${event["type"]} · ${event["actor"]}/${event["source"]}`).join("\n");
+					return text(output, createPreviewDetails("graph.history", "Mutation event log", output));
+				}
+				throw new Error(`unknown action: ${params.action}; use link, tree, status, or history`);
 			} catch (e) {
-				return text(`papyrus_graph failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_graph failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -288,6 +333,8 @@ export default async function (pi: ExtensionAPI) {
 			depth: Type.Optional(Type.Number({ description: "edge traversal depth" })),
 			max_nodes: Type.Optional(Type.Number({ description: "maximum traversed nodes" })),
 		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Show artifact", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const a = await callService<Record<string, unknown>, Artifact | null>("artifact.show", {
@@ -296,21 +343,21 @@ export default async function (pi: ExtensionAPI) {
 					depth: params.depth,
 					max_nodes: params.max_nodes,
 				});
-				if (!a) return text(`Artifact ${params.id} not found`);
+				if (!a) throw new Error(`artifact ${params.id} not found`);
 				let out = `${a.id} [${a.kind}|${a.status}]\n${a.title}\n\n${a.body}`;
 				if (Object.keys(a.extra).length > 0) {
 					out += `\n\nMetadata:\n${formatMetadata(a.extra).map((line) => `  ${line}`).join("\n")}`;
 				}
-				if ((a as any).edges?.length) {
-					out += `\n\nEdges:\n${(a as any).edges.map((e: any) => `  ${e.from} --${e.relation}--> ${e.to}`).join("\n")}`;
+				if (a.edges?.length) {
+					out += `\n\nEdges:\n${a.edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
 				}
 				if (params.run_gates) {
 					const results = await callService<Record<string, unknown>, GateResult[]>("gates.run", { id: params.id });
-					out += `\n\nGates:\n${results.map((g: any) => `  ${g.passed ? "✓" : "✗"} ${g.gate.type}: ${g.gate.target} — ${g.output}`).join("\n")}`;
+					out += `\n\nGates:\n${results.map((gate) => `  ${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n")}`;
 				}
-				return text(out, { artifact: a });
+				return text(out, createArtifactDetails("artifact.show", a));
 			} catch (e) {
-				return text(`papyrus_show failed: ${e instanceof Error ? e.message : e}`);
+				throw new Error(`papyrus_show failed: ${e instanceof Error ? e.message : e}`);
 			}
 		},
 	});
@@ -331,6 +378,7 @@ export default async function (pi: ExtensionAPI) {
 		description: "Browse and manage Papyrus tasks (interactive)",
 		handler: async (_args, ctx) => {
 			overlay?.setProjectRoot(ctx.cwd);
+			overlay?.setSessionId(ctx.sessionManager.getSessionId());
 			await tasksModule.showTasks(ctx);
 			await overlay?.refresh();
 		},
@@ -363,9 +411,11 @@ export default async function (pi: ExtensionAPI) {
 		overlay ??= new TaskOverlay();
 		overlay.setUI(ctx.ui);
 		overlay.setProjectRoot(ctx.cwd);
+		overlay.setSessionId(ctx.sessionManager.getSessionId());
 		await overlay.refresh();
 	});
 
+	pi.on("session_before_compact", () => { taskContinuation.onCompaction(); });
 	pi.on("session_compact", async () => { await overlay?.refresh(); });
 	pi.on("session_tree", async () => { await overlay?.refresh(); });
 	pi.on("session_shutdown", async () => { overlay?.dispose(); overlay = undefined; });
@@ -381,13 +431,15 @@ export default async function (pi: ExtensionAPI) {
 	// agent_settled is intentionally later than agent_end: Pi guarantees that
 	// retry, compaction retry, and queued follow-up processing have finished.
 
-	pi.on("input", async (event) => {
+	pi.on("input", async (event, ctx) => {
 		if (event.source === "extension") return;
 		taskContinuation.onHumanInput();
 		try {
-			const focus = await callService<Record<string, never>, { status: string; pauseReason?: string } | null>("tasks.focused", {});
+			const sessionId = ctx.sessionManager.getSessionId();
+			const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>("tasks.focused", { session_id: sessionId });
 			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
-				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation" });
+				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation", session_id: sessionId });
+				emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId, status: "unpaused" });
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.
@@ -402,9 +454,10 @@ export default async function (pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		try {
+			const sessionId = ctx.sessionManager.getSessionId();
 			const [rules, summary] = await Promise.all([
-				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd }),
-				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd }),
+				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
+				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId }),
 			]);
 			const injection = buildContextInjection({
 				basePrompt: event.systemPrompt ?? "",

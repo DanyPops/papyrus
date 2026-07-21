@@ -24,6 +24,10 @@ export const TASK_EVENT_TYPES = [
 	"retried",
 	"completed",
 	"canceled",
+	"dependency_added",
+	"dependency_removed",
+	"containment_added",
+	"containment_removed",
 ] as const;
 
 export type TaskEventType = typeof TASK_EVENT_TYPES[number];

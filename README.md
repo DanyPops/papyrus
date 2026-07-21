@@ -56,6 +56,20 @@ It blocks every Papyrus push whose destination is not `DanyPops/papyrus`, includ
 
 The daemon uses WAL, foreign keys, a bounded busy timeout, versioned migrations, periodic passive checkpoints, and periodic `PRAGMA optimize`. Keep the database on a local filesystem; SQLite WAL does not support network filesystems.
 
+### Context Mesh persistence model
+
+`artifacts` is the shared graph-identity supertype, not a second copy of every application's database. `edges` references that single identity table at both endpoints, preserving foreign-key integrity for cross-domain links. Domain extension tables exist only where application invariants require indexed relational state: Task chronology/focus/scope and Discourse posts/events/session cursors/projection checkpoints. This is a class-table/table-per-type variant with explicit child-to-parent foreign keys; Papyrus does not use SQLite table inheritance or orphan-prone `(target_type, target_id)` links.
+
+The owning application remains the mutation authority. Discourse commits its extension rows and `context-thread`/`context-message` Doc projections atomically through `discourse.store`; generic artifact, document, Skill-template, lifecycle, and graph-link operations reject those owned subtypes and the `reply_to`/`discusses` relations. SQLite triggers additionally verify that each extension row references the expected Doc subtype. Domain tables are canonical for domain invariants; graph bodies and metadata are read-oriented projections committed in the same transaction.
+
+The authenticated CLI exposes the same operation for diagnostics and adapter parity:
+
+```bash
+papyrus discourse store read_thread --store-id team-forum \
+  --input-json '{"forumId":"engineering","topicId":"reviews","threadId":"mesh","limit":25}' \
+  --json
+```
+
 ## Schema protocol (enforceable)
 
 Papyrus enforces four artifact kinds:
@@ -217,10 +231,10 @@ packed install npm:@danypops/papyrus
 ~/.pi/agent/npm/node_modules/.bin/papyrus service install
 ```
 
-Existing databases are never migrated on daemon boot. After upgrading to focus-driven Task continuation, run the authenticated CLI migration explicitly. Older databases receive prerequisite schemas in one transaction. Existing Tasks are deliberately marked **unscoped**: Papyrus does not guess ownership from titles, labels, historical cwd, or repository names. They remain visible in **All projects** until explicitly assigned with `papyrus tasks assign-project <task-id> [project-root]`:
+Existing databases are never migrated on daemon boot. After upgrading to a newer schema, run the authenticated CLI migration explicitly. Older databases receive prerequisite schemas—including Task continuation and Context Mesh extensions—in one transaction. Existing Tasks are deliberately marked **unscoped**: Papyrus does not guess ownership from titles, labels, historical cwd, or repository names. They remain visible in **All projects** until explicitly assigned with `papyrus tasks assign-project <task-id> [project-root]`:
 
 ```bash
-~/.pi/agent/npm/node_modules/.bin/papyrus migrate task-focus
+~/.pi/agent/npm/node_modules/.bin/papyrus migrate schema
 ```
 
 Until that command succeeds, health reports `migrationRequired` and normal domain operations are rejected with actionable guidance. Migration is not exposed as a Pi tool or MCP action. New empty databases bootstrap directly at the current schema.

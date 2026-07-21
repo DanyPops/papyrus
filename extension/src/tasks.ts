@@ -7,6 +7,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { callService } from "./service-client.ts";
+import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { showTaskDetails } from "./task-detail-view.ts";
 import { showTaskGraph } from "./task-graph.ts";
 
@@ -56,10 +57,11 @@ export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
 	return result;
 }
 
-async function loadTaskGraph(projectRoot: string, scope?: "project" | "graph" | "all", rootTaskId?: string): Promise<TaskGraph> {
+async function loadTaskGraph(projectRoot: string, sessionId: string, scope?: "project" | "graph" | "all", rootTaskId?: string): Promise<TaskGraph> {
 	return callService<Record<string, unknown>, TaskGraph>("tasks.graph", {
 		limit: 200,
 		project_root: projectRoot,
+		session_id: sessionId,
 		...(scope ? { scope } : {}),
 		...(rootTaskId ? { root_task_id: rootTaskId } : {}),
 	});
@@ -70,14 +72,17 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		ctx.ui.notify("/tasks requires interactive mode", "warning");
 		return;
 	}
-	let graph = await loadTaskGraph(ctx.cwd);
+	// Scopes this panel's "active"/Focus reads and writes to this Pi session, so a second
+	// concurrent agent working the same project never appears as (or is overridden by) this one.
+	const sessionId = ctx.sessionManager.getSessionId();
+	let graph = await loadTaskGraph(ctx.cwd, sessionId);
 	if (graph.nodes.length === 0) {
 		const create = await ctx.ui.select("No tasks yet", ["Create a task", "Cancel"]);
 		if (create === "Create a task") {
 			const title = await ctx.ui.input("Task title:", "");
 			if (title) {
-				await callService("tasks.create", { title, project_root: ctx.cwd, actor: "user", source: "tasks-tui" });
-				graph = await loadTaskGraph(ctx.cwd);
+				await callService("tasks.create", { title, project_root: ctx.cwd, actor: "user", source: "tasks-tui", session_id: sessionId });
+				graph = await loadTaskGraph(ctx.cwd, sessionId);
 			}
 		}
 		if (graph.nodes.length === 0) return;
@@ -86,14 +91,14 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 	for (;;) {
 		const action = await renderPanel(ctx, graph);
 		if (!action) return;
-		if (action.type === "refresh") { graph = await loadTaskGraph(ctx.cwd); continue; }
+		if (action.type === "refresh") { graph = await loadTaskGraph(ctx.cwd, sessionId); continue; }
 		if (action.type === "scope") {
 			const choice = await ctx.ui.select("Task scope", ["Current project", "Focused graph", "All projects"]);
 			if (!choice) continue;
 			const scope: "project" | "graph" | "all" = choice === "Current project" ? "project" : choice === "All projects" ? "all" : "graph";
 			let rootTaskId: string | undefined;
 			if (scope === "graph") {
-				const projectGraph = await loadTaskGraph(ctx.cwd, "project");
+				const projectGraph = await loadTaskGraph(ctx.cwd, sessionId, "project");
 				const roots = projectGraph.rootIds.map((id) => projectGraph.nodes.find((node) => node.task.id === id)?.task).filter((task): task is Artifact => task !== undefined);
 				const selected = await ctx.ui.select("Focused root or epic", roots.map((task) => `${task.title} · ${task.id}`));
 				if (!selected) continue;
@@ -101,24 +106,48 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 				if (!rootTaskId) continue;
 			}
 			await callService("tasks.set_scope", { project_root: ctx.cwd, scope, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) });
-			graph = await loadTaskGraph(ctx.cwd);
+			graph = await loadTaskGraph(ctx.cwd, sessionId);
 			continue;
 		}
 		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
 		if (action.type !== "action" || !action.row) continue;
 
-		const active = graph.nodes.find((node) => node.task.id === action.row!.id)?.active === true;
-		const focusStatus = graph.nodes.find((node) => node.task.id === action.row!.id)?.focusStatus;
+		const node = graph.nodes.find((entry) => entry.task.id === action.row!.id);
+		const active = node?.active === true;
+		const focusStatus = node?.focusStatus;
 		const choices = [
 			"Show details",
 			"Edit task",
 			...(!active && action.row.status !== "done" && action.row.status !== "canceled" ? ["Make active"] : []),
 			...(active ? [focusStatus === "paused" ? "Resume focus" : "Pause focus", "Clear focus"] : []),
 			...(action.row.status === "review" ? ["Run gates"] : []),
+			...((node?.dependencyIds.length ?? 0) > 0 ? ["Remove dependency"] : []),
+			...((node?.parentIds.length ?? 0) > 0 ? ["Remove from parent"] : []),
 			...(STATUS_ACTIONS[action.row.status] ?? []),
 		];
 		const choice = await ctx.ui.select(action.row.title, choices);
 		if (!choice) continue;
+
+		if (choice === "Remove dependency" || choice === "Remove from parent") {
+			const relatedIds = choice === "Remove dependency" ? node!.dependencyIds : node!.parentIds;
+			const relatedTitles = relatedIds.map((relatedId) => `${graph.nodes.find((entry) => entry.task.id === relatedId)?.task.title ?? relatedId} · ${relatedId}`);
+			const selected = await ctx.ui.select(choice === "Remove dependency" ? "Remove which dependency?" : "Remove from which parent?", relatedTitles);
+			if (!selected) continue;
+			const relatedId = relatedIds[relatedTitles.indexOf(selected)]!;
+			try {
+				if (choice === "Remove dependency") {
+					await callService("tasks.undepend", { id: action.row.id, dependency_id: relatedId, actor: "user", source: "tasks-tui", session_id: sessionId });
+					ctx.ui.notify(`Removed dependency on ${relatedId}`, "info");
+				} else {
+					await callService("tasks.uncontain", { parent_id: relatedId, child_id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+					ctx.ui.notify(`Removed from parent ${relatedId}`, "info");
+				}
+			} catch (error) {
+				ctx.ui.notify(`Relationship removal failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
+			graph = await loadTaskGraph(ctx.cwd, sessionId);
+			continue;
+		}
 
 		if (choice === "Show details") {
 			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });
@@ -146,15 +175,22 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else if (choice === "Make active") {
 			try {
-				await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui" });
+				const focused = await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+				emitTaskFocusEvent({ taskId: focused.id, sessionId, status: "focused" });
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		} else if (choice === "Pause focus" || choice === "Resume focus" || choice === "Clear focus") {
 			try {
-				const operation = choice === "Pause focus" ? "tasks.pause" : choice === "Resume focus" ? "tasks.unpause" : "tasks.clear_focus";
-				await callService(operation, { actor: "user", source: "tasks-tui" });
+				if (choice === "Clear focus") {
+					await callService("tasks.clear_focus", { actor: "user", source: "tasks-tui", session_id: sessionId });
+					emitTaskFocusEvent({ taskId: null, sessionId, status: "cleared" });
+				} else {
+					const operation = choice === "Pause focus" ? "tasks.pause" : "tasks.unpause";
+					const result = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, { actor: "user", source: "tasks-tui", session_id: sessionId });
+					emitTaskFocusEvent({ taskId: result.artifact.id, sessionId, status: choice === "Pause focus" ? "paused" : "unpaused" });
+				}
 				ctx.ui.notify(choice === "Clear focus" ? "Task focus cleared" : choice, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus action failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -180,7 +216,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 									? "tasks.cancel"
 									: "tasks.complete";
 				if (operation === "tasks.complete") {
-					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id, actor: "user", source: "tasks-tui" });
+					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
 					action.row.status = result.artifact.status;
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}`).join("\n");
@@ -195,7 +231,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 						result.completed ? "info" : "warning",
 					);
 				} else {
-					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id, actor: "user", source: "tasks-tui" });
+					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
 					action.row.status = updated.status;
 					ctx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
 				}
@@ -203,7 +239,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 				ctx.ui.notify(`Task action failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		}
-		graph = await loadTaskGraph(ctx.cwd);
+		graph = await loadTaskGraph(ctx.cwd, sessionId);
 	}
 }
 

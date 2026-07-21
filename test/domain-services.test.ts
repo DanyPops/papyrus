@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
+import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import { Tasks } from "../src/task-service.ts";
 import {
@@ -27,7 +28,7 @@ function fixture() {
 	const dir = mkdtempSync(join(tmpdir(), "papyrus-domain-service-"));
 	const db = openDb(join(dir, "papyrus.db"));
 	const artifacts = new SQLiteArtifactStore(db);
-	return { db, dir, artifacts, tasks: new Tasks(artifacts, new SQLiteGateRunner(db)) };
+	return { db, dir, artifacts, authority: new AuthorityRegistry(), tasks: new Tasks(artifacts, new SQLiteGateRunner(db)) };
 }
 
 describe("tasks application API", () => {
@@ -93,8 +94,8 @@ describe("rules domain service", () => {
 
 describe("skills domain service", () => {
 	it("owns skill lifecycle and invocation projection", () => {
-		const { db, artifacts } = fixture();
-		const skill = createSkill(artifacts, { title: "TDD workflow", trigger: "writing code", steps: ["Write failing test", "Implement"], tools: ["bun test"] });
+		const { db, artifacts, authority } = fixture();
+		const skill = createSkill(artifacts, { title: "TDD workflow", trigger: "writing code", steps: ["Write failing test", "Implement"], tools: ["bun test"] }, authority);
 		expect(skillInvocation(artifacts, skill.id)).toContain("1. Write failing test");
 		expect(transitionSkill(artifacts, skill.id, "disable").status).toBe("deprecated");
 		expect(transitionSkill(artifacts, skill.id, "enable").status).toBe("active");
@@ -103,11 +104,11 @@ describe("skills domain service", () => {
 	});
 
 	it("creates and instantiates artifact templates", () => {
-		const { db, artifacts } = fixture();
+		const { db, artifacts, authority } = fixture();
 		const template = createArtifactTemplate(artifacts, {
 			title: "Research document", targetKind: "doc", defaults: { subtype: "research", labels: ["research"] }, required: ["title", "body"],
-		});
-		const document = instantiateTemplate(artifacts, template.id, { title: "Findings", body: "Verified evidence" });
+		}, authority);
+		const document = instantiateTemplate(artifacts, template.id, { title: "Findings", body: "Verified evidence" }, authority);
 		expect(document.kind).toBe("doc");
 		expect(document.subtype).toBe("research");
 		db.close();
@@ -116,19 +117,19 @@ describe("skills domain service", () => {
 
 describe("documents domain service", () => {
 	it("owns document creation and lifecycle", () => {
-		const { db, artifacts } = fixture();
-		const document = createDocument(artifacts, { title: "Architecture", subtype: "design", labels: ["sqlite"] });
-		expect(transitionDocument(artifacts, document.id, "activate").status).toBe("active");
-		expect(transitionDocument(artifacts, document.id, "archive").status).toBe("archived");
-		expect(transitionDocument(artifacts, document.id, "reopen").status).toBe("draft");
+		const { db, artifacts, authority } = fixture();
+		const document = createDocument(artifacts, { title: "Architecture", subtype: "design", labels: ["sqlite"] }, authority);
+		expect(transitionDocument(artifacts, document.id, "activate", authority).status).toBe("active");
+		expect(transitionDocument(artifacts, document.id, "archive", authority).status).toBe("archived");
+		expect(transitionDocument(artifacts, document.id, "reopen", authority).status).toBe("draft");
 		expect(listDocuments(artifacts, { text: "Architecture" })).toHaveLength(1);
 		db.close();
 	});
 
 	it("rejects document actions against another artifact kind", () => {
-		const { db, artifacts, tasks } = fixture();
+		const { db, artifacts, authority, tasks } = fixture();
 		const task = tasks.create({ title: "Not a document" });
-		expect(() => transitionDocument(artifacts, task.id, "archive")).toThrow("is not a doc");
+		expect(() => transitionDocument(artifacts, task.id, "archive", authority)).toThrow("is not a doc");
 		db.close();
 	});
 });

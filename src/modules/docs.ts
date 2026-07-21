@@ -6,6 +6,7 @@
  * Imports only src/domain-services.ts's Doc functions, which are already generic
  * ArtifactStore-based with no other module's concrete class dependency.
  */
+import type { AuthorityRegistry } from "../authority-registry.ts";
 import { createDocument, linkDocument, listDocuments, showDocument, transitionDocument, type DocumentRelation } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -47,7 +48,7 @@ const artifactFilter = (input: OperationInput) => ({
 });
 
 /** Registers every docs.* operation against the shared ArtifactStore port. Behavior is unchanged from the prior inline handlers in src/service.ts. */
-export function docsOperations(artifacts: ArtifactStore): OperationDefinition[] {
+export function docsOperations(artifacts: ArtifactStore, authority: AuthorityRegistry): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,
 	});
@@ -56,12 +57,12 @@ export function docsOperations(artifacts: ArtifactStore): OperationDefinition[] 
 			title: string(input, "title"), body: optionalString(input, "body"), subtype: optionalString(input, "subtype"),
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 			templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
-		}, eventContext(input))),
+		}, authority, eventContext(input))),
 		define("docs.list", (input: OperationInput) => listDocuments(artifacts, artifactFilter(input))),
 		define("docs.show", (input: OperationInput) => showDocument(artifacts, string(input, "id"))),
-		define("docs.activate", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "activate", eventContext(input))),
-		define("docs.archive", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "archive", eventContext(input))),
-		define("docs.reopen", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "reopen", eventContext(input))),
-		define("docs.link", (input: OperationInput) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id"), eventContext(input))),
+		define("docs.activate", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "activate", authority, eventContext(input))),
+		define("docs.archive", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "archive", authority, eventContext(input))),
+		define("docs.reopen", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "reopen", authority, eventContext(input))),
+		define("docs.link", (input: OperationInput) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id"), authority, eventContext(input))),
 	];
 }

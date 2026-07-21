@@ -214,7 +214,12 @@ describe("Papyrus operation service", () => {
 			focused: { id: string; status: string } | null;
 		};
 		expect(completion.completed).toBe(true);
-		expect(completion.focused?.id).toBe(left.id);
+		// The tie-break among equally-ready successors is deterministic by sorted id (see
+		// task-service.ts's `[...successorIds].sort()`) -- not by which one was titled "Left".
+		// That assumption held only by coincidence when ids were title-derived slugs; ids are
+		// now opaque UUIDs, so assert the actual contract instead of a stale implementation detail.
+		const [expectedWinnerId] = [left.id, right.id].sort();
+		expect(completion.focused?.id).toBe(expectedWinnerId);
 		expect(completion.focused?.status).toBe("todo");
 		service.close();
 	});

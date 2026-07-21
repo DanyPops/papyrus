@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { runDiscourseCli, runGraphCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runDiscourseCli, runGraphCli, runIdMigrationCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { openDb } from "../src/db.ts";
+import { createArtifact, linkArtifacts } from "../src/ops.ts";
 import type { OperationName } from "../src/service.ts";
 
 const PROJECT_ROOT = process.cwd();
@@ -22,6 +27,69 @@ describe("Papyrus migration CLI", () => {
 			applied: ["discourse-context-mesh"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
+	});
+});
+
+describe("Papyrus migrate-ids CLI: mirror, then validate, then promote -- never any other order", () => {
+	function seededDbFile(path: string): void {
+		const db = openDb(path);
+		const a = createArtifact(db, { kind: "doc", title: "A" });
+		const b = createArtifact(db, { kind: "doc", title: "B", body: `references ${a.id}` });
+		linkArtifacts(db, a.id, "references", b.id);
+		db.close();
+	}
+
+	it("mirrors, validates, and promotes end to end, and refuses to promote an unvalidated or failed mirror", () => {
+		const dir = mkdtempSync(join(tmpdir(), "papyrus-cli-id-migration-"));
+		const source = join(dir, "papyrus.db");
+		const mirror = join(dir, "papyrus.mirror.db");
+		seededDbFile(source);
+
+		const mirrorOutput = runIdMigrationCli(["mirror", "--db", source, "--out", mirror, "--json"]);
+		const mirrorResult = JSON.parse(mirrorOutput) as { artifactsRemapped: number; sidecarPath: string };
+		expect(mirrorResult.artifactsRemapped).toBe(2);
+		const sidecar = JSON.parse(readFileSync(mirrorResult.sidecarPath, "utf8")) as { idMap: Record<string, string> };
+		expect(Object.keys(sidecar.idMap)).toHaveLength(2);
+
+		const validateOutput = runIdMigrationCli(["validate", "--mirror", mirror, "--json"]);
+		expect(JSON.parse(validateOutput)).toEqual({ ok: true, problems: [] });
+
+		// The original file is untouched by mirror+validate -- still has the pre-migration ids.
+		const untouchedOriginal = openDb(source);
+		const originalIds = (untouchedOriginal.prepare("SELECT id FROM artifacts").all() as Array<{ id: string }>).map((row) => row.id);
+		untouchedOriginal.close();
+		expect(originalIds.sort()).toEqual(Object.keys(sidecar.idMap).sort());
+
+		const promoteOutput = runIdMigrationCli(["promote", "--mirror", mirror, "--db", source, "--force", "--json"]);
+		const promoteResult = JSON.parse(promoteOutput) as { target: string; backupPath: string };
+		expect(promoteResult.target).toBe(source);
+		expect(readFileSync(promoteResult.backupPath)).toBeInstanceOf(Buffer); // pre-migration backup was actually written
+
+		const promoted = openDb(source);
+		const promotedIds = (promoted.prepare("SELECT id FROM artifacts").all() as Array<{ id: string }>).map((row) => row.id);
+		promoted.close();
+		expect(promotedIds.sort()).toEqual(Object.values(sidecar.idMap).sort()); // production now has the new ids
+	});
+
+	it("refuses to promote a mirror that fails validation", () => {
+		const dir = mkdtempSync(join(tmpdir(), "papyrus-cli-id-migration-"));
+		const source = join(dir, "papyrus.db");
+		const mirror = join(dir, "papyrus.mirror.db");
+		seededDbFile(source);
+		runIdMigrationCli(["mirror", "--db", source, "--out", mirror, "--json"]);
+
+		// Sabotage the mirror after the fact, simulating a broken migration.
+		const db = openDb(mirror);
+		db.exec("PRAGMA foreign_keys = OFF");
+		db.exec("UPDATE edges SET from_id = 'not-a-real-id' WHERE rowid = (SELECT rowid FROM edges LIMIT 1)");
+		db.close();
+
+		expect(() => runIdMigrationCli(["promote", "--mirror", mirror, "--db", source, "--force", "--json"])).toThrow(/failed validation/);
+		// Production is untouched by the refused promotion.
+		const stillOriginal = openDb(source);
+		const stillOriginalTitles = (stillOriginal.prepare("SELECT title FROM artifacts ORDER BY title").all() as Array<{ title: string }>).map((row) => row.title);
+		stillOriginal.close();
+		expect(stillOriginalTitles).toEqual(["A", "B"]);
 	});
 });
 

@@ -39,6 +39,11 @@ describe("task context reconciliation", () => {
 		expect(context).toContain("Next: Document task workflow");
 		expect(context).toContain("Did we accomplish this task?");
 		expect(context).toContain("run its gates before marking it done");
+		// Codex goal-mode-informed additions: anti-scope-narrowing and evidence-based audit
+		// language, not just a bare instruction to reconcile.
+		expect(context).toContain("A written summary is not evidence");
+		expect(context).toContain("Do not shrink the task's scope to whatever fits in this turn");
+		expect(context).toContain("Do not reject or call something blocked on the first obstacle");
 		db.close();
 	});
 

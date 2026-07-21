@@ -42,7 +42,9 @@ import {
 } from "./domain-services.ts";
 import { taskContext } from "./task-context.ts";
 import { instantiateSkillWorkflow } from "./skill-execution.ts";
-import { Notes, NOTE_SUBTYPE, type NoteDisposition } from "./note-service.ts";
+import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
+import { OperationRegistry } from "./module-registry.ts";
+import { notesOperations } from "./modules/notes.ts";
 
 export const EXPECTED_OPERATION_NAMES = [
 	"system.migrate",
@@ -205,7 +207,13 @@ function handlers(
 	events: TaskEventStore,
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
+	moduleRegistry: OperationRegistry,
 ): Record<OperationName, OperationHandler> {
+	// Notes is the first module extracted behind the OperationRegistry (src/modules/notes.ts);
+	// these six entries stay in this completeness-checked table only as a thin forward so
+	// `Record<OperationName, OperationHandler>` still guarantees every operation has an entry
+	// at compile time. The actual notes.* logic now lives in the module, not here.
+	const forwardToModule = (name: OperationName): OperationHandler => (input) => moduleRegistry.get(name)!.execute(input);
 	const eventContext = (input: OperationInput): TaskEventContext => ({
 		actor: optionalString(input, "actor"),
 		source: optionalString(input, "source"),
@@ -382,28 +390,12 @@ function handlers(
 		"docs.archive": (input) => transitionDocument(artifacts, string(input, "id"), "archive", eventContext(input)),
 		"docs.reopen": (input) => transitionDocument(artifacts, string(input, "id"), "reopen", eventContext(input)),
 		"docs.link": (input) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id"), eventContext(input)),
-		"notes.capture": (input) => notes.capture({
-			body: string(input, "body"), title: optionalString(input, "title"), projectRoot: string(input, "project_root"),
-			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
-		}),
-		"notes.list": (input) => notes.list({
-			projectRoot: string(input, "project_root"), status: optionalString(input, "status") as "draft" | "active" | "archived" | undefined,
-			text: optionalString(input, "text"), limit: optionalNumber(input, "limit"),
-		}),
-		"notes.show": (input) => notes.show(string(input, "id"), string(input, "project_root")),
-		"notes.consume": (input) => notes.consume(string(input, "id"), {
-			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
-			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),
-		}),
-		"notes.promote": (input) => notes.promote(string(input, "id"), string(input, "target_id"), {
-			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
-			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),
-		}),
-		"notes.archive": (input) => notes.archive(string(input, "id"), {
-			projectRoot: string(input, "project_root"), disposition: string(input, "disposition") as NoteDisposition,
-			actor: optionalString(input, "actor"), source: optionalString(input, "source"), sessionId: optionalString(input, "session_id"),
-			reason: optionalString(input, "reason"),
-		}),
+		"notes.capture": forwardToModule("notes.capture"),
+		"notes.list": forwardToModule("notes.list"),
+		"notes.show": forwardToModule("notes.show"),
+		"notes.consume": forwardToModule("notes.consume"),
+		"notes.promote": forwardToModule("notes.promote"),
+		"notes.archive": forwardToModule("notes.archive"),
 		"rules.create": (input) => createRule(artifacts, {
 			title: string(input, "title"), body: optionalString(input, "body"), condition: optionalString(input, "condition"),
 			action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
@@ -464,7 +456,9 @@ export function createPapyrusService(path: string): PapyrusService {
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const notes = new Notes(artifacts);
 	const discourse = new SQLiteDiscourseStore(db, artifacts);
-	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db));
+	const moduleRegistry = new OperationRegistry();
+	moduleRegistry.registerAll(notesOperations(notes));
+	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };

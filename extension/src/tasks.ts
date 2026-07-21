@@ -7,6 +7,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { callService } from "./service-client.ts";
+import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { showTaskDetails } from "./task-detail-view.ts";
 import { showTaskGraph } from "./task-graph.ts";
 
@@ -174,15 +175,22 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else if (choice === "Make active") {
 			try {
-				await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+				const focused = await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+				emitTaskFocusEvent({ taskId: focused.id, sessionId, status: "focused" });
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		} else if (choice === "Pause focus" || choice === "Resume focus" || choice === "Clear focus") {
 			try {
-				const operation = choice === "Pause focus" ? "tasks.pause" : choice === "Resume focus" ? "tasks.unpause" : "tasks.clear_focus";
-				await callService(operation, { actor: "user", source: "tasks-tui", session_id: sessionId });
+				if (choice === "Clear focus") {
+					await callService("tasks.clear_focus", { actor: "user", source: "tasks-tui", session_id: sessionId });
+					emitTaskFocusEvent({ taskId: null, sessionId, status: "cleared" });
+				} else {
+					const operation = choice === "Pause focus" ? "tasks.pause" : "tasks.unpause";
+					const result = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, { actor: "user", source: "tasks-tui", session_id: sessionId });
+					emitTaskFocusEvent({ taskId: result.artifact.id, sessionId, status: choice === "Pause focus" ? "paused" : "unpaused" });
+				}
 				ctx.ui.notify(choice === "Clear focus" ? "Task focus cleared" : choice, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus action failed: ${error instanceof Error ? error.message : error}`, "error");

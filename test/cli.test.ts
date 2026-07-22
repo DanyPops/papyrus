@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDiscourseCli, runGraphCli, runIdMigrationCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runDiscourseCli, runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import { openDb } from "../src/db.ts";
 import { createArtifact, linkArtifacts } from "../src/ops.ts";
 import type { OperationName } from "../src/service.ts";
@@ -151,6 +151,61 @@ describe("Papyrus Skill CLI", () => {
 			operation: "skills.run",
 			input: { id: "skill-1", arguments: { project: "Papyrus" }, project_root: PROJECT_ROOT, run_id: "run-001" },
 		}]);
+	});
+});
+
+describe("Papyrus log CLI", () => {
+	it("appends a log entry through the authenticated daemon, defaulting to the caller's project scope", async () => {
+		const appended = { entry: { id: "e1", sourceId: "pi-session-context", message: "turn settled" }, replayed: false };
+		const client = new FakeClient(appended);
+		expect(await runLogCli(["append", "--source", "pi-session-context", "--level", "info", "--message", "turn settled", "--operation-id", "s1:1", "--json"], client)).toBe(JSON.stringify(appended));
+		expect(client.calls).toEqual([{
+			operation: "logs.append",
+			input: { source_id: "pi-session-context", project_root: PROJECT_ROOT, level: "info", message: "turn settled", operation_id: "s1:1" },
+		}]);
+	});
+
+	it("passes through structured fields, session id, and an explicit historical timestamp", async () => {
+		const client = new FakeClient({ entry: { id: "e1" }, replayed: false });
+		await runLogCli([
+			"append", "--source", "s", "--level", "warning", "--message", "m", "--operation-id", "op-1",
+			"--fields-json", '{"totalTokens":123}', "--session-id", "ses-1", "--occurred-at", "2020-01-01T00:00:00.000Z",
+		], client);
+		expect(client.calls).toEqual([{
+			operation: "logs.append",
+			input: {
+				source_id: "s", project_root: PROJECT_ROOT, level: "warning", message: "m", operation_id: "op-1",
+				fields: { totalTokens: 123 }, session_id: "ses-1", occurred_at: "2020-01-01T00:00:00.000Z",
+			},
+		}]);
+	});
+
+	it("omits project_root when --global is passed, for a source that is not tied to one project", async () => {
+		const client = new FakeClient({ entry: { id: "e1" }, replayed: false });
+		await runLogCli(["append", "--source", "s", "--level", "info", "--message", "m", "--operation-id", "op-1", "--global"], client);
+		expect(client.calls).toEqual([{ operation: "logs.append", input: { source_id: "s", level: "info", message: "m", operation_id: "op-1" } }]);
+	});
+
+	it("rejects append missing any required flag", async () => {
+		const client = new FakeClient({});
+		await expect(runLogCli(["append", "--level", "info", "--message", "m", "--operation-id", "op-1"], client)).rejects.toThrow(/--source/);
+		await expect(runLogCli(["append", "--source", "s", "--message", "m", "--operation-id", "op-1"], client)).rejects.toThrow(/--level/);
+		await expect(runLogCli(["append", "--source", "s", "--level", "info", "--operation-id", "op-1"], client)).rejects.toThrow(/--message/);
+		await expect(runLogCli(["append", "--source", "s", "--level", "info", "--message", "m"], client)).rejects.toThrow(/--operation-id/);
+	});
+
+	it("queries entries with since/level/limit filters and renders a human-readable page", async () => {
+		const page = { entries: [{ id: "e1", message: "m1" }], truncated: true };
+		const client = new FakeClient(page);
+		const output = await runLogCli(["query", "--source", "s", "--since", "2024-01-01T00:00:00.000Z", "--level", "warning", "--limit", "10"], client);
+		expect(client.calls).toEqual([{ operation: "logs.query", input: { source_id: "s", since: "2024-01-01T00:00:00.000Z", level: "warning", limit: 10 } }]);
+		expect(output).toContain("truncated");
+	});
+
+	it("prints stable JSON for machine consumers", async () => {
+		const page = { entries: [], truncated: false };
+		const client = new FakeClient(page);
+		expect(await runLogCli(["query", "--source", "s", "--json"], client)).toBe(JSON.stringify(page));
 	});
 });
 

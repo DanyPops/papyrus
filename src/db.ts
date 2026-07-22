@@ -250,6 +250,27 @@ CREATE TABLE IF NOT EXISTS artifact_scopes (
 	assigned_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
+CREATE TABLE IF NOT EXISTS log_sources (
+	id            TEXT PRIMARY KEY,
+	label         TEXT NOT NULL,
+	project_root  TEXT,
+	created_at    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS log_entries (
+	id            TEXT PRIMARY KEY,
+	source_id     TEXT NOT NULL REFERENCES log_sources(id),
+	occurred_at   TEXT NOT NULL,
+	level         TEXT NOT NULL CHECK (level IN ('debug', 'info', 'warning', 'error')),
+	message       TEXT NOT NULL,
+	truncated     INTEGER NOT NULL DEFAULT 0,
+	fields_json   TEXT NOT NULL DEFAULT '{}',
+	operation_id  TEXT NOT NULL,
+	session_id    TEXT,
+	UNIQUE (source_id, operation_id)
+);
+CREATE INDEX IF NOT EXISTS log_entries_source_idx ON log_entries(source_id, occurred_at, id);
+CREATE TRIGGER IF NOT EXISTS log_entries_no_update BEFORE UPDATE ON log_entries
+BEGIN SELECT RAISE(ABORT, 'log_entries are immutable once written; retention trimming is the only supported deletion path'); END;
 `;
 
 const SEED_SQL = `
@@ -327,6 +348,7 @@ export interface ModuleMigrationRow {
 const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; checksum: string }> = [
 	{ version: 1, name: "baseline", checksum: "af81e9f51d915ba538af3f468dc044bda5e2c5a5f5037e9c7c01540f87288763" },
 	{ version: 2, name: "docs-rules-skills-project-scope", checksum: "8b16d8f631ad628f4799ff09b1ebe8be28343e4f677d52bf2a39a8bedc19e64e" },
+	{ version: 3, name: "log-domain", checksum: "c87f43c22b2608619ada9a529d7899ae74b7f38cd554135c8034116fc96e1eff" },
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -401,9 +423,19 @@ export function migrateDb(db: Db): MigrationResult {
 		throw new Error(`database schema ${from} is newer than supported ${SQLITE_SCHEMA_VERSION}`);
 	}
 	if (from === SQLITE_SCHEMA_VERSION) return { from, to: from, applied: [] };
-	if (from !== 1 && from !== 2 && from !== 3 && from !== 4 && from !== 5 && from !== 6 && from !== 7) throw new Error(`no explicit migration path from database schema ${from}`);
+	if (from < 1) throw new Error(`no explicit migration path from database schema ${from}`);
 	const applied: string[] = [];
 
+	// Deliberately NOT a hand-enumerated allow-list of valid `from` values (e.g. "from !== 1 &&
+	// ... && from !== 7"): a real, latent bug was found here while adding the v10->v11 step --
+	// that enumeration was never extended when the v8->v9 and v9->v10 steps were added, so
+	// migrating any already-deployed database sitting at schema 8, 9, or 10 (including the real
+	// production database at the time this was found) would have thrown "no explicit migration
+	// path" before ever reaching the migration chain below. Checked dynamically after the chain
+	// runs instead: if schemaVersion(db) hasn't reached SQLITE_SCHEMA_VERSION once every
+	// `schemaVersion(db) === N` step below has had its chance to fire, `from` was never a valid
+	// starting point (a genuine gap in the chain) -- structurally cannot drift out of sync the
+	// way a separate, parallel enumeration did.
 	inTransaction(db, () => {
 		if (schemaVersion(db) === 1) {
 			db.exec(`
@@ -616,6 +648,34 @@ export function migrateDb(db: Db): MigrationResult {
 			`);
 			applied.push("docs-rules-skills-project-scope");
 		}
+		if (schemaVersion(db) === 10) {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS log_sources (
+					id            TEXT PRIMARY KEY,
+					label         TEXT NOT NULL,
+					project_root  TEXT,
+					created_at    TEXT NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS log_entries (
+					id            TEXT PRIMARY KEY,
+					source_id     TEXT NOT NULL REFERENCES log_sources(id),
+					occurred_at   TEXT NOT NULL,
+					level         TEXT NOT NULL CHECK (level IN ('debug', 'info', 'warning', 'error')),
+					message       TEXT NOT NULL,
+					truncated     INTEGER NOT NULL DEFAULT 0,
+					fields_json   TEXT NOT NULL DEFAULT '{}',
+					operation_id  TEXT NOT NULL,
+					session_id    TEXT,
+					UNIQUE (source_id, operation_id)
+				);
+				CREATE INDEX IF NOT EXISTS log_entries_source_idx ON log_entries(source_id, occurred_at, id);
+				CREATE TRIGGER IF NOT EXISTS log_entries_no_update BEFORE UPDATE ON log_entries
+				BEGIN SELECT RAISE(ABORT, 'log_entries are immutable once written; retention trimming is the only supported deletion path'); END;
+				PRAGMA user_version = 11;
+			`);
+			applied.push("log-domain");
+		}
+		if (schemaVersion(db) !== SQLITE_SCHEMA_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
 	});
 	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreLedger(db, true);
 	return { from, to: schemaVersion(db), applied };

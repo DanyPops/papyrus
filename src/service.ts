@@ -24,9 +24,12 @@ import {
 	listInjectableRules,
 } from "./domain-services.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
+import { Logs } from "./log-service.ts";
+import { SQLiteLogStore } from "./adapters/sqlite-log-store.ts";
 import { OperationRegistry } from "./module-registry.ts";
 import { docsOperations, DOCS_OPERATION_NAMES } from "./modules/docs.ts";
 import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./modules/graph-projection.ts";
+import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
 import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
 import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
@@ -65,6 +68,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...RULES_OPERATION_NAMES,
 	...SKILLS_OPERATION_NAMES,
 	...GRAPH_PROJECTION_OPERATION_NAMES,
+	...LOGS_OPERATION_NAMES,
 ] as const;
 
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
@@ -371,6 +375,8 @@ function handlers(
 		},
 		"graph_projection.apply": forwardToModule("graph_projection.apply"),
 		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
+		"logs.append": forwardToModule("logs.append"),
+		"logs.query": forwardToModule("logs.query"),
 	};
 }
 
@@ -386,9 +392,11 @@ export function createPapyrusService(path: string): PapyrusService {
 	const discourse = new SQLiteDiscourseStore(db, artifacts);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
+	const logs = new Logs(new SQLiteLogStore(db));
 	const authority = createAuthorityRegistry();
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
+	moduleRegistry.registerAll(logsOperations(logs));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));

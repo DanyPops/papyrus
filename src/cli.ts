@@ -112,6 +112,8 @@ const USAGE = `Usage:
   papyrus notes consume <id> [--reason <reason>] [--json]
   papyrus notes promote <id> <target-id> [--reason <reason>] [--json]
   papyrus notes archive <id> <completed|duplicate|declined|superseded> [--reason <reason>] [--json]
+  papyrus log append --source <id> --level <debug|info|warning|error> --message <text> --operation-id <id> [--source-label <text>] [--fields-json <json>] [--session-id <id>] [--occurred-at <iso>] [--global] [--json]
+  papyrus log query --source <id> [--since <iso>] [--level <debug|info|warning|error>] [--limit <count>] [--json]
   papyrus tasks plan [--session-id <id>] [--json]
   papyrus tasks graph [--session-id <id>] [--json]
   papyrus tasks active [--session-id <id>] [--json]
@@ -873,6 +875,71 @@ export async function runGraphProjectionCli(args: string[], client: TaskCliClien
 	throw new Error("graph-projection action must be apply or checkpoint");
 }
 
+export async function runLogCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let source: string | undefined;
+	let sourceLabel: string | undefined;
+	let level: string | undefined;
+	let message: string | undefined;
+	let operationId: string | undefined;
+	let sessionId: string | undefined;
+	let occurredAt: string | undefined;
+	let since: string | undefined;
+	let limit: number | undefined;
+	let fields: Record<string, unknown> | undefined;
+	let global = false;
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--global") { global = true; continue; }
+		if (argument === "--fields-json") { fields = parseJsonObjectFlag(args[++index], "--fields-json"); continue; }
+		if (["--source", "--source-label", "--level", "--message", "--operation-id", "--session-id", "--occurred-at", "--since", "--limit"].includes(argument)) {
+			const value = args[++index];
+			if (value === undefined) throw new Error(`${argument} requires a value`);
+			if (argument === "--source") source = value;
+			else if (argument === "--source-label") sourceLabel = value;
+			else if (argument === "--level") level = value;
+			else if (argument === "--message") message = value;
+			else if (argument === "--operation-id") operationId = value;
+			else if (argument === "--session-id") sessionId = value;
+			else if (argument === "--occurred-at") occurredAt = value;
+			else if (argument === "--since") since = value;
+			else {
+				limit = Number(value);
+				if (!Number.isInteger(limit)) throw new Error("--limit requires an integer");
+			}
+			continue;
+		}
+		if (argument.startsWith("--")) throw new Error(`unknown log option ${argument}`);
+		positional.push(argument);
+	}
+	const [action] = positional;
+	if (action === "append") {
+		if (!source) throw new Error("log append requires --source");
+		if (!level) throw new Error("log append requires --level");
+		if (!message) throw new Error("log append requires --message");
+		if (!operationId) throw new Error("log append requires --operation-id");
+		const result = await client.call("logs.append", {
+			source_id: source, ...(sourceLabel ? { source_label: sourceLabel } : {}),
+			...(global ? {} : { project_root: projectRoot }),
+			level, message, operation_id: operationId,
+			...(fields ? { fields } : {}), ...(sessionId ? { session_id: sessionId } : {}), ...(occurredAt ? { occurred_at: occurredAt } : {}),
+		});
+		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+	}
+	if (action === "query") {
+		if (!source) throw new Error("log query requires --source");
+		const result = await client.call<Record<string, unknown>, { entries: unknown[]; truncated: boolean }>("logs.query", {
+			source_id: source, ...(since ? { since } : {}), ...(level ? { level } : {}), ...(limit === undefined ? {} : { limit }),
+		});
+		if (json) return JSON.stringify(result);
+		const lines = result.entries.map((entry) => JSON.stringify(entry));
+		return [...lines, result.truncated ? `(truncated -- more entries exist beyond this page)` : `(${lines.length} entries)`].join("\n");
+	}
+	throw new Error("log action must be append or query");
+}
+
 export async function runNoteCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
@@ -1270,6 +1337,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "notes") {
 		const client = await connectPapyrusClient();
 		console.log(await runNoteCli(args.slice(1), client));
+		return;
+	}
+	if (command === "log") {
+		const client = await connectPapyrusClient();
+		console.log(await runLogCli(args.slice(1), client));
 		return;
 	}
 	if (command === "migrate") {

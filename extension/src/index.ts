@@ -15,6 +15,7 @@ import {
 	TASK_DRIVER_MAX_TURNS,
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
 	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
+	CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
@@ -26,7 +27,8 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { computeContextBudget, formatContextBudgetReport } from "./context-budget.ts";
+import { buildContextBreakdown, computeContextBudget, computeRuleBudget } from "./context-budget.ts";
+import { showContextView } from "./context-view.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
@@ -409,15 +411,28 @@ export default async function (pi: ExtensionAPI) {
 		description: "Browse and invoke Papyrus skills and templates (interactive)",
 		handler: async (_args, ctx) => { await skillsModule.showSkills(ctx); },
 	});
-	pi.registerCommand("context-budget", {
-		description: "Report the passive context-window tax from active Papyrus Rules and the Pi-native skill catalog",
+	pi.registerCommand("context", {
+		description: "Structured, per-segment breakdown of the context window: real usage against the model's window, drilling into Papyrus Rules and the Pi-native skill catalog",
 		handler: async (_args, ctx) => {
 			try {
-				const rules = await callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });
-				const budget = computeContextBudget(rules, ctx.cwd);
-				ctx.ui.notify(formatContextBudgetReport(budget), "info");
+				const sessionId = ctx.sessionManager.getSessionId();
+				const [rules, taskSummary] = await Promise.all([
+					callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
+					callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId }),
+				]);
+				const { skills } = computeContextBudget(rules, ctx.cwd);
+				const ruleBudget = computeRuleBudget(rules);
+				const usage = ctx.getContextUsage?.();
+				const breakdown = buildContextBreakdown({
+					totalTokens: usage?.tokens ?? null,
+					contextWindow: ctx.model?.contextWindow ?? null,
+					ruleBudget,
+					taskEstimatedTokens: taskSummary ? Math.ceil(taskSummary.length / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN) : 0,
+					skills,
+				});
+				await showContextView(ctx, breakdown, ruleBudget);
 			} catch (error) {
-				ctx.ui.notify(`Context budget failed: ${error instanceof Error ? error.message : error}`, "error");
+				ctx.ui.notify(`Context breakdown failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		},
 	});

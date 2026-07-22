@@ -13,6 +13,19 @@ const SEGMENT_COLORS: Record<ContextSegment["key"], ThemeColor> = {
 	other: "muted",
 };
 
+/** Short, fixed-width column labels for the vertical deep-dive graph -- must match VERTICAL_BAR_WIDTH exactly so each label sits centered under its own bar. */
+const SEGMENT_SHORT_LABELS: Record<ContextSegment["key"], string> = {
+	rules: "Rul",
+	tasks: "Tsk",
+	skills: "Skl",
+	basePrompt: "Bse",
+	messageHistory: "Msg",
+	other: "Oth",
+};
+
+const VERTICAL_BAR_HEIGHT = 6;
+const VERTICAL_BAR_WIDTH = 3;
+
 /**
  * One row in the unified scrollable view. Every segment that has any real (nonzero) content
  * is fully expanded inline -- there is no separate "select a segment, then drill in" step.
@@ -104,9 +117,15 @@ class ContextViewport {
 		} else {
 			lines.push(theme.fg("dim", "No real usage reported yet — sizes below are Papyrus's own estimates only"));
 		}
-		lines.push(renderContextBar(theme, this.breakdown.segments, contentWidth));
+		lines.push(renderContextBar(theme, this.breakdown.segments, contentWidth, this.breakdown.effectiveBudget ?? undefined));
 		if (this.breakdown.overshootTokens > 0) {
 			lines.push(truncateToWidth(theme.fg("warning", `Estimates exceed real total by ~${this.breakdown.overshootTokens} tok — sizes below are approximate, not exact`), contentWidth, ""));
+		}
+		const verticalBars = renderContextVerticalBars(theme, this.breakdown.segments);
+		if (verticalBars.length > 0) {
+			lines.push("");
+			lines.push(theme.fg("dim", "Composition of used tokens:"));
+			for (const barLine of verticalBars) lines.push(truncateToWidth(barLine, contentWidth, ""));
 		}
 		lines.push("");
 
@@ -143,25 +162,65 @@ class ContextViewport {
 }
 
 /**
- * Renders the context window as one proportional stacked bar, one colored run of block
- * characters per segment, matching each row's own gutter color above/below it. A zero-token
- * breakdown (nothing observed yet) renders an empty dim track rather than a divide-by-zero.
- * Zero-token segments contribute no cells and are effectively invisible in the bar, matching
- * their exclusion from the row list below it.
+ * Renders the context window as one horizontal stacked bar: one colored run of block
+ * characters per USED segment, followed by a gray/dim run of "░" cells for the remaining,
+ * genuinely EMPTY context window -- this is the "total used vs. unused" graph. A zero-token
+ * breakdown (nothing observed yet) renders an entirely gray/dim track rather than a
+ * divide-by-zero, since 0 used really does mean the whole window is empty right now.
+ *
+ * `capacity` is the real denominator (Papyrus's own effectiveBudget, matching the percentage
+ * already shown in the text line above this bar) that used-vs-unused is measured against. When
+ * omitted, or when usage has already exceeded it (overshoot / near-compaction), the bar falls
+ * back to filling 100% of its width proportionally among segments -- there is no "unused" left
+ * to show gray for once real usage has met or passed the real budget.
  */
-export function renderContextBar(theme: Theme, segments: ReadonlyArray<ContextSegment>, width: number): string {
+export function renderContextBar(theme: Theme, segments: ReadonlyArray<ContextSegment>, width: number, capacity?: number): string {
 	const total = segments.reduce((sum, segment) => sum + segment.estimatedTokens, 0);
 	if (total <= 0 || width <= 0) return theme.fg("dim", "░".repeat(Math.max(0, width)));
 	const nonZero = segments.filter((segment) => segment.estimatedTokens > 0);
+	const usedWidth = capacity !== undefined && capacity > total ? Math.min(width, Math.round((total / capacity) * width)) : width;
+
 	let used = 0;
 	let output = "";
 	nonZero.forEach((segment, index) => {
 		const isLast = index === nonZero.length - 1;
-		const cells = isLast ? width - used : Math.round((segment.estimatedTokens / total) * width);
+		const cells = isLast ? usedWidth - used : Math.round((segment.estimatedTokens / total) * usedWidth);
 		used += cells;
 		if (cells > 0) output += theme.fg(SEGMENT_COLORS[segment.key], "█".repeat(cells));
 	});
+	const emptyWidth = width - usedWidth;
+	if (emptyWidth > 0) output += theme.fg("dim", "░".repeat(emptyWidth));
 	return output;
+}
+
+/**
+ * Renders the "used" portion's own composition as a small vertical bar chart, one column per
+ * segment with real content, scaled so the largest segment fills the full height -- the
+ * "deep dive" graph, complementing the horizontal used-vs-unused bar above it. Any segment
+ * with real (nonzero) tokens gets at least one filled row so it stays visible even next to a
+ * much larger segment. Returns an empty array (nothing to render) when no segment has any
+ * tokens yet, matching the same zero-noise principle as the row list below it.
+ */
+export function renderContextVerticalBars(theme: Theme, segments: ReadonlyArray<ContextSegment>): string[] {
+	const visible = segments.filter((segment) => segment.estimatedTokens > 0);
+	if (visible.length === 0) return [];
+	const max = Math.max(...visible.map((segment) => segment.estimatedTokens));
+	const filledRows = new Map(visible.map((segment) => [segment.key, Math.max(1, Math.round((segment.estimatedTokens / max) * VERTICAL_BAR_HEIGHT))]));
+
+	const lines: string[] = [];
+	for (let row = 0; row < VERTICAL_BAR_HEIGHT; row++) {
+		const rowsFromBottom = VERTICAL_BAR_HEIGHT - row;
+		let line = "";
+		for (const segment of visible) {
+			const filled = (filledRows.get(segment.key) ?? 0) >= rowsFromBottom;
+			line += `${filled ? theme.fg(SEGMENT_COLORS[segment.key], "█".repeat(VERTICAL_BAR_WIDTH)) : " ".repeat(VERTICAL_BAR_WIDTH)} `;
+		}
+		lines.push(line);
+	}
+	let legend = "";
+	for (const segment of visible) legend += `${theme.fg(SEGMENT_COLORS[segment.key], SEGMENT_SHORT_LABELS[segment.key])} `;
+	lines.push(legend);
+	return lines;
 }
 
 /** Non-interactive fallback (print mode, RPC, etc.): the same unified row list, as plain text lines. */

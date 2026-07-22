@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { buildContextRows, renderContextBar, showContextView } from "../extension/src/context-view.ts";
+import { buildContextRows, renderContextBar, renderContextVerticalBars, showContextView } from "../extension/src/context-view.ts";
 import { buildContextBreakdown } from "../extension/src/context-budget.ts";
 import type { ContextSegment } from "../extension/src/context-budget.ts";
 
@@ -38,6 +38,59 @@ describe("renderContextBar", () => {
 
 	it("renders nothing for a non-positive width", () => {
 		expect(renderContextBar(plainTheme, [segment("rules", 10)], 0)).toBe("");
+	});
+
+	it("shows the remaining, genuinely empty context window as a gray/dim track when a capacity is known", () => {
+		// 50 used out of a capacity of 100, width 100 -- 50 colored cells, 50 dim/gray cells.
+		const bar = renderContextBar(distinguishingTheme, [segment("rules", 50)], 100, 100);
+		expect(bar).toBe(`<accent>${"█".repeat(50)}</accent><dim>${"░".repeat(50)}</dim>`);
+	});
+
+	it("falls back to filling 100% of the width when capacity is omitted, matching the pre-existing (no unused concept) behavior", () => {
+		const bar = renderContextBar(plainTheme, [segment("rules", 50)], 100);
+		expect(bar).toBe("█".repeat(100));
+	});
+
+	it("fills 100% used with no gray remainder once real usage has met or exceeded the known capacity (overshoot / at budget)", () => {
+		const atCapacity = renderContextBar(plainTheme, [segment("rules", 100)], 100, 100);
+		expect(atCapacity).toBe("█".repeat(100));
+		const overCapacity = renderContextBar(plainTheme, [segment("rules", 150)], 100, 100);
+		expect(overCapacity).toBe("█".repeat(100));
+	});
+
+	it("still renders an entirely gray/dim track when every segment is zero, even with a capacity given -- 0 used really is a fully empty window", () => {
+		const bar = renderContextBar(distinguishingTheme, [segment("rules", 0)], 10, 500);
+		expect(bar).toBe(`<dim>${"░".repeat(10)}</dim>`);
+	});
+});
+
+describe("renderContextVerticalBars", () => {
+	it("returns nothing when no segment has any real tokens -- no empty chart is better than a misleading one", () => {
+		expect(renderContextVerticalBars(plainTheme, [segment("rules", 0), segment("tasks", 0)])).toEqual([]);
+	});
+
+	it("gives the largest segment the full bar height and the smallest at least one visible row", () => {
+		const lines = renderContextVerticalBars(plainTheme, [segment("rules", 100), segment("tasks", 1)]);
+		// Top row: only the largest (rules) column should be filled; a 1/100 share still gets
+		// promoted to at least one row, but not the very top one.
+		const topRow = lines[0]!;
+		const bottomRow = lines[lines.length - 2]!; // last line before this function's own legend row
+		expect(topRow).toContain("███");
+		expect(bottomRow).toContain("███");
+	});
+
+	it("colors each column with its own segment color and labels it in a legend row underneath", () => {
+		const lines = renderContextVerticalBars(distinguishingTheme, [segment("rules", 10), segment("tasks", 10)]);
+		const legend = lines[lines.length - 1]!;
+		expect(legend).toContain("<accent>Rul</accent>");
+		expect(legend).toContain("<success>Tsk</success>");
+	});
+
+	it("excludes zero-token segments from the chart entirely, matching the horizontal bar and row list's own zero-noise filtering", () => {
+		const lines = renderContextVerticalBars(distinguishingTheme, [segment("rules", 10), segment("tasks", 0)]);
+		const legend = lines[lines.length - 1]!;
+		expect(legend).toContain("Rul");
+		expect(legend).not.toContain("Tsk");
 	});
 });
 

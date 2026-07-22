@@ -26,6 +26,7 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
+import { computeContextBudget, formatContextBudgetReport } from "./context-budget.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
@@ -407,6 +408,18 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("skills", {
 		description: "Browse and invoke Papyrus skills and templates (interactive)",
 		handler: async (_args, ctx) => { await skillsModule.showSkills(ctx); },
+	});
+	pi.registerCommand("context-budget", {
+		description: "Report the passive context-window tax from active Papyrus Rules and the Pi-native skill catalog",
+		handler: async (_args, ctx) => {
+			try {
+				const rules = await callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: ctx.sessionManager.getSessionId() });
+				const budget = computeContextBudget(rules, ctx.cwd);
+				ctx.ui.notify(formatContextBudgetReport(budget), "info");
+			} catch (error) {
+				ctx.ui.notify(`Context budget failed: ${error instanceof Error ? error.message : error}`, "error");
+			}
+		},
 	});
 
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──

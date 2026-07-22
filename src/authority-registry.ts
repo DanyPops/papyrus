@@ -25,7 +25,7 @@ import type { ArtifactStore } from "./ports/artifact-store.ts";
 export type ArtifactAction = "create" | "link" | "status";
 
 export interface AuthorityClaim {
-	/** Module id that owns this kind/subtype/relation, e.g. "discourse", "notes", "tasks". */
+	/** Module id that owns this kind/subtype/relation, e.g. "notes", "tasks". */
 	readonly owner: string;
 	/** kind may be undefined at a call site that has not yet resolved an artifact's effective kind (e.g. pre-template-resolution). */
 	matchesArtifact(kind: string | undefined, subtype: string | undefined): boolean;

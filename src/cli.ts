@@ -71,7 +71,6 @@ const USAGE = `Usage:
   papyrus migrate-ids mirror [--db <path>] --out <mirror-path> [--json]
   papyrus migrate-ids validate --mirror <mirror-path> [--idmap <path>] [--json]
   papyrus migrate-ids promote --mirror <mirror-path> [--db <path>] [--idmap <path>] [--force] [--json]
-  papyrus discourse store <action> --store-id <id> [--input-json <json>] [--json]
   papyrus graph link <from> <relation> <to> [--json]
   papyrus graph unlink <from> <relation> <to> [--json]
   papyrus graph tree <id> [--depth <n>] [--max-nodes <n>] [--json]
@@ -306,36 +305,6 @@ export function runIdMigrationCli(args: string[]): string {
 	}
 
 	throw new Error("migrate-ids requires one of: mirror, validate, promote");
-}
-
-export async function runDiscourseCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let storeId: string | undefined;
-	let operationInput: Record<string, unknown> = {};
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (argument === "--store-id" || argument === "--input-json") {
-			const value = args[++index];
-			if (!value) throw new Error(`${argument} requires a value`);
-			if (argument === "--store-id") storeId = value;
-			else {
-				const parsed = JSON.parse(value) as unknown;
-				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("--input-json must be a JSON object");
-				operationInput = parsed as Record<string, unknown>;
-			}
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown discourse option ${argument}`);
-		positional.push(argument);
-	}
-	if (positional.length !== 2 || positional[0] !== "store") throw new Error("discourse requires `store <action>`");
-	if (!storeId) throw new Error("discourse store requires --store-id");
-	const result = await client.call<Record<string, unknown>, unknown>("discourse.store", {
-		action: positional[1], store_id: storeId, ...operationInput,
-	});
-	return json ? JSON.stringify(result) : `Discourse store ${positional[1]} completed.`;
 }
 
 export async function runSkillCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
@@ -1322,11 +1291,6 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
-		return;
-	}
-	if (command === "discourse") {
-		const client = await connectPapyrusClient();
-		console.log(await runDiscourseCli(args.slice(1), client));
 		return;
 	}
 	if (command === "skills") {

@@ -147,67 +147,6 @@ CREATE TABLE IF NOT EXISTS task_views (
 	updated_at    TEXT NOT NULL,
 	CHECK ((mode = 'graph' AND root_task_id IS NOT NULL) OR (mode != 'graph' AND root_task_id IS NULL))
 );
-CREATE TABLE IF NOT EXISTS discourse_threads (
-	store_id      TEXT NOT NULL,
-	forum_id      TEXT NOT NULL,
-	topic_id      TEXT NOT NULL,
-	thread_id     TEXT NOT NULL,
-	artifact_id   TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
-	PRIMARY KEY (store_id, forum_id, topic_id, thread_id)
-);
-CREATE TABLE IF NOT EXISTS discourse_posts (
-	store_id       TEXT NOT NULL,
-	sequence       INTEGER NOT NULL,
-	id             TEXT NOT NULL,
-	artifact_id    TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
-	operation_id   TEXT NOT NULL,
-	command_json   TEXT NOT NULL,
-	forum_id       TEXT NOT NULL,
-	topic_id       TEXT NOT NULL,
-	thread_id      TEXT NOT NULL,
-	author_id      TEXT NOT NULL,
-	content_json   TEXT NOT NULL,
-	timestamp      INTEGER NOT NULL,
-	correlation_id TEXT,
-	causation_id   TEXT,
-	reply_to_post_id TEXT,
-	references_json TEXT NOT NULL,
-	question_type  TEXT CHECK (question_type IN ('question', 'answer')),
-	response_id    TEXT,
-	target_id      TEXT,
-	PRIMARY KEY (store_id, id),
-	UNIQUE (store_id, operation_id),
-	UNIQUE (store_id, sequence)
-);
-CREATE INDEX IF NOT EXISTS discourse_posts_thread_idx ON discourse_posts(store_id, forum_id, topic_id, thread_id, sequence);
-CREATE TABLE IF NOT EXISTS discourse_events (
-	store_id       TEXT NOT NULL,
-	sequence       INTEGER NOT NULL,
-	event_json     TEXT NOT NULL,
-	PRIMARY KEY (store_id, sequence)
-);
-CREATE TABLE IF NOT EXISTS discourse_cursors (
-	store_id       TEXT NOT NULL,
-	consumer_id    TEXT NOT NULL,
-	sequence       INTEGER NOT NULL,
-	PRIMARY KEY (store_id, consumer_id)
-);
-CREATE TABLE IF NOT EXISTS discourse_projection_cursors (
-	store_id       TEXT NOT NULL,
-	projection_id  TEXT NOT NULL,
-	sequence       INTEGER NOT NULL,
-	PRIMARY KEY (store_id, projection_id)
-);
-CREATE TRIGGER IF NOT EXISTS discourse_threads_artifact_type BEFORE INSERT ON discourse_threads
-WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-thread')
-BEGIN SELECT RAISE(ABORT, 'discourse thread artifact must be a context-thread Doc'); END;
-CREATE TRIGGER IF NOT EXISTS discourse_posts_artifact_type BEFORE INSERT ON discourse_posts
-WHEN NOT EXISTS (SELECT 1 FROM artifacts WHERE id = NEW.artifact_id AND kind = 'doc' AND subtype = 'context-message')
-BEGIN SELECT RAISE(ABORT, 'discourse post artifact must be a context-message Doc'); END;
-CREATE TRIGGER IF NOT EXISTS discourse_artifact_type_immutable BEFORE UPDATE OF kind, subtype ON artifacts
-WHEN (EXISTS (SELECT 1 FROM discourse_threads WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-thread'))
-  OR (EXISTS (SELECT 1 FROM discourse_posts WHERE artifact_id = OLD.id) AND (NEW.kind != 'doc' OR NEW.subtype != 'context-message'))
-BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
 CREATE TABLE IF NOT EXISTS artifact_events (
 	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 	artifact_id          TEXT NOT NULL REFERENCES artifacts(id),
@@ -303,8 +242,6 @@ INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task 
 INSERT OR IGNORE INTO relation_names VALUES ('triggers','This skill applies to that work (skill→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('contains','Parent contains a nested artifact (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a parent artifact (any→any)');
-INSERT OR IGNORE INTO relation_names VALUES ('reply_to','Append-only message replies to another message in the same thread');
-INSERT OR IGNORE INTO relation_names VALUES ('discusses','Message or turn concerns a verified artifact');
 CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
 `;
 
@@ -349,6 +286,7 @@ const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; check
 	{ version: 1, name: "baseline", checksum: "af81e9f51d915ba538af3f468dc044bda5e2c5a5f5037e9c7c01540f87288763" },
 	{ version: 2, name: "docs-rules-skills-project-scope", checksum: "8b16d8f631ad628f4799ff09b1ebe8be28343e4f677d52bf2a39a8bedc19e64e" },
 	{ version: 3, name: "log-domain", checksum: "c87f43c22b2608619ada9a529d7899ae74b7f38cd554135c8034116fc96e1eff" },
+	{ version: 4, name: "remove-discourse", checksum: "b923f41c44460f0aaeb2f4e60e28f8b8e1425d03f527955bd991434b46de4c82" },
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -674,6 +612,30 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 11;
 			`);
 			applied.push("log-domain");
+		}
+		if (schemaVersion(db) === 11) {
+			// Removes Discourse's Papyrus-embedded storage entirely: confirmed zero rows in every
+			// discourse_* table and zero Docs carrying the reserved context-thread/context-message
+			// subtypes in the real production database before this was written -- Discourse's real
+			// home is now the standalone @danypops/discourse package plus host adapters, and
+			// Papyrus's own copy never had a single real caller since it was built. IF EXISTS
+			// throughout: a database that never actually reached the v5->v6 discourse-context-mesh
+			// step in the first place (e.g. a test fixture that starts partway through the chain)
+			// must not fail here just because there was nothing to remove.
+			db.exec(`
+				DROP TRIGGER IF EXISTS discourse_artifact_type_immutable;
+				DROP TRIGGER IF EXISTS discourse_posts_artifact_type;
+				DROP TRIGGER IF EXISTS discourse_threads_artifact_type;
+				DROP INDEX IF EXISTS discourse_posts_thread_idx;
+				DROP TABLE IF EXISTS discourse_projection_cursors;
+				DROP TABLE IF EXISTS discourse_cursors;
+				DROP TABLE IF EXISTS discourse_events;
+				DROP TABLE IF EXISTS discourse_posts;
+				DROP TABLE IF EXISTS discourse_threads;
+				DELETE FROM relation_names WHERE name IN ('reply_to', 'discusses');
+				PRAGMA user_version = 12;
+			`);
+			applied.push("remove-discourse");
 		}
 		if (schemaVersion(db) !== SQLITE_SCHEMA_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
 	});

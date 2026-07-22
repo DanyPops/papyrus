@@ -15,7 +15,7 @@ function claim(owner: string, subtype: string, message = `${owner}-owned`): Auth
 describe("AuthorityRegistry — one deep enforcement point replacing scattered subtype checks", () => {
 	it("finds no claim for an unclaimed kind/subtype and allows any caller", () => {
 		const registry = new AuthorityRegistry();
-		registry.claim(claim("discourse", "context-message"));
+		registry.claim(claim("forum", "forum-message"));
 		expect(registry.claimForArtifact("doc", "plain", "create")).toBeUndefined();
 		expect(() => registry.requireArtifactAllowed("doc", "plain", "create", "anyone")).not.toThrow();
 	});
@@ -30,9 +30,9 @@ describe("AuthorityRegistry — one deep enforcement point replacing scattered s
 
 	it("checks relations the same way, independent of artifact claims", () => {
 		const registry = new AuthorityRegistry();
-		registry.claim(claim("discourse", "context-message", "forum-owned"));
-		expect(() => registry.requireRelationAllowed("discourse-relation", "link", "generic")).toThrow("forum-owned");
-		expect(() => registry.requireRelationAllowed("discourse-relation", "link", "discourse")).not.toThrow();
+		registry.claim(claim("forum", "forum-message", "forum-owned"));
+		expect(() => registry.requireRelationAllowed("forum-relation", "link", "generic")).toThrow("forum-owned");
+		expect(() => registry.requireRelationAllowed("forum-relation", "link", "forum")).not.toThrow();
 		expect(() => registry.requireRelationAllowed("relates_to", "link", "generic")).not.toThrow();
 	});
 });

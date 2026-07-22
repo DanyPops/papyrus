@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDiscourseCli, runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import { openDb } from "../src/db.ts";
 import { createArtifact, linkArtifacts } from "../src/ops.ts";
 import type { OperationName } from "../src/service.ts";
@@ -20,11 +20,11 @@ class FakeClient {
 
 describe("Papyrus migration CLI", () => {
 	it("routes the explicit task focus migration through the daemon", async () => {
-		const client = new FakeClient({ from: 5, to: 6, applied: ["discourse-context-mesh"] });
+		const client = new FakeClient({ from: 5, to: 6, applied: ["task-focus-continuation"] });
 		expect(await runMigrationCli(["schema", "--json"], client)).toBe(JSON.stringify({
 			from: 5,
 			to: 6,
-			applied: ["discourse-context-mesh"],
+			applied: ["task-focus-continuation"],
 		}));
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
 	});
@@ -114,25 +114,6 @@ describe("Papyrus graph history CLI", () => {
 	it("requires a known action", async () => {
 		const client = new FakeClient({});
 		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, unlink, tree, status, or history");
-	});
-});
-
-describe("Papyrus Discourse store CLI", () => {
-	it("routes bounded store operations through the authenticated daemon with stable JSON", async () => {
-		const result = { items: [], truncated: false, completeness: "complete" };
-		const client = new FakeClient(result);
-		expect(await runDiscourseCli([
-			"store", "read_thread", "--store-id", "team-forum",
-			"--input-json", '{"forumId":"engineering","topicId":"reviews","threadId":"mesh","limit":10}',
-			"--json",
-		], client)).toBe(JSON.stringify(result));
-		expect(client.calls).toEqual([{
-			operation: "discourse.store",
-			input: {
-				action: "read_thread", store_id: "team-forum", forumId: "engineering",
-				topicId: "reviews", threadId: "mesh", limit: 10,
-			},
-		}]);
 	});
 });
 

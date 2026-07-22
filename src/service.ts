@@ -3,14 +3,12 @@ import { VERSION } from "./version.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
-import { SQLiteDiscourseStore } from "./adapters/sqlite-discourse-store.ts";
 import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
-import { DISCOURSE_RELATIONS, isDiscourseSubtype } from "./domain/discourse-store.ts";
 import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from "./authority-registry.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
@@ -41,12 +39,13 @@ import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
  * no domain owns creation/linking/traversal for every kind, the same way system.migrate
  * has no owning module) and two permanent composition-root exceptions (rules.injectable
  * needs tasks.active(); skills.instantiate branches into tasks.create()) -- see
- * src/modules/rules.ts and src/modules/skills.ts's module comments. discourse.store's
- * eventual home depends on the still-open Discourse projection-target decision, not on
- * module extraction.
+ * src/modules/rules.ts and src/modules/skills.ts's module comments. Discourse's own
+ * Papyrus-embedded storage (discourse.store) was removed entirely -- zero real callers
+ * were ever confirmed against it; Discourse's real home is the standalone
+ * @danypops/discourse package plus host adapters.
  */
 const COMPOSITION_ROOT_OPERATION_NAMES = [
-	"system.migrate", "discourse.store", "artifact.create", "artifact.query", "artifact.show",
+	"system.migrate", "artifact.create", "artifact.query", "artifact.show",
 	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
 	"rules.injectable", "skills.instantiate",
 ] as const;
@@ -129,13 +128,6 @@ function templateSubtype(artifacts: ArtifactStore, templateId: string | undefine
  */
 const GENERIC_CALLER = "generic";
 
-const discourseAuthorityClaim: AuthorityClaim = {
-	owner: "discourse",
-	matchesArtifact: (_kind, subtype) => isDiscourseSubtype(subtype),
-	matchesRelation: (relation) => DISCOURSE_RELATIONS.has(relation),
-	denyMessage: (action) => action === "link" ? "forum-owned Context Mesh links require discourse.store" : "forum-owned Context Mesh Docs require discourse.store",
-};
-
 const notesAuthorityClaim: AuthorityClaim = {
 	owner: "notes",
 	matchesArtifact: (kind, subtype) => kind === "doc" && subtype === NOTE_SUBTYPE,
@@ -158,7 +150,7 @@ const tasksAuthorityClaim: AuthorityClaim = {
 
 function createAuthorityRegistry(): AuthorityRegistry {
 	const authority = new AuthorityRegistry();
-	authority.claimAll([discourseAuthorityClaim, notesAuthorityClaim, tasksAuthorityClaim]);
+	authority.claimAll([notesAuthorityClaim, tasksAuthorityClaim]);
 	return authority;
 }
 
@@ -182,7 +174,6 @@ function handlers(
 	gates: GateRunner,
 	tasks: Tasks,
 	notes: Notes,
-	discourse: SQLiteDiscourseStore,
 	events: TaskEventStore,
 	scopes: TaskScopeStore,
 	migrate: () => unknown,
@@ -219,7 +210,6 @@ function handlers(
 	});
 	return {
 		"system.migrate": () => migrate(),
-		"discourse.store": (input) => discourse.execute(input),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
 			authority.requireArtifactAllowed(normalized.kind, normalized.subtype ?? templateSubtype(artifacts, normalized.templateId), "create", GENERIC_CALLER);
@@ -357,10 +347,9 @@ function handlers(
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
-			// Deliberately pass an unresolved kind so only the discourse claim (kind-agnostic) can match here —
-			// the historical requireDiscourseStoreForSubtype never checked notes at this call site; that check
-			// already happens inside instantiateTemplate's own rejectsNoteTemplate for the non-task branch below.
-			authority.requireArtifactAllowed(undefined, templateSubtype(artifacts, templateId), "create", GENERIC_CALLER);
+			// Note ownership for a non-task template target is enforced inside instantiateTemplate's
+			// own rejectsNoteTemplate for the non-task branch below -- nothing else currently claims
+			// an unresolved (pre-template-resolution) kind, so there is no check to perform here.
 			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input), authority, eventContext(input));
 			return tasks.create({
 				title: optionalString(input, "title") as string,
@@ -389,7 +378,6 @@ export function createPapyrusService(path: string): PapyrusService {
 	const scopes = new SQLiteTaskScopeStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
 	const notes = new Notes(artifacts);
-	const discourse = new SQLiteDiscourseStore(db, artifacts);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
@@ -402,7 +390,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
 	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
-	const registry = handlers(artifacts, gates, tasks, notes, discourse, events, scopes, () => migrateDb(db), moduleRegistry, authority);
+	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };

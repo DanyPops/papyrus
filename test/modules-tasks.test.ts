@@ -4,9 +4,11 @@ import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
+import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-identity-store.ts";
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { tasksOperations, TASKS_OPERATION_NAMES } from "../src/modules/tasks.ts";
+import { SessionIdentity } from "../src/session-identity-service.ts";
 import { Tasks } from "../src/task-service.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";
@@ -16,9 +18,10 @@ function fixture() {
 	const artifacts = new SQLiteArtifactStore(db);
 	const gates = new SQLiteGateRunner(db);
 	const tasks = new Tasks(artifacts, gates, new SQLiteTaskFocusStore(db), new SQLiteTaskEventStore(db), new SQLiteTaskScopeStore(db));
+	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const registry = new OperationRegistry();
-	registry.registerAll(tasksOperations(tasks, artifacts));
-	return { registry, tasks };
+	registry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
+	return { registry, tasks, sessionIdentity };
 }
 
 describe("modules/tasks — the second Papyrus-native registered module", () => {
@@ -75,5 +78,46 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 	it("rejects a request missing a required field, matching the prior inline handler's validation", () => {
 		const { registry } = fixture();
 		expect(() => registry.get("tasks.create")!.execute({ project_root: PROJECT_ROOT })).toThrow("title is required");
+	});
+
+	describe("session-identity enforcement on Focus-mutating operations", () => {
+		it("an unregistered session_id (including undefined, the 'global' scope) mutates Focus exactly as before -- opt-in armor", () => {
+			const { registry } = fixture();
+			const task = registry.get("tasks.create")!.execute({ title: "T", project_root: PROJECT_ROOT }) as { id: string };
+			expect(registry.get("tasks.focus")!.execute({ id: task.id })).toBeTruthy();
+			expect(registry.get("tasks.pause")!.execute({})).toBeTruthy();
+			expect(registry.get("tasks.unpause")!.execute({})).toBeTruthy();
+			expect(registry.get("tasks.clear_focus")!.execute({})).toBeTruthy();
+
+			const taskB = registry.get("tasks.create")!.execute({ title: "T2", project_root: PROJECT_ROOT }) as { id: string };
+			expect(registry.get("tasks.focus")!.execute({ id: taskB.id, session_id: "never-registered" })).toBeTruthy();
+		});
+
+		it("once a session_id is registered, mutating ITS Focus without the matching secret is rejected", () => {
+			const { registry, sessionIdentity } = fixture();
+			const task = registry.get("tasks.create")!.execute({ title: "T", project_root: PROJECT_ROOT }) as { id: string };
+			const { secret } = sessionIdentity.register("session-a");
+
+			expect(() => registry.get("tasks.focus")!.execute({ id: task.id, session_id: "session-a" })).toThrow(/session_secret/);
+			expect(() => registry.get("tasks.focus")!.execute({ id: task.id, session_id: "session-a", session_secret: "wrong" })).toThrow(/session_secret/);
+			expect(registry.get("tasks.focus")!.execute({ id: task.id, session_id: "session-a", session_secret: secret })).toBeTruthy();
+
+			expect(() => registry.get("tasks.pause")!.execute({ session_id: "session-a" })).toThrow(/session_secret/);
+			expect(registry.get("tasks.pause")!.execute({ session_id: "session-a", session_secret: secret })).toBeTruthy();
+			expect(() => registry.get("tasks.unpause")!.execute({ session_id: "session-a" })).toThrow(/session_secret/);
+			expect(registry.get("tasks.unpause")!.execute({ session_id: "session-a", session_secret: secret })).toBeTruthy();
+			expect(() => registry.get("tasks.clear_focus")!.execute({ session_id: "session-a" })).toThrow(/session_secret/);
+			expect(registry.get("tasks.clear_focus")!.execute({ session_id: "session-a", session_secret: secret })).toBeTruthy();
+		});
+
+		it("two different registered sessions cannot hijack each other's Focus, even with a real (but wrong) secret", () => {
+			const { registry, sessionIdentity } = fixture();
+			const taskA = registry.get("tasks.create")!.execute({ title: "A", project_root: PROJECT_ROOT }) as { id: string };
+			const a = sessionIdentity.register("session-a");
+			const b = sessionIdentity.register("session-b");
+
+			expect(() => registry.get("tasks.focus")!.execute({ id: taskA.id, session_id: "session-a", session_secret: b.secret })).toThrow(/session_secret/);
+			expect(registry.get("tasks.focus")!.execute({ id: taskA.id, session_id: "session-a", session_secret: a.secret })).toBeTruthy();
+		});
 	});
 });

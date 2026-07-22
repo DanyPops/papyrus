@@ -23,6 +23,7 @@ import type { TaskEventContext, TaskEventDirection } from "../domain/task-event.
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
+import type { SessionIdentity } from "../session-identity-service.ts";
 import { taskContext } from "../task-context.ts";
 import { projectTaskExecution } from "../task-execution.ts";
 import { Tasks, type TaskStatus } from "../task-service.ts";
@@ -92,10 +93,17 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain",
 ] as const;
 
-export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore): OperationDefinition[] {
+export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionIdentity: SessionIdentity): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,
 	});
+	// Enforced only for the operations where session_id is BEHAVIOR-affecting (it selects
+	// which Task Focus row is mutated), not for every session_id-carrying operation -- see
+	// domain/session-identity.ts. A session_id with no registered identity passes through
+	// unchanged (opt-in armor).
+	const guardFocusMutation = (input: OperationInput): void => {
+		sessionIdentity.assertAuthorized(eventContext(input).sessionId, optionalString(input, "session_secret"));
+	};
 	return [
 		define("tasks.create", (input: OperationInput) => tasks.create({
 			title: string(input, "title"),
@@ -139,10 +147,10 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore): Operati
 		)),
 		define("tasks.active", (input: OperationInput) => tasks.active(taskFilter(input))),
 		define("tasks.focused", (input: OperationInput) => tasks.focused(taskFilter(input))),
-		define("tasks.focus", (input: OperationInput) => tasks.focus(string(input, "id"), eventContext(input))),
-		define("tasks.pause", (input: OperationInput) => tasks.pauseFocus(eventContext(input))),
-		define("tasks.unpause", (input: OperationInput) => tasks.unpauseFocus(eventContext(input))),
-		define("tasks.clear_focus", (input: OperationInput) => tasks.clearFocus(eventContext(input))),
+		define("tasks.focus", (input: OperationInput) => { guardFocusMutation(input); return tasks.focus(string(input, "id"), eventContext(input)); }),
+		define("tasks.pause", (input: OperationInput) => { guardFocusMutation(input); return tasks.pauseFocus(eventContext(input)); }),
+		define("tasks.unpause", (input: OperationInput) => { guardFocusMutation(input); return tasks.unpauseFocus(eventContext(input)); }),
+		define("tasks.clear_focus", (input: OperationInput) => { guardFocusMutation(input); return tasks.clearFocus(eventContext(input)); }),
 		define("tasks.start", (input: OperationInput) => tasks.transition(string(input, "id"), "start", eventContext(input))),
 		define("tasks.submit", (input: OperationInput) => tasks.transition(string(input, "id"), "submit", eventContext(input))),
 		define("tasks.complete", (input: OperationInput) => tasks.completeAsync(string(input, "id"), eventContext(input))),

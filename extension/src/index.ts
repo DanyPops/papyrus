@@ -31,6 +31,7 @@ import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, comp
 import { buildBasePromptItems } from "./base-prompt-breakdown.ts";
 import { showContextView } from "./context-view.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
+import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
 	createArtifactDetails,
@@ -197,6 +198,7 @@ export default async function (pi: ExtensionAPI) {
 					source: "task-continuation",
 					reason: automaticPauseReason(decision.reason),
 					session_id: sessionId,
+					...sessionSecretField(sessionId),
 				});
 				emitTaskFocusEvent({ taskId: paused.artifact.id, sessionId, status: "paused" });
 				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
@@ -499,6 +501,19 @@ export default async function (pi: ExtensionAPI) {
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
 
 	pi.on("session_start", async (_event, ctx) => {
+		// Registers this session's identity with the daemon as early as possible -- before any
+		// Focus-mutating call could plausibly happen -- shrinking (not eliminating; see
+		// domain/session-identity.ts) the first-touch race window. Best-effort: the daemon may be
+		// unavailable during startup, and every other Focus-mutating call already tolerates an
+		// unregistered/never-armored session_id (opt-in armor), so a missed registration here is
+		// not worth surfacing to the user.
+		try {
+			const sessionId = ctx.sessionManager.getSessionId();
+			const { secret } = await callService<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", { session_id: sessionId });
+			cacheSessionSecret(sessionId, secret);
+		} catch {
+			// intentionally silent -- see comment above
+		}
 		if (!ctx.hasUI) return;
 		overlay ??= new TaskOverlay();
 		overlay.setUI(ctx.ui);
@@ -510,7 +525,17 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("session_before_compact", () => { taskContinuation.onCompaction(); });
 	pi.on("session_compact", async () => { await overlay?.refresh(); });
 	pi.on("session_tree", async () => { await overlay?.refresh(); });
-	pi.on("session_shutdown", async () => { overlay?.dispose(); overlay = undefined; });
+	pi.on("session_shutdown", async (_event, ctx) => {
+		overlay?.dispose();
+		overlay = undefined;
+		try {
+			const sessionId = ctx.sessionManager.getSessionId();
+			await callService("session.release", { session_id: sessionId, ...sessionSecretField(sessionId) });
+			forgetSessionSecret(sessionId);
+		} catch {
+			// intentionally silent -- see session_start's comment above
+		}
+	});
 
 	// Update widget after any papyrus tool call
 	pi.on("tool_execution_end", async (event) => {
@@ -530,7 +555,7 @@ export default async function (pi: ExtensionAPI) {
 			const sessionId = ctx.sessionManager.getSessionId();
 			const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>("tasks.focused", { session_id: sessionId });
 			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
-				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation", session_id: sessionId });
+				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation", session_id: sessionId, ...sessionSecretField(sessionId) });
 				emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId, status: "unpaused" });
 			}
 		} catch {

@@ -20,6 +20,7 @@ import {
 	runMigrationCli,
 	runNoteCli,
 	runRulesCli,
+	runSessionIdentityCli,
 	runSkillCli,
 	runTaskCli,
 } from "../src/cli.ts";
@@ -124,6 +125,8 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "skills.instantiate", result: artifact, invoke: (c) => runSkillCli(["instantiate", "a1", "--json"], c) },
 	{ operation: "logs.append", result: { entry: { id: "e1" }, replayed: false }, invoke: (c) => runLogCli(["append", "--source", "s1", "--level", "info", "--message", "m", "--operation-id", "op-1", "--json"], c) },
 	{ operation: "logs.query", result: { entries: [], truncated: false }, invoke: (c) => runLogCli(["query", "--source", "s1", "--json"], c) },
+	{ operation: "session.register", result: { sessionId: "s1", secret: "abc" }, invoke: (c) => runSessionIdentityCli(["register", "--session-id", "s1", "--json"], c) },
+	{ operation: "session.release", result: { released: true }, invoke: (c) => runSessionIdentityCli(["release", "--session-id", "s1", "--session-secret", "abc", "--json"], c) },
 ];
 
 describe("Papyrus CLI \u2014 structural operation parity", () => {

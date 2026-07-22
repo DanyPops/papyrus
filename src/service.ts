@@ -8,6 +8,7 @@ import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-s
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
+import { SQLiteSessionIdentityStore } from "./adapters/sqlite-session-identity-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from "./authority-registry.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
@@ -24,6 +25,7 @@ import {
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
 import { Logs } from "./log-service.ts";
 import { SQLiteLogStore } from "./adapters/sqlite-log-store.ts";
+import { SessionIdentity, InvalidSessionSecretError } from "./session-identity-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
 import { docsOperations, DOCS_OPERATION_NAMES } from "./modules/docs.ts";
 import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./modules/graph-projection.ts";
@@ -31,6 +33,7 @@ import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
 import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
 import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
+import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
 import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
 
 /**
@@ -68,6 +71,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...SKILLS_OPERATION_NAMES,
 	...GRAPH_PROJECTION_OPERATION_NAMES,
 	...LOGS_OPERATION_NAMES,
+	...SESSION_IDENTITY_OPERATION_NAMES,
 ] as const;
 
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
@@ -77,6 +81,7 @@ type OperationHandler = (input: OperationInput) => unknown;
 export class UnknownOperationError extends Error {}
 export class MigrationRequiredError extends Error {}
 export class PayloadTooLargeError extends Error {}
+export { InvalidSessionSecretError };
 
 function string(input: OperationInput, key: string): string {
 	const value = input[key];
@@ -366,6 +371,8 @@ function handlers(
 		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 		"logs.append": forwardToModule("logs.append"),
 		"logs.query": forwardToModule("logs.query"),
+		"session.register": forwardToModule("session.register"),
+		"session.release": forwardToModule("session.release"),
 	};
 }
 
@@ -381,11 +388,13 @@ export function createPapyrusService(path: string): PapyrusService {
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
+	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const authority = createAuthorityRegistry();
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(logsOperations(logs));
-	moduleRegistry.registerAll(tasksOperations(tasks, artifacts));
+	moduleRegistry.registerAll(sessionIdentityOperations(sessionIdentity));
+	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
 	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
@@ -467,7 +476,7 @@ export function createApp(deps: { service: PapyrusService; token: string }): { f
 					}
 					return json({ result: await deps.service.execute(body.op, input as OperationInput) });
 				} catch (error) {
-					const status = error instanceof PayloadTooLargeError ? 413 : error instanceof UnknownOperationError ? 404 : 400;
+					const status = error instanceof PayloadTooLargeError ? 413 : error instanceof UnknownOperationError ? 404 : error instanceof InvalidSessionSecretError ? 403 : 400;
 					return json({ error: error instanceof Error ? error.message : String(error) }, { status });
 				}
 			}

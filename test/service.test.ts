@@ -75,14 +75,14 @@ describe("Papyrus operation service", () => {
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 12, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 1, required: 13, migrationRequired: true });
 		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate schema");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 12,
-			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse"],
+			to: 13,
+			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity"],
 		});
-		expect(service.schemaState()).toEqual({ current: 12, required: 12, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 13, required: 13, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
 		service.close();
 	});
@@ -240,13 +240,34 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
+	it("maps a forged session_secret to HTTP 403 through the real daemon boundary, once that session_id is registered", async () => {
+		const { service, app } = fixture();
+		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
+		const task = await client.call<{ title: string; project_root: string }, { id: string }>("tasks.create", { title: "Armored", project_root: PROJECT_ROOT });
+		await client.call("session.register", { session_id: "session-a" });
+
+		const forged = await request(app, "/api/v1/ops", {
+			method: "POST",
+			body: JSON.stringify({ op: "tasks.focus", input: { id: task.id, session_id: "session-a", session_secret: "forged" } }),
+		});
+		expect(forged.status).toBe(403);
+
+		const { secret } = await client.call<{ session_id: string }, { sessionId: string; secret: string }>("session.register", { session_id: "session-a" });
+		const real = await request(app, "/api/v1/ops", {
+			method: "POST",
+			body: JSON.stringify({ op: "tasks.focus", input: { id: task.id, session_id: "session-a", session_secret: secret } }),
+		});
+		expect(real.status).toBe(200);
+		service.close();
+	});
+
 	it("provides a typed client over the same HTTP adapter", async () => {
 		const { service, app } = fixture();
 		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: VERSION,
-			schema: { current: 12, required: 12, migrationRequired: false },
+			schema: { current: 13, required: 13, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", { title: "Client task", project_root: PROJECT_ROOT });
 		expect(task.kind).toBe("task");

@@ -112,18 +112,20 @@ const USAGE = `Usage:
   papyrus notes promote <id> <target-id> [--reason <reason>] [--json]
   papyrus notes archive <id> <completed|duplicate|declined|superseded> [--reason <reason>] [--json]
   papyrus log append --source <id> --level <debug|info|warning|error> --message <text> --operation-id <id> [--source-label <text>] [--fields-json <json>] [--session-id <id>] [--occurred-at <iso>] [--global] [--json]
+  papyrus session register --session-id <id> [--json]
+  papyrus session release --session-id <id> [--session-secret <secret>] [--json]
   papyrus log query --source <id> [--since <iso>] [--level <debug|info|warning|error>] [--limit <count>] [--json]
   papyrus tasks plan [--session-id <id>] [--json]
   papyrus tasks graph [--session-id <id>] [--json]
   papyrus tasks active [--session-id <id>] [--json]
   papyrus tasks focused [--session-id <id>] [--json]
-  papyrus tasks pause [--session-id <id>] [--json]
-  papyrus tasks unpause [--session-id <id>] [--json]
-  papyrus tasks clear-focus [--session-id <id>] [--json]
+  papyrus tasks pause [--session-id <id>] [--session-secret <secret>] [--json]
+  papyrus tasks unpause [--session-id <id>] [--session-secret <secret>] [--json]
+  papyrus tasks clear-focus [--session-id <id>] [--session-secret <secret>] [--json]
   papyrus tasks history <id> [--json]
   papyrus tasks scope [project|all|graph <root-id>] [--json]
   papyrus tasks assign-project <id> [project-root] [--json]
-  papyrus tasks focus <id> [--session-id <id>] [--json]
+  papyrus tasks focus <id> [--session-id <id>] [--session-secret <secret>] [--json]
   papyrus tasks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--status todo --reason <reason>] [--json]
   papyrus tasks complete <id> [--session-id <id>] [--json]
   papyrus tasks start <id> [--session-id <id>] [--json]
@@ -142,7 +144,8 @@ const USAGE = `Usage:
   papyrus tasks set-checklist <id> --checklist-json <json> [--json]
   papyrus tasks context [--scope <project|graph|all>] [--root-task-id <id>] [--session-id <id>] [--json]
 
-A "--session-id" scopes Task Focus to one agent session; omit it to use the shared "global" Focus (today's behavior).`;
+A "--session-id" scopes Task Focus to one agent session; omit it to use the shared "global" Focus (today's behavior).
+Once a session id is registered ("papyrus session register"), mutating its Focus (focus/pause/unpause/clear-focus) requires the matching "--session-secret"; an unregistered session id is unaffected.`;
 
 function usage(): never {
 	console.error(USAGE);
@@ -909,6 +912,33 @@ export async function runLogCli(args: string[], client: TaskCliClient, projectRo
 	throw new Error("log action must be append or query");
 }
 
+export async function runSessionIdentityCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let sessionId: string | undefined;
+	let secret: string | undefined;
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--session-id") { sessionId = args[++index]; continue; }
+		if (argument === "--session-secret") { secret = args[++index]; continue; }
+		if (argument.startsWith("--")) throw new Error(`unknown session option ${argument}`);
+		positional.push(argument);
+	}
+	const [action] = positional;
+	if (action === "register") {
+		if (!sessionId) throw new Error("session register requires --session-id");
+		const result = await client.call<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", { session_id: sessionId });
+		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+	}
+	if (action === "release") {
+		if (!sessionId) throw new Error("session release requires --session-id");
+		const result = await client.call<Record<string, unknown>, { released: boolean }>("session.release", { session_id: sessionId, ...(secret ? { session_secret: secret } : {}) });
+		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+	}
+	throw new Error("session action must be register or release");
+}
+
 export async function runNoteCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
@@ -975,6 +1005,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 	const updateInput: { title?: string; body?: string; labels?: string[]; status?: "todo" } = {};
 	let reason: string | undefined;
 	let sessionId: string | undefined;
+	let sessionSecret: string | undefined;
 	let title: string | undefined;
 	let body: string | undefined;
 	let status: string | undefined;
@@ -995,6 +1026,11 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		if (argument === "--session-id") {
 			sessionId = args[++index];
 			if (!sessionId) throw new Error("--session-id requires a value");
+			continue;
+		}
+		if (argument === "--session-secret") {
+			sessionSecret = args[++index];
+			if (!sessionSecret) throw new Error("--session-secret requires a value");
 			continue;
 		}
 		if (argument === "--title" || argument === "--body" || argument === "--labels-json" || argument === "--status" || argument === "--reason") {
@@ -1046,6 +1082,10 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 	const reasonSupportedActions = new Set(["update", "depend", "undepend", "contain", "uncontain"]);
 	if (reason !== undefined && !reasonSupportedActions.has(action ?? "")) throw new Error("--reason is only supported by tasks update, depend, undepend, contain, and uncontain");
 	const sessionScope = sessionId ? { session_id: sessionId } : {};
+	// Only meaningful alongside a registered session_id (see session.register); required by the
+	// daemon only for the specific Focus-mutating operations below (focus/pause/unpause/clear_focus)
+	// once that session_id has been armored (see session-identity-service.ts assertAuthorized).
+	const sessionSecretField = sessionSecret ? { session_secret: sessionSecret } : {};
 	let result: unknown;
 	let human: string;
 	switch (action) {
@@ -1067,14 +1107,14 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "unpause": {
 			if (id) throw new Error(`tasks ${action} accepts no positional arguments`);
 			const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
-			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: string }>(operation, { actor: "user", source: "cli", ...sessionScope });
+			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: string }>(operation, { actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
 			result = focus;
 			human = `Focused (${focus.status}): ${artifactLabel(focus.artifact)}`;
 			break;
 		}
 		case "clear-focus": {
 			if (id) throw new Error("tasks clear-focus accepts no positional arguments");
-			const cleared = await client.call<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli", ...sessionScope });
+			const cleared = await client.call<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
 			result = cleared;
 			human = cleared.cleared ? "Task focus cleared." : "No focused task.";
 			break;
@@ -1206,7 +1246,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "focus": {
 			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
-			const active = await client.call<Record<string, unknown>, CliArtifact>("tasks.focus", { id, actor: "user", source: "cli", ...sessionScope });
+			const active = await client.call<Record<string, unknown>, CliArtifact>("tasks.focus", { id, actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
 			result = active;
 			human = `Active: ${artifactLabel(active)}`;
 			break;
@@ -1306,6 +1346,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "log") {
 		const client = await connectPapyrusClient();
 		console.log(await runLogCli(args.slice(1), client));
+		return;
+	}
+	if (command === "session") {
+		const client = await connectPapyrusClient();
+		console.log(await runSessionIdentityCli(args.slice(1), client));
 		return;
 	}
 	if (command === "migrate") {

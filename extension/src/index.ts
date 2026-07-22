@@ -27,7 +27,7 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { buildContextBreakdown, computeContextBudget, computeRuleBudget } from "./context-budget.ts";
+import { buildContextBreakdown, computeContextBudget, computeRuleBudget, estimateMessageHistoryTokens, type SessionBranchEntryLike } from "./context-budget.ts";
 import { showContextView } from "./context-view.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -160,6 +160,11 @@ export default async function (pi: ExtensionAPI) {
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
 	let previousContextInjectionFingerprint: string | undefined;
+	// Cached from the most recent before_agent_start observation: Pi's own base system prompt
+	// is only ever visible transiently inside that hook's event.systemPrompt, so /context
+	// reuses the size buildContextInjection already computes every turn rather than going
+	// without it entirely.
+	let lastObservedBasePromptTokens: number | null = null;
 	const taskContinuation = new ActiveTaskContinuation({
 		maxTurns: TASK_DRIVER_MAX_TURNS,
 		maxUnchangedTurns: TASK_DRIVER_MAX_UNCHANGED_TURNS,
@@ -423,12 +428,15 @@ export default async function (pi: ExtensionAPI) {
 				const { skills } = computeContextBudget(rules, ctx.cwd);
 				const ruleBudget = computeRuleBudget(rules);
 				const usage = ctx.getContextUsage?.();
+				const branch = ctx.sessionManager.getBranch() as unknown as SessionBranchEntryLike[];
 				const breakdown = buildContextBreakdown({
 					totalTokens: usage?.tokens ?? null,
 					contextWindow: ctx.model?.contextWindow ?? null,
 					ruleBudget,
 					taskEstimatedTokens: taskSummary ? Math.ceil(taskSummary.length / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN) : 0,
 					skills,
+					basePromptEstimatedTokens: lastObservedBasePromptTokens,
+					messageHistoryEstimatedTokens: estimateMessageHistoryTokens(branch),
 				});
 				await showContextView(ctx, breakdown, ruleBudget);
 			} catch (error) {
@@ -502,6 +510,7 @@ export default async function (pi: ExtensionAPI) {
 				previousFingerprint: previousContextInjectionFingerprint,
 			});
 			previousContextInjectionFingerprint = injection.observation.fingerprint;
+			lastObservedBasePromptTokens = Math.ceil(injection.observation.before.characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
 			pi.events.emit(PAPYRUS_CONTEXT_INJECTION_CHANNEL, injection.observation);
 			if (injection.prompt !== (event.systemPrompt ?? "")) return { systemPrompt: injection.prompt };
 		} catch {

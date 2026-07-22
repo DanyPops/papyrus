@@ -48,20 +48,22 @@ describe("showContextView", () => {
 	it("falls back to a readable notification outside interactive mode, including real usage and the total", async () => {
 		const notifications: string[] = [];
 		const ctx = { mode: "rpc", hasUI: false, ui: { notify: (message: string) => notifications.push(message) } } as unknown as ExtensionCommandContext;
-		const breakdown = buildContextBreakdown({ totalTokens: 5000, contextWindow: 200_000, ruleBudget, taskEstimatedTokens: 0, skills });
+		const breakdown = buildContextBreakdown({ totalTokens: 5000, contextWindow: 200_000, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 
 		await showContextView(ctx, breakdown, ruleBudget);
 
 		expect(notifications).toHaveLength(1);
 		expect(notifications[0]).toContain("Real usage: 5000 tokens");
-		expect(notifications[0]).toContain("Everything else");
+		expect(notifications[0]).toContain("Unaccounted (tool definitions, framework overhead)");
+		expect(notifications[0]).toContain("Base system prompt (not observed yet)");
+		expect(notifications[0]).toContain("Conversation message history");
 		expect(notifications[0]).toContain("A rule");
 	});
 
 	it("reports usage as not yet available, rather than a misleading zero, when Pi has no usage yet", async () => {
 		const notifications: string[] = [];
 		const ctx = { mode: "rpc", hasUI: false, ui: { notify: (message: string) => notifications.push(message) } } as unknown as ExtensionCommandContext;
-		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskEstimatedTokens: 0, skills });
+		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 
 		await showContextView(ctx, breakdown, ruleBudget);
 

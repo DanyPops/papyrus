@@ -112,6 +112,41 @@ describe("buildMessageHistoryTree", () => {
 		expect(result.activeTokens).toBe(Math.ceil(40 / 4) * 2); // root + active child only, not the abandoned one
 	});
 
+	it("labels an entry excluded by compaction (still on the branch path) distinctly from a genuinely abandoned /tree branch", () => {
+		// "1" was compacted away (buildContextEntries() excludes it) but IS still on the raw
+		// getBranch() path -- this must read as "(compacted)", not the less accurate
+		// "(inactive branch)" label reserved for content on a different path entirely.
+		const compactionEntry = node("2", { type: "compaction", summary: "s".repeat(40) });
+		const kept = node("3", { type: "message", message: { role: "user", content: "kept".repeat(10) } });
+		const tree = [node("1", { type: "message", message: { role: "user", content: "old".repeat(40) } }, [compactionEntry])];
+		compactionEntry.children.push(kept);
+		const activeEntryIds = new Set(["2", "3"]); // buildContextEntries(): compaction entry + kept entries onward
+		const branchEntryIds = new Set(["1", "2", "3"]); // getBranch(): every raw entry on the current path
+		const result = buildMessageHistoryTree(tree, activeEntryIds, branchEntryIds);
+		const compactedAway = result.items[0]!;
+		expect(compactedAway.label).toContain("(compacted)");
+		expect(compactedAway.label).not.toContain("inactive branch");
+		expect(result.activeTokens).toBe(Math.ceil(40 / 4) + Math.ceil(40 / 4)); // compaction summary (40 chars) + kept message ("kept".repeat(10) = 40 chars) only, NOT the compacted-away original text
+	});
+
+	it("still labels a genuinely abandoned /tree branch as '(inactive branch)', not '(compacted)', when it is on neither active nor branch id sets", () => {
+		const abandoned = node("2b", { type: "message", message: { role: "assistant", content: [{ type: "text", text: "z".repeat(40) }] } });
+		const active = node("2a", { type: "message", message: { role: "assistant", content: [{ type: "text", text: "y".repeat(40) }] } });
+		const tree = [node("1", { type: "message", message: { role: "user", content: "x".repeat(40) } }, [active, abandoned])];
+		const activeEntryIds = new Set(["1", "2a"]);
+		const branchEntryIds = new Set(["1", "2a"]); // "2b" is not on the current path at all
+		const result = buildMessageHistoryTree(tree, activeEntryIds, branchEntryIds);
+		expect(result.items[0]!.children!.some((child) => child.label.includes("(inactive branch)"))).toBe(true);
+		expect(result.items[0]!.children!.some((child) => child.label.includes("(compacted)"))).toBe(false);
+	});
+
+	it("falls back to the old binary active/inactive-branch labeling when branchEntryIds is omitted (e.g. by a caller with only one set)", () => {
+		const tree = [node("1", { type: "message", message: { role: "user", content: "x".repeat(40) } })];
+		const result = buildMessageHistoryTree(tree, new Set()); // no third argument
+		expect(result.items[0]!.label).toContain("(inactive branch)");
+		expect(result.items[0]!.label).not.toContain("(compacted)");
+	});
+
 	it("counts thinking blocks and tool-call arguments, not just plain text", () => {
 		const tree = [node("1", { type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: "a".repeat(20) }, { type: "toolCall", arguments: { path: "b".repeat(20) } }] } })];
 		const result = buildMessageHistoryTree(tree, new Set(["1"]));

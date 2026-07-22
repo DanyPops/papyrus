@@ -172,9 +172,24 @@ export interface MessageHistoryTree {
  * estimate the conversation's context contribution AND surface branches explored via /tree
  * that are no longer on the active path -- content that cost real tokens to generate but is
  * NOT currently part of the context window. Bounded and cycle-safe (CONTEXT_TREE_MAX_NODES):
- * a session file is external, mutable state, and this deliberately
- * hardens past a confirmed real gap in Pi's own getBranch() (no cycle guard at all) rather
- * than assuming the tree can never be malformed.
+ * a session file is external, mutable state, and this deliberately hardens past a confirmed
+ * real gap in Pi's own getBranch() (no cycle guard at all) rather than assuming the tree can
+ * never be malformed.
+ *
+ * `activeEntryIds` MUST come from ctx.sessionManager.buildContextEntries(), not getBranch().
+ * getBranch()'s own docstring says it "[i]ncludes all entry types... Use buildSessionContext()
+ * to get the resolved messages for the LLM" -- it does not skip entries a real compaction has
+ * already summarized away. A real session with 3 compactions confirmed using getBranch() here
+ * overcounts activeTokens by over 13x, since every pre-compaction message still reads as
+ * "active". buildContextEntries() is Pi's own compaction-aware entry list: the latest
+ * compaction entry, its kept entries from firstKeptEntryId onward, and everything after.
+ *
+ * `branchEntryIds` (optional) is the full raw current-path id set (getBranch()'s own output).
+ * When given, an entry on the branch path but excluded from activeEntryIds is labeled
+ * "(compacted)" rather than the less accurate "(inactive branch)", which is reserved for
+ * entries not on the current path at all (a genuinely abandoned /tree branch). Omitting it
+ * preserves the simpler binary active/inactive-branch labeling for callers that only have one
+ * set to give (e.g. tests).
  */
 interface WalkFrame {
 	node: SessionTreeNodeLike;
@@ -190,7 +205,7 @@ interface WalkFrame {
  * JavaScript call-stack overflow at that scale, independent of the CONTEXT_TREE_MAX_NODES
  * bound entirely.
  */
-export function buildMessageHistoryTree(roots: ReadonlyArray<SessionTreeNodeLike>, activeEntryIds: ReadonlySet<string>): MessageHistoryTree {
+export function buildMessageHistoryTree(roots: ReadonlyArray<SessionTreeNodeLike>, activeEntryIds: ReadonlySet<string>, branchEntryIds?: ReadonlySet<string>): MessageHistoryTree {
 	const visited = new Set<string>();
 	let truncated = false;
 	let activeTokens = 0;
@@ -222,12 +237,13 @@ export function buildMessageHistoryTree(roots: ReadonlyArray<SessionTreeNodeLike
 		const tokens = Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
 		const isActive = activeEntryIds.has(entry.id);
 		if (isActive) activeTokens += tokens;
+		const isOnBranch = branchEntryIds ? branchEntryIds.has(entry.id) : isActive; // no branch set given -- fall back to the old binary active/inactive-branch label
 
 		const children = childItemsByParent.get(index) ?? [];
 		if (tokens === 0 && children.length === 0) continue; // no content, no descendants with content -- nothing to show
 
 		const item: ContextSegmentItem = {
-			label: isActive ? entryLabel(entry) : `${entryLabel(entry)} (inactive branch)`,
+			label: isActive ? entryLabel(entry) : isOnBranch ? `${entryLabel(entry)} (compacted)` : `${entryLabel(entry)} (inactive branch)`,
 			estimatedTokens: tokens,
 			...(children.length > 0 ? { children } : {}),
 		};

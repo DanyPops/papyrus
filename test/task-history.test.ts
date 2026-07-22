@@ -86,12 +86,6 @@ describe("append-only task lifecycle history", () => {
 			DROP TRIGGER task_events_no_update;
 			DROP TRIGGER task_events_no_delete;
 			DROP TABLE task_events;
-			DROP TRIGGER discourse_artifact_type_immutable;
-			DROP TABLE discourse_projection_cursors;
-			DROP TABLE discourse_cursors;
-			DROP TABLE discourse_events;
-			DROP TABLE discourse_posts;
-			DROP TABLE discourse_threads;
 			DROP TRIGGER artifact_events_no_update;
 			DROP TRIGGER artifact_events_no_delete;
 			DROP TABLE artifact_events;
@@ -105,7 +99,7 @@ describe("append-only task lifecycle history", () => {
 
 		db = openDb(path);
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
-		expect(migrateDb(db)).toEqual({ from: 2, to: 11, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain"] });
+		expect(migrateDb(db)).toEqual({ from: 2, to: 12, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse"] });
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		db.close();
 	});

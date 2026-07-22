@@ -23,9 +23,7 @@
  * replaces old ids wherever they appear inside a known set of free-text/JSON columns (title,
  * body, extra, and the two Task-event text fields) — this is how a prose cross-reference like
  * "see task some-old-id for the parent epic" keeps pointing at the right artifact after its id
- * changes. Discourse post JSON payloads (content_json/command_json/references_json) are
- * explicitly NOT scanned — that is Discourse-internal structure this tool does not have enough
- * context on yet, tracked as a known limitation rather than guessed at.
+ * changes.
  */
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
@@ -56,8 +54,6 @@ const FK_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
 	{ table: "task_events", column: "task_id" },
 	{ table: "task_scopes", column: "task_id" },
 	{ table: "task_views", column: "root_task_id" },
-	{ table: "discourse_threads", column: "artifact_id" },
-	{ table: "discourse_posts", column: "artifact_id" },
 	{ table: "artifact_events", column: "artifact_id" },
 	{ table: "artifact_events", column: "related_id" },
 ];

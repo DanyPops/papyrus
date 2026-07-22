@@ -30,6 +30,8 @@ export interface TaskFocusStore {
 	clear(taskId?: string, scope?: string): void;
 	/** Clears this task's Focus in every scope (session), not just one — for lifecycle events (e.g. cancel) that are not scoped to a single caller. */
 	clearEverywhere(taskId: string): void;
+	/** Deletes every Focus row whose updatedAt is strictly before olderThanIso (see TASK_FOCUS_STALE_AFTER_MS). Returns how many rows were removed. */
+	reapStale(olderThanIso: string): number;
 }
 
 export class InMemoryTaskFocusStore implements TaskFocusStore {
@@ -72,6 +74,14 @@ export class InMemoryTaskFocusStore implements TaskFocusStore {
 		for (const [key, focus] of this.state) {
 			if (focus.taskId === taskId) this.state.delete(key);
 		}
+	}
+
+	reapStale(olderThanIso: string): number {
+		let removed = 0;
+		for (const [key, focus] of this.state) {
+			if (focus.updatedAt < olderThanIso) { this.state.delete(key); removed++; }
+		}
+		return removed;
 	}
 
 	private evictOldest(): void {

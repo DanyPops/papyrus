@@ -20,7 +20,8 @@ const DatabaseCtor = (
 ) as new (path: string, opts?: { create?: boolean }) => Db;
 
 export interface DbStatement {
-	run(...params: unknown[]): { lastInsertRowid: number | bigint };
+	/** changes: number of rows the statement affected. Both bun:sqlite and node:sqlite's real run() return this at runtime; declared here so callers (e.g. reapStale) can rely on it without an unsafe cast. */
+	run(...params: unknown[]): { lastInsertRowid: number | bigint; changes: number };
 	get(...params: unknown[]): unknown;
 	all(...params: unknown[]): unknown[];
 }

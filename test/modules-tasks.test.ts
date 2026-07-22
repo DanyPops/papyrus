@@ -80,6 +80,12 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 		expect(() => registry.get("tasks.create")!.execute({ project_root: PROJECT_ROOT })).toThrow("title is required");
 	});
 
+	it("tasks.reap_stale_focus delegates to Tasks.reapStaleFocus and reports how many rows were removed", () => {
+		const { registry } = fixture();
+		const result = registry.get("tasks.reap_stale_focus")!.execute({}) as { removed: number };
+		expect(result).toEqual({ removed: 0 });
+	});
+
 	describe("session-identity enforcement on Focus-mutating operations", () => {
 		it("an unregistered session_id (including undefined, the 'global' scope) mutates Focus exactly as before -- opt-in armor", () => {
 			const { registry } = fixture();

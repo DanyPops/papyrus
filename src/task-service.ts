@@ -5,6 +5,7 @@ import {
 	TASK_EXECUTION_MAX_NODES,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
+	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "./constants.ts";
@@ -381,6 +382,19 @@ export class Tasks {
 			this.focusStore.clear(undefined, context.sessionId);
 			return { cleared: focus !== undefined };
 		});
+	}
+
+	/**
+	 * Time-based reclamation of Focus scopes nobody has touched in TASK_FOCUS_STALE_AFTER_MS,
+	 * independent of and in addition to the TASK_FOCUS_MAX_SCOPES hard cap -- see
+	 * clean-up-stale-per-session-task-focus-rows-on-real-session-l-9i7s and constants.ts's
+	 * comment on why this is deliberately not driven by session_start/session_shutdown.
+	 * No task-lifecycle event is appended: this is daemon housekeeping, not a caller-driven
+	 * mutation, and there is no longer a specific session/actor to attribute it to.
+	 */
+	reapStaleFocus(now: () => string = () => new Date().toISOString()): number {
+		const cutoff = new Date(new Date(now()).getTime() - TASK_FOCUS_STALE_AFTER_MS).toISOString();
+		return this.focusStore.reapStale(cutoff);
 	}
 
 	transition(id: string, action: TaskTransition, context: TaskEventContext = {}): Artifact {

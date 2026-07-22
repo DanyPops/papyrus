@@ -25,12 +25,22 @@ export function serveMain(): void {
 	const optimizeTimer = setInterval(() => {
 		try { service.optimize(); } catch (error) { logEvent("error", "optimize_failed", { message: error instanceof Error ? error.message : String(error) }); }
 	}, DB_OPTIMIZE_INTERVAL_MS);
+	// Daily cadence (reusing DB_OPTIMIZE_INTERVAL_MS) is plenty against a 30-day staleness
+	// threshold (TASK_FOCUS_STALE_AFTER_MS) -- see clean-up-stale-per-session-task-focus-rows-
+	// on-real-session-l-9i7s.
+	const reapFocusTimer = setInterval(() => {
+		try {
+			const removed = service.reapStaleFocus();
+			if (removed > 0) logEvent("info", "stale_focus_reaped", { removed });
+		} catch (error) { logEvent("error", "reap_stale_focus_failed", { message: error instanceof Error ? error.message : String(error) }); }
+	}, DB_OPTIMIZE_INTERVAL_MS);
 	let stopping = false;
 	const shutdown = () => {
 		if (stopping) return;
 		stopping = true;
 		clearInterval(checkpointTimer);
 		clearInterval(optimizeTimer);
+		clearInterval(reapFocusTimer);
 		clearDaemonPort(stateDir);
 		service.close();
 		void server.stop(true).finally(() => process.exit(0));

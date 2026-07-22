@@ -146,6 +146,17 @@ export const TASK_FOCUS_DEFAULT_SCOPE = "global";
 export const TASK_FOCUS_SCOPE_MAX_LENGTH = 128;
 /** Hard cap on distinct concurrent focus scopes (sessions); oldest-updated scope is evicted beyond this. */
 export const TASK_FOCUS_MAX_SCOPES = 500;
+/**
+ * A Task Focus row not touched by any Focus-mutating operation (focus/pause/unpause) in this
+ * long is eligible for time-based reaping (see Tasks.reapStaleFocus), independent of the
+ * TASK_FOCUS_MAX_SCOPES hard cap above -- see clean-up-stale-per-session-task-focus-rows-
+ * on-real-session-l-9i7s. Deliberately NOT driven by Pi's session_start/session_shutdown
+ * hooks: a "resume" reuses the exact same session_id as a prior process incarnation, so
+ * neither hook reliably signals "this session is gone forever" -- only real elapsed time
+ * without any Focus activity does. 30 days is long enough that a genuine multi-week pause-
+ * and-resume workflow survives; short enough to actually bound long-run accumulation.
+ */
+export const TASK_FOCUS_STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 /** Hard cap on registered session_identities rows (see domain/session-identity.ts); oldest-seen identity is evicted beyond this, mirroring TASK_FOCUS_MAX_SCOPES. */
 export const SESSION_IDENTITY_MAX_ROWS = 2_000;
 /** Persisted project and focused-graph Task view bounds. */

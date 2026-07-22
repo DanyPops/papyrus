@@ -171,6 +171,8 @@ export interface PapyrusService {
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
 	checkpoint(): void;
 	optimize(): void;
+	/** Time-based Task Focus reclamation (see Tasks.reapStaleFocus); returns how many rows were removed, for daemon logging. */
+	reapStaleFocus(): number;
 	close(): void;
 }
 
@@ -318,6 +320,7 @@ function handlers(
 		"tasks.undepend": forwardToModule("tasks.undepend"),
 		"tasks.contain": forwardToModule("tasks.contain"),
 		"tasks.uncontain": forwardToModule("tasks.uncontain"),
+		"tasks.reap_stale_focus": forwardToModule("tasks.reap_stale_focus"),
 		"docs.create": forwardToModule("docs.create"),
 		"docs.list": forwardToModule("docs.list"),
 		"docs.show": forwardToModule("docs.show"),
@@ -417,6 +420,7 @@ export function createPapyrusService(path: string): PapyrusService {
 		},
 		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
 		optimize: () => { db.exec("PRAGMA optimize"); },
+		reapStaleFocus: () => tasks.reapStaleFocus(),
 		close: () => {
 			db.exec("PRAGMA optimize");
 			db.close();

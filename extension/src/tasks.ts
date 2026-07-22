@@ -8,6 +8,7 @@ import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { callService } from "./service-client.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
+import { sessionSecretField } from "./session-identity.ts";
 import { showTaskDetails } from "./task-detail-view.ts";
 import { showTaskGraph } from "./task-graph.ts";
 
@@ -175,7 +176,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else if (choice === "Make active") {
 			try {
-				const focused = await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+				const focused = await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId, ...sessionSecretField(sessionId) });
 				emitTaskFocusEvent({ taskId: focused.id, sessionId, status: "focused" });
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
@@ -184,11 +185,11 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		} else if (choice === "Pause focus" || choice === "Resume focus" || choice === "Clear focus") {
 			try {
 				if (choice === "Clear focus") {
-					await callService("tasks.clear_focus", { actor: "user", source: "tasks-tui", session_id: sessionId });
+					await callService("tasks.clear_focus", { actor: "user", source: "tasks-tui", session_id: sessionId, ...sessionSecretField(sessionId) });
 					emitTaskFocusEvent({ taskId: null, sessionId, status: "cleared" });
 				} else {
 					const operation = choice === "Pause focus" ? "tasks.pause" : "tasks.unpause";
-					const result = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, { actor: "user", source: "tasks-tui", session_id: sessionId });
+					const result = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, { actor: "user", source: "tasks-tui", session_id: sessionId, ...sessionSecretField(sessionId) });
 					emitTaskFocusEvent({ taskId: result.artifact.id, sessionId, status: choice === "Pause focus" ? "paused" : "unpaused" });
 				}
 				ctx.ui.notify(choice === "Clear focus" ? "Task focus cleared" : choice, "info");

@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 12;
+export const SQLITE_SCHEMA_VERSION = 13;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -146,6 +146,8 @@ export const TASK_FOCUS_DEFAULT_SCOPE = "global";
 export const TASK_FOCUS_SCOPE_MAX_LENGTH = 128;
 /** Hard cap on distinct concurrent focus scopes (sessions); oldest-updated scope is evicted beyond this. */
 export const TASK_FOCUS_MAX_SCOPES = 500;
+/** Hard cap on registered session_identities rows (see domain/session-identity.ts); oldest-seen identity is evicted beyond this, mirroring TASK_FOCUS_MAX_SCOPES. */
+export const SESSION_IDENTITY_MAX_ROWS = 2_000;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
 /** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */

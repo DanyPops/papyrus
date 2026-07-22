@@ -1,6 +1,6 @@
 {
   "name": "@danypops/papyrus",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
   "type": "module",
   "keywords": ["pi-package"],
@@ -41,6 +41,7 @@
   },
   "files": ["src", "extension", "README.md"],
   "dependencies": {
-    "beautiful-mermaid": "1.1.3"
+    "beautiful-mermaid": "1.1.3",
+    "@danypops/daemon-kit": "^0.2.0"
   }
 }

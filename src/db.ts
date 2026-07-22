@@ -210,6 +210,12 @@ CREATE TABLE IF NOT EXISTS log_entries (
 CREATE INDEX IF NOT EXISTS log_entries_source_idx ON log_entries(source_id, occurred_at, id);
 CREATE TRIGGER IF NOT EXISTS log_entries_no_update BEFORE UPDATE ON log_entries
 BEGIN SELECT RAISE(ABORT, 'log_entries are immutable once written; retention trimming is the only supported deletion path'); END;
+CREATE TABLE IF NOT EXISTS session_identities (
+	session_id    TEXT PRIMARY KEY,
+	secret_hash   TEXT NOT NULL,
+	registered_at TEXT NOT NULL,
+	last_seen_at  TEXT NOT NULL
+);
 `;
 
 const SEED_SQL = `
@@ -287,6 +293,7 @@ const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; check
 	{ version: 2, name: "docs-rules-skills-project-scope", checksum: "8b16d8f631ad628f4799ff09b1ebe8be28343e4f677d52bf2a39a8bedc19e64e" },
 	{ version: 3, name: "log-domain", checksum: "c87f43c22b2608619ada9a529d7899ae74b7f38cd554135c8034116fc96e1eff" },
 	{ version: 4, name: "remove-discourse", checksum: "b923f41c44460f0aaeb2f4e60e28f8b8e1425d03f527955bd991434b46de4c82" },
+	{ version: 5, name: "session-identity", checksum: "1c6a165bbe37f82a100fd34762db70c3f8ab15ff20c3a53c2e60448edc815a5e" },
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -636,6 +643,22 @@ export function migrateDb(db: Db): MigrationResult {
 				PRAGMA user_version = 12;
 			`);
 			applied.push("remove-discourse");
+		}
+		if (schemaVersion(db) === 12) {
+			// See domain/session-identity.ts and verify-caller-identity-behind-papyrus-mutation-
+			// attribution-koxt: first-touch capability binding for session_id, the one place it is
+			// behavior-affecting today (Task Focus). Purely additive -- a session_id that never
+			// registers here behaves exactly as before.
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS session_identities (
+					session_id    TEXT PRIMARY KEY,
+					secret_hash   TEXT NOT NULL,
+					registered_at TEXT NOT NULL,
+					last_seen_at  TEXT NOT NULL
+				);
+				PRAGMA user_version = 13;
+			`);
+			applied.push("session-identity");
 		}
 		if (schemaVersion(db) !== SQLITE_SCHEMA_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
 	});

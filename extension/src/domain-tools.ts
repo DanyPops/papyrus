@@ -8,6 +8,7 @@ import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
+import { sessionSecretField } from "./session-identity.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
 import { callService } from "./service-client.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -77,7 +78,12 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				const action = params.action;
 				// Defaults to this Pi session's own id so Focus reads/writes are isolated per agent
 				// without depending on the model to know or supply its own session identity.
-				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: params.session_id ?? ctx.sessionManager.getSessionId() };
+				// session_secret is looked up by the resolved session_id itself (not blindly the
+				// current session's), so a model that explicitly overrides session_id to a DIFFERENT
+				// session never gets this session's secret smuggled in on its behalf -- the cache only
+				// ever holds this extension's own registered session anyway (see session-identity.ts).
+				const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
+				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
 					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));

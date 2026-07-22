@@ -27,7 +27,7 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, computeContextBudget, computeRuleBudget, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
+import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
 import { showContextView } from "./context-view.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -160,6 +160,7 @@ export default async function (pi: ExtensionAPI) {
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
 	let previousContextInjectionFingerprint: string | undefined;
+	let logTurnSequence = 0;
 	// Cached from the most recent before_agent_start observation: Pi's own base system prompt
 	// is only ever visible transiently inside that hook's event.systemPrompt, so /context
 	// reuses the size buildContextInjection already computes every turn rather than going
@@ -197,6 +198,36 @@ export default async function (pi: ExtensionAPI) {
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.
+		}
+	};
+
+	// ── Post-mortem AND live: every settled turn, log a real context-usage snapshot ────
+	// Deliberately lean (real usage + budget numbers only, no full segment breakdown --
+	// that stays /context's job on demand) so this stays cheap enough to run every turn:
+	// no extra daemon round-trips beyond the one logs.append call, no session tree walk.
+	const PI_SESSION_CONTEXT_LOG_SOURCE = "pi-session-context";
+	const logSessionContextSnapshot = async (ctx: ExtensionContext): Promise<void> => {
+		try {
+			const usage = ctx.getContextUsage?.();
+			if (!usage || usage.tokens === null) return; // nothing real to report yet (e.g. before the first assistant turn, or right after compaction)
+			const totalTokens = usage.tokens;
+			const sessionId = ctx.sessionManager.getSessionId();
+			const effectiveBudget = Math.max(0, usage.contextWindow - DEFAULT_RESERVE_TOKENS);
+			const percentOfBudget = effectiveBudget > 0 ? Math.round((totalTokens / effectiveBudget) * 1000) / 10 : null;
+			await callService("logs.append", {
+				source_id: PI_SESSION_CONTEXT_LOG_SOURCE,
+				source_label: "Pi session context usage",
+				project_root: ctx.cwd,
+				level: "info",
+				message: `context usage: ${totalTokens} tok / ${effectiveBudget} tok budget (${percentOfBudget}%)`,
+				operation_id: `${sessionId}:${++logTurnSequence}`,
+				session_id: sessionId,
+				fields: { totalTokens, contextWindow: usage.contextWindow, effectiveBudget, percentOfBudget },
+			});
+		} catch {
+			// The daemon may be unavailable during startup, reload, or shutdown -- a missed
+			// snapshot is not worth surfacing to the user, matching every other best-effort
+			// per-turn daemon call in this extension.
 		}
 	};
 
@@ -501,7 +532,10 @@ export default async function (pi: ExtensionAPI) {
 		}
 	});
 	pi.on("agent_start", () => { taskContinuation.onAgentStart(); });
-	pi.on("agent_settled", async (_event, ctx) => { await driveActiveTasks(ctx); });
+	pi.on("agent_settled", async (_event, ctx) => {
+		await driveActiveTasks(ctx);
+		await logSessionContextSnapshot(ctx);
+	});
 
 	// ── "Are we there yet?" — inject active tasks into every turn ──────
 	// The agent sees its open work items every turn. If there are rejected

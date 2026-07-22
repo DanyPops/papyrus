@@ -31,7 +31,7 @@ describe("task project scope migration", () => {
 		db.close();
 
 		db = openDb(path);
-		expect(migrateDb(db)).toEqual({ from: 3, to: 10, applied: ["task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope"] });
+		expect(migrateDb(db)).toEqual({ from: 3, to: 11, applied: ["task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain"] });
 		expect(db.prepare("SELECT project_root, source FROM task_scopes").get()).toEqual({ project_root: null, source: "unscoped" });
 		expect(db.prepare("SELECT COUNT(*) AS count FROM task_views").get()).toEqual({ count: 0 });
 		db.close();

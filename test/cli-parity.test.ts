@@ -17,6 +17,7 @@ import {
 	runGatesCli,
 	runGraphCli,
 	runGraphProjectionCli,
+	runLogCli,
 	runMigrationCli,
 	runNoteCli,
 	runRulesCli,
@@ -123,6 +124,8 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "skills.disable", result: artifact, invoke: (c) => runSkillCli(["disable", "a1", "--json"], c) },
 	{ operation: "skills.assign_project", result: artifact, invoke: (c) => runSkillCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c) },
 	{ operation: "skills.instantiate", result: artifact, invoke: (c) => runSkillCli(["instantiate", "a1", "--json"], c) },
+	{ operation: "logs.append", result: { entry: { id: "e1" }, replayed: false }, invoke: (c) => runLogCli(["append", "--source", "s1", "--level", "info", "--message", "m", "--operation-id", "op-1", "--json"], c) },
+	{ operation: "logs.query", result: { entries: [], truncated: false }, invoke: (c) => runLogCli(["query", "--source", "s1", "--json"], c) },
 ];
 
 describe("Papyrus CLI \u2014 structural operation parity", () => {

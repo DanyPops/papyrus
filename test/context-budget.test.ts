@@ -2,7 +2,18 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContextBreakdown, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, estimateMessageHistoryTokens } from "../extension/src/context-budget.ts";
+import {
+	buildContextBreakdown,
+	buildMessageHistoryTree,
+	buildTaskItemTree,
+	computeContextBudget,
+	computeRuleBudget,
+	DEFAULT_RESERVE_TOKENS,
+	type SessionEntryLike,
+	type SessionTreeNodeLike,
+} from "../extension/src/context-budget.ts";
+import type { TaskGraph, TaskNode } from "../src/task-service.ts";
+import type { Artifact } from "../src/domain/artifact.ts";
 
 function rule(id: string, title: string, extra: Record<string, unknown> = {}): { id: string; title: string; body: string; extra: Record<string, unknown> } {
 	return { id, title, body: "Do the thing.", extra };
@@ -66,45 +77,137 @@ describe("computeContextBudget", () => {
 	});
 });
 
-describe("estimateMessageHistoryTokens", () => {
-	it("sums text content across user, assistant, and tool-result messages in the branch", () => {
-		const tokens = estimateMessageHistoryTokens([
-			{ type: "message", message: { role: "user", content: "x".repeat(40) } },
-			{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "y".repeat(40) }] } },
-			{ type: "message", message: { role: "toolResult", content: [{ type: "text", text: "z".repeat(40) }] } },
-		]);
-		expect(tokens).toBe(Math.ceil(120 / 4));
+function node(id: string, entry: Partial<SessionEntryLike> & { type: string }, children: SessionTreeNodeLike[] = []): SessionTreeNodeLike {
+	return { entry: { id, type: entry.type, message: entry.message, summary: entry.summary }, children };
+}
+
+describe("buildMessageHistoryTree", () => {
+	it("walks the real tree (not just the active branch), sizing each node's own text content", () => {
+		const tree = [node("1", { type: "message", message: { role: "user", content: "x".repeat(40) } })];
+		const result = buildMessageHistoryTree(tree, new Set(["1"]));
+		expect(result.items).toHaveLength(1);
+		expect(result.items[0]!.estimatedTokens).toBe(Math.ceil(40 / 4));
+		expect(result.activeTokens).toBe(Math.ceil(40 / 4));
+	});
+
+	it("preserves real branching as nested children, matching Pi's own tree structure", () => {
+		const child = node("2", { type: "message", message: { role: "assistant", content: [{ type: "text", text: "y".repeat(40) }] } });
+		const tree = [node("1", { type: "message", message: { role: "user", content: "x".repeat(40) } }, [child])];
+		const result = buildMessageHistoryTree(tree, new Set(["1", "2"]));
+		expect(result.items[0]!.children).toHaveLength(1);
+		expect(result.items[0]!.children![0]!.estimatedTokens).toBe(Math.ceil(40 / 4));
+	});
+
+	it("labels a branch not on the active path distinctly, and excludes it from activeTokens -- content that cost real tokens to generate but isn't currently in context", () => {
+		const abandoned = node("2b", { type: "message", message: { role: "assistant", content: [{ type: "text", text: "z".repeat(40) }] } });
+		const active = node("2a", { type: "message", message: { role: "assistant", content: [{ type: "text", text: "y".repeat(40) }] } });
+		const tree = [node("1", { type: "message", message: { role: "user", content: "x".repeat(40) } }, [active, abandoned])];
+		// Only "1" and "2a" are on the current active path; "2b" is an abandoned /tree branch.
+		const result = buildMessageHistoryTree(tree, new Set(["1", "2a"]));
+		const root = result.items[0]!;
+		const activeChild = root.children!.find((child) => child.label.includes("assistant") && !child.label.includes("inactive"))!;
+		const abandonedChild = root.children!.find((child) => child.label.includes("inactive branch"))!;
+		expect(activeChild).toBeDefined();
+		expect(abandonedChild).toBeDefined();
+		expect(result.activeTokens).toBe(Math.ceil(40 / 4) * 2); // root + active child only, not the abandoned one
 	});
 
 	it("counts thinking blocks and tool-call arguments, not just plain text", () => {
-		const tokens = estimateMessageHistoryTokens([
-			{ type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: "a".repeat(20) }, { type: "toolCall", arguments: { path: "b".repeat(20) } }] } },
-		]);
-		expect(tokens).toBeGreaterThan(0);
+		const tree = [node("1", { type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: "a".repeat(20) }, { type: "toolCall", arguments: { path: "b".repeat(20) } }] } })];
+		const result = buildMessageHistoryTree(tree, new Set(["1"]));
+		expect(result.items[0]!.estimatedTokens).toBeGreaterThan(0);
 	});
 
 	it("excludes bashExecution output explicitly marked excludeFromContext, matching Pi's own !! prefix behavior", () => {
-		const included = estimateMessageHistoryTokens([{ type: "message", message: { role: "bashExecution", command: "ls", output: "x".repeat(100), excludeFromContext: false } }]);
-		const excluded = estimateMessageHistoryTokens([{ type: "message", message: { role: "bashExecution", command: "ls", output: "x".repeat(100), excludeFromContext: true } }]);
-		expect(included).toBeGreaterThan(0);
-		expect(excluded).toBe(0);
+		const included = buildMessageHistoryTree([node("1", { type: "message", message: { role: "bashExecution", command: "ls", output: "x".repeat(100), excludeFromContext: false } })], new Set(["1"]));
+		const excluded = buildMessageHistoryTree([node("2", { type: "message", message: { role: "bashExecution", command: "ls", output: "x".repeat(100), excludeFromContext: true } })], new Set(["2"]));
+		expect(included.items).toHaveLength(1);
+		expect(excluded.items).toHaveLength(0); // zero content AND zero children -- correctly dropped
 	});
 
 	it("counts compaction and branch_summary entries' summaries, since they do participate in context", () => {
-		const tokens = estimateMessageHistoryTokens([{ type: "compaction", summary: "x".repeat(400) }, { type: "branch_summary", summary: "y".repeat(400) }]);
-		expect(tokens).toBe(Math.ceil(800 / 4));
+		const tree = [node("1", { type: "compaction", summary: "x".repeat(400) }), node("2", { type: "branch_summary", summary: "y".repeat(400) })];
+		const result = buildMessageHistoryTree(tree, new Set(["1", "2"]));
+		expect(result.activeTokens).toBe(Math.ceil(800 / 4));
 	});
 
-	it("ignores non-context entry types (custom, label, model_change) entirely", () => {
-		expect(estimateMessageHistoryTokens([{ type: "custom" }, { type: "label" }, { type: "model_change" }])).toBe(0);
+	it("drops non-context entry types (custom, label, model_change) that have no content and no descendants", () => {
+		const tree = [node("1", { type: "custom" }), node("2", { type: "label" }), node("3", { type: "model_change" })];
+		expect(buildMessageHistoryTree(tree, new Set()).items).toEqual([]);
 	});
 
-	it("returns zero for an empty branch rather than throwing", () => {
-		expect(estimateMessageHistoryTokens([])).toBe(0);
+	it("returns an empty tree for no roots rather than throwing", () => {
+		expect(buildMessageHistoryTree([], new Set())).toEqual({ items: [], activeTokens: 0, truncated: false });
 	});
 
 	it("tolerates a malformed or unexpected message shape without throwing", () => {
-		expect(() => estimateMessageHistoryTokens([{ type: "message", message: null }, { type: "message", message: "not an object" }, { type: "message" }])).not.toThrow();
+		const tree = [node("1", { type: "message", message: null }), node("2", { type: "message", message: "not an object" as unknown as undefined })];
+		expect(() => buildMessageHistoryTree(tree, new Set())).not.toThrow();
+	});
+
+	it("is cycle-safe: a node that (incorrectly) appears as its own descendant is not revisited, and truncated is reported", () => {
+		const cyclic: SessionTreeNodeLike = node("1", { type: "message", message: { role: "user", content: "x" } });
+		cyclic.children.push(cyclic); // a malformed/adversarial self-reference
+		const result = buildMessageHistoryTree([cyclic], new Set(["1"]));
+		expect(result.truncated).toBe(true);
+		expect(result.items).toHaveLength(1); // visited once, not infinitely
+	});
+});
+
+function taskGraph(nodes: TaskNode[], rootIds: string[]): TaskGraph {
+	return { nodes, rootIds };
+}
+
+function task(id: string, title: string, status = "todo", body = ""): Artifact {
+	return { id, title, status, kind: "task", subtype: "", body, labels: [], extra: {}, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" };
+}
+
+function taskNode(id: string, title: string, options: { status?: string; parentIds?: string[]; childIds?: string[]; body?: string } = {}): TaskNode {
+	return {
+		task: task(id, title, options.status ?? "todo", options.body ?? ""),
+		parentIds: options.parentIds ?? [],
+		childIds: options.childIds ?? [],
+		dependencyIds: [],
+	};
+}
+
+describe("buildTaskItemTree", () => {
+	it("nests tasks by real containment (parentIds/childIds), not a flat list", () => {
+		const graph = taskGraph([taskNode("parent", "Parent", { childIds: ["child"] }), taskNode("child", "Child", { parentIds: ["parent"] })], ["parent"]);
+		const items = buildTaskItemTree(graph);
+		expect(items).toHaveLength(1);
+		expect(items[0]!.label).toBe("Parent");
+		expect(items[0]!.children).toEqual([{ label: "Child", estimatedTokens: expect.any(Number) }]);
+	});
+
+	it("filters done and canceled tasks -- only open work matters for the injected context, matching taskContext()'s own rule", () => {
+		const graph = taskGraph([taskNode("a", "Open", { status: "todo" }), taskNode("b", "Finished", { status: "done" }), taskNode("c", "Dropped", { status: "canceled" })], ["a", "b", "c"]);
+		const items = buildTaskItemTree(graph);
+		expect(items.map((item) => item.label)).toEqual(["Open"]);
+	});
+
+	it("promotes an open task to a root in this projection when its real parent is done/canceled/filtered, instead of dropping it", () => {
+		const graph = taskGraph([taskNode("parent", "Finished parent", { status: "done", childIds: ["child"] }), taskNode("child", "Still open", { parentIds: ["parent"] })], ["parent"]);
+		const items = buildTaskItemTree(graph);
+		expect(items.map((item) => item.label)).toEqual(["Still open"]);
+	});
+
+	it("shows a multi-parent task once, under whichever open parent is reached first, matching the task widget's own spanning-tree compromise", () => {
+		const graph = taskGraph(
+			[
+				taskNode("a", "Parent A", { childIds: ["shared"] }),
+				taskNode("b", "Parent B", { childIds: ["shared"] }),
+				taskNode("shared", "Shared child", { parentIds: ["a", "b"] }),
+			],
+			["a", "b"],
+		);
+		const items = buildTaskItemTree(graph);
+		const totalSharedAppearances = items.reduce((count, item) => count + (item.children?.some((child) => child.label === "Shared child") ? 1 : 0), 0);
+		expect(totalSharedAppearances).toBe(1);
+	});
+
+	it("returns an empty tree when there are no open tasks", () => {
+		expect(buildTaskItemTree(taskGraph([], []))).toEqual([]);
 	});
 });
 
@@ -113,9 +216,10 @@ describe("buildContextBreakdown", () => {
 	const skills = { entries: [{ name: "commit", description: "x", location: "/x", characters: 200, estimatedTokens: 50 }], totalCharacters: 200, totalEstimatedTokens: 50, scannedDirectories: ["/home/user/.claude/skills"] };
 	const twentyTokenTask = [{ label: "Ship", estimatedTokens: 20 }];
 	const noTasks: Array<{ label: string; estimatedTokens: number }> = [];
+	const noHistory: Array<{ label: string; estimatedTokens: number }> = [];
 
 	it("derives 'everything else' as the remainder between the real total and Papyrus's own known segments", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		const other = breakdown.segments.find((segment) => segment.key === "other")!;
 		expect(other.estimatedTokens).toBe(1000 - (100 + 20 + 50)); // 830
 		expect(breakdown.totalTokens).toBe(1000);
@@ -123,7 +227,7 @@ describe("buildContextBreakdown", () => {
 	});
 
 	it("clamps 'everything else' to zero instead of going negative when estimates overshoot the real total, but preserves the overshoot amount rather than discarding it", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 50, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 }); // known segments alone already sum to 170 > 50
+		const breakdown = buildContextBreakdown({ totalTokens: 50, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 }); // known segments alone already sum to 170 > 50
 		const other = breakdown.segments.find((segment) => segment.key === "other")!;
 		expect(other.estimatedTokens).toBe(0);
 		expect(breakdown.overshootTokens).toBe(170 - 50); // 120
@@ -132,58 +236,60 @@ describe("buildContextBreakdown", () => {
 	});
 
 	it("does not mention overshoot in the label when there isn't one", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(breakdown.segments.find((segment) => segment.key === "other")!.label).not.toContain("overshoot");
 	});
 
 	it("reports zero for 'everything else' and preserves null totalTokens when real usage is unavailable, rather than treating a partial sum as ground truth", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(breakdown.totalTokens).toBeNull();
 		expect(breakdown.segments.find((segment) => segment.key === "other")!.estimatedTokens).toBe(0);
 		expect(breakdown.overshootTokens).toBe(0);
 	});
 
 	it("computes effectiveBudget as contextWindow minus the reserve, mirroring Pi's own compaction trigger formula", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(breakdown.effectiveBudget).toBe(200_000 - DEFAULT_RESERVE_TOKENS);
 	});
 
 	it("honors an explicit reserveTokens override instead of the default", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 100_000, reserveTokens: 5000, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 100_000, reserveTokens: 5000, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(breakdown.effectiveBudget).toBe(95_000);
 	});
 
 	it("reports effectiveBudget as null when the context window itself is unknown", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(breakdown.effectiveBudget).toBeNull();
 	});
 
-	it("carries per-rule, per-skill, AND per-task drill-down items -- every segment that has real underlying items is expandable, not just rules and skills", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+	it("carries per-rule, per-skill, per-task, AND per-message drill-down items -- every segment with real underlying content is expandable", () => {
+		const nestedTask = [{ label: "Parent", estimatedTokens: 20, children: [{ label: "Child", estimatedTokens: 5 }] }];
+		const historyItems = [{ label: "user: hi", estimatedTokens: 10 }];
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: nestedTask, skills, basePromptEstimatedTokens: null, messageHistoryItems: historyItems, messageHistoryActiveTokens: 10 });
 		expect(breakdown.segments.find((segment) => segment.key === "rules")!.items).toEqual([{ label: "Big rule", estimatedTokens: 100 }]);
 		expect(breakdown.segments.find((segment) => segment.key === "skills")!.items).toEqual([{ label: "commit", estimatedTokens: 50 }]);
-		expect(breakdown.segments.find((segment) => segment.key === "tasks")!.items).toEqual([{ label: "Ship", estimatedTokens: 20 }]);
+		expect(breakdown.segments.find((segment) => segment.key === "tasks")!.items).toEqual(nestedTask);
+		expect(breakdown.segments.find((segment) => segment.key === "tasks")!.estimatedTokens).toBe(25); // sums the WHOLE tree, not just top-level
+		expect(breakdown.segments.find((segment) => segment.key === "messageHistory")!.items).toEqual(historyItems);
 		expect(breakdown.segments.find((segment) => segment.key === "other")!.items).toBeUndefined();
 	});
 
-	it("includes base prompt and message history as their own segments, both without drill-down items", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 500, messageHistoryEstimatedTokens: 8000 });
+	it("includes base prompt as its own segment", () => {
+		const breakdown = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 500, messageHistoryItems: noHistory, messageHistoryActiveTokens: 8000 });
 		const basePrompt = breakdown.segments.find((segment) => segment.key === "basePrompt")!;
 		const messageHistory = breakdown.segments.find((segment) => segment.key === "messageHistory")!;
 		expect(basePrompt.estimatedTokens).toBe(500);
 		expect(basePrompt.items).toBeUndefined();
 		expect(messageHistory.estimatedTokens).toBe(8000);
-		expect(messageHistory.items).toBeUndefined();
 		// message history correctly absorbed into "known" tokens, shrinking the unaccounted remainder
 		const other = breakdown.segments.find((segment) => segment.key === "other")!;
 		expect(other.estimatedTokens).toBe(10_000 - (100 + 0 + 50 + 500 + 8000));
 	});
 
 	it("labels the base prompt segment as not-yet-observed when its size is unknown, rather than silently showing zero as if it were measured", () => {
-		const unobserved = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const unobserved = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(unobserved.segments.find((segment) => segment.key === "basePrompt")!.label).toContain("not observed yet");
-		const observed = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 200, messageHistoryEstimatedTokens: 0 });
+		const observed = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 200, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(observed.segments.find((segment) => segment.key === "basePrompt")!.label).not.toContain("not observed yet");
 	});
 });
-

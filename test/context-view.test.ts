@@ -46,14 +46,14 @@ describe("buildContextRows", () => {
 	const emptySkills = { entries: [], totalCharacters: 0, totalEstimatedTokens: 0, scannedDirectories: [] };
 
 	it("drops a segment entirely when it is genuinely zero (no total, no items) -- a real 0 tok / 0.0% row is pure noise", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: 0, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: 0, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 		const rows = buildContextRows(breakdown);
 		expect(rows.some((row) => row.key === "tasks")).toBe(false);
 		expect(rows.some((row) => row.key === "skills")).toBe(false);
 	});
 
 	it("keeps a genuinely-unknown segment visible even at zero, since hiding it would misrepresent 'not measured' as 'measured and empty'", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 		const rows = buildContextRows(breakdown);
 		const basePromptRow = rows.find((row) => row.key === "basePrompt");
 		expect(basePromptRow).toBeDefined();
@@ -62,7 +62,7 @@ describe("buildContextRows", () => {
 
 	it("filters individual zero-token items out of an otherwise-nonzero segment", () => {
 		const zeroItemRules = { entries: [{ id: "r1", title: "Real", characters: 40, estimatedTokens: 10 }, { id: "r2", title: "Empty", characters: 0, estimatedTokens: 0 }], totalCharacters: 40, totalEstimatedTokens: 10 };
-		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget: zeroItemRules, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget: zeroItemRules, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 		const rows = buildContextRows(breakdown);
 		const ruleItemRows = rows.filter((row) => row.key === "rules" && !row.isHeader);
 		expect(ruleItemRows).toHaveLength(1);
@@ -74,7 +74,7 @@ describe("buildContextRows", () => {
 			entries: [{ id: "a", title: "Small", characters: 4, estimatedTokens: 1 }, { id: "b", title: "Big", characters: 400, estimatedTokens: 100 }],
 			totalCharacters: 404, totalEstimatedTokens: 101,
 		};
-		const breakdown = buildContextBreakdown({ totalTokens: 200, contextWindow: null, ruleBudget: manyRules, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 200, contextWindow: null, ruleBudget: manyRules, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 		const rows = buildContextRows(breakdown);
 		const header = rows.find((row) => row.key === "rules" && row.isHeader)!;
 		expect(header.text).toContain("101 tok");
@@ -86,8 +86,31 @@ describe("buildContextRows", () => {
 
 	it("returns an empty row list when every segment is genuinely zero and none are unknown", () => {
 		const zeroRules = { entries: [], totalCharacters: 0, totalEstimatedTokens: 0 };
-		const breakdown = buildContextBreakdown({ totalTokens: 0, contextWindow: null, ruleBudget: zeroRules, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: 0, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 0, contextWindow: null, ruleBudget: zeroRules, taskItems: [], skills: emptySkills, basePromptEstimatedTokens: 0, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 		expect(buildContextRows(breakdown)).toEqual([]);
+	});
+
+	it("flattens a real item tree (Task containment, message history branches) into indented rows, parent immediately followed by its own children", () => {
+		const nestedTasks = [{ label: "Parent", estimatedTokens: 20, children: [{ label: "Child", estimatedTokens: 5 }] }];
+		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget: { entries: [], totalCharacters: 0, totalEstimatedTokens: 0 }, taskItems: nestedTasks, skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
+		const rows = buildContextRows(breakdown);
+		const header = rows.find((row) => row.key === "tasks" && row.isHeader)!;
+		const parentRow = rows.find((row) => row.key === "tasks" && row.text.includes("Parent"))!;
+		const childRow = rows.find((row) => row.key === "tasks" && row.text.includes("Child"))!;
+		expect(header.depth).toBe(0);
+		expect(parentRow.depth).toBe(1);
+		expect(childRow.depth).toBe(2); // deeper than its parent, not flattened to the same level
+		// parent immediately precedes its own child -- never scrambled by a global size sort
+		const parentIndex = rows.indexOf(parentRow);
+		expect(rows[parentIndex + 1]).toBe(childRow);
+	});
+
+	it("filters a zero-token child out of an otherwise-nonzero parent item", () => {
+		const nestedTasks = [{ label: "Parent", estimatedTokens: 20, children: [{ label: "RealChild", estimatedTokens: 5 }, { label: "EmptyChild", estimatedTokens: 0 }] }];
+		const breakdown = buildContextBreakdown({ totalTokens: 100, contextWindow: null, ruleBudget: { entries: [], totalCharacters: 0, totalEstimatedTokens: 0 }, taskItems: nestedTasks, skills: emptySkills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
+		const rows = buildContextRows(breakdown);
+		expect(rows.some((row) => row.text.includes("RealChild"))).toBe(true);
+		expect(rows.some((row) => row.text.includes("EmptyChild"))).toBe(false);
 	});
 });
 
@@ -98,7 +121,7 @@ describe("showContextView", () => {
 	it("falls back to a readable notification outside interactive mode, including real usage and the total", async () => {
 		const notifications: string[] = [];
 		const ctx = { mode: "rpc", hasUI: false, ui: { notify: (message: string) => notifications.push(message) } } as unknown as ExtensionCommandContext;
-		const breakdown = buildContextBreakdown({ totalTokens: 5000, contextWindow: 200_000, ruleBudget, taskItems: [], skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 5000, contextWindow: 200_000, ruleBudget, taskItems: [], skills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 
 		await showContextView(ctx, breakdown);
 
@@ -116,7 +139,7 @@ describe("showContextView", () => {
 	it("reports usage as not yet available, rather than a misleading zero, when Pi has no usage yet", async () => {
 		const notifications: string[] = [];
 		const ctx = { mode: "rpc", hasUI: false, ui: { notify: (message: string) => notifications.push(message) } } as unknown as ExtensionCommandContext;
-		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskItems: [], skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskItems: [], skills, basePromptEstimatedTokens: null, messageHistoryItems: [], messageHistoryActiveTokens: 0 });
 
 		await showContextView(ctx, breakdown);
 

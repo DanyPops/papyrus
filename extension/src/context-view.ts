@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, type TUI } from "@earendil-works/pi-tui";
-import type { ContextBreakdown, ContextSegment } from "./context-budget.ts";
+import type { ContextBreakdown, ContextSegment, ContextSegmentItem } from "./context-budget.ts";
 
 const VISIBLE_ROWS = 24;
 
@@ -23,6 +23,8 @@ export interface ContextRow {
 	key: ContextSegment["key"];
 	isHeader: boolean;
 	text: string;
+	/** Nesting depth for indentation -- 0 for a segment header or a top-level item, deeper for real tree children (message history branches, Task containment). */
+	depth: number;
 }
 
 function formatTokenCount(tokens: number): string {
@@ -41,6 +43,13 @@ function percentOf(part: number, whole: number): string {
  * items are also all zero is dropped entirely; a segment with a nonzero total is always kept
  * even if all its items individually round to zero (the total itself is real signal).
  */
+/** Recursively flattens one item and its real tree children (message history branches, Task containment) into indented rows, sorted biggest-first at each level -- a parent always immediately precedes its own children, never scrambled by a global sort. */
+function flattenItem(item: ContextSegmentItem, key: ContextSegment["key"], depth: number, rows: ContextRow[]): void {
+	rows.push({ key, isHeader: false, depth, text: `${item.estimatedTokens.toString().padStart(6)} tok  ${item.label}` });
+	const children = (item.children ?? []).filter((child) => child.estimatedTokens > 0).sort((a, b) => b.estimatedTokens - a.estimatedTokens);
+	for (const child of children) flattenItem(child, key, depth + 1, rows);
+}
+
 export function buildContextRows(breakdown: ContextBreakdown): ContextRow[] {
 	const rows: ContextRow[] = [];
 	const denominator = breakdown.totalTokens ?? breakdown.segments.reduce((sum, segment) => sum + segment.estimatedTokens, 0);
@@ -54,11 +63,10 @@ export function buildContextRows(breakdown: ContextBreakdown): ContextRow[] {
 		rows.push({
 			key: segment.key,
 			isHeader: true,
+			depth: 0,
 			text: `${segment.label} — ${segment.estimatedTokens} tok (${percentOf(segment.estimatedTokens, denominator)})`,
 		});
-		for (const item of items) {
-			rows.push({ key: segment.key, isHeader: false, text: `  ${item.estimatedTokens.toString().padStart(6)} tok  ${item.label}` });
-		}
+		for (const item of items) flattenItem(item, segment.key, 1, rows);
 	}
 	return rows;
 }
@@ -104,7 +112,8 @@ class ContextViewport {
 
 		this.visibleWindow().forEach(({ row, index }) => {
 			const gutter = theme.fg(SEGMENT_COLORS[row.key], "▌");
-			const text = row.isHeader ? theme.bold(row.text) : row.text;
+			const indent = "  ".repeat(row.depth);
+			const text = row.isHeader ? theme.bold(row.text) : `${indent}${row.text}`;
 			lines.push(truncateToWidth(`${gutter} ${text}`, contentWidth, ""));
 			void index;
 		});
@@ -162,7 +171,7 @@ function fallbackReport(breakdown: ContextBreakdown): string {
 		: "Real usage: not yet reported";
 	const overshootLine = breakdown.overshootTokens > 0 ? [`Estimates exceed real total by ~${breakdown.overshootTokens} tok -- sizes below are approximate, not exact`] : [];
 	const rows = buildContextRows(breakdown);
-	const rowLines = rows.length > 0 ? rows.map((row) => row.text) : ["(nothing observed yet)"];
+	const rowLines = rows.length > 0 ? rows.map((row) => (row.isHeader ? row.text : `${"  ".repeat(row.depth)}${row.text}`)) : ["(nothing observed yet)"];
 	return [totalLine, ...overshootLine, "", ...rowLines].join("\n");
 }
 

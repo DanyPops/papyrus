@@ -62,6 +62,40 @@ describe("renderContextBar", () => {
 		const bar = renderContextBar(distinguishingTheme, [segment("rules", 0)], 10, 500);
 		expect(bar).toBe(`<dim>${"░".repeat(10)}</dim>`);
 	});
+
+	it("REGRESSION: shows a real gray remainder even when segment estimates overshoot capacity, using real usedTokens instead of the unreliable estimate sum", () => {
+		// The live reported bug: header showed 549.9k/983.6k (55.9%), but the bar rendered
+		// fully solid with zero gray, because estimated segments summed to ~1.57M -- far more
+		// than the 983.6k capacity -- so the old `capacity > total` check failed and the bar
+		// fell back to "100% used, no unused space left", contradicting the real 55.9% shown
+		// right above it. messageHistory here plays the role of the real session's own
+		// wildly-overestimated segment; rules/tasks are the real, comparatively tiny segments
+		// that must still show as their own distinct gray-adjacent colored region.
+		const segments = [segment("rules", 4309), segment("tasks", 2000), segment("messageHistory", 1_567_954)];
+		const bar = renderContextBar(plainTheme, segments, 100, 983_600, 549_900);
+		const usedCells = bar.replace(/░/g, "").length;
+		const emptyCells = bar.length - usedCells;
+		expect(emptyCells).toBeGreaterThan(0); // real gray remainder must exist -- 55.9% used means ~44% empty
+		expect(Math.round((549_900 / 983_600) * 100)).toBe(usedCells); // used width matches the REAL ratio, not the inflated estimate sum
+	});
+
+	it("REGRESSION: every nonzero segment gets at least one visible cell when there is room, even one dwarfed by a much larger segment", () => {
+		// The live reported bug's second symptom: "no other colors besides blue" -- a tiny
+		// segment (rules) rounds to zero width and vanishes entirely when one segment
+		// (messageHistory) is orders of magnitude larger, even though rules genuinely has
+		// real, nonzero content that a human should be able to see in the bar.
+		const segments = [segment("rules", 4309), segment("tasks", 2000), segment("messageHistory", 1_567_954)];
+		const bar = renderContextBar(distinguishingTheme, segments, 60, 983_600, 549_900);
+		expect(bar).toContain("<accent>"); // rules' color -- must be present, not rounded away to nothing
+		expect(bar).toContain("<success>"); // tasks' color
+		expect(bar).toContain("<syntaxFunction>"); // messageHistory's color, still the dominant share
+	});
+
+	it("falls back to the estimate sum as usedTokens when no real total is available, matching the pre-existing behavior", () => {
+		const bar = renderContextBar(plainTheme, [segment("rules", 50), segment("tasks", 50)], 100, 200);
+		expect(bar.length).toBe(100);
+		expect(bar).toBe("█".repeat(50) + "░".repeat(50)); // 100 estimated out of 200 capacity -- 50% used, matches passing usedTokens explicitly
+	});
 });
 
 describe("renderContextVerticalBars", () => {

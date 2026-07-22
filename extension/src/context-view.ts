@@ -117,7 +117,7 @@ class ContextViewport {
 		} else {
 			lines.push(theme.fg("dim", "No real usage reported yet — sizes below are Papyrus's own estimates only"));
 		}
-		lines.push(renderContextBar(theme, this.breakdown.segments, contentWidth, this.breakdown.effectiveBudget ?? undefined));
+		lines.push(renderContextBar(theme, this.breakdown.segments, contentWidth, this.breakdown.effectiveBudget ?? undefined, this.breakdown.totalTokens ?? undefined));
 		if (this.breakdown.overshootTokens > 0) {
 			lines.push(truncateToWidth(theme.fg("warning", `Estimates exceed real total by ~${this.breakdown.overshootTokens} tok — sizes below are approximate, not exact`), contentWidth, ""));
 		}
@@ -162,6 +162,26 @@ class ContextViewport {
 }
 
 /**
+ * Distributes `totalCells` proportionally across `weights` (parallel arrays), guaranteeing
+ * every genuinely-positive weight gets at least one cell when there is room for all of them
+ * to (totalCells >= weights.length) -- a real, nonzero segment must stay visible even when
+ * dwarfed by a much larger one, not round away to nothing. The largest resulting cell count
+ * absorbs whatever rounding leaves over or short, so the sum always equals totalCells exactly.
+ */
+function distributeCells(weights: readonly number[], totalCells: number): number[] {
+	const sum = weights.reduce((a, b) => a + b, 0);
+	if (sum <= 0 || totalCells <= 0 || weights.length === 0) return weights.map(() => 0);
+	let cells = weights.map((weight) => Math.round((weight / sum) * totalCells));
+	if (totalCells >= weights.length) cells = cells.map((count) => (count === 0 ? 1 : count));
+	const diff = totalCells - cells.reduce((a, b) => a + b, 0);
+	if (diff !== 0) {
+		const maxIndex = cells.indexOf(Math.max(...cells));
+		cells[maxIndex] = (cells[maxIndex] ?? 0) + diff;
+	}
+	return cells;
+}
+
+/**
  * Renders the context window as one horizontal stacked bar: one colored run of block
  * characters per USED segment, followed by a gray/dim run of "░" cells for the remaining,
  * genuinely EMPTY context window -- this is the "total used vs. unused" graph. A zero-token
@@ -169,23 +189,30 @@ class ContextViewport {
  * divide-by-zero, since 0 used really does mean the whole window is empty right now.
  *
  * `capacity` is the real denominator (Papyrus's own effectiveBudget, matching the percentage
- * already shown in the text line above this bar) that used-vs-unused is measured against. When
- * omitted, or when usage has already exceeded it (overshoot / near-compaction), the bar falls
- * back to filling 100% of its width proportionally among segments -- there is no "unused" left
- * to show gray for once real usage has met or passed the real budget.
+ * already shown in the text line above this bar). `usedTokens` is the real, ground-truth used
+ * amount (breakdown.totalTokens) the used-vs-unused split is measured against -- NOT the sum of
+ * `segments`' own estimates. That distinction is load-bearing: a live-reported bug showed a
+ * fully solid bar with zero gray even though the header read "55.9% of usable budget", because
+ * the old code compared `capacity` against the SUM of estimated segments, which independently
+ * overshot both the real total and the capacity itself (a session whose message-history
+ * estimate alone summed to over 1.5M tokens against a real ~550k total) -- the exact estimate-
+ * overshoot dishonesty `overshootTokens` exists to surface elsewhere was silently defeating the
+ * bar's own gray/used split. `usedTokens` defaults to the segment sum only when omitted, for
+ * callers with no real total available. Segments still split the USED portion proportionally to
+ * their own estimated share of each other (via distributeCells, which also guarantees a tiny
+ * nonzero segment stays visible rather than rounding to nothing next to a much larger one).
  */
-export function renderContextBar(theme: Theme, segments: ReadonlyArray<ContextSegment>, width: number, capacity?: number): string {
-	const total = segments.reduce((sum, segment) => sum + segment.estimatedTokens, 0);
-	if (total <= 0 || width <= 0) return theme.fg("dim", "░".repeat(Math.max(0, width)));
-	const nonZero = segments.filter((segment) => segment.estimatedTokens > 0);
-	const usedWidth = capacity !== undefined && capacity > total ? Math.min(width, Math.round((total / capacity) * width)) : width;
+export function renderContextBar(theme: Theme, segments: ReadonlyArray<ContextSegment>, width: number, capacity?: number, usedTokens?: number): string {
+	const estimatedSum = segments.reduce((sum, segment) => sum + segment.estimatedTokens, 0);
+	if (estimatedSum <= 0 || width <= 0) return theme.fg("dim", "░".repeat(Math.max(0, width)));
+	const realUsed = usedTokens ?? estimatedSum;
+	const usedWidth = capacity !== undefined ? Math.max(0, Math.min(width, Math.round((realUsed / capacity) * width))) : width;
 
-	let used = 0;
+	const nonZero = segments.filter((segment) => segment.estimatedTokens > 0);
+	const cellCounts = distributeCells(nonZero.map((segment) => segment.estimatedTokens), usedWidth);
 	let output = "";
 	nonZero.forEach((segment, index) => {
-		const isLast = index === nonZero.length - 1;
-		const cells = isLast ? usedWidth - used : Math.round((segment.estimatedTokens / total) * usedWidth);
-		used += cells;
+		const cells = cellCounts[index] ?? 0;
 		if (cells > 0) output += theme.fg(SEGMENT_COLORS[segment.key], "█".repeat(cells));
 	});
 	const emptyWidth = width - usedWidth;

@@ -421,24 +421,30 @@ export default async function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			try {
 				const sessionId = ctx.sessionManager.getSessionId();
-				const [rules, taskSummary] = await Promise.all([
+				const [rules, openTasks] = await Promise.all([
 					callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
-					callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId }),
+					callService<Record<string, unknown>, Artifact[]>("tasks.list", { project_root: ctx.cwd, session_id: sessionId, limit: 200 }),
 				]);
 				const { skills } = computeContextBudget(rules, ctx.cwd);
 				const ruleBudget = computeRuleBudget(rules);
 				const usage = ctx.getContextUsage?.();
 				const branch = ctx.sessionManager.getBranch() as unknown as SessionBranchEntryLike[];
+				// Sized individually (title+body) so the Tasks segment can be drilled into like Rules
+				// and Skills; this is a per-task approximation, not a byte-identical reproduction of
+				// tasks.context's own current/next/rejected selection and rendering.
+				const taskItems = openTasks
+					.filter((task) => task.status !== "done" && task.status !== "canceled")
+					.map((task) => ({ label: task.title, estimatedTokens: Math.ceil((task.title.length + task.body.length) / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN) }));
 				const breakdown = buildContextBreakdown({
 					totalTokens: usage?.tokens ?? null,
 					contextWindow: ctx.model?.contextWindow ?? null,
 					ruleBudget,
-					taskEstimatedTokens: taskSummary ? Math.ceil(taskSummary.length / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN) : 0,
+					taskItems,
 					skills,
 					basePromptEstimatedTokens: lastObservedBasePromptTokens,
 					messageHistoryEstimatedTokens: estimateMessageHistoryTokens(branch),
 				});
-				await showContextView(ctx, breakdown, ruleBudget);
+				await showContextView(ctx, breakdown);
 			} catch (error) {
 				ctx.ui.notify(`Context breakdown failed: ${error instanceof Error ? error.message : error}`, "error");
 			}

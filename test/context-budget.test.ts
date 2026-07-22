@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContextBreakdown, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, estimateMessageHistoryTokens, formatContextBudgetReport } from "../extension/src/context-budget.ts";
+import { buildContextBreakdown, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, estimateMessageHistoryTokens } from "../extension/src/context-budget.ts";
 
 function rule(id: string, title: string, extra: Record<string, unknown> = {}): { id: string; title: string; body: string; extra: Record<string, unknown> } {
 	return { id, title, body: "Do the thing.", extra };
@@ -111,51 +111,63 @@ describe("estimateMessageHistoryTokens", () => {
 describe("buildContextBreakdown", () => {
 	const ruleBudget = { entries: [{ id: "r1", title: "Big rule", characters: 400, estimatedTokens: 100 }], totalCharacters: 400, totalEstimatedTokens: 100 };
 	const skills = { entries: [{ name: "commit", description: "x", location: "/x", characters: 200, estimatedTokens: 50 }], totalCharacters: 200, totalEstimatedTokens: 50, scannedDirectories: ["/home/user/.claude/skills"] };
+	const twentyTokenTask = [{ label: "Ship", estimatedTokens: 20 }];
+	const noTasks: Array<{ label: string; estimatedTokens: number }> = [];
 
 	it("derives 'everything else' as the remainder between the real total and Papyrus's own known segments", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskEstimatedTokens: 20, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		const other = breakdown.segments.find((segment) => segment.key === "other")!;
 		expect(other.estimatedTokens).toBe(1000 - (100 + 20 + 50)); // 830
 		expect(breakdown.totalTokens).toBe(1000);
+		expect(breakdown.overshootTokens).toBe(0);
 	});
 
-	it("clamps 'everything else' to zero instead of going negative when estimates overshoot the real total", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 50, contextWindow: null, ruleBudget, taskEstimatedTokens: 20, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 }); // known segments alone already sum to 170 > 50
+	it("clamps 'everything else' to zero instead of going negative when estimates overshoot the real total, but preserves the overshoot amount rather than discarding it", () => {
+		const breakdown = buildContextBreakdown({ totalTokens: 50, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 }); // known segments alone already sum to 170 > 50
 		const other = breakdown.segments.find((segment) => segment.key === "other")!;
 		expect(other.estimatedTokens).toBe(0);
+		expect(breakdown.overshootTokens).toBe(170 - 50); // 120
+		expect(other.label).toContain("estimate overshoot");
+		expect(other.label).toContain("120 tokens");
+	});
+
+	it("does not mention overshoot in the label when there isn't one", () => {
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		expect(breakdown.segments.find((segment) => segment.key === "other")!.label).not.toContain("overshoot");
 	});
 
 	it("reports zero for 'everything else' and preserves null totalTokens when real usage is unavailable, rather than treating a partial sum as ground truth", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskEstimatedTokens: 20, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: null, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		expect(breakdown.totalTokens).toBeNull();
 		expect(breakdown.segments.find((segment) => segment.key === "other")!.estimatedTokens).toBe(0);
+		expect(breakdown.overshootTokens).toBe(0);
 	});
 
 	it("computes effectiveBudget as contextWindow minus the reserve, mirroring Pi's own compaction trigger formula", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 200_000, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		expect(breakdown.effectiveBudget).toBe(200_000 - DEFAULT_RESERVE_TOKENS);
 	});
 
 	it("honors an explicit reserveTokens override instead of the default", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 100_000, reserveTokens: 5000, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: 100_000, reserveTokens: 5000, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		expect(breakdown.effectiveBudget).toBe(95_000);
 	});
 
 	it("reports effectiveBudget as null when the context window itself is unknown", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		expect(breakdown.effectiveBudget).toBeNull();
 	});
 
-	it("carries per-rule and per-skill drill-down items on their respective segments, but not on tasks or other", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskEstimatedTokens: 20, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+	it("carries per-rule, per-skill, AND per-task drill-down items -- every segment that has real underlying items is expandable, not just rules and skills", () => {
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: twentyTokenTask, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		expect(breakdown.segments.find((segment) => segment.key === "rules")!.items).toEqual([{ label: "Big rule", estimatedTokens: 100 }]);
 		expect(breakdown.segments.find((segment) => segment.key === "skills")!.items).toEqual([{ label: "commit", estimatedTokens: 50 }]);
-		expect(breakdown.segments.find((segment) => segment.key === "tasks")!.items).toBeUndefined();
+		expect(breakdown.segments.find((segment) => segment.key === "tasks")!.items).toEqual([{ label: "Ship", estimatedTokens: 20 }]);
 		expect(breakdown.segments.find((segment) => segment.key === "other")!.items).toBeUndefined();
 	});
 
 	it("includes base prompt and message history as their own segments, both without drill-down items", () => {
-		const breakdown = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: 500, messageHistoryEstimatedTokens: 8000 });
+		const breakdown = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 500, messageHistoryEstimatedTokens: 8000 });
 		const basePrompt = breakdown.segments.find((segment) => segment.key === "basePrompt")!;
 		const messageHistory = breakdown.segments.find((segment) => segment.key === "messageHistory")!;
 		expect(basePrompt.estimatedTokens).toBe(500);
@@ -168,38 +180,10 @@ describe("buildContextBreakdown", () => {
 	});
 
 	it("labels the base prompt segment as not-yet-observed when its size is unknown, rather than silently showing zero as if it were measured", () => {
-		const unobserved = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
+		const unobserved = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryEstimatedTokens: 0 });
 		expect(unobserved.segments.find((segment) => segment.key === "basePrompt")!.label).toContain("not observed yet");
-		const observed = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskEstimatedTokens: 0, skills, basePromptEstimatedTokens: 200, messageHistoryEstimatedTokens: 0 });
+		const observed = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 200, messageHistoryEstimatedTokens: 0 });
 		expect(observed.segments.find((segment) => segment.key === "basePrompt")!.label).not.toContain("not observed yet");
 	});
 });
 
-describe("formatContextBudgetReport", () => {
-	it("renders a readable report with per-item breakdown and a combined total", () => {
-		const report = formatContextBudgetReport({
-			rules: { entries: [{ id: "r1", title: "Never mention Papyrus in project docs", characters: 2603, estimatedTokens: 651 }], totalCharacters: 2603, totalEstimatedTokens: 651 },
-			skills: {
-				entries: [{ name: "ptp-weekly-ci", description: "x", location: "/x/SKILL.md", characters: 472, estimatedTokens: 118 }],
-				totalCharacters: 472, totalEstimatedTokens: 118, scannedDirectories: ["/home/user/.claude/skills"],
-			},
-			totalEstimatedTokens: 769,
-		});
-		expect(report).toContain("Rules (active, injected every relevant turn): 1 rules · 2603 chars · ~651 tokens");
-		expect(report).toContain("Never mention Papyrus in project docs");
-		expect(report).toContain("Skills (Pi-native catalog, injected at startup): 1 skills · 472 chars · ~118 tokens");
-		expect(report).toContain("ptp-weekly-ci");
-		expect(report).toContain("Scanned: /home/user/.claude/skills");
-		expect(report).toContain("Total passive tax: ~769 tokens across 2 items");
-	});
-
-	it("reports plainly when nothing is found, instead of an empty or confusing section", () => {
-		const report = formatContextBudgetReport({
-			rules: { entries: [], totalCharacters: 0, totalEstimatedTokens: 0 },
-			skills: { entries: [], totalCharacters: 0, totalEstimatedTokens: 0, scannedDirectories: [] },
-			totalEstimatedTokens: 0,
-		});
-		expect(report).toContain("No skill directories found");
-		expect(report).toContain("Total passive tax: ~0 tokens across 0 items");
-	});
-});

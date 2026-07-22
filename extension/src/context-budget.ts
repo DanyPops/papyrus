@@ -5,8 +5,6 @@ import type { Artifact } from "../../src/domain/artifact.ts";
 import { discoverSkillDirectories, scanSkillCatalogFootprint, type SkillCatalogFootprint } from "./skill-catalog-footprint.ts";
 import { ruleInjectionPreview } from "./rules.ts";
 
-const REPORT_MAX_ROWS = 5;
-
 export interface RuleBudgetEntry {
 	id: string;
 	title: string;
@@ -76,6 +74,14 @@ export interface ContextSegment {
 	estimatedTokens: number;
 	/** Drill-down items, when this segment can be broken down further. Absent for "other" -- an opaque remainder, not a real category. */
 	items?: ContextSegmentItem[];
+	/**
+	 * True when this segment's size is genuinely unmeasured (not yet observed), as opposed to
+	 * measured-and-actually-zero. A display layer that hides zero-token rows to cut noise must
+	 * NOT hide an unknown segment just because its placeholder value happens to be zero --
+	 * that would silently misrepresent "we don't know" as "there is nothing here", the same
+	 * category of honesty problem overshootTokens exists to prevent for the unaccounted bucket.
+	 */
+	unknown?: boolean;
 }
 
 /**
@@ -139,7 +145,16 @@ export interface ContextBreakdown {
 	contextWindow: number | null;
 	/** contextWindow - reserveTokens, mirroring Pi's own compaction-trigger formula. Null when contextWindow is unknown. */
 	effectiveBudget: number | null;
-	/** rules, tasks, skills, then "other" absorbing whatever real usage the first three don't account for. */
+	/**
+	 * How much the known/estimated segments (rules+tasks+skills+basePrompt+messageHistory)
+	 * exceed the real total, when they do. Zero means no overshoot. This must stay visible
+	 * rather than only being absorbed into "unaccounted" clamping to zero -- a clamped-to-zero
+	 * unaccounted segment does NOT mean tool definitions and framework overhead are actually
+	 * free; it means this estimate's other segments already consumed the entire real budget on
+	 * paper. Hiding that distinction would make a genuinely nonzero cost look like zero.
+	 */
+	overshootTokens: number;
+	/** rules, tasks, skills, basePrompt, messageHistory, then "other" absorbing whatever real usage the rest don't account for. */
 	segments: ContextSegment[];
 }
 
@@ -148,7 +163,8 @@ export interface BuildContextBreakdownInput {
 	contextWindow: number | null;
 	reserveTokens?: number;
 	ruleBudget: ContextBudget["rules"];
-	taskEstimatedTokens: number;
+	/** Open tasks contributing to the injected task-context summary, each sized individually so the Tasks segment can be drilled into like Rules and Skills. */
+	taskItems: ContextSegmentItem[];
 	skills: SkillCatalogFootprint;
 	/** Pi's own base system prompt size, cached from the last observed before_agent_start turn. Null before any turn has run yet. */
 	basePromptEstimatedTokens: number | null;
@@ -161,11 +177,13 @@ export interface BuildContextBreakdownInput {
  * catalog, cached base-prompt size, and the live session's own message history) against the
  * real total Pi reports, deriving "unaccounted" (tool definitions and framework overhead --
  * genuinely invisible to any extension) as the remainder. The remainder is clamped to zero
- * rather than shown negative: char/4 token estimation is approximate, and a small overshoot
- * in the known segments must not display as a nonsensical negative bucket. When the real
- * total is unavailable, unaccounted is reported as zero and totalTokens surfaces as null so
- * callers can label the whole breakdown as estimate-only rather than silently treating a
- * partial sum as ground truth.
+ * rather than shown negative -- char/4 token estimation is approximate, and a small overshoot
+ * in the known segments must not display as a nonsensical negative bucket -- but the clamp
+ * amount itself is preserved as overshootTokens rather than silently discarded, so a
+ * consumer can tell "genuinely zero" apart from "our other estimates already exceeded the
+ * real total". When the real total is unavailable, unaccounted is reported as zero and
+ * totalTokens surfaces as null so callers can label the whole breakdown as estimate-only
+ * rather than silently treating a partial sum as ground truth.
  */
 export function buildContextBreakdown(input: BuildContextBreakdownInput): ContextBreakdown {
 	const reserveTokens = input.reserveTokens ?? DEFAULT_RESERVE_TOKENS;
@@ -175,7 +193,12 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		estimatedTokens: input.ruleBudget.totalEstimatedTokens,
 		items: input.ruleBudget.entries.map((entry) => ({ label: entry.title, estimatedTokens: entry.estimatedTokens })),
 	};
-	const tasks: ContextSegment = { key: "tasks", label: "Papyrus Tasks", estimatedTokens: input.taskEstimatedTokens };
+	const tasks: ContextSegment = {
+		key: "tasks",
+		label: "Papyrus Tasks",
+		estimatedTokens: input.taskItems.reduce((sum, item) => sum + item.estimatedTokens, 0),
+		items: input.taskItems,
+	};
 	const skills: ContextSegment = {
 		key: "skills",
 		label: "Pi Skills catalog",
@@ -186,6 +209,7 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		key: "basePrompt",
 		label: input.basePromptEstimatedTokens === null ? "Base system prompt (not observed yet)" : "Base system prompt (Pi + host instructions)",
 		estimatedTokens: input.basePromptEstimatedTokens ?? 0,
+		...(input.basePromptEstimatedTokens === null ? { unknown: true } : {}),
 	};
 	const messageHistory: ContextSegment = {
 		key: "messageHistory",
@@ -193,50 +217,21 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		estimatedTokens: input.messageHistoryEstimatedTokens,
 	};
 	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens + basePrompt.estimatedTokens + messageHistory.estimatedTokens;
+	const overshootTokens = input.totalTokens === null ? 0 : Math.max(0, knownTokens - input.totalTokens);
 	const other: ContextSegment = {
 		key: "other",
-		label: "Unaccounted (tool definitions, framework overhead)",
+		label: overshootTokens > 0
+			? `Unaccounted (tool definitions, framework overhead) -- estimate overshoot: other segments' estimates already exceed the real total by ~${overshootTokens} tokens, so this is a floor, not a real zero`
+			: "Unaccounted (tool definitions, framework overhead)",
 		estimatedTokens: input.totalTokens === null ? 0 : Math.max(0, input.totalTokens - knownTokens),
 	};
 	return {
 		totalTokens: input.totalTokens,
 		contextWindow: input.contextWindow,
 		effectiveBudget: input.contextWindow === null ? null : Math.max(0, input.contextWindow - reserveTokens),
+		overshootTokens,
 		segments: [rules, tasks, skills, basePrompt, messageHistory, other],
 	};
 }
 
-function truncate(text: string, max: number): string {
-	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
 
-/** Pure text formatter, independent of live daemon/filesystem state, for direct unit testing. */
-export function formatContextBudgetReport(budget: ContextBudget): string {
-	const lines: string[] = ["Papyrus passive context budget", ""];
-
-	lines.push(`Rules (active, injected every relevant turn): ${budget.rules.entries.length} rules · ${budget.rules.totalCharacters} chars · ~${budget.rules.totalEstimatedTokens} tokens`);
-	if (budget.rules.entries.length > 0) {
-		lines.push("  Largest:");
-		for (const entry of budget.rules.entries.slice(0, REPORT_MAX_ROWS)) {
-			lines.push(`  ${entry.characters.toString().padStart(5)} chars (~${entry.estimatedTokens} tok)  ${truncate(entry.title, 60)}`);
-		}
-	}
-	lines.push("");
-
-	lines.push(`Skills (Pi-native catalog, injected at startup): ${budget.skills.entries.length} skills · ${budget.skills.totalCharacters} chars · ~${budget.skills.totalEstimatedTokens} tokens`);
-	if (budget.skills.entries.length > 0) {
-		lines.push("  Largest:");
-		for (const entry of budget.skills.entries.slice(0, REPORT_MAX_ROWS)) {
-			lines.push(`  ${entry.characters.toString().padStart(5)} chars (~${entry.estimatedTokens} tok)  ${truncate(entry.name, 40)}`);
-		}
-	}
-	if (budget.skills.scannedDirectories.length > 0) {
-		lines.push(`  Scanned: ${budget.skills.scannedDirectories.join(", ")}`);
-	} else {
-		lines.push("  No skill directories found (checked Pi's documented global/project locations and settings.json's skills array).");
-	}
-	lines.push("");
-
-	lines.push(`Total passive tax: ~${budget.totalEstimatedTokens} tokens across ${budget.rules.entries.length + budget.skills.entries.length} items, before a single user message or tool call.`);
-	return lines.join("\n");
-}

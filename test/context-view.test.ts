@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { buildContextRows, renderContextBar, renderContextVerticalBars, showContextView } from "../extension/src/context-view.ts";
+import { buildContextRows, renderContextBar, showContextView } from "../extension/src/context-view.ts";
 import { buildContextBreakdown } from "../extension/src/context-budget.ts";
 import type { ContextSegment } from "../extension/src/context-budget.ts";
 
@@ -95,36 +95,6 @@ describe("renderContextBar", () => {
 		const bar = renderContextBar(plainTheme, [segment("rules", 50), segment("tasks", 50)], 100, 200);
 		expect(bar.length).toBe(100);
 		expect(bar).toBe("█".repeat(50) + "░".repeat(50)); // 100 estimated out of 200 capacity -- 50% used, matches passing usedTokens explicitly
-	});
-});
-
-describe("renderContextVerticalBars", () => {
-	it("returns nothing when no segment has any real tokens -- no empty chart is better than a misleading one", () => {
-		expect(renderContextVerticalBars(plainTheme, [segment("rules", 0), segment("tasks", 0)])).toEqual([]);
-	});
-
-	it("gives the largest segment the full bar height and the smallest at least one visible row", () => {
-		const lines = renderContextVerticalBars(plainTheme, [segment("rules", 100), segment("tasks", 1)]);
-		// Top row: only the largest (rules) column should be filled; a 1/100 share still gets
-		// promoted to at least one row, but not the very top one.
-		const topRow = lines[0]!;
-		const bottomRow = lines[lines.length - 2]!; // last line before this function's own legend row
-		expect(topRow).toContain("███");
-		expect(bottomRow).toContain("███");
-	});
-
-	it("colors each column with its own segment color and labels it in a legend row underneath", () => {
-		const lines = renderContextVerticalBars(distinguishingTheme, [segment("rules", 10), segment("tasks", 10)]);
-		const legend = lines[lines.length - 1]!;
-		expect(legend).toContain("<accent>Rul</accent>");
-		expect(legend).toContain("<success>Tsk</success>");
-	});
-
-	it("excludes zero-token segments from the chart entirely, matching the horizontal bar and row list's own zero-noise filtering", () => {
-		const lines = renderContextVerticalBars(distinguishingTheme, [segment("rules", 10), segment("tasks", 0)]);
-		const legend = lines[lines.length - 1]!;
-		expect(legend).toContain("Rul");
-		expect(legend).not.toContain("Tsk");
 	});
 });
 

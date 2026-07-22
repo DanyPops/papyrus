@@ -62,6 +62,81 @@ export function computeContextBudget(
 	return { rules: ruleBudget, skills, totalEstimatedTokens: ruleBudget.totalEstimatedTokens + skills.totalEstimatedTokens };
 }
 
+/** Pi's own documented compaction-reserve default (docs/compaction.md): headroom kept free for the model's response. */
+export const DEFAULT_RESERVE_TOKENS = 16_384;
+
+export interface ContextSegmentItem {
+	label: string;
+	estimatedTokens: number;
+}
+
+export interface ContextSegment {
+	key: "rules" | "tasks" | "skills" | "other";
+	label: string;
+	estimatedTokens: number;
+	/** Drill-down items, when this segment can be broken down further. Absent for "other" -- an opaque remainder, not a real category. */
+	items?: ContextSegmentItem[];
+}
+
+export interface ContextBreakdown {
+	/** Real usage from ctx.getContextUsage() -- ground truth, not estimated. Null only when Pi has no usage yet (e.g. before the first turn). */
+	totalTokens: number | null;
+	/** From ctx.model.contextWindow. Null when the active model's context window is unknown. */
+	contextWindow: number | null;
+	/** contextWindow - reserveTokens, mirroring Pi's own compaction-trigger formula. Null when contextWindow is unknown. */
+	effectiveBudget: number | null;
+	/** rules, tasks, skills, then "other" absorbing whatever real usage the first three don't account for. */
+	segments: ContextSegment[];
+}
+
+export interface BuildContextBreakdownInput {
+	totalTokens: number | null;
+	contextWindow: number | null;
+	reserveTokens?: number;
+	ruleBudget: ContextBudget["rules"];
+	taskEstimatedTokens: number;
+	skills: SkillCatalogFootprint;
+}
+
+/**
+ * Composes Papyrus's own estimated segments (rules/tasks/skills) against the real total Pi
+ * reports, deriving "everything else" (base system prompt, message history, tool definitions
+ * -- none of which Papyrus can see or estimate) as the remainder. The remainder is clamped to
+ * zero rather than shown negative: char/4 token estimation is approximate, and a small
+ * overshoot in the known segments must not display as a nonsensical negative "other" bucket.
+ * When the real total is unavailable, "other" is reported as zero and totalTokens surfaces as
+ * null so callers can label the whole breakdown as estimate-only rather than silently treating
+ * a partial sum as ground truth.
+ */
+export function buildContextBreakdown(input: BuildContextBreakdownInput): ContextBreakdown {
+	const reserveTokens = input.reserveTokens ?? DEFAULT_RESERVE_TOKENS;
+	const rules: ContextSegment = {
+		key: "rules",
+		label: "Papyrus Rules",
+		estimatedTokens: input.ruleBudget.totalEstimatedTokens,
+		items: input.ruleBudget.entries.map((entry) => ({ label: entry.title, estimatedTokens: entry.estimatedTokens })),
+	};
+	const tasks: ContextSegment = { key: "tasks", label: "Papyrus Tasks", estimatedTokens: input.taskEstimatedTokens };
+	const skills: ContextSegment = {
+		key: "skills",
+		label: "Pi Skills catalog",
+		estimatedTokens: input.skills.totalEstimatedTokens,
+		items: input.skills.entries.map((entry) => ({ label: entry.name, estimatedTokens: entry.estimatedTokens })),
+	};
+	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens;
+	const other: ContextSegment = {
+		key: "other",
+		label: "Everything else (base prompt, message history, tool definitions)",
+		estimatedTokens: input.totalTokens === null ? 0 : Math.max(0, input.totalTokens - knownTokens),
+	};
+	return {
+		totalTokens: input.totalTokens,
+		contextWindow: input.contextWindow,
+		effectiveBudget: input.contextWindow === null ? null : Math.max(0, input.contextWindow - reserveTokens),
+		segments: [rules, tasks, skills, other],
+	};
+}
+
 function truncate(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }

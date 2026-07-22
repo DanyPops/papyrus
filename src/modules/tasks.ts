@@ -90,7 +90,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.scope", "tasks.set_scope", "tasks.assign_project", "tasks.active", "tasks.focused", "tasks.focus",
 	"tasks.pause", "tasks.unpause", "tasks.clear_focus", "tasks.start", "tasks.submit", "tasks.complete",
 	"tasks.run_gates", "tasks.set_checklist", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel",
-	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain",
+	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain", "tasks.reap_stale_focus",
 ] as const;
 
 export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionIdentity: SessionIdentity): OperationDefinition[] {
@@ -151,6 +151,7 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		define("tasks.pause", (input: OperationInput) => { guardFocusMutation(input); return tasks.pauseFocus(eventContext(input)); }),
 		define("tasks.unpause", (input: OperationInput) => { guardFocusMutation(input); return tasks.unpauseFocus(eventContext(input)); }),
 		define("tasks.clear_focus", (input: OperationInput) => { guardFocusMutation(input); return tasks.clearFocus(eventContext(input)); }),
+		define("tasks.reap_stale_focus", () => ({ removed: tasks.reapStaleFocus() })),
 		define("tasks.start", (input: OperationInput) => tasks.transition(string(input, "id"), "start", eventContext(input))),
 		define("tasks.submit", (input: OperationInput) => tasks.transition(string(input, "id"), "submit", eventContext(input))),
 		define("tasks.complete", (input: OperationInput) => tasks.completeAsync(string(input, "id"), eventContext(input))),

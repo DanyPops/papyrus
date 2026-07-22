@@ -122,6 +122,7 @@ const USAGE = `Usage:
   papyrus tasks pause [--session-id <id>] [--session-secret <secret>] [--json]
   papyrus tasks unpause [--session-id <id>] [--session-secret <secret>] [--json]
   papyrus tasks clear-focus [--session-id <id>] [--session-secret <secret>] [--json]
+  papyrus tasks reap-stale-focus [--json]
   papyrus tasks history <id> [--json]
   papyrus tasks scope [project|all|graph <root-id>] [--json]
   papyrus tasks assign-project <id> [project-root] [--json]
@@ -1117,6 +1118,13 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			const cleared = await client.call<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
 			result = cleared;
 			human = cleared.cleared ? "Task focus cleared." : "No focused task.";
+			break;
+		}
+		case "reap-stale-focus": {
+			if (id) throw new Error("tasks reap-stale-focus accepts no positional arguments");
+			const reaped = await client.call<Record<string, unknown>, { removed: number }>("tasks.reap_stale_focus", {});
+			result = reaped;
+			human = `Reaped ${reaped.removed} stale Focus scope(s).`;
 			break;
 		}
 		case "create": {

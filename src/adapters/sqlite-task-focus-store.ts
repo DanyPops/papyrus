@@ -31,6 +31,10 @@ export class SQLiteTaskFocusStore implements TaskFocusStore {
 		});
 	}
 
+	reapStale(olderThanIso: string): number {
+		return this.db.prepare("DELETE FROM task_focus WHERE updated_at < ?").run(olderThanIso).changes;
+	}
+
 	private transition(taskId: string, expected: TaskFocusStatus, status: TaskFocusStatus, reason: string | undefined, scope: string | undefined): TaskFocusState {
 		const current = this.get(scope);
 		if (current?.taskId !== taskId) throw new Error(`task "${taskId}" is not focused`);

@@ -9,6 +9,8 @@ const SEGMENT_COLORS: Record<ContextSegment["key"], ThemeColor> = {
 	rules: "accent",
 	tasks: "success",
 	skills: "mdLink",
+	basePrompt: "warning",
+	messageHistory: "syntaxFunction",
 	other: "muted",
 };
 
@@ -148,16 +150,19 @@ class ContextViewport {
 	}
 }
 
-/** Non-interactive fallback (print mode, RPC, etc.) reuses the existing plain-text report shape. */
+/** Non-interactive fallback (print mode, RPC, etc.): every segment listed plainly, plus the existing per-rule/per-skill breakdown for the two segments that support drill-down. */
 function fallbackReport(breakdown: ContextBreakdown, ruleBudget: ContextBudget["rules"]): string {
-	const skillsSegment = breakdown.segments.find((segment) => segment.key === "skills");
-	const other = breakdown.segments.find((segment) => segment.key === "other")!;
 	const totalLine = breakdown.totalTokens !== null
 		? `Real usage: ${breakdown.totalTokens} tokens${breakdown.effectiveBudget !== null ? ` / ${breakdown.effectiveBudget} usable budget (${percentOf(breakdown.totalTokens, breakdown.effectiveBudget)})` : ""}`
 		: "Real usage: not yet reported";
+	const denominator = breakdown.totalTokens ?? breakdown.segments.reduce((sum, segment) => sum + segment.estimatedTokens, 0);
+	const segmentLines = breakdown.segments.map((segment) => `  ${segment.estimatedTokens.toString().padStart(7)} tok  ${percentOf(segment.estimatedTokens, denominator).padStart(5)}  ${segment.label}`);
+	const skillsSegment = breakdown.segments.find((segment) => segment.key === "skills");
 	return [
 		totalLine,
-		`Everything else (base prompt, message history, tool defs): ~${other.estimatedTokens} tokens`,
+		"",
+		"Segments:",
+		...segmentLines,
 		"",
 		formatContextBudgetReport({ rules: ruleBudget, skills: { entries: [], totalCharacters: 0, totalEstimatedTokens: skillsSegment?.estimatedTokens ?? 0, scannedDirectories: [] }, totalEstimatedTokens: ruleBudget.totalEstimatedTokens }),
 	].join("\n");

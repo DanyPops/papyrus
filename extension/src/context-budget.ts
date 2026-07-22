@@ -71,11 +71,65 @@ export interface ContextSegmentItem {
 }
 
 export interface ContextSegment {
-	key: "rules" | "tasks" | "skills" | "other";
+	key: "rules" | "tasks" | "skills" | "basePrompt" | "messageHistory" | "other";
 	label: string;
 	estimatedTokens: number;
 	/** Drill-down items, when this segment can be broken down further. Absent for "other" -- an opaque remainder, not a real category. */
 	items?: ContextSegmentItem[];
+}
+
+/**
+ * Session branch entries as SessionManager exposes them (docs/session-format.md): a subset
+ * covering only the fields this estimate reads, so this stays testable with plain object
+ * literals instead of importing pi's own session types.
+ */
+export interface SessionBranchEntryLike {
+	type: string;
+	message?: unknown;
+	summary?: string;
+}
+
+function messageContentCharacters(message: unknown): number {
+	if (typeof message !== "object" || message === null) return 0;
+	const record = message as Record<string, unknown>;
+	if (record["role"] === "bashExecution") {
+		// Pi's own context builder excludes "!!"-prefixed bash output from context; match that.
+		if (record["excludeFromContext"] === true) return 0;
+		return String(record["command"] ?? "").length + String(record["output"] ?? "").length;
+	}
+	const content = record["content"];
+	if (typeof content === "string") return content.length;
+	if (!Array.isArray(content)) return 0;
+	let characters = 0;
+	for (const block of content) {
+		if (typeof block !== "object" || block === null) continue;
+		const b = block as Record<string, unknown>;
+		if (b["type"] === "text") characters += String(b["text"] ?? "").length;
+		else if (b["type"] === "thinking") characters += String(b["thinking"] ?? "").length;
+		else if (b["type"] === "toolCall") characters += JSON.stringify(b["arguments"] ?? {}).length;
+		// "image" blocks are deliberately not counted here -- image tokens follow a different,
+		// non-character-based cost model this char/4 estimate cannot represent; this is a real,
+		// documented undercount for image-heavy sessions, not a silent approximation.
+	}
+	return characters;
+}
+
+/**
+ * Estimates the conversation transcript's own context contribution by walking the actual
+ * session branch (docs/session-format.md's buildSessionContext(): message/compaction/
+ * branch_summary entries participate in context, plain "custom" entries do not). This is
+ * character-count estimation like every other Papyrus segment here, not exact -- but it is
+ * real session content, not a guess, and in a long-running session this is very likely the
+ * dominant contributor to "the base prompt, message history, and tool definitions" bucket
+ * that would otherwise stay fully opaque.
+ */
+export function estimateMessageHistoryTokens(branch: ReadonlyArray<SessionBranchEntryLike>): number {
+	let characters = 0;
+	for (const entry of branch) {
+		if (entry.type === "message") characters += messageContentCharacters(entry.message);
+		else if (entry.type === "compaction" || entry.type === "branch_summary") characters += (entry.summary ?? "").length;
+	}
+	return Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
 }
 
 export interface ContextBreakdown {
@@ -96,17 +150,22 @@ export interface BuildContextBreakdownInput {
 	ruleBudget: ContextBudget["rules"];
 	taskEstimatedTokens: number;
 	skills: SkillCatalogFootprint;
+	/** Pi's own base system prompt size, cached from the last observed before_agent_start turn. Null before any turn has run yet. */
+	basePromptEstimatedTokens: number | null;
+	/** From estimateMessageHistoryTokens() against the live session branch. */
+	messageHistoryEstimatedTokens: number;
 }
 
 /**
- * Composes Papyrus's own estimated segments (rules/tasks/skills) against the real total Pi
- * reports, deriving "everything else" (base system prompt, message history, tool definitions
- * -- none of which Papyrus can see or estimate) as the remainder. The remainder is clamped to
- * zero rather than shown negative: char/4 token estimation is approximate, and a small
- * overshoot in the known segments must not display as a nonsensical negative "other" bucket.
- * When the real total is unavailable, "other" is reported as zero and totalTokens surfaces as
- * null so callers can label the whole breakdown as estimate-only rather than silently treating
- * a partial sum as ground truth.
+ * Composes every segment Papyrus can actually measure or estimate (rules, tasks, skills
+ * catalog, cached base-prompt size, and the live session's own message history) against the
+ * real total Pi reports, deriving "unaccounted" (tool definitions and framework overhead --
+ * genuinely invisible to any extension) as the remainder. The remainder is clamped to zero
+ * rather than shown negative: char/4 token estimation is approximate, and a small overshoot
+ * in the known segments must not display as a nonsensical negative bucket. When the real
+ * total is unavailable, unaccounted is reported as zero and totalTokens surfaces as null so
+ * callers can label the whole breakdown as estimate-only rather than silently treating a
+ * partial sum as ground truth.
  */
 export function buildContextBreakdown(input: BuildContextBreakdownInput): ContextBreakdown {
 	const reserveTokens = input.reserveTokens ?? DEFAULT_RESERVE_TOKENS;
@@ -123,17 +182,27 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		estimatedTokens: input.skills.totalEstimatedTokens,
 		items: input.skills.entries.map((entry) => ({ label: entry.name, estimatedTokens: entry.estimatedTokens })),
 	};
-	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens;
+	const basePrompt: ContextSegment = {
+		key: "basePrompt",
+		label: input.basePromptEstimatedTokens === null ? "Base system prompt (not observed yet)" : "Base system prompt (Pi + host instructions)",
+		estimatedTokens: input.basePromptEstimatedTokens ?? 0,
+	};
+	const messageHistory: ContextSegment = {
+		key: "messageHistory",
+		label: "Conversation message history",
+		estimatedTokens: input.messageHistoryEstimatedTokens,
+	};
+	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens + basePrompt.estimatedTokens + messageHistory.estimatedTokens;
 	const other: ContextSegment = {
 		key: "other",
-		label: "Everything else (base prompt, message history, tool definitions)",
+		label: "Unaccounted (tool definitions, framework overhead)",
 		estimatedTokens: input.totalTokens === null ? 0 : Math.max(0, input.totalTokens - knownTokens),
 	};
 	return {
 		totalTokens: input.totalTokens,
 		contextWindow: input.contextWindow,
 		effectiveBudget: input.contextWindow === null ? null : Math.max(0, input.contextWindow - reserveTokens),
-		segments: [rules, tasks, skills, other],
+		segments: [rules, tasks, skills, basePrompt, messageHistory, other],
 	};
 }
 

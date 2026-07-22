@@ -33,14 +33,19 @@ export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
 /**
  * Bounds for walking Pi's real session tree (getTree()) and Papyrus's own Task containment
  * tree when estimating /context's message-history and task segments. Both are genuine trees
- * built from external, mutable state (a session file; the live Task graph) -- depth and
- * total-node bounds are a defensive measure against a corrupted/adversarial parentId chain
- * forming an accidental cycle, matching the same cycle-safety discipline already applied to
- * ConversationJournal traversal and deliberately hardening past a real, confirmed gap in
- * Pi's own getBranch() (no cycle guard at all).
+ * built from external, mutable state (a session file; the live Task graph) -- the node bound
+ * is a defensive measure against a corrupted/adversarial parentId chain forming an accidental
+ * cycle, matching the same cycle-safety discipline already applied to ConversationJournal
+ * traversal and deliberately hardening past a real, confirmed gap in Pi's own getBranch() (no
+ * cycle guard at all). Set generously: a real, ordinary (non-branching) long-running session
+ * is one long linear chain, so a naively small bound truncates the walk after counting only a
+ * small fraction of the real conversation -- a session observed in production with 6,924
+ * entries on its own active branch confirmed an earlier, much smaller bound did exactly that,
+ * making the derived "unaccounted" remainder balloon to absorb almost the entire real total.
+ * The walk itself is iterative (an explicit stack), not recursive, specifically so a chain
+ * this long cannot also risk a real JavaScript call-stack overflow independent of this bound.
  */
-export const CONTEXT_TREE_MAX_DEPTH = 200;
-export const CONTEXT_TREE_MAX_NODES = 2000;
+export const CONTEXT_TREE_MAX_NODES = 50_000;
 
 /**
  * A Papyrus Rule's condition+action+body is injected into EVERY relevant turn's system

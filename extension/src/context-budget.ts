@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
-import { CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_DEPTH, CONTEXT_TREE_MAX_NODES } from "../../src/constants.ts";
+import { CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_NODES } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { TaskGraph } from "../../src/task-service.ts";
 import { discoverSkillDirectories, scanSkillCatalogFootprint, type SkillCatalogFootprint } from "./skill-catalog-footprint.ts";
@@ -162,7 +162,7 @@ export interface MessageHistoryTree {
 	items: ContextSegmentItem[];
 	/** Sum of tokens for entries on the CURRENT active path only -- what actually feeds the LLM's context right now, unlike content sitting in an abandoned /tree branch. */
 	activeTokens: number;
-	/** True if the walk hit CONTEXT_TREE_MAX_DEPTH or CONTEXT_TREE_MAX_NODES, or found a cycle -- the tree shown is a bounded prefix, not necessarily the complete session. */
+	/** True if the walk hit CONTEXT_TREE_MAX_NODES or found a cycle -- the tree shown is a bounded prefix, not necessarily the complete session. */
 	truncated: boolean;
 }
 
@@ -171,24 +171,49 @@ export interface MessageHistoryTree {
  * entries form a genuine tree via id/parentId, not just the linear current-branch path) to
  * estimate the conversation's context contribution AND surface branches explored via /tree
  * that are no longer on the active path -- content that cost real tokens to generate but is
- * NOT currently part of the context window. Bounded and cycle-safe (CONTEXT_TREE_MAX_DEPTH /
- * CONTEXT_TREE_MAX_NODES): a session file is external, mutable state, and this deliberately
+ * NOT currently part of the context window. Bounded and cycle-safe (CONTEXT_TREE_MAX_NODES):
+ * a session file is external, mutable state, and this deliberately
  * hardens past a confirmed real gap in Pi's own getBranch() (no cycle guard at all) rather
  * than assuming the tree can never be malformed.
+ */
+interface WalkFrame {
+	node: SessionTreeNodeLike;
+	parentIndex: number | null;
+}
+
+/**
+ * Iterative (not recursive) two-pass walk: an explicit-stack pre-order discovery pass
+ * followed by a reverse-order (children-before-parent) construction pass. A real, ordinary
+ * (non-branching) long-running session is one long linear chain, so recursion depth would
+ * equal entry count -- a session observed in production with 6,924 entries on its own active
+ * branch confirmed this is not a hypothetical concern; a naive recursive walk risks a real
+ * JavaScript call-stack overflow at that scale, independent of the CONTEXT_TREE_MAX_NODES
+ * bound entirely.
  */
 export function buildMessageHistoryTree(roots: ReadonlyArray<SessionTreeNodeLike>, activeEntryIds: ReadonlySet<string>): MessageHistoryTree {
 	const visited = new Set<string>();
 	let truncated = false;
 	let activeTokens = 0;
-	let nodesVisited = 0;
 
-	function visit(node: SessionTreeNodeLike, depth: number): ContextSegmentItem | null {
-		if (nodesVisited >= CONTEXT_TREE_MAX_NODES || depth > CONTEXT_TREE_MAX_DEPTH) { truncated = true; return null; }
-		if (visited.has(node.entry.id)) { truncated = true; return null; } // cycle guard
-		visited.add(node.entry.id);
-		nodesVisited++;
+	const order: WalkFrame[] = [];
+	const stack: WalkFrame[] = [...roots].reverse().map((root) => ({ node: root, parentIndex: null }));
+	while (stack.length > 0) {
+		const frame = stack.pop()!;
+		if (order.length >= CONTEXT_TREE_MAX_NODES) { truncated = true; break; }
+		if (visited.has(frame.node.entry.id)) { truncated = true; continue; } // cycle guard
+		visited.add(frame.node.entry.id);
+		const index = order.length;
+		order.push(frame);
+		const children = [...frame.node.children].reverse().map((child) => ({ node: child, parentIndex: index }));
+		stack.push(...children);
+	}
+	if (stack.length > 0) truncated = true; // node bound hit with more work still queued
 
-		const entry = node.entry;
+	const childItemsByParent = new Map<number, ContextSegmentItem[]>();
+	const itemByIndex = new Map<number, ContextSegmentItem>();
+	for (let index = order.length - 1; index >= 0; index--) {
+		const frame = order[index]!;
+		const entry = frame.node.entry;
 		const characters = entry.type === "message"
 			? messageContentCharacters(entry.message)
 			: entry.type === "compaction" || entry.type === "branch_summary"
@@ -198,19 +223,29 @@ export function buildMessageHistoryTree(roots: ReadonlyArray<SessionTreeNodeLike
 		const isActive = activeEntryIds.has(entry.id);
 		if (isActive) activeTokens += tokens;
 
-		const children = node.children
-			.map((child) => visit(child, depth + 1))
-			.filter((item): item is ContextSegmentItem => item !== null);
-		if (tokens === 0 && children.length === 0) return null; // no content, no descendants with content -- nothing to show
+		const children = childItemsByParent.get(index) ?? [];
+		if (tokens === 0 && children.length === 0) continue; // no content, no descendants with content -- nothing to show
 
-		return {
+		const item: ContextSegmentItem = {
 			label: isActive ? entryLabel(entry) : `${entryLabel(entry)} (inactive branch)`,
 			estimatedTokens: tokens,
 			...(children.length > 0 ? { children } : {}),
 		};
+		itemByIndex.set(index, item);
+		if (frame.parentIndex !== null) {
+			const siblings = childItemsByParent.get(frame.parentIndex) ?? [];
+			siblings.unshift(item); // reverse-order processing -- unshift restores original document order
+			childItemsByParent.set(frame.parentIndex, siblings);
+		}
 	}
 
-	const items = roots.map((root) => visit(root, 0)).filter((item): item is ContextSegmentItem => item !== null);
+	const items: ContextSegmentItem[] = [];
+	for (let index = 0; index < order.length; index++) {
+		if (order[index]!.parentIndex === null) {
+			const item = itemByIndex.get(index);
+			if (item) items.push(item);
+		}
+	}
 	return { items, activeTokens, truncated };
 }
 
@@ -267,30 +302,64 @@ function sumItemTree(items: ContextSegmentItem[]): number {
  * (extension/src/task-widget.ts) for the identical multi-parent-DAG-in-a-bounded-view
  * problem, not a new inconsistency.
  */
+interface TaskWalkFrame {
+	taskId: string;
+	parentIndex: number | null;
+}
+
+/** Same iterative two-pass shape as buildMessageHistoryTree, for the same reason: don't assume containment depth stays small just because it usually does. */
 export function buildTaskItemTree(graph: TaskGraph): ContextSegmentItem[] {
 	const byId = new Map(graph.nodes.map((node) => [node.task.id, node]));
 	const openIds = new Set(graph.nodes.filter((node) => node.task.status !== "done" && node.task.status !== "canceled").map((node) => node.task.id));
 	const visited = new Set<string>();
 
-	function visit(id: string, depth: number): ContextSegmentItem | null {
-		if (depth > CONTEXT_TREE_MAX_DEPTH || visited.size >= CONTEXT_TREE_MAX_NODES || visited.has(id) || !openIds.has(id)) return null;
-		visited.add(id);
-		const node = byId.get(id);
-		if (!node) return null;
-		const characters = node.task.title.length + node.task.body.length;
-		const tokens = Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
-		const children = node.childIds
-			.filter((childId) => openIds.has(childId))
-			.map((childId) => visit(childId, depth + 1))
-			.filter((item): item is ContextSegmentItem => item !== null);
-		return { label: node.task.title, estimatedTokens: tokens, ...(children.length > 0 ? { children } : {}) };
-	}
-
 	const rootIds = [...openIds].filter((id) => {
 		const node = byId.get(id)!;
 		return node.parentIds.length === 0 || !node.parentIds.some((parentId) => openIds.has(parentId));
 	});
-	return rootIds.map((id) => visit(id, 0)).filter((item): item is ContextSegmentItem => item !== null);
+
+	const order: TaskWalkFrame[] = [];
+	const stack: TaskWalkFrame[] = [...rootIds].reverse().map((taskId) => ({ taskId, parentIndex: null }));
+	while (stack.length > 0) {
+		const frame = stack.pop()!;
+		if (order.length >= CONTEXT_TREE_MAX_NODES) break;
+		if (visited.has(frame.taskId) || !openIds.has(frame.taskId)) continue; // cycle guard + open-only filter
+		visited.add(frame.taskId);
+		const index = order.length;
+		order.push(frame);
+		const node = byId.get(frame.taskId);
+		const children = [...(node?.childIds ?? [])].reverse()
+			.filter((childId) => openIds.has(childId))
+			.map((childId) => ({ taskId: childId, parentIndex: index }));
+		stack.push(...children);
+	}
+
+	const childItemsByParent = new Map<number, ContextSegmentItem[]>();
+	const itemByIndex = new Map<number, ContextSegmentItem>();
+	for (let index = order.length - 1; index >= 0; index--) {
+		const frame = order[index]!;
+		const node = byId.get(frame.taskId);
+		if (!node) continue;
+		const characters = node.task.title.length + node.task.body.length;
+		const tokens = Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
+		const children = childItemsByParent.get(index) ?? [];
+		const item: ContextSegmentItem = { label: node.task.title, estimatedTokens: tokens, ...(children.length > 0 ? { children } : {}) };
+		itemByIndex.set(index, item);
+		if (frame.parentIndex !== null) {
+			const siblings = childItemsByParent.get(frame.parentIndex) ?? [];
+			siblings.unshift(item);
+			childItemsByParent.set(frame.parentIndex, siblings);
+		}
+	}
+
+	const items: ContextSegmentItem[] = [];
+	for (let index = 0; index < order.length; index++) {
+		if (order[index]!.parentIndex === null) {
+			const item = itemByIndex.get(index);
+			if (item) items.push(item);
+		}
+	}
+	return items;
 }
 
 /**

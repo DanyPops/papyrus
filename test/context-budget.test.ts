@@ -321,6 +321,13 @@ describe("buildContextBreakdown", () => {
 		expect(other.estimatedTokens).toBe(10_000 - (100 + 0 + 50 + 500 + 8000));
 	});
 
+	it("carries the structural base-prompt sub-breakdown as items when provided, for drill-down in /context", () => {
+		const basePromptItems = [{ label: "Tool snippets (4 tools)", estimatedTokens: 120 }, { label: "Base template, guidelines, and formatting", estimatedTokens: 380 }];
+		const breakdown = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 500, basePromptItems, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
+		const basePrompt = breakdown.segments.find((segment) => segment.key === "basePrompt")!;
+		expect(basePrompt.items).toEqual(basePromptItems);
+	});
+
 	it("labels the base prompt segment as not-yet-observed when its size is unknown, rather than silently showing zero as if it were measured", () => {
 		const unobserved = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(unobserved.segments.find((segment) => segment.key === "basePrompt")!.label).toContain("not observed yet");

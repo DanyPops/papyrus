@@ -295,6 +295,8 @@ export interface BuildContextBreakdownInput {
 	skills: SkillCatalogFootprint;
 	/** Pi's own base system prompt size, cached from the last observed before_agent_start turn. Null before any turn has run yet. */
 	basePromptEstimatedTokens: number | null;
+	/** Structural sub-breakdown (tool snippets, Skills, context files, template remainder) from the same cached observation, built by buildBasePromptItems(). Empty when basePromptEstimatedTokens is null. */
+	basePromptItems?: ContextSegmentItem[];
 	/** From buildMessageHistoryTree() against the live session's real tree (ctx.sessionManager.getTree()). */
 	messageHistoryItems: ContextSegmentItem[];
 	/** buildMessageHistoryTree()'s activeTokens -- only entries on the current active path count toward the segment total; an abandoned /tree branch still appears in messageHistoryItems but contributes zero here. */
@@ -416,6 +418,7 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		label: input.basePromptEstimatedTokens === null ? "Base system prompt (not observed yet)" : "Base system prompt (Pi + host instructions)",
 		estimatedTokens: input.basePromptEstimatedTokens ?? 0,
 		...(input.basePromptEstimatedTokens === null ? { unknown: true } : {}),
+		...(input.basePromptItems && input.basePromptItems.length > 0 ? { items: input.basePromptItems } : {}),
 	};
 	const messageHistory: ContextSegment = {
 		key: "messageHistory",

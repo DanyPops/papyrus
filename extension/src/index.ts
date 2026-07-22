@@ -27,7 +27,8 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
+import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, type ContextSegmentItem, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
+import { buildBasePromptItems } from "./base-prompt-breakdown.ts";
 import { showContextView } from "./context-view.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -164,8 +165,12 @@ export default async function (pi: ExtensionAPI) {
 	// Cached from the most recent before_agent_start observation: Pi's own base system prompt
 	// is only ever visible transiently inside that hook's event.systemPrompt, so /context
 	// reuses the size buildContextInjection already computes every turn rather than going
-	// without it entirely.
+	// without it entirely. basePromptItems is the structural sub-breakdown built from the same
+	// event's systemPromptOptions field ("Extensions can inspect this to understand what Pi
+	// loaded without re-discovering resources", per Pi's own doc comment) -- no new hook, no new
+	// risk, just reading a field before_agent_start already hands over.
 	let lastObservedBasePromptTokens: number | null = null;
+	let lastObservedBasePromptItems: ContextSegmentItem[] = [];
 	const taskContinuation = new ActiveTaskContinuation({
 		maxTurns: TASK_DRIVER_MAX_TURNS,
 		maxUnchangedTurns: TASK_DRIVER_MAX_UNCHANGED_TURNS,
@@ -480,6 +485,7 @@ export default async function (pi: ExtensionAPI) {
 					taskItems: buildTaskItemTree(taskGraph),
 					skills,
 					basePromptEstimatedTokens: lastObservedBasePromptTokens,
+					basePromptItems: lastObservedBasePromptItems,
 					messageHistoryItems: messageHistory.items,
 					messageHistoryActiveTokens: messageHistory.activeTokens,
 				});
@@ -559,6 +565,7 @@ export default async function (pi: ExtensionAPI) {
 			});
 			previousContextInjectionFingerprint = injection.observation.fingerprint;
 			lastObservedBasePromptTokens = Math.ceil(injection.observation.before.characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
+			lastObservedBasePromptItems = buildBasePromptItems(event.systemPromptOptions, injection.observation.before.characters);
 			pi.events.emit(PAPYRUS_CONTEXT_INJECTION_CHANNEL, injection.observation);
 			if (injection.prompt !== (event.systemPrompt ?? "")) return { systemPrompt: injection.prompt };
 		} catch {

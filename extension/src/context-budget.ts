@@ -1,7 +1,8 @@
 import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
-import { CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN } from "../../src/constants.ts";
+import { CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_DEPTH, CONTEXT_TREE_MAX_NODES } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
+import type { TaskGraph } from "../../src/task-service.ts";
 import { discoverSkillDirectories, scanSkillCatalogFootprint, type SkillCatalogFootprint } from "./skill-catalog-footprint.ts";
 import { ruleInjectionPreview } from "./rules.ts";
 
@@ -66,6 +67,13 @@ export const DEFAULT_RESERVE_TOKENS = 16_384;
 export interface ContextSegmentItem {
 	label: string;
 	estimatedTokens: number;
+	/**
+	 * Recursive children, when this item has real hierarchy of its own -- conversation history
+	 * (Pi's session entries form a genuine tree via id/parentId, docs/session-format.md) and
+	 * Papyrus Tasks (containment via parentIds/childIds) both do; Rules and Skills don't, so
+	 * their items simply omit this field, degenerating to a flat one-level tree.
+	 */
+	children?: ContextSegmentItem[];
 }
 
 export interface ContextSegment {
@@ -85,14 +93,20 @@ export interface ContextSegment {
 }
 
 /**
- * Session branch entries as SessionManager exposes them (docs/session-format.md): a subset
- * covering only the fields this estimate reads, so this stays testable with plain object
- * literals instead of importing pi's own session types.
+ * Session entries and tree nodes as SessionManager exposes them (docs/session-format.md,
+ * SessionTreeNode from @earendil-works/pi-coding-agent): a subset covering only the fields
+ * this estimate reads, so this stays testable with plain object literals instead of
+ * importing pi's own session types.
  */
-export interface SessionBranchEntryLike {
+export interface SessionEntryLike {
+	id: string;
 	type: string;
 	message?: unknown;
 	summary?: string;
+}
+export interface SessionTreeNodeLike {
+	entry: SessionEntryLike;
+	children: SessionTreeNodeLike[];
 }
 
 function messageContentCharacters(message: unknown): number {
@@ -120,22 +134,84 @@ function messageContentCharacters(message: unknown): number {
 	return characters;
 }
 
+function messageSnippet(message: unknown, maxLength = 48): string {
+	if (typeof message !== "object" || message === null) return "";
+	const record = message as Record<string, unknown>;
+	if (record["role"] === "bashExecution") return String(record["command"] ?? "");
+	const content = record["content"];
+	const text = typeof content === "string"
+		? content
+		: Array.isArray(content)
+			? content.map((block) => (typeof block === "object" && block !== null && (block as Record<string, unknown>)["type"] === "text" ? String((block as Record<string, unknown>)["text"] ?? "") : "")).join(" ")
+			: "";
+	const collapsed = text.replace(/\s+/g, " ").trim();
+	return collapsed.length > maxLength ? `${collapsed.slice(0, maxLength - 1)}…` : collapsed;
+}
+
+function entryLabel(entry: SessionEntryLike): string {
+	if (entry.type === "compaction") return "compaction summary";
+	if (entry.type === "branch_summary") return "branch summary";
+	const role = typeof entry.message === "object" && entry.message !== null ? (entry.message as Record<string, unknown>)["role"] : undefined;
+	const prefix = typeof role === "string" ? role : entry.type;
+	const snippet = messageSnippet(entry.message);
+	return snippet ? `${prefix}: ${snippet}` : prefix;
+}
+
+export interface MessageHistoryTree {
+	/** One item per real tree root (ordinarily one, the session's first entry). */
+	items: ContextSegmentItem[];
+	/** Sum of tokens for entries on the CURRENT active path only -- what actually feeds the LLM's context right now, unlike content sitting in an abandoned /tree branch. */
+	activeTokens: number;
+	/** True if the walk hit CONTEXT_TREE_MAX_DEPTH or CONTEXT_TREE_MAX_NODES, or found a cycle -- the tree shown is a bounded prefix, not necessarily the complete session. */
+	truncated: boolean;
+}
+
 /**
- * Estimates the conversation transcript's own context contribution by walking the actual
- * session branch (docs/session-format.md's buildSessionContext(): message/compaction/
- * branch_summary entries participate in context, plain "custom" entries do not). This is
- * character-count estimation like every other Papyrus segment here, not exact -- but it is
- * real session content, not a guess, and in a long-running session this is very likely the
- * dominant contributor to "the base prompt, message history, and tool definitions" bucket
- * that would otherwise stay fully opaque.
+ * Walks Pi's own real session tree (ctx.sessionManager.getTree(), docs/session-format.md --
+ * entries form a genuine tree via id/parentId, not just the linear current-branch path) to
+ * estimate the conversation's context contribution AND surface branches explored via /tree
+ * that are no longer on the active path -- content that cost real tokens to generate but is
+ * NOT currently part of the context window. Bounded and cycle-safe (CONTEXT_TREE_MAX_DEPTH /
+ * CONTEXT_TREE_MAX_NODES): a session file is external, mutable state, and this deliberately
+ * hardens past a confirmed real gap in Pi's own getBranch() (no cycle guard at all) rather
+ * than assuming the tree can never be malformed.
  */
-export function estimateMessageHistoryTokens(branch: ReadonlyArray<SessionBranchEntryLike>): number {
-	let characters = 0;
-	for (const entry of branch) {
-		if (entry.type === "message") characters += messageContentCharacters(entry.message);
-		else if (entry.type === "compaction" || entry.type === "branch_summary") characters += (entry.summary ?? "").length;
+export function buildMessageHistoryTree(roots: ReadonlyArray<SessionTreeNodeLike>, activeEntryIds: ReadonlySet<string>): MessageHistoryTree {
+	const visited = new Set<string>();
+	let truncated = false;
+	let activeTokens = 0;
+	let nodesVisited = 0;
+
+	function visit(node: SessionTreeNodeLike, depth: number): ContextSegmentItem | null {
+		if (nodesVisited >= CONTEXT_TREE_MAX_NODES || depth > CONTEXT_TREE_MAX_DEPTH) { truncated = true; return null; }
+		if (visited.has(node.entry.id)) { truncated = true; return null; } // cycle guard
+		visited.add(node.entry.id);
+		nodesVisited++;
+
+		const entry = node.entry;
+		const characters = entry.type === "message"
+			? messageContentCharacters(entry.message)
+			: entry.type === "compaction" || entry.type === "branch_summary"
+				? (entry.summary ?? "").length
+				: 0;
+		const tokens = Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
+		const isActive = activeEntryIds.has(entry.id);
+		if (isActive) activeTokens += tokens;
+
+		const children = node.children
+			.map((child) => visit(child, depth + 1))
+			.filter((item): item is ContextSegmentItem => item !== null);
+		if (tokens === 0 && children.length === 0) return null; // no content, no descendants with content -- nothing to show
+
+		return {
+			label: isActive ? entryLabel(entry) : `${entryLabel(entry)} (inactive branch)`,
+			estimatedTokens: tokens,
+			...(children.length > 0 ? { children } : {}),
+		};
 	}
-	return Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
+
+	const items = roots.map((root) => visit(root, 0)).filter((item): item is ContextSegmentItem => item !== null);
+	return { items, activeTokens, truncated };
 }
 
 export interface ContextBreakdown {
@@ -163,13 +239,58 @@ export interface BuildContextBreakdownInput {
 	contextWindow: number | null;
 	reserveTokens?: number;
 	ruleBudget: ContextBudget["rules"];
-	/** Open tasks contributing to the injected task-context summary, each sized individually so the Tasks segment can be drilled into like Rules and Skills. */
+	/** Open tasks contributing to the injected task-context summary, nested by containment (parentIds/childIds) so the Tasks segment reflects the real Task tree, not a flat list. */
 	taskItems: ContextSegmentItem[];
 	skills: SkillCatalogFootprint;
 	/** Pi's own base system prompt size, cached from the last observed before_agent_start turn. Null before any turn has run yet. */
 	basePromptEstimatedTokens: number | null;
-	/** From estimateMessageHistoryTokens() against the live session branch. */
-	messageHistoryEstimatedTokens: number;
+	/** From buildMessageHistoryTree() against the live session's real tree (ctx.sessionManager.getTree()). */
+	messageHistoryItems: ContextSegmentItem[];
+	/** buildMessageHistoryTree()'s activeTokens -- only entries on the current active path count toward the segment total; an abandoned /tree branch still appears in messageHistoryItems but contributes zero here. */
+	messageHistoryActiveTokens: number;
+}
+
+/** Sums a possibly-nested item tree's tokens recursively -- every node's own contribution, not just top-level items. */
+function sumItemTree(items: ContextSegmentItem[]): number {
+	return items.reduce((sum, item) => sum + item.estimatedTokens + sumItemTree(item.children ?? []), 0);
+}
+
+/**
+ * Builds the Tasks segment's items from Papyrus's own real containment tree (parentIds/
+ * childIds), not a flat list -- Tasks are a genuine DAG (a task may have more than one
+ * parent, a deliberate design decision, not a defect: see /tasks contain). Open tasks only
+ * (done/canceled tasks are filtered first, matching taskContext()'s own "only open work
+ * matters" rule); a task whose real parent is done/canceled or otherwise filtered out
+ * becomes a root in THIS projection rather than being silently dropped. A task reachable
+ * from more than one open parent is shown once, under whichever parent this bounded walk
+ * reaches first -- the same spanning-tree compromise already applied to the task widget
+ * (extension/src/task-widget.ts) for the identical multi-parent-DAG-in-a-bounded-view
+ * problem, not a new inconsistency.
+ */
+export function buildTaskItemTree(graph: TaskGraph): ContextSegmentItem[] {
+	const byId = new Map(graph.nodes.map((node) => [node.task.id, node]));
+	const openIds = new Set(graph.nodes.filter((node) => node.task.status !== "done" && node.task.status !== "canceled").map((node) => node.task.id));
+	const visited = new Set<string>();
+
+	function visit(id: string, depth: number): ContextSegmentItem | null {
+		if (depth > CONTEXT_TREE_MAX_DEPTH || visited.size >= CONTEXT_TREE_MAX_NODES || visited.has(id) || !openIds.has(id)) return null;
+		visited.add(id);
+		const node = byId.get(id);
+		if (!node) return null;
+		const characters = node.task.title.length + node.task.body.length;
+		const tokens = Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
+		const children = node.childIds
+			.filter((childId) => openIds.has(childId))
+			.map((childId) => visit(childId, depth + 1))
+			.filter((item): item is ContextSegmentItem => item !== null);
+		return { label: node.task.title, estimatedTokens: tokens, ...(children.length > 0 ? { children } : {}) };
+	}
+
+	const rootIds = [...openIds].filter((id) => {
+		const node = byId.get(id)!;
+		return node.parentIds.length === 0 || !node.parentIds.some((parentId) => openIds.has(parentId));
+	});
+	return rootIds.map((id) => visit(id, 0)).filter((item): item is ContextSegmentItem => item !== null);
 }
 
 /**
@@ -196,7 +317,7 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 	const tasks: ContextSegment = {
 		key: "tasks",
 		label: "Papyrus Tasks",
-		estimatedTokens: input.taskItems.reduce((sum, item) => sum + item.estimatedTokens, 0),
+		estimatedTokens: sumItemTree(input.taskItems),
 		items: input.taskItems,
 	};
 	const skills: ContextSegment = {
@@ -214,7 +335,8 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 	const messageHistory: ContextSegment = {
 		key: "messageHistory",
 		label: "Conversation message history",
-		estimatedTokens: input.messageHistoryEstimatedTokens,
+		estimatedTokens: input.messageHistoryActiveTokens,
+		items: input.messageHistoryItems,
 	};
 	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens + basePrompt.estimatedTokens + messageHistory.estimatedTokens;
 	const overshootTokens = input.totalTokens === null ? 0 : Math.max(0, knownTokens - input.totalTokens);

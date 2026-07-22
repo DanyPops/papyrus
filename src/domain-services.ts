@@ -388,8 +388,9 @@ function skillInvocationBody(skill: Artifact): string {
  * workflow execution already uses for skill-to-task edges): invoking the parent recursively
  * composes the linked skill's own invocation. Bounded and cycle-safe -- a skill-calls-skill
  * edge cycle degrades to a marker instead of infinite-looping, matching the cycle-safety
- * discipline already established for ConversationJournal reply chains and task dependency
- * graphs. `visited` and `depth` are recursion-internal; callers should not pass them.
+ * discipline established by task dependency graphs and the (since-removed; see Doc
+ * "ConversationJournal design record") ConversationJournal domain's own reply chains.
+ * `visited` and `depth` are recursion-internal; callers should not pass them.
  */
 export function skillInvocation(artifacts: ArtifactStore, id: string, visited: Set<string> = new Set(), depth = 0): string {
 	const skill = requireKind(artifacts, id, "skill");

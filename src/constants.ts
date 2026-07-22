@@ -30,7 +30,8 @@ export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
  * tree when estimating /context's message-history and task segments. Both are genuine trees
  * built from external, mutable state (a session file; the live Task graph) -- the node bound
  * is a defensive measure against a corrupted/adversarial parentId chain forming an accidental
- * cycle, matching the same cycle-safety discipline already applied to ConversationJournal
+ * cycle, matching the same cycle-safety discipline established by the (since-removed;
+ * see Doc "ConversationJournal design record") ConversationJournal domain's own reply-chain
  * traversal and deliberately hardening past a real, confirmed gap in Pi's own getBranch() (no
  * cycle guard at all). Set generously: a real, ordinary (non-branching) long-running session
  * is one long linear chain, so a naively small bound truncates the walk after counting only a
@@ -92,8 +93,9 @@ export const SKILL_MAX_RENDERED_BYTES = 1_048_576;
  * to (existing Tasks/Rules/Docs via ordinary edges, not just its own static body/extra
  * fields), and a Skill can link to and invoke other Skills. Both traversals are bounded and
  * cycle-safe -- a skill-calls-skill edge cycle must not infinite-loop invocation, matching
- * the cycle-safety discipline already established for ConversationJournal reply chains and
- * task dependency graphs.
+ * the same cycle-safety discipline established by task dependency graphs and the
+ * (since-removed; see Doc "ConversationJournal design record") ConversationJournal domain's
+ * own reply chains.
  */
 export const SKILL_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
 export const SKILL_INVOCATION_MAX_CALL_DEPTH = 4;

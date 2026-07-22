@@ -10,9 +10,10 @@
  * first-class concern here in a way it deliberately is NOT for the permanent
  * artifact_events/task_events audit trails: logs are meant to be rotated, not kept forever.
  *
- * Mirrors ConversationJournal's own discipline (idempotency via a caller-constructed
- * composite operationId, explicit non-silent truncation) since both are append-only,
- * externally-sourced record streams -- but logs have no reply structure and do carry a
+ * Mirrors the (since-removed; see Doc "ConversationJournal design record") ConversationJournal
+ * domain's own discipline (idempotency via a caller-constructed composite operationId,
+ * explicit non-silent truncation) since both are append-only, externally-sourced record
+ * streams -- but logs have no reply structure and do carry a
  * retention policy, which a durable conversation record deliberately does not.
  */
 
@@ -49,8 +50,9 @@ export interface LogEntry {
 	/**
 	 * Idempotency key. Must be a composite the caller constructs (e.g. `${sessionId}:${turn}`),
 	 * never a bare upstream id alone -- a source's own local ids are commonly unique only
-	 * within one recording run, not globally, matching ConversationJournal's identical
-	 * operationId discipline and the concrete case it generalizes from (Pi's /tree lessons).
+	 * within one recording run, not globally, matching the same operationId discipline
+	 * established by the (since-removed) ConversationJournal domain and the concrete case
+	 * it generalizes from (Pi's /tree lessons).
 	 */
 	readonly operationId: string;
 	readonly sessionId?: string;

@@ -11,8 +11,11 @@ import {
 	validateDeferReason,
 	validateDiscussionActor,
 	validateDiscussionContent,
+	validateDiscussionOptions,
+	validateSelectedOptions,
 	validateSettlement,
 	type DiscussionExtra,
+	type DiscussionOptionsMode,
 	type DiscussionRound,
 } from "./domain/discussion.ts";
 import type { Artifact } from "./domain/artifact.ts";
@@ -29,6 +32,19 @@ export interface OpenDiscussionInput {
 	body?: string;
 	labels?: string[];
 	blocksTaskIds?: string[];
+	/** Poses a choice on round 1 -- both or neither; see domain/discussion.ts's DiscussionOptionsMode. */
+	options?: string[];
+	optionsMode?: DiscussionOptionsMode;
+}
+
+export interface ReplyInput {
+	actor: string;
+	content: string;
+	/** Answers the Discussion's currently pending posed choice, if any; validated against it. */
+	selected?: string[];
+	/** Poses a new choice on this same round, replacing whatever was previously pending. */
+	options?: string[];
+	optionsMode?: DiscussionOptionsMode;
 }
 
 export interface DiscussionAndRounds {
@@ -52,9 +68,16 @@ export class Discussions {
 		return readDiscussionExtra(discussion.extra);
 	}
 
+	/** Validates a freshly-posed choice; undefined when neither field is given (nothing posed), since both/neither is the only valid shape. */
+	private validatePosedOptions(options: string[] | undefined, optionsMode: DiscussionOptionsMode | undefined): { options: string[]; mode: DiscussionOptionsMode } | undefined {
+		if (options === undefined && optionsMode === undefined) return undefined;
+		return validateDiscussionOptions(options ?? [], optionsMode ?? "");
+	}
+
 	open(input: OpenDiscussionInput, context?: ArtifactEventContext): DiscussionAndRounds {
 		const actor = validateDiscussionActor(input.actor);
 		const content = validateDiscussionContent(input.content);
+		const posed = this.validatePosedOptions(input.options, input.optionsMode);
 		return this.artifacts.atomic(() => {
 			const discussion = this.artifacts.create({
 				kind: "doc",
@@ -63,25 +86,46 @@ export class Discussions {
 				body: input.body ?? "",
 				status: "active",
 				labels: input.labels,
-				extra: { discussion: { state: "active", roundCount: 1 } },
+				extra: {
+					discussion: {
+						state: "active",
+						roundCount: 1,
+						...(posed ? { pendingOptions: posed.options, pendingOptionsMode: posed.mode } : {}),
+					},
+				},
 			}, context);
-			const round = this.rounds.append({ discussionId: discussion.id, roundNumber: 1, actor, content }, new Date().toISOString());
+			const round = this.rounds.append({
+				discussionId: discussion.id, roundNumber: 1, actor, content,
+				...(posed ? { options: posed.options, optionsMode: posed.mode } : {}),
+			}, new Date().toISOString());
 			for (const taskId of input.blocksTaskIds ?? []) this.block(discussion.id, taskId, context);
 			return { discussion: this.artifacts.get(discussion.id)!, rounds: [round] };
 		});
 	}
 
-	reply(discussionId: string, actor: string, content: string, context?: ArtifactEventContext): DiscussionAndRounds {
-		const validActor = validateDiscussionActor(actor);
-		const validContent = validateDiscussionContent(content);
+	reply(discussionId: string, input: ReplyInput, context?: ArtifactEventContext): DiscussionAndRounds {
+		const validActor = validateDiscussionActor(input.actor);
+		const validContent = validateDiscussionContent(input.content);
+		const posed = this.validatePosedOptions(input.options, input.optionsMode);
 		return this.artifacts.atomic(() => {
 			const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
 			const state = this.extra(discussion);
 			if (state.state !== "active") throw new DiscussionError(`discussion "${discussionId}" is ${state.state}; resume it before replying`);
 			if (state.roundCount >= DISCUSSION_MAX_ROUNDS) throw new DiscussionError(`discussion "${discussionId}" has reached its ${DISCUSSION_MAX_ROUNDS}-round limit; settle or defer it`);
+			const selected = input.selected !== undefined ? validateSelectedOptions(input.selected, state.pendingOptions, state.pendingOptionsMode) : undefined;
 			const nextRound = state.roundCount + 1;
-			const round = this.rounds.append({ discussionId, roundNumber: nextRound, actor: validActor, content: validContent }, new Date().toISOString());
-			const updated = this.artifacts.setExtra(discussionId, { ...discussion.extra, discussion: { ...state, roundCount: nextRound } }, context)!;
+			const round = this.rounds.append({
+				discussionId, roundNumber: nextRound, actor: validActor, content: validContent,
+				...(posed ? { options: posed.options, optionsMode: posed.mode } : {}),
+				...(selected ? { selected } : {}),
+			}, new Date().toISOString());
+			const { pendingOptions: _clearedOptions, pendingOptionsMode: _clearedMode, ...answered } = state;
+			const nextState = {
+				...(selected ? answered : state),
+				roundCount: nextRound,
+				...(posed ? { pendingOptions: posed.options, pendingOptionsMode: posed.mode } : {}),
+			};
+			const updated = this.artifacts.setExtra(discussionId, { ...discussion.extra, discussion: nextState }, context)!;
 			return { discussion: updated, rounds: [round] };
 		});
 	}

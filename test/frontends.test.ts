@@ -233,6 +233,12 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 		expect(colorsUsed.size).toBe(3);
 	});
 
+	it("surfaces a pending posed choice in rowMeta, since it's the one thing worth seeing before opening the transcript", () => {
+		const awaiting = artifact({ subtype: "discussion", extra: { discussion: { state: "active", roundCount: 1, pendingOptions: ["A", "B"], pendingOptionsMode: "single" } } });
+		expect(discussionRowMeta(awaiting, theme)).toBe("\u25cf active \u00b7 1 round \u00b7 awaiting: A/B");
+		expect(discussionRowMeta(discussion("active", 1), theme)).not.toContain("awaiting");
+	});
+
 	it("registers the /discuss command and the discuss domain tool exposing every discuss.* operation", () => {
 		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
 		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");

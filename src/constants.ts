@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 15;
+export const SQLITE_SCHEMA_VERSION = 16;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -158,6 +158,14 @@ export const DISCUSSION_LIST_MAX_LIMIT = 200;
 export const DISCUSSION_SETTLEMENT_MAX_CHARACTERS = 4_000;
 export const DISCUSSION_DEFER_REASON_MAX_CHARACTERS = 2_000;
 export const DISCUSSION_ACTOR_MAX_LENGTH = 128;
+/**
+ * A posed choice (open/reply with options): "single" is mutually exclusive (exactly one pick),
+ * "multi" allows several. Mirrors opencode's QuestionV2 labeled-multiple-choice model (the one
+ * piece of prior art surveyed that already solves this), kept native and dependency-free here.
+ */
+export const DISCUSSION_OPTIONS_MIN_COUNT = 2;
+export const DISCUSSION_OPTIONS_MAX_COUNT = 10;
+export const DISCUSSION_OPTION_MAX_LENGTH = 200;
 /** Bounds for the generic graph projection protocol (external bounded contexts). */
 export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
 export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;

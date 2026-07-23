@@ -112,7 +112,13 @@ class DiscussionTranscriptViewport {
 		const transcript: TranscriptLine[] = this.rounds.flatMap((round, index) => {
 			const roundHeader = theme.fg("accent", `[round ${round.roundNumber}] `) + theme.bold(round.actor) + theme.fg("dim", ` · ${round.occurredAt}`);
 			const body = renderMarkdownBody(round.content, width - 2, this.activeTheme).map((line) => ({ text: `  ${line}` }));
-			return [{ text: roundHeader }, ...body, ...(index < this.rounds.length - 1 ? [{ text: "" }] : [])];
+			const posed = round.options && round.options.length > 0
+				? [{ text: `  ${theme.fg("muted", `Posed (${round.optionsMode === "multi" ? "pick several" : "pick one"}): ${round.options.join(", ")}`)}` }]
+				: [];
+			const picked = round.selected && round.selected.length > 0
+				? [{ text: `  ${theme.fg("success", `Selected: ${round.selected.join(", ")}`)}` }]
+				: [];
+			return [{ text: roundHeader }, ...body, ...posed, ...picked, ...(index < this.rounds.length - 1 ? [{ text: "" }] : [])];
 		});
 		this.lines = [...header, ...(transcript.length > 0 ? transcript : [{ text: theme.fg("muted", "No rounds recorded.") }])];
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));

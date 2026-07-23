@@ -162,11 +162,15 @@ Rounds are a dedicated append-only child table (mirroring Task history's own sha
 
 Blocking is real: `tasks.complete` is refused while any `active` Discussion has a `blocks` edge to that Task. A `deferred` Discussion does not block -- "we will get back to this" is distinct from "resolved."
 
-Run `/discuss` for the interactive panel: browse every Discussion (the real `active`/`deferred`/`settled` state shown per row, not just the shared Doc status glyph), open a scrollable transcript, and reply/defer/resume/settle or block/unblock a task without leaving the TUI. Opening a *new* Discussion is left to the agent (same as Docs/Rules/Skills) -- `/discuss` browses and drives existing ones.
+`open`/`reply` can also pose a structured choice instead of (or alongside) free text: `options` (2-10 entries) plus `options_mode` -- `single` is mutually exclusive (exactly one pick), `multi` allows several. The Discussion remembers the pending choice (`extra.discussion.pendingOptions`/`pendingOptionsMode`) until a `reply` answers it with `selected`, validated against exactly what was offered and the mode's cardinality; a reply can also pose the *next* round's choice in the same call.
+
+Run `/discuss` for the interactive panel: browse every Discussion (the real `active`/`deferred`/`settled` state shown per row, alongside any choice awaiting an answer), open a scrollable transcript showing what was posed and picked in each round, and reply/defer/resume/settle or block/unblock a task without leaving the TUI. Replying to a pending choice shows a real picker -- the native single-select list for `single`, or a checkbox multi-select (space to toggle, enter to confirm) for `multi`, since no built-in multi-select exists in the Pi extension UI. Opening a *new* Discussion is left to the agent (same as Docs/Rules/Skills) -- `/discuss` browses and drives existing ones.
 
 ```bash
 papyrus discuss open --title "Naming" --actor alice --content "Should we rename this?" --blocks-json '["task-id"]' --json
+papyrus discuss open --title "Which approach" --actor alice --content "Pick one" --options-json '["A","B"]' --options-mode single --json
 papyrus discuss reply <discussion-id> --actor bob --content "I think so, here's why..." --json
+papyrus discuss reply <discussion-id> --actor bob --content "Going with B" --selected-json '["B"]' --json
 papyrus discuss defer <discussion-id> --reason "Waiting on design review" --json
 papyrus discuss resume <discussion-id> --json
 papyrus discuss settle <discussion-id> --settlement "Agreed: renaming to X" --json

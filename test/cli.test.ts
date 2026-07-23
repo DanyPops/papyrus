@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 afterAll(cleanupTempDirs);
-import { runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runDiscussCli, runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import { openDb } from "../src/db.ts";
 import { createArtifact, linkArtifacts } from "../src/ops.ts";
 import type { OperationName } from "../src/service.ts";
@@ -218,6 +218,32 @@ describe("Papyrus Notes CLI", () => {
 		const archived = new FakeClient({ id: "note-2", title: "Skip", status: "archived" });
 		await runNoteCli(["archive", "note-2", "declined", "--reason", "Not useful"], archived);
 		expect(archived.calls).toEqual([{ operation: "notes.archive", input: { id: "note-2", disposition: "declined", project_root: PROJECT_ROOT, actor: "human", source: "cli", reason: "Not useful" } }]);
+	});
+});
+
+describe("Papyrus Discuss CLI", () => {
+	it("translates --options-json/--options-mode into discuss.open", async () => {
+		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
+		await runDiscussCli([
+			"open", "--title", "Pick one", "--actor", "alice", "--content", "A or B?",
+			"--options-json", '["A","B"]', "--options-mode", "single", "--json",
+		], client);
+		expect(client.calls).toEqual([{
+			operation: "discuss.open",
+			input: {
+				title: "Pick one", actor: "alice", content: "A or B?", body: undefined, labels: undefined,
+				blocks_task_ids: undefined, options: ["A", "B"], options_mode: "single",
+			},
+		}]);
+	});
+
+	it("translates --selected-json into discuss.reply, answering a pending choice", async () => {
+		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
+		await runDiscussCli(["reply", "d1", "--actor", "bob", "--content", "Going with B", "--selected-json", '["B"]', "--json"], client);
+		expect(client.calls).toEqual([{
+			operation: "discuss.reply",
+			input: { id: "d1", actor: "bob", content: "Going with B", selected: ["B"], options: undefined, options_mode: undefined },
+		}]);
 	});
 });
 

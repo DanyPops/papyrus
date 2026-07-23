@@ -438,7 +438,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
-		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it.",
+		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -454,6 +454,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			state: Type.Optional(Type.String()),
 			after_round: Type.Optional(Type.Number()),
 			limit: Type.Optional(Type.Number()),
+			options: Type.Optional(Type.Array(Type.String())),
+			options_mode: Type.Optional(Type.String()),
+			selected: Type.Optional(Type.Array(Type.String())),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },

@@ -6,8 +6,10 @@ import { createRequire } from "node:module";
 import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
-import { DEFAULT_STATUS_BY_KIND } from "./constants.ts";
+import { ARTIFACT_TRASH_RETENTION_MS, DEFAULT_STATUS_BY_KIND } from "./constants.ts";
 import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
+import type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
+export type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
 import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 import {
 	normalizeArtifactEventQuery,
@@ -288,6 +290,7 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 	let sql = "SELECT * FROM artifacts";
 	const conditions: string[] = [];
 	const params: unknown[] = [];
+	if (!filter.includeTrashed) conditions.push("id NOT IN (SELECT artifact_id FROM artifact_trash)");
 	if (filter.kind) { conditions.push("kind = ?"); params.push(filter.kind); }
 	if (filter.status) { conditions.push("status = ?"); params.push(filter.status); }
 	if (filter.statuses) {
@@ -316,6 +319,108 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 	}
 	const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
 	return rows.map(rowToArtifact);
+}
+
+function rowToTrashRecord(row: Record<string, unknown>): ArtifactTrashRecord {
+	return {
+		artifactId: row["artifact_id"] as string,
+		trashedAt: row["trashed_at"] as string,
+		purgeAfter: row["purge_after"] as string,
+		...(row["reason"] == null ? {} : { reason: row["reason"] as string }),
+	};
+}
+
+export function getArtifactTrash(db: Db, id: string): ArtifactTrashRecord | null {
+	const row = db.prepare("SELECT artifact_id, trashed_at, purge_after, reason FROM artifact_trash WHERE artifact_id = ?").get(id) as Record<string, unknown> | null;
+	return row ? rowToTrashRecord(row) : null;
+}
+
+export function listArtifactTrash(db: Db): ArtifactTrashRecord[] {
+	const rows = db.prepare("SELECT artifact_id, trashed_at, purge_after, reason FROM artifact_trash ORDER BY purge_after ASC").all() as Record<string, unknown>[];
+	return rows.map(rowToTrashRecord);
+}
+
+/**
+ * Moves an artifact to the trash: it becomes ineligible for purge_after ms (see
+ * ARTIFACT_TRASH_RETENTION_MS), immediately excluded from queryArtifacts by default, still
+ * directly reachable via getArtifact, and fully restorable via restoreArtifact until the
+ * daemon's periodic sweep (purgeDueArtifacts) actually deletes it. Re-removing an
+ * already-trashed artifact resets its clock rather than erroring -- the same "most recent
+ * intent wins" semantics as registerSessionIdentity's rotation.
+ *
+ * Refuses to trash a Task that is the live Task Focus in any scope: Focus is active,
+ * behavior-affecting state, and trashing out from under it would silently discard work a
+ * caller is not necessarily looking at right now. No other kind has an analogous "currently
+ * in use" signal to check.
+ */
+export function trashArtifact(db: Db, id: string, options?: { reason?: string; now?: () => string; context?: ArtifactEventContext }): ArtifactTrashRecord {
+	const artifact = getArtifact(db, id);
+	if (!artifact) throw new Error(`artifact "${id}" not found`);
+	const focusedScope = db.prepare("SELECT scope FROM task_focus WHERE task_id = ? LIMIT 1").get(id) as { scope: string } | null;
+	if (focusedScope) throw new Error(`artifact "${id}" is the active Task Focus in scope "${focusedScope.scope}"; clear focus before removing it`);
+	const now = options?.now ?? (() => new Date().toISOString());
+	const trashedAt = now();
+	const purgeAfter = new Date(new Date(trashedAt).getTime() + ARTIFACT_TRASH_RETENTION_MS).toISOString();
+	const record: ArtifactTrashRecord = { artifactId: id, trashedAt, purgeAfter, ...(options?.reason ? { reason: options.reason } : {}) };
+	inTransaction(db, () => {
+		db.prepare(`
+			INSERT INTO artifact_trash (artifact_id, trashed_at, purge_after, reason) VALUES (?, ?, ?, ?)
+			ON CONFLICT (artifact_id) DO UPDATE SET trashed_at = excluded.trashed_at, purge_after = excluded.purge_after, reason = excluded.reason
+		`).run(record.artifactId, record.trashedAt, record.purgeAfter, record.reason ?? null);
+		appendArtifactEvent(db, { artifactId: id, type: "trashed", ...(options?.context ?? {}) });
+	});
+	return record;
+}
+
+/** Idempotent: restoring an artifact that is not currently trashed is a real no-op, not an error -- mirrors releaseSessionIdentity's idempotence. */
+export function restoreArtifact(db: Db, id: string, context?: ArtifactEventContext): { restored: boolean } {
+	const wasTrashed = getArtifactTrash(db, id) !== null;
+	if (!wasTrashed) return { restored: false };
+	inTransaction(db, () => {
+		db.prepare("DELETE FROM artifact_trash WHERE artifact_id = ?").run(id);
+		appendArtifactEvent(db, { artifactId: id, type: "restored", ...(context ?? {}) });
+	});
+	return { restored: true };
+}
+
+/**
+ * Real, cascading, irreversible deletion of every artifact whose purge_after has passed.
+ * Never called with anything but the real current time in production -- see daemon.ts's
+ * periodic sweep; a directly-injected `now` exists only so tests can exercise this without
+ * waiting out ARTIFACT_TRASH_RETENTION_MS for real.
+ *
+ * Deletes, in FK-safe order, every row across every table that can reference artifacts(id)
+ * (see the grep-verified list in domain/artifact-trash.ts's design comment): edges (both
+ * directions), task_focus, task_scopes, task_views (by root_task_id), graph_projection_
+ * identities, artifact_scopes, then task_events and artifact_events -- the latter two
+ * succeed only because the artifact_trash row placed here by trashArtifact still exists
+ * with an elapsed purge_after, which is exactly what db.ts's task_events_no_delete /
+ * artifact_events_no_delete trigger carve-outs check themselves. Only THEN artifact_trash's
+ * own row (it is itself a child of artifacts via a real FK, so it must go before artifacts,
+ * but only after the event tables that depend on its continued presence), and artifacts
+ * itself last of all. One artifact at a time in its own transaction, so one failure never
+ * blocks any other due artifact.
+ */
+export function purgeDueArtifacts(db: Db, now: () => string = () => new Date().toISOString()): number {
+	const nowIso = now();
+	const due = (db.prepare("SELECT artifact_id FROM artifact_trash WHERE purge_after <= ?").all(nowIso) as Array<{ artifact_id: string }>).map((row) => row.artifact_id);
+	let purged = 0;
+	for (const id of due) {
+		inTransaction(db, () => {
+			db.prepare("DELETE FROM edges WHERE from_id = ? OR to_id = ?").run(id, id);
+			db.prepare("DELETE FROM task_focus WHERE task_id = ?").run(id);
+			db.prepare("DELETE FROM task_scopes WHERE task_id = ?").run(id);
+			db.prepare("DELETE FROM task_views WHERE root_task_id = ?").run(id);
+			db.prepare("DELETE FROM graph_projection_identities WHERE artifact_id = ?").run(id);
+			db.prepare("DELETE FROM artifact_scopes WHERE artifact_id = ?").run(id);
+			db.prepare("DELETE FROM task_events WHERE task_id = ?").run(id);
+			db.prepare("DELETE FROM artifact_events WHERE artifact_id = ?").run(id);
+			db.prepare("DELETE FROM artifact_trash WHERE artifact_id = ?").run(id);
+			db.prepare("DELETE FROM artifacts WHERE id = ?").run(id);
+		});
+		purged += 1;
+	}
+	return purged;
 }
 
 export function linkArtifacts(db: Db, fromId: string, relation: string, toId: string, context?: ArtifactEventContext): void {

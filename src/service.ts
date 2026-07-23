@@ -49,6 +49,7 @@ import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
  */
 const COMPOSITION_ROOT_OPERATION_NAMES = [
 	"system.migrate", "artifact.create", "artifact.query", "artifact.show",
+	"artifact.remove", "artifact.restore", "artifact.trash_status", "artifact.trash_list",
 	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
 	"rules.injectable", "skills.instantiate",
 ] as const;
@@ -173,6 +174,8 @@ export interface PapyrusService {
 	optimize(): void;
 	/** Time-based Task Focus reclamation (see Tasks.reapStaleFocus); returns how many rows were removed, for daemon logging. */
 	reapStaleFocus(): number;
+	/** Real, cascading deletion of every artifact past its trash purge deadline (see domain/artifact-trash.ts); returns how many were purged, for daemon logging. */
+	purgeDueTrash(): number;
 	close(): void;
 }
 
@@ -241,6 +244,10 @@ function handlers(
 			depth: optionalNumber(input, "depth"),
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
+		"artifact.remove": (input) => artifacts.trash(string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
+		"artifact.restore": (input) => artifacts.restore(string(input, "id"), eventContext(input)),
+		"artifact.trash_status": (input) => artifacts.trashStatus(string(input, "id")),
+		"artifact.trash_list": () => artifacts.listTrash(),
 		"graph.link": (input) => {
 			const from = string(input, "from");
 			const relation = string(input, "relation");
@@ -421,6 +428,7 @@ export function createPapyrusService(path: string): PapyrusService {
 		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
 		optimize: () => { db.exec("PRAGMA optimize"); },
 		reapStaleFocus: () => tasks.reapStaleFocus(),
+		purgeDueTrash: () => artifacts.purgeDueTrash(),
 		close: () => {
 			db.exec("PRAGMA optimize");
 			db.close();

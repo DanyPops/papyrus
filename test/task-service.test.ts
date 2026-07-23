@@ -10,6 +10,7 @@ import type {
 	UpdateArtifactInput,
 } from "../src/domain/artifact.ts";
 import type { ArtifactEventPage, ArtifactEventQuery } from "../src/domain/artifact-event.ts";
+import type { ArtifactTrashRecord } from "../src/domain/artifact-trash.ts";
 import type { GateResult } from "../src/domain/gate.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
@@ -104,6 +105,17 @@ class FakeArtifactStore implements ArtifactStore {
 	events(_query: ArtifactEventQuery): ArtifactEventPage {
 		return { events: [] };
 	}
+
+	// Trash is not exercised by any test in this file (see test/artifact-trash.test.ts for real
+	// coverage against SQLite, where the cascade/trigger semantics actually matter); these exist
+	// only to satisfy the ArtifactStore port.
+	trash(id: string): ArtifactTrashRecord {
+		return { artifactId: id, trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" };
+	}
+	restore(): { restored: boolean } { return { restored: false }; }
+	trashStatus(): ArtifactTrashRecord | null { return null; }
+	listTrash(): ArtifactTrashRecord[] { return []; }
+	purgeDueTrash(): number { return 0; }
 }
 
 class FakeGateRunner implements GateRunner {

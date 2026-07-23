@@ -82,6 +82,10 @@ const USAGE = `Usage:
   papyrus artifact create --kind <kind> [--title <title>] [--status <status>] [--subtype <subtype>] [--body <body>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--json]
   papyrus artifact query [--kind <kind>] [--status <status>] [--text <query>] [--limit <count>] [--json]
   papyrus artifact show <id> [--depth <n>] [--max-nodes <n>] [--json]
+  papyrus artifact remove <id> [--reason <text>] [--json]
+  papyrus artifact restore <id> [--json]
+  papyrus artifact trash-status <id> [--json]
+  papyrus artifact trash-list [--json]
   papyrus docs create --title <title> [--body <body>] [--subtype <subtype>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--project-root <path>] [--json]
   papyrus docs list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus docs show <id> [--json]
@@ -738,6 +742,7 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 	let labels: string[] | undefined;
 	let extra: Record<string, unknown> | undefined;
 	let templateId: string | undefined;
+	let reason: string | undefined;
 	let text: string | undefined;
 	let limit: number | undefined;
 	let depth: number | undefined;
@@ -753,6 +758,7 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
 		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
 		if (argument === "--template-id") { templateId = args[++index]; if (!templateId) throw new Error("--template-id requires a value"); continue; }
+		if (argument === "--reason") { reason = args[++index]; if (reason === undefined) throw new Error("--reason requires a value"); continue; }
 		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
 		if (argument === "--limit") {
 			const value = args[++index];
@@ -804,8 +810,36 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 			human = `${artifactLabel(artifact)}\n\n${artifact.body ?? ""}`;
 			break;
 		}
+		case "remove": {
+			if (!id) throw new Error("artifact remove requires exactly one artifact id");
+			const record = await client.call<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>("artifact.remove", { id, reason });
+			result = record;
+			human = `Trashed ${record.artifactId}: eligible for purge at ${record.purgeAfter}`;
+			break;
+		}
+		case "restore": {
+			if (!id) throw new Error("artifact restore requires exactly one artifact id");
+			const outcome = await client.call<Record<string, unknown>, { restored: boolean }>("artifact.restore", { id });
+			result = outcome;
+			human = outcome.restored ? `Restored ${id}` : `${id} was not trashed`;
+			break;
+		}
+		case "trash-status": {
+			if (!id) throw new Error("artifact trash-status requires exactly one artifact id");
+			const record = await client.call<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string } | null>("artifact.trash_status", { id });
+			result = record;
+			human = record ? `${record.artifactId}: trashed at ${record.trashedAt}, purge eligible at ${record.purgeAfter}` : `${id} is not trashed`;
+			break;
+		}
+		case "trash-list": {
+			if (id) throw new Error("artifact trash-list accepts no positional arguments");
+			const rows = await client.call<Record<string, unknown>, Array<{ artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>>("artifact.trash_list", {});
+			result = rows;
+			human = rows.length === 0 ? "Trash is empty." : rows.map((row) => `${row.artifactId}: purge eligible at ${row.purgeAfter}`).join("\n");
+			break;
+		}
 		default:
-			throw new Error("artifact action must be create, query, or show");
+			throw new Error("artifact action must be create, query, show, remove, restore, trash-status, or trash-list");
 	}
 	return json ? JSON.stringify(result) : human;
 }

@@ -10,7 +10,7 @@
  */
 import { ARTIFACT_EVENT_ACTOR_MAX_LENGTH, ARTIFACT_EVENT_HISTORY_DEFAULT_LIMIT, ARTIFACT_EVENT_HISTORY_MAX_LIMIT } from "../constants.ts";
 
-export const ARTIFACT_EVENT_TYPES = ["created", "updated", "status_changed", "extra_set", "linked", "unlinked"] as const;
+export const ARTIFACT_EVENT_TYPES = ["created", "updated", "status_changed", "extra_set", "linked", "unlinked", "trashed", "restored"] as const;
 export type ArtifactEventType = typeof ARTIFACT_EVENT_TYPES[number];
 export type ArtifactEventDirection = "asc" | "desc";
 

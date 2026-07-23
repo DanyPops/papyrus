@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 13;
+export const SQLITE_SCHEMA_VERSION = 14;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -159,6 +159,15 @@ export const TASK_FOCUS_MAX_SCOPES = 500;
 export const TASK_FOCUS_STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 /** Hard cap on registered session_identities rows (see domain/session-identity.ts); oldest-seen identity is evicted beyond this, mirroring TASK_FOCUS_MAX_SCOPES. */
 export const SESSION_IDENTITY_MAX_ROWS = 2_000;
+/**
+ * Grace period between artifact.remove (trash) and artifact purge eligibility -- see
+ * domain/artifact-trash.ts. 30 days, matching TASK_FOCUS_STALE_AFTER_MS's convention: long
+ * enough that a mistaken removal is still recoverable via artifact.restore, short enough to
+ * actually bound trash accumulation. Enforced twice: the daemon's periodic sweep only
+ * selects rows past this deadline, and the SQLite triggers that otherwise forbid deleting
+ * artifact_events/task_events independently re-check the same deadline at delete time.
+ */
+export const ARTIFACT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
 /** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */

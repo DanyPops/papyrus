@@ -100,6 +100,12 @@ papyrus skills run <skill-id> \
 
 The existing `artifact-template` skill subtype remains a compatibility mechanism for one-artifact templates with metadata `{targetKind, defaults, required}`. Instantiate it through `papyrus_create` with `template_id`; defaults merge recursively, explicit arrays replace defaults, required paths such as `extra.owner` are validated, and target-kind mismatches are rejected.
 
+### Removing an artifact
+
+Artifacts are never hard-deleted on request: every artifact gets a permanent, immutable `created` row in the mutation event log the moment it exists, so removal is a real, time-gated trash rather than a status flip. `remove` (any of the `tasks`/`docs`/`rules`/`skills` domain tools, or `papyrus artifact remove <id> [--reason <text>]`) moves an artifact to the trash: it is immediately excluded from every list/query, still directly reachable by id, and fully recoverable via `restore` until its purge deadline (30 days later) passes. `remove` refuses a Task that is the live Task Focus in any scope.
+
+Once the deadline passes, the daemon's periodic sweep performs a real, cascading, irreversible deletion — the one deliberate, narrow exception to Papyrus's otherwise-absolute append-only history, enforced by the database itself (not merely application code) via a trigger condition checked at delete time.
+
 ## Tools
 
 The `papyrus_*` tools are the low-level graph-store API:

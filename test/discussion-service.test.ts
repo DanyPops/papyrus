@@ -205,6 +205,14 @@ describe("Discussions.list / listRounds", () => {
 		expect(discussions.list({ state: "settled" }).map((d) => d.id)).toEqual([toSettle.id]);
 	});
 
+	it("applies a bounded default limit when none is given (never falls through to an unbounded query)", () => {
+		const { discussions } = fixture();
+		for (let index = 0; index < 3; index++) discussions.open({ title: `T${index}`, actor: "a", content: "c" });
+		expect(discussions.list().length).toBe(3);
+		expect(discussions.list({ limit: 2 }).length).toBe(2);
+		expect(discussions.list({ limit: 10_000 }).length).toBeLessThanOrEqual(200); // DISCUSSION_LIST_MAX_LIMIT
+	});
+
 	it("paginates rounds with afterRound", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "a", content: "round 1" });

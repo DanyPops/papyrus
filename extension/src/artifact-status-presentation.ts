@@ -36,6 +36,19 @@ export const SKILL_STATUS_PRESENTATION: Record<string, StatusPresentation> = {
 	deprecated: { label: "deprecated", glyph: "○", color: "muted" },
 };
 
+/**
+ * Keyed by extra.discussion.state, not the shared Doc status column -- a settled Discussion's
+ * doc.status becomes "archived", but a deferred one stays "active" at the doc level (see
+ * domain/discussion.ts's header comment). Reusing DOC_STATUS_PRESENTATION here would render
+ * "deferred" and "active" Discussions with the identical glyph, silently losing the one piece
+ * of state this feature exists to distinguish.
+ */
+export const DISCUSSION_STATE_PRESENTATION: Record<string, StatusPresentation> = {
+	active: { label: "active", glyph: "●", color: "accent" },
+	deferred: { label: "deferred", glyph: "⏸", color: "warning" },
+	settled: { label: "settled", glyph: "✓", color: "success" },
+};
+
 /** Rule severity gets its own color independent of status -- block is the loudest, info the quietest. */
 export const RULE_SEVERITY_PRESENTATION: Record<string, ThemeColor> = {
 	block: "error",

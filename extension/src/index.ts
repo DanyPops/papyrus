@@ -416,12 +416,13 @@ export default async function (pi: ExtensionAPI) {
 	// ── Interactive artifact browsers ──────────────────────────────────
 
 	// Lazy imports keep TUI components out of non-interactive startup paths.
-	const [tasksModule, docsModule, notesModule, rulesModule, skillsModule] = await Promise.all([
+	const [tasksModule, docsModule, notesModule, rulesModule, skillsModule, discussModule] = await Promise.all([
 		import("./tasks.ts"),
 		import("./docs.ts"),
 		import("./notes.ts"),
 		import("./rules.ts"),
 		import("./skills.ts"),
+		import("./discuss.ts"),
 	]);
 	let overlay: TaskOverlay | undefined;
 
@@ -453,6 +454,10 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("skills", {
 		description: "Browse and invoke Papyrus skills and templates (interactive)",
 		handler: async (_args, ctx) => { await skillsModule.showSkills(ctx); },
+	});
+	pi.registerCommand("discuss", {
+		description: "Browse Papyrus Discussions and reply, defer, resume, settle, or block/unblock a task (interactive)",
+		handler: async (_args, ctx) => { await discussModule.showDiscussions(ctx); },
 	});
 	pi.registerCommand("context", {
 		description: "Structured, per-segment breakdown of the context window: real usage against the model's window, drilling into Papyrus Rules and the Pi-native skill catalog",

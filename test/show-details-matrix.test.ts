@@ -70,6 +70,7 @@ const genericMatrix: Array<{ name: string; operation: OperationName; input?: Rec
 	{ name: "legacy skill", operation: "skills.show", value: artifact({ kind: "skill", subtype: "", extra: { trigger: "manual", steps: ["one", "two"] } }) },
 	{ name: "template", operation: "skills.show", value: artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "doc", required: ["title"] } }) },
 	{ name: "workflow", operation: "skills.show", value: artifact({ kind: "skill", subtype: "workflow", extra: { definition: { inputs: {}, blueprints: { tasks: [], docs: [], rules: [] } } } }) },
+	{ name: "discussion", operation: "docs.show", value: artifact({ subtype: "discussion", status: "active", extra: { discussion: { state: "active", roundCount: 2 } } }) },
 ];
 
 describe("Show details coverage matrix", () => {

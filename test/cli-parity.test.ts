@@ -18,6 +18,7 @@ import {
 	runGraphProjectionCli,
 	runLogCli,
 	runMigrationCli,
+	runDiscussCli,
 	runNoteCli,
 	runRulesCli,
 	runSessionIdentityCli,
@@ -132,6 +133,16 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.reap_stale_focus", result: { removed: 0 }, invoke: (c) => runTaskCli(["reap-stale-focus", "--json"], c) },
 	{ operation: "session.register", result: { sessionId: "s1", secret: "abc" }, invoke: (c) => runSessionIdentityCli(["register", "--session-id", "s1", "--json"], c) },
 	{ operation: "session.release", result: { released: true }, invoke: (c) => runSessionIdentityCli(["release", "--session-id", "s1", "--session-secret", "abc", "--json"], c) },
+	{ operation: "discuss.open", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["open", "--title", "T", "--actor", "a", "--content", "c", "--json"], c) },
+	{ operation: "discuss.reply", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["reply", "a1", "--actor", "a", "--content", "c", "--json"], c) },
+	{ operation: "discuss.defer", result: artifact, invoke: (c) => runDiscussCli(["defer", "a1", "--json"], c) },
+	{ operation: "discuss.resume", result: artifact, invoke: (c) => runDiscussCli(["resume", "a1", "--json"], c) },
+	{ operation: "discuss.settle", result: artifact, invoke: (c) => runDiscussCli(["settle", "a1", "--settlement", "done", "--json"], c) },
+	{ operation: "discuss.block", result: { blocked: true }, invoke: (c) => runDiscussCli(["block", "a1", "--task-id", "t1", "--json"], c) },
+	{ operation: "discuss.unblock", result: { unblocked: true }, invoke: (c) => runDiscussCli(["unblock", "a1", "--task-id", "t1", "--json"], c) },
+	{ operation: "discuss.show", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["show", "a1", "--json"], c) },
+	{ operation: "discuss.rounds", result: [], invoke: (c) => runDiscussCli(["rounds", "a1", "--json"], c) },
+	{ operation: "discuss.list", result: [], invoke: (c) => runDiscussCli(["list", "--json"], c) },
 ];
 
 describe("Papyrus CLI \u2014 structural operation parity", () => {

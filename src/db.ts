@@ -227,6 +227,22 @@ CREATE TABLE IF NOT EXISTS artifact_trash (
 	reason       TEXT
 );
 CREATE INDEX IF NOT EXISTS artifact_trash_purge_idx ON artifact_trash(purge_after);
+CREATE TABLE IF NOT EXISTS discussion_rounds (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	discussion_id TEXT NOT NULL REFERENCES artifacts(id),
+	round_number  INTEGER NOT NULL,
+	actor         TEXT NOT NULL,
+	content       TEXT NOT NULL,
+	occurred_at   TEXT NOT NULL,
+	event_schema_version INTEGER NOT NULL DEFAULT 1,
+	UNIQUE (discussion_id, round_number)
+);
+CREATE INDEX IF NOT EXISTS discussion_rounds_discussion_idx ON discussion_rounds(discussion_id, round_number, id);
+CREATE TRIGGER IF NOT EXISTS discussion_rounds_no_update BEFORE UPDATE ON discussion_rounds
+BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS discussion_rounds_no_delete BEFORE DELETE ON discussion_rounds
+WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.discussion_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
 `;
 
 const SEED_SQL = `
@@ -252,7 +268,7 @@ INSERT OR IGNORE INTO relation_names VALUES ('implements','This work satisfies t
 INSERT OR IGNORE INTO relation_names VALUES ('follows','This work obeys that (task→rule, task→skill)');
 INSERT OR IGNORE INTO relation_names VALUES ('depends_on','DAG ordering (task→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('documents','Describes (doc→task, doc→rule, doc→skill)');
-INSERT OR IGNORE INTO relation_names VALUES ('blocks','Blocking relationship (task→task)');
+INSERT OR IGNORE INTO relation_names VALUES ('blocks','Blocking relationship (task→task, or an active Discussion doc→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('supersedes','Replaces (doc→doc, rule→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('relates_to','Catch-all (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task (rule→task)');
@@ -306,6 +322,7 @@ const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; check
 	{ version: 4, name: "remove-discourse", checksum: "b923f41c44460f0aaeb2f4e60e28f8b8e1425d03f527955bd991434b46de4c82" },
 	{ version: 5, name: "session-identity", checksum: "1c6a165bbe37f82a100fd34762db70c3f8ab15ff20c3a53c2e60448edc815a5e" },
 	{ version: 6, name: "artifact-trash", checksum: "4a75dbec2892deb54bcc1afdf0d51d81f03a8d10861787d083784a29e5c7e8f9" },
+	{ version: 7, name: "discuss-native", checksum: "ab7bdd04824bd93681917807b817d6e08b9825af90161e3ccd6d6663021dc6a0" },
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -422,6 +439,34 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				CREATE TRIGGER artifact_events_no_delete BEFORE DELETE ON artifact_events
 				WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.artifact_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
+			`);
+		},
+	},
+	{
+		version: 15,
+		name: "discuss-native",
+		// See domain/discussion.ts. discussion_rounds mirrors task_events' proven shape (append-only,
+		// with the identical trash-purge trigger carve-out); the blocks relation's description is
+		// widened to reflect that an active Discussion doc can now block a task too.
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS discussion_rounds (
+					id            INTEGER PRIMARY KEY AUTOINCREMENT,
+					discussion_id TEXT NOT NULL REFERENCES artifacts(id),
+					round_number  INTEGER NOT NULL,
+					actor         TEXT NOT NULL,
+					content       TEXT NOT NULL,
+					occurred_at   TEXT NOT NULL,
+					event_schema_version INTEGER NOT NULL DEFAULT 1,
+					UNIQUE (discussion_id, round_number)
+				);
+				CREATE INDEX IF NOT EXISTS discussion_rounds_discussion_idx ON discussion_rounds(discussion_id, round_number, id);
+				CREATE TRIGGER IF NOT EXISTS discussion_rounds_no_update BEFORE UPDATE ON discussion_rounds
+				BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only'); END;
+				CREATE TRIGGER IF NOT EXISTS discussion_rounds_no_delete BEFORE DELETE ON discussion_rounds
+				WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.discussion_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+				BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
+				UPDATE relation_names SET description = 'Blocking relationship (task→task, or an active Discussion doc→task)' WHERE name = 'blocks';
 			`);
 		},
 	},

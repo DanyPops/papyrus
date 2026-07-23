@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 14;
+export const SQLITE_SCHEMA_VERSION = 15;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -137,6 +137,27 @@ export const NOTE_REASON_MAX_CHARACTERS = 2_000;
 export const ARTIFACT_EVENT_ACTOR_MAX_LENGTH = 128;
 export const ARTIFACT_EVENT_HISTORY_DEFAULT_LIMIT = 25;
 export const ARTIFACT_EVENT_HISTORY_MAX_LIMIT = 200;
+/**
+ * Discuss: a native, blocking-capable deliberation, distinct from Discourse's forum (kept
+ * fully standalone, no dependency here) and from the removed ConversationJournal (see Doc
+ * 285681a7-bd44-4f33-93b1-1e10198d6d16 -- that domain never had a forcing real caller; a
+ * Discussion's ability to block a Task's completion is exactly that forcing caller).
+ * A Discussion is a `doc` with subtype "discussion"; its fine-grained lifecycle
+ * (active/deferred/settled) lives in extra.discussion, not the shared doc status
+ * vocabulary, since Papyrus enforces status per-kind, not per-subtype. Rounds are a
+ * dedicated append-only child table, mirroring task_events' proven shape -- a round
+ * carries substantive content, unlike the generic artifact_events log's transition markers.
+ */
+export const DISCUSSION_ROUND_CONTENT_MAX_CHARACTERS = 10_000;
+export const DISCUSSION_ROUNDS_DEFAULT_LIMIT = 25;
+export const DISCUSSION_ROUNDS_MAX_LIMIT = 200;
+/** Hard ceiling on total rounds a single Discussion can ever accumulate -- forces settlement or deferral rather than an unbounded back-and-forth. */
+export const DISCUSSION_MAX_ROUNDS = 200;
+export const DISCUSSION_LIST_DEFAULT_LIMIT = 50;
+export const DISCUSSION_LIST_MAX_LIMIT = 200;
+export const DISCUSSION_SETTLEMENT_MAX_CHARACTERS = 4_000;
+export const DISCUSSION_DEFER_REASON_MAX_CHARACTERS = 2_000;
+export const DISCUSSION_ACTOR_MAX_LENGTH = 128;
 /** Bounds for the generic graph projection protocol (external bounded contexts). */
 export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
 export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;

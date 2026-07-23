@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { runMigrations, type SqliteMigrationRunner } from "@danypops/daemon-kit/storage";
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
@@ -363,6 +364,47 @@ function bootstrapEmptyDatabase(db: Db): void {
 	ensureCoreLedger(db, false);
 }
 
+/**
+ * Version the hardcoded, sequential if-chain below produces once fully applied. Frozen
+ * forever, per this same function's own "deliberately not a hand-enumerated allow-list"
+ * history below: that chain is never edited once shipped, only ever extended with a new
+ * `if` branch -- except a NEW branch is no longer how migrations beyond this version are
+ * added (see FUTURE_MIGRATIONS). The legacy chain itself stays byte-for-byte as it always
+ * was: same SQL, same single all-or-nothing transaction, same dynamic post-hoc gap check.
+ */
+const LEGACY_MIGRATION_CHAIN_TARGET_VERSION = 13;
+
+/**
+ * A migration beyond LEGACY_MIGRATION_CHAIN_TARGET_VERSION. Runs through @danypops/
+ * daemon-kit's generic runMigrations engine (one transaction per migration, daemon-kit's
+ * default) via dbMigrationRunner below, instead of a new branch appended to the legacy
+ * if-chain -- the exact reuse daemon-kit's storage module was refactored (v0.2.1) to allow,
+ * since Papyrus's dual bun:sqlite/node:sqlite Db abstraction could never satisfy that
+ * engine's original bun:sqlite-only signature.
+ */
+export interface PapyrusMigration {
+	version: number;
+	name: string;
+	up: (db: Db) => void;
+}
+
+/** Currently empty -- no schema version beyond LEGACY_MIGRATION_CHAIN_TARGET_VERSION exists yet. The next migration is appended here, never as a new branch in the legacy chain above. */
+const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [];
+
+/**
+ * Adapts Papyrus's own Db/inTransaction to daemon-kit's storage-agnostic
+ * SqliteMigrationRunner port, so its runMigrations engine (written against bun:sqlite's
+ * concrete Database) runs unmodified against Papyrus's dual-runtime Db abstraction instead.
+ */
+export function dbMigrationRunner(db: Db): SqliteMigrationRunner<Db> {
+	return {
+		raw: db,
+		userVersion: () => schemaVersion(db),
+		setUserVersion: (version) => db.exec(`PRAGMA user_version = ${version}`),
+		transaction: (fn) => inTransaction(db, fn),
+	};
+}
+
 export function migrateDb(db: Db): MigrationResult {
 	const from = schemaVersion(db);
 	if (from > SQLITE_SCHEMA_VERSION) {
@@ -378,11 +420,17 @@ export function migrateDb(db: Db): MigrationResult {
 	// migrating any already-deployed database sitting at schema 8, 9, or 10 (including the real
 	// production database at the time this was found) would have thrown "no explicit migration
 	// path" before ever reaching the migration chain below. Checked dynamically after the chain
-	// runs instead: if schemaVersion(db) hasn't reached SQLITE_SCHEMA_VERSION once every
-	// `schemaVersion(db) === N` step below has had its chance to fire, `from` was never a valid
-	// starting point (a genuine gap in the chain) -- structurally cannot drift out of sync the
-	// way a separate, parallel enumeration did.
-	inTransaction(db, () => {
+	// runs instead: if schemaVersion(db) hasn't reached LEGACY_MIGRATION_CHAIN_TARGET_VERSION once
+	// every `schemaVersion(db) === N` step below has had its chance to fire, `from` was never a
+	// valid starting point (a genuine gap in the chain) -- structurally cannot drift out of sync
+	// the way a separate, parallel enumeration did.
+	//
+	// Guarded by `from < LEGACY_MIGRATION_CHAIN_TARGET_VERSION`: a database already at or past
+	// that version (only reachable once FUTURE_MIGRATIONS below has entries) must skip this
+	// entire frozen chain, not merely fail to match any of its branches -- entering it and
+	// falling through to the final gap check would otherwise misreport a database correctly
+	// mid-way through FUTURE_MIGRATIONS as "no explicit migration path".
+	if (from < LEGACY_MIGRATION_CHAIN_TARGET_VERSION) inTransaction(db, () => {
 		if (schemaVersion(db) === 1) {
 			db.exec(`
 				INSERT OR IGNORE INTO statuses VALUES ('todo','task');
@@ -661,9 +709,25 @@ export function migrateDb(db: Db): MigrationResult {
 			`);
 			applied.push("session-identity");
 		}
-		if (schemaVersion(db) !== SQLITE_SCHEMA_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
+		if (schemaVersion(db) !== LEGACY_MIGRATION_CHAIN_TARGET_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
 	});
-	if (schemaVersion(db) === SQLITE_SCHEMA_VERSION) ensureCoreLedger(db, true);
+
+	// Guarded by length: runMigrations treats an empty migrations array's "target version" as
+	// 0 (see its own sorted.at(-1) ?? 0), which would misreport a database the legacy chain
+	// already advanced past 0 as a downgrade. FUTURE_MIGRATIONS is empty only when there is
+	// nothing beyond LEGACY_MIGRATION_CHAIN_TARGET_VERSION to apply -- exactly the case where
+	// skipping the call is correct, not merely convenient.
+	if (FUTURE_MIGRATIONS.length > 0) {
+		const beforeFuture = schemaVersion(db);
+		runMigrations(dbMigrationRunner(db), [...FUTURE_MIGRATIONS]);
+		const afterFuture = schemaVersion(db);
+		for (const migration of FUTURE_MIGRATIONS) {
+			if (migration.version > beforeFuture && migration.version <= afterFuture) applied.push(migration.name);
+		}
+	}
+
+	if (schemaVersion(db) !== SQLITE_SCHEMA_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
+	ensureCoreLedger(db, true);
 	return { from, to: schemaVersion(db), applied };
 }
 

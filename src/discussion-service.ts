@@ -3,7 +3,7 @@
  * append-only rounds (via DiscussionRoundStore). See domain/discussion.ts for the full
  * design rationale.
  */
-import { DISCUSSION_MAX_ROUNDS } from "./constants.ts";
+import { DISCUSSION_LIST_DEFAULT_LIMIT, DISCUSSION_LIST_MAX_LIMIT, DISCUSSION_MAX_ROUNDS } from "./constants.ts";
 import {
 	DISCUSSION_SUBTYPE,
 	isDiscussionArtifact,
@@ -29,7 +29,6 @@ export interface OpenDiscussionInput {
 	body?: string;
 	labels?: string[];
 	blocksTaskIds?: string[];
-	projectRoot?: string;
 }
 
 export interface DiscussionAndRounds {
@@ -150,7 +149,11 @@ export class Discussions {
 	}
 
 	list(filter: { state?: string; limit?: number } = {}): Artifact[] {
-		const rows = this.artifacts.query({ kind: "doc", subtype: DISCUSSION_SUBTYPE, limit: filter.limit });
+		// DISCUSSION_LIST_MAX_LIMIT/DEFAULT_LIMIT exist specifically so an unqualified discuss.list
+		// (limit omitted) can never fall through to queryArtifacts' own unbounded default -- the same
+		// class of gap notes.ts's noteListInput comment documents fixing for Notes.
+		const limit = Math.min(DISCUSSION_LIST_MAX_LIMIT, Math.max(1, Math.floor(filter.limit ?? DISCUSSION_LIST_DEFAULT_LIMIT)));
+		const rows = this.artifacts.query({ kind: "doc", subtype: DISCUSSION_SUBTYPE, limit });
 		if (!filter.state) return rows;
 		return rows.filter((row) => {
 			try { return this.extra(row).state === filter.state; } catch { return false; }

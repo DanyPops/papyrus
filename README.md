@@ -162,6 +162,8 @@ Rounds are a dedicated append-only child table (mirroring Task history's own sha
 
 Blocking is real: `tasks.complete` is refused while any `active` Discussion has a `blocks` edge to that Task. A `deferred` Discussion does not block -- "we will get back to this" is distinct from "resolved."
 
+Run `/discuss` for the interactive panel: browse every Discussion (the real `active`/`deferred`/`settled` state shown per row, not just the shared Doc status glyph), open a scrollable transcript, and reply/defer/resume/settle or block/unblock a task without leaving the TUI. Opening a *new* Discussion is left to the agent (same as Docs/Rules/Skills) -- `/discuss` browses and drives existing ones.
+
 ```bash
 papyrus discuss open --title "Naming" --actor alice --content "Should we rename this?" --blocks-json '["task-id"]' --json
 papyrus discuss reply <discussion-id> --actor bob --content "I think so, here's why..." --json

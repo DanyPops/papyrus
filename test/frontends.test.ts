@@ -3,11 +3,14 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
+import { discussionRowMeta } from "../extension/src/discuss.ts";
+import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
 import { NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 import { skillInvocationPrompt, skillRowMeta, skillRunTaskGraph } from "../extension/src/skills.ts";
 import {
+	DISCUSSION_STATE_PRESENTATION,
 	DOC_STATUS_PRESENTATION,
 	NOTE_STATUS_PRESENTATION,
 	RULE_STATUS_PRESENTATION,
@@ -158,6 +161,7 @@ describe("status presentation: every browsable kind's statuses are colored, not 
 		["doc", DOC_STATUS_PRESENTATION],
 		["note", NOTE_STATUS_PRESENTATION],
 		["skill", SKILL_STATUS_PRESENTATION],
+		["discussion", DISCUSSION_STATE_PRESENTATION],
 	] as const) {
 		it(`${kindLabel}: every status has a distinct color from every other status in the same kind`, () => {
 			const entries = Object.entries(presentation);
@@ -197,5 +201,48 @@ describe("kind-specific frontend projections (continued)", () => {
 		const template = artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "task" } });
 		expect(skillRowMeta(template)).toBe("template → task");
 		expect(skillInvocationPrompt(template)).toContain("template_id: artifact-1");
+	});
+});
+
+describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared doc status glyph", () => {
+	function discussion(state: string, roundCount: number): Artifact {
+		return artifact({ subtype: "discussion", status: state === "settled" ? "archived" : "active", extra: { discussion: { state, roundCount } } });
+	}
+
+	it("reads state and round count defensively, defaulting to a safe read-only fallback on corrupt extra", () => {
+		expect(discussionStateOf(discussion("active", 3))).toBe("active");
+		expect(discussionRoundCountOf(discussion("active", 3))).toBe(3);
+		const corrupt = artifact({ subtype: "discussion", extra: { discussion: { state: "not-a-real-state" } } });
+		expect(discussionStateOf(corrupt)).toBe("unknown");
+		expect(discussionRoundCountOf(corrupt)).toBe(0);
+	});
+
+	it("projects state and round count into rowMeta text, since the shared doc status glyph can't distinguish active from deferred", () => {
+		// Regression: a settled Discussion's doc.status becomes "archived" but a *deferred* one
+		// stays "active" at the doc level (domain/discussion.ts) -- the row glyph alone would render
+		// active and deferred identically. rowMeta is where that real distinction must show up.
+		expect(discussionRowMeta(discussion("active", 1), theme)).toBe("● active · 1 round");
+		expect(discussionRowMeta(discussion("deferred", 2), theme)).toBe("⏸ deferred · 2 rounds");
+		expect(discussionRowMeta(discussion("settled", 5), theme)).toBe("✓ settled · 5 rounds");
+	});
+
+	it("colors active/deferred/settled distinctly from one another", () => {
+		const distinguishingTheme = { ...theme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
+		const rendered = ["active", "deferred", "settled"].map((state) => discussionRowMeta(discussion(state, 1), distinguishingTheme));
+		const colorsUsed = new Set(rendered.map((line) => line.match(/^<(\w+)>/)?.[1]));
+		expect(colorsUsed.size).toBe(3);
+	});
+
+	it("registers the /discuss command and the discuss domain tool exposing every discuss.* operation", () => {
+		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
+		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
+		expect(extension).toContain('registerCommand("discuss"');
+		expect(tools).toContain('name: "discuss"');
+		for (const operation of [
+			"discuss.open", "discuss.reply", "discuss.defer", "discuss.resume", "discuss.settle",
+			"discuss.block", "discuss.unblock", "discuss.show", "discuss.rounds", "discuss.list",
+		]) {
+			expect(tools).toContain(operation);
+		}
 	});
 });

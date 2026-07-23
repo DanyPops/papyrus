@@ -1,7 +1,8 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
@@ -29,7 +30,7 @@ import {
 } from "../src/domain-services.ts";
 
 function fixture() {
-	const dir = mkdtempSync(join(tmpdir(), "papyrus-domain-service-"));
+	const dir = tempDir("papyrus-domain-service-");
 	const db = openDb(join(dir, "papyrus.db"));
 	const artifacts = new SQLiteArtifactStore(db);
 	return { db, dir, artifacts, scopes: new SQLiteArtifactScopeStore(db), authority: new AuthorityRegistry(), tasks: new Tasks(artifacts, new SQLiteGateRunner(db)) };

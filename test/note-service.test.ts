@@ -1,17 +1,17 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { NOTE_BODY_MAX_CHARACTERS, NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { Notes } from "../src/note-service.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 
 const PROJECT = "/workspace/papyrus";
 const OTHER_PROJECT = "/workspace/other";
 
 function fixture() {
-	const directory = mkdtempSync(join(tmpdir(), "papyrus-notes-"));
+	const directory = tempDir("papyrus-notes-");
 	const database = openDb(join(directory, "papyrus.db"));
 	const artifacts = new SQLiteArtifactStore(database);
 	return { database, artifacts, notes: new Notes(artifacts) };

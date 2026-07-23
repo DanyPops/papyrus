@@ -1,7 +1,7 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { PapyrusClient } from "../src/client.ts";
 import { openDb } from "../src/db.ts";
 import { EXPECTED_OPERATION_NAMES, createApp, createPapyrusService } from "../src/service.ts";
@@ -10,7 +10,7 @@ import { VERSION } from "../src/version.ts";
 const PROJECT_ROOT = "/workspace/papyrus";
 
 function fixture() {
-	const dir = mkdtempSync(join(tmpdir(), "papyrus-service-"));
+	const dir = tempDir("papyrus-service-");
 	const service = createPapyrusService(join(dir, "papyrus.db"));
 	const app = createApp({ service, token: "test-token" });
 	return { dir, service, app };
@@ -53,7 +53,7 @@ describe("Papyrus operation service", () => {
 	});
 
 	it("starts without migrating old data and permits only explicit migration", async () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-service-migration-"));
+		const dir = tempDir("papyrus-service-migration-");
 		const path = join(dir, "papyrus.db");
 		const legacy = openDb(path);
 		legacy.exec(`

@@ -1,13 +1,13 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { taskContext } from "../extension/src/task-context.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 
 function fixture() {
-	const dir = mkdtempSync(join(tmpdir(), "papyrus-task-context-"));
+	const dir = tempDir("papyrus-task-context-");
 	const db = openDb(join(dir, "papyrus.db"));
 	return { db, artifacts: new SQLiteArtifactStore(db) };
 }

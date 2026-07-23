@@ -1,13 +1,14 @@
-import { describe, it, expect } from "bun:test";
+import { afterAll, describe, it, expect } from "bun:test";
 import { openDb, type Db } from "../src/db.ts";
 import { createArtifact, queryArtifacts, linkArtifacts, getArtifact, runGates } from "../src/ops.ts";
 import { dbPath } from "../src/constants.ts";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 
 function tmpDb(): { db: Db; dir: string } {
-	const dir = mkdtempSync(join(tmpdir(), "papyrus-"));
+	const dir = tempDir("papyrus-");
 	process.env["XDG_DATA_HOME"] = dir;
 	const db = openDb(dbPath());
 	return { db, dir };

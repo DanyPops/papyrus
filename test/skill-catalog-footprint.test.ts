@@ -1,7 +1,8 @@
-import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import {
 	discoverSkillDirectories,
 	parseSkillFrontmatter,
@@ -50,7 +51,7 @@ describe("parseSkillFrontmatter", () => {
 
 describe("discoverSkillDirectories", () => {
 	it("includes both global locations and project locations up to the git root", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-skill-discover-"));
+		const dir = tempDir("papyrus-skill-discover-");
 		const repoRoot = join(dir, "repo");
 		const nested = join(repoRoot, "packages", "app");
 		mkdirSync(join(repoRoot, ".git"), { recursive: true });
@@ -64,7 +65,6 @@ describe("discoverSkillDirectories", () => {
 		expect(directories).toContain(join(nested, ".agents", "skills"));
 		expect(directories).toContain(join(repoRoot, ".pi", "skills")); // walked up to the git root
 		expect(directories).not.toContain(join(dir, ".pi", "skills")); // stops AT the git root, does not walk past it
-		rmSync(dir, { recursive: true, force: true });
 	});
 
 	it("includes explicit settings.json skills entries verbatim", () => {
@@ -85,7 +85,7 @@ describe("scanSkillCatalogFootprint", () => {
 	}
 
 	it("scans nested SKILL.md directories and computes a sorted-by-size footprint", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-skill-scan-"));
+		const dir = tempDir("papyrus-skill-scan-");
 		writeSkill(join(dir, "commit"), "commit", "Short.");
 		writeSkill(join(dir, "kernel-sideload"), "kernel-sideload", "A much longer description that costs more tokens than the short one.");
 
@@ -97,11 +97,10 @@ describe("scanSkillCatalogFootprint", () => {
 		expect(footprint.totalCharacters).toBe(footprint.entries[0]!.characters + footprint.entries[1]!.characters);
 		expect(footprint.totalEstimatedTokens).toBeGreaterThan(0);
 		expect(footprint.scannedDirectories).toEqual([dir]);
-		rmSync(dir, { recursive: true, force: true });
 	});
 
 	it("discovers direct root .md files only in .pi/agent/skills and .pi/skills, never in .agents/skills", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-skill-scan-root-"));
+		const dir = tempDir("papyrus-skill-scan-root-");
 		const piAgentSkills = join(dir, ".pi", "agent", "skills");
 		const agentsSkills = join(dir, ".agents", "skills");
 		mkdirSync(piAgentSkills, { recursive: true });
@@ -112,7 +111,6 @@ describe("scanSkillCatalogFootprint", () => {
 		const footprint = scanSkillCatalogFootprint([piAgentSkills, agentsSkills]);
 
 		expect(footprint.entries.map((entry) => entry.name)).toEqual(["brave-search"]);
-		rmSync(dir, { recursive: true, force: true });
 	});
 
 	it("silently skips a missing or unreadable directory rather than throwing", () => {
@@ -121,24 +119,22 @@ describe("scanSkillCatalogFootprint", () => {
 	});
 
 	it("skips a skill directory with no description as invalid, per the Agent Skills spec's lenient-but-required rule", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-skill-scan-invalid-"));
+		const dir = tempDir("papyrus-skill-scan-invalid-");
 		mkdirSync(join(dir, "broken"), { recursive: true });
 		writeFileSync(join(dir, "broken", "SKILL.md"), "---\nname: broken\n---\nNo description field.");
 
 		const footprint = scanSkillCatalogFootprint([dir]);
 
 		expect(footprint.entries).toHaveLength(0);
-		rmSync(dir, { recursive: true, force: true });
 	});
 
 	it("does not descend into node_modules or .git while walking", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-skill-scan-ignore-"));
+		const dir = tempDir("papyrus-skill-scan-ignore-");
 		writeSkill(join(dir, "node_modules", "some-package"), "phantom", "Should never be found.");
 		writeSkill(join(dir, "real-skill"), "real-skill", "Should be found.");
 
 		const footprint = scanSkillCatalogFootprint([dir]);
 
 		expect(footprint.entries.map((entry) => entry.name)).toEqual(["real-skill"]);
-		rmSync(dir, { recursive: true, force: true });
 	});
 });

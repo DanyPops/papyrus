@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { migrateDb, openDb } from "../src/db.ts";
@@ -41,7 +41,7 @@ function legacyDatabase(path: string): void {
 
 describe("task lifecycle schema migration", () => {
 	it("migrates lifecycle statuses and preserves one deterministic active focus", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-lifecycle-")), "papyrus.db");
+		const path = join(tempDir("papyrus-lifecycle-"), "papyrus.db");
 		legacyDatabase(path);
 
 		const db = openDb(path);

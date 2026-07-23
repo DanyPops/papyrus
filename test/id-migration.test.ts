@@ -1,7 +1,7 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { openDb, type Db } from "../src/db.ts";
 import { createArtifact, linkArtifacts, getArtifact } from "../src/ops.ts";
 import { applyIdMigration, mirrorDatabase, planIdMigration, verifyIdMigration } from "../src/id-migration.ts";
@@ -140,7 +140,7 @@ describe("id migration: plan, apply, verify", () => {
 	});
 
 	it("mirrors a file-backed database via a consistent, compacted copy, independent of the original", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-id-migration-"));
+		const dir = tempDir("papyrus-id-migration-");
 		const originalPath = join(dir, "papyrus.db");
 		const mirrorPath = join(dir, "papyrus.mirror.db");
 		const original = openDb(originalPath);

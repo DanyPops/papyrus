@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { migrationLedger, migrateDb, openDb, schemaVersion } from "../src/db.ts";
 import { SQLITE_SCHEMA_VERSION } from "../src/constants.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
@@ -21,7 +21,7 @@ describe("module migration ledger", () => {
 	});
 
 	it("is stable and idempotent across repeated opens of the same file-backed database", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-")), "papyrus.db");
+		const path = join(tempDir("papyrus-ledger-"), "papyrus.db");
 		const first = openDb(path);
 		const firstLedger = migrationLedger(first);
 		first.close();
@@ -34,7 +34,7 @@ describe("module migration ledger", () => {
 	});
 
 	it("backfills the ledger for a pre-ledger database that reached current schema through the old sequential upgrade path", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-legacy-")), "papyrus.db");
+		const path = join(tempDir("papyrus-ledger-legacy-"), "papyrus.db");
 		// Simulate a real production database that upgraded via the historical migrateDb() chain
 		// before the ledger existed: drop the ledger table bootstrapEmptyDatabase would have
 		// created, keeping PRAGMA user_version at current -- exactly what a database persisted
@@ -54,7 +54,7 @@ describe("module migration ledger", () => {
 	});
 
 	it("does not auto-migrate a genuinely outdated database on open -- explicit migration stays required", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-outdated-")), "papyrus.db");
+		const path = join(tempDir("papyrus-ledger-outdated-"), "papyrus.db");
 		const legacy = new Database(path, { create: true });
 		legacy.exec(`
 			PRAGMA foreign_keys = ON;
@@ -84,7 +84,7 @@ describe("module migration ledger", () => {
 	});
 
 	it("throws if a ledger row's stored checksum no longer matches its frozen definition", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-drift-")), "papyrus.db");
+		const path = join(tempDir("papyrus-ledger-drift-"), "papyrus.db");
 		const fresh = openDb(path);
 		fresh.prepare("UPDATE module_migrations SET checksum = 'tampered' WHERE module_id = 'core' AND version = 1").run();
 		fresh.close();
@@ -100,7 +100,7 @@ describe("module migration ledger", () => {
 		// next time it opened under newer code, even though nothing about that database was
 		// actually wrong. Simulate exactly that database shape: only version 1 recorded, none
 		// of the later versions.
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-legacy-v1-only-")), "papyrus.db");
+		const path = join(tempDir("papyrus-ledger-legacy-v1-only-"), "papyrus.db");
 		const db = openDb(path);
 		db.exec("DELETE FROM module_migrations WHERE version > 1");
 		db.close();
@@ -116,7 +116,7 @@ describe("module migration ledger", () => {
 	});
 
 	it("keeps the pre-ledger explicit migrate path's behavior and reporting completely unchanged", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-ledger-explicit-")), "papyrus.db");
+		const path = join(tempDir("papyrus-ledger-explicit-"), "papyrus.db");
 		const legacy = new Database(path, { create: true });
 		legacy.exec(`
 			PRAGMA foreign_keys = ON;

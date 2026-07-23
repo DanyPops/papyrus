@@ -49,6 +49,13 @@ function taskId(input: OperationInput): string {
 	return value;
 }
 
+function optionsMode(input: OperationInput): "single" | "multi" | undefined {
+	const value = optionalString(input, "options_mode") ?? optionalString(input, "optionsMode");
+	if (value === undefined) return undefined;
+	if (value !== "single" && value !== "multi") throw new Error('options_mode must be "single" or "multi"');
+	return value;
+}
+
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const DISCUSS_OPERATION_NAMES = [
 	"discuss.open", "discuss.reply", "discuss.defer", "discuss.resume", "discuss.settle",
@@ -68,8 +75,16 @@ export function discussOperations(discussions: Discussions): OperationDefinition
 			body: optionalString(input, "body"),
 			labels: optionalStringArray(input, "labels"),
 			blocksTaskIds: optionalStringArray(input, "blocks_task_ids") ?? optionalStringArray(input, "blocksTaskIds"),
+			options: optionalStringArray(input, "options"),
+			optionsMode: optionsMode(input),
 		}, eventContext(input))),
-		define("discuss.reply", (input: OperationInput) => discussions.reply(string(input, "id"), string(input, "actor"), string(input, "content"), eventContext(input))),
+		define("discuss.reply", (input: OperationInput) => discussions.reply(string(input, "id"), {
+			actor: string(input, "actor"),
+			content: string(input, "content"),
+			selected: optionalStringArray(input, "selected"),
+			options: optionalStringArray(input, "options"),
+			optionsMode: optionsMode(input),
+		}, eventContext(input))),
 		define("discuss.defer", (input: OperationInput) => discussions.defer(string(input, "id"), optionalString(input, "reason"), eventContext(input))),
 		define("discuss.resume", (input: OperationInput) => discussions.resume(string(input, "id"), eventContext(input))),
 		define("discuss.settle", (input: OperationInput) => discussions.settle(string(input, "id"), string(input, "settlement"), eventContext(input))),

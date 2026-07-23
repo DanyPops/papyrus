@@ -54,9 +54,9 @@ describe("Discussions.reply", () => {
 	it("appends successive rounds and increments roundCount", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
-		const first = discussions.reply(discussion.id, "bob", "response 1");
+		const first = discussions.reply(discussion.id, { actor: "bob", content: "response 1" });
 		expect(first.discussion.extra["discussion"]).toMatchObject({ roundCount: 2 });
-		const second = discussions.reply(discussion.id, "alice", "response 2");
+		const second = discussions.reply(discussion.id, { actor: "alice", content: "response 2" });
 		expect(second.discussion.extra["discussion"]).toMatchObject({ roundCount: 3 });
 		expect(second.rounds[0]).toMatchObject({ roundNumber: 3, actor: "alice", content: "response 2" });
 	});
@@ -65,14 +65,14 @@ describe("Discussions.reply", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		discussions.defer(discussion.id, "waiting on design review");
-		expect(() => discussions.reply(discussion.id, "bob", "still here?")).toThrow(/resume it/);
+		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "still here?" })).toThrow(/resume it/);
 	});
 
 	it("refuses to reply to a settled discussion", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		discussions.settle(discussion.id, "agreed on approach");
-		expect(() => discussions.reply(discussion.id, "bob", "one more thing")).toThrow(/resume it/);
+		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "one more thing" })).toThrow(/resume it/);
 	});
 });
 
@@ -195,6 +195,71 @@ describe("Discuss blocking a real Task's completion (task-service.ts integration
 	});
 });
 
+describe("Discuss: structured options (single/multi-select questions)", () => {
+	it("open() poses a single-select choice on round 1 and records it as pending", () => {
+		const { discussions } = fixture();
+		const { discussion, rounds } = discussions.open({
+			title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single",
+		});
+		expect(discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionsMode: "single" });
+		expect(rounds[0]).toMatchObject({ options: ["A", "B"], optionsMode: "single" });
+	});
+
+	it("reply() answers a pending single-select choice, clearing it, and records the selection on the round", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		const result = discussions.reply(discussion.id, { actor: "bob", content: "Going with B", selected: ["B"] });
+		expect(result.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
+		expect(result.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionsMode");
+		expect(result.rounds[0]).toMatchObject({ selected: ["B"] });
+	});
+
+	it("refuses more than one selection when the pending choice is single-select", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "Both!", selected: ["A", "B"] })).toThrow(/pick exactly one/);
+	});
+
+	it("allows several selections when the pending choice is multi-select", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Pick some", actor: "alice", content: "Which apply?", options: ["A", "B", "C"], optionsMode: "multi" });
+		const result = discussions.reply(discussion.id, { actor: "bob", content: "A and C", selected: ["A", "C"] });
+		expect(result.rounds[0]).toMatchObject({ selected: ["A", "C"] });
+	});
+
+	it("refuses a selection that was never offered", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "C!", selected: ["C"] })).toThrow(/not offered/);
+	});
+
+	it("refuses a selection when there is nothing pending to answer", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Free-form", actor: "alice", content: "Thoughts?" });
+		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "B", selected: ["B"] })).toThrow(/no pending options/);
+	});
+
+	it("a reply can pose a new choice for the next round, replacing whatever was previously pending", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		const answered = discussions.reply(discussion.id, {
+			actor: "bob", content: "B -- and now, should we also rename it?", selected: ["B"], options: ["Yes", "No"], optionsMode: "single",
+		});
+		expect(answered.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["Yes", "No"], pendingOptionsMode: "single" });
+		expect(answered.rounds[0]).toMatchObject({ selected: ["B"], options: ["Yes", "No"], optionsMode: "single" });
+		// The next reply answers the NEW pending question, not the original A/B one.
+		const final = discussions.reply(discussion.id, { actor: "alice", content: "Yes", selected: ["Yes"] });
+		expect(final.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
+	});
+
+	it("rejects malformed options at open time: too few, duplicates, wrong mode", () => {
+		const { discussions } = fixture();
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["only-one"], optionsMode: "single" })).toThrow(/between 2 and/);
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "A"], optionsMode: "single" })).toThrow(/not repeat/);
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "quorum" as never })).toThrow(/options_mode must be/);
+	});
+});
+
 describe("Discussions.list / listRounds", () => {
 	it("lists discussions filtered by state", () => {
 		const { discussions } = fixture();
@@ -216,8 +281,8 @@ describe("Discussions.list / listRounds", () => {
 	it("paginates rounds with afterRound", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "a", content: "round 1" });
-		discussions.reply(discussion.id, "b", "round 2");
-		discussions.reply(discussion.id, "a", "round 3");
+		discussions.reply(discussion.id, { actor: "b", content: "round 2" });
+		discussions.reply(discussion.id, { actor: "a", content: "round 3" });
 		expect(discussions.listRounds(discussion.id).map((r) => r.roundNumber)).toEqual([1, 2, 3]);
 		expect(discussions.listRounds(discussion.id, 1).map((r) => r.roundNumber)).toEqual([2, 3]);
 	});

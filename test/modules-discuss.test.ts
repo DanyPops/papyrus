@@ -47,6 +47,24 @@ describe("modules/discuss — registered operations", () => {
 		expect(() => block.execute({ id: discussion.id })).toThrow(/task_id is required/);
 	});
 
+	it("discuss.open and discuss.reply accept snake_case options/options_mode/selected", () => {
+		const { registry } = fixture();
+		const open = registry.get("discuss.open")!;
+		const opened = open.execute({ title: "T", actor: "a", content: "A or B?", options: ["A", "B"], options_mode: "single" }) as { discussion: { id: string; extra: Record<string, unknown> } };
+		expect(opened.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionsMode: "single" });
+		const reply = registry.get("discuss.reply")!;
+		const replied = reply.execute({ id: opened.discussion.id, actor: "b", content: "B", selected: ["B"] }) as { discussion: { extra: Record<string, unknown> } };
+		expect(replied.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
+	});
+
+	it("discuss.reply rejects an invalid options_mode", () => {
+		const { registry } = fixture();
+		const open = registry.get("discuss.open")!;
+		const opened = open.execute({ title: "T", actor: "a", content: "c" }) as { discussion: { id: string } };
+		const reply = registry.get("discuss.reply")!;
+		expect(() => reply.execute({ id: opened.discussion.id, actor: "b", content: "c", options: ["A", "B"], options_mode: "quorum" })).toThrow(/options_mode must be/);
+	});
+
 	it("discuss.list and discuss.rounds round-trip through the registry", () => {
 		const { registry } = fixture();
 		const open = registry.get("discuss.open")!;

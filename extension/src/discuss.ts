@@ -15,9 +15,11 @@
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
+import { readDiscussionExtra } from "../../src/domain/discussion.ts";
 import { showArtifactBrowser } from "./artifact-browser.ts";
 import { DISCUSSION_STATE_PRESENTATION, DOC_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { discussionRoundCountOf, discussionStateOf, showDiscussionDetailView } from "./discussion-detail-view.ts";
+import { pickDiscussionOptions } from "./discussion-picker.ts";
 import { callService } from "./service-client.ts";
 
 const SOURCE = "discuss-tui";
@@ -28,7 +30,9 @@ export function discussionRowMeta(discussion: Artifact, theme: Theme): string {
 	const presentation = DISCUSSION_STATE_PRESENTATION[state];
 	const stateText = presentation ? theme.fg(presentation.color, `${presentation.glyph} ${presentation.label}`) : theme.fg("muted", "state unknown");
 	const rounds = discussionRoundCountOf(discussion);
-	return `${stateText} · ${rounds} round${rounds === 1 ? "" : "s"}`;
+	const pending = (() => { try { return readDiscussionExtra(discussion.extra).pendingOptions; } catch { return undefined; } })();
+	const pendingText = pending && pending.length > 0 ? theme.fg("accent", ` · awaiting: ${pending.join("/")}`) : "";
+	return `${stateText} · ${rounds} round${rounds === 1 ? "" : "s"}${pendingText}`;
 }
 
 function discussionActions(discussion: Artifact): string[] {
@@ -54,6 +58,16 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 				return;
 			}
 			if (choice === "Reply") {
+				const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
+				if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
+					const selected = await pickDiscussionOptions(commandCtx, pending.pendingOptionsMode, pending.pendingOptions);
+					if (!selected) return; // canceled
+					const elaboration = await commandCtx.ui.input("Elaborate (optional):", selected.join(", "));
+					if (elaboration === undefined) return; // canceled
+					await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: elaboration || selected.join(", "), selected, source: SOURCE });
+					commandCtx.ui.notify(`Selected: ${selected.join(", ")}`, "info");
+					return;
+				}
 				const content = await commandCtx.ui.input("Reply:", "");
 				if (!content) return;
 				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content, source: SOURCE });

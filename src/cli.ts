@@ -118,8 +118,8 @@ const USAGE = `Usage:
   papyrus log append --source <id> --level <debug|info|warning|error> --message <text> --operation-id <id> [--source-label <text>] [--fields-json <json>] [--session-id <id>] [--occurred-at <iso>] [--global] [--json]
   papyrus session register --session-id <id> [--json]
   papyrus session release --session-id <id> [--session-secret <secret>] [--json]
-  papyrus discuss open --title <t> --actor <a> --content <c> [--body <b>] [--labels-json <json>] [--blocks-json <json>] [--json]
-  papyrus discuss reply <id> --actor <a> --content <c> [--json]
+  papyrus discuss open --title <t> --actor <a> --content <c> [--body <b>] [--labels-json <json>] [--blocks-json <json>] [--options-json <json>] [--options-mode single|multi] [--json]
+  papyrus discuss reply <id> --actor <a> --content <c> [--selected-json <json>] [--options-json <json>] [--options-mode single|multi] [--json]
   papyrus discuss defer <id> [--reason <text>] [--json]
   papyrus discuss resume <id> [--json]
   papyrus discuss settle <id> --settlement <text> [--json]
@@ -999,6 +999,9 @@ export async function runDiscussCli(args: string[], client: TaskCliClient): Prom
 	let state: string | undefined;
 	let afterRound: number | undefined;
 	let limit: number | undefined;
+	let options: string[] | undefined;
+	let optionsMode: string | undefined;
+	let selected: string[] | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
@@ -1009,6 +1012,9 @@ export async function runDiscussCli(args: string[], client: TaskCliClient): Prom
 		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
 		if (argument === "--blocks-json") { blocksTaskIds = parseJsonStringArrayFlag(args[++index], "--blocks-json"); continue; }
 		if (argument === "--task-id") { taskId = args[++index]; if (!taskId) throw new Error("--task-id requires a value"); continue; }
+		if (argument === "--options-json") { options = parseJsonStringArrayFlag(args[++index], "--options-json"); continue; }
+		if (argument === "--options-mode") { optionsMode = args[++index]; if (!optionsMode) throw new Error("--options-mode requires a value"); continue; }
+		if (argument === "--selected-json") { selected = parseJsonStringArrayFlag(args[++index], "--selected-json"); continue; }
 		if (argument === "--reason") { reason = args[++index]; if (reason === undefined) throw new Error("--reason requires a value"); continue; }
 		if (argument === "--settlement") { settlement = args[++index]; if (!settlement) throw new Error("--settlement requires a value"); continue; }
 		if (argument === "--state") { state = args[++index]; if (!state) throw new Error("--state requires a value"); continue; }
@@ -1031,12 +1037,12 @@ export async function runDiscussCli(args: string[], client: TaskCliClient): Prom
 	switch (action) {
 		case "open": {
 			if (id) throw new Error("discuss open accepts no positional arguments");
-			const result = await client.call<Record<string, unknown>, unknown>("discuss.open", { title, actor, content, body, labels, blocks_task_ids: blocksTaskIds });
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.open", { title, actor, content, body, labels, blocks_task_ids: blocksTaskIds, options, options_mode: optionsMode });
 			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 		}
 		case "reply": {
 			if (!id) throw new Error("discuss reply requires exactly one discussion id");
-			const result = await client.call<Record<string, unknown>, unknown>("discuss.reply", { id, actor, content });
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.reply", { id, actor, content, selected, options, options_mode: optionsMode });
 			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 		}
 		case "defer": {

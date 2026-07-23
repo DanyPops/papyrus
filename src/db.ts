@@ -235,6 +235,9 @@ CREATE TABLE IF NOT EXISTS discussion_rounds (
 	content       TEXT NOT NULL,
 	occurred_at   TEXT NOT NULL,
 	event_schema_version INTEGER NOT NULL DEFAULT 1,
+	options       TEXT,
+	options_mode  TEXT,
+	selected      TEXT,
 	UNIQUE (discussion_id, round_number)
 );
 CREATE INDEX IF NOT EXISTS discussion_rounds_discussion_idx ON discussion_rounds(discussion_id, round_number, id);
@@ -323,6 +326,7 @@ const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; check
 	{ version: 5, name: "session-identity", checksum: "1c6a165bbe37f82a100fd34762db70c3f8ab15ff20c3a53c2e60448edc815a5e" },
 	{ version: 6, name: "artifact-trash", checksum: "4a75dbec2892deb54bcc1afdf0d51d81f03a8d10861787d083784a29e5c7e8f9" },
 	{ version: 7, name: "discuss-native", checksum: "ab7bdd04824bd93681917807b817d6e08b9825af90161e3ccd6d6663021dc6a0" },
+	{ version: 8, name: "discuss-options", checksum: "ba1fc5ab7cfe9166d71cc1842f13bc32a0905d08696006cec202196a70c832e8" },
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -468,6 +472,22 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
 				UPDATE relation_names SET description = 'Blocking relationship (task→task, or an active Discussion doc→task)' WHERE name = 'blocks';
 			`);
+		},
+	},
+	{
+		version: 16,
+		name: "discuss-options",
+		// See domain/discussion.ts. Nullable, purely additive columns: a round with no posed choice
+		// (the overwhelming majority, before this feature existed) simply stores NULL in all three.
+		// Guarded per-column (SQLite has no `ADD COLUMN IF NOT EXISTS`): a fixture that bootstraps
+		// from the CURRENT SCHEMA text (which already declares these columns) and then only fakes an
+		// older user_version to exercise this migration path must not fail with "duplicate column
+		// name" -- the same class of already-bootstrapped-fixture concern version 9's comment covers.
+		up: (db) => {
+			const existing = new Set((db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name));
+			for (const column of ["options", "options_mode", "selected"]) {
+				if (!existing.has(column)) db.exec(`ALTER TABLE discussion_rounds ADD COLUMN ${column} TEXT`);
+			}
 		},
 	},
 ];

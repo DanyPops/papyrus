@@ -99,6 +99,18 @@ describe("Discussion transcript view", () => {
 		expect(harness.renders[0]!.join("\n")).toContain("No rounds recorded.");
 	});
 
+	it("shows what was posed and what was picked, per round", async () => {
+		const harness = tuiContext();
+		const posedRounds: DiscussionRound[] = [
+			{ id: 1, discussionId: "discussion-1", roundNumber: 1, actor: "alice", content: "A or B?", occurredAt: "2026-01-01T00:00:00.000Z", options: ["A", "B"], optionsMode: "single" },
+			{ id: 2, discussionId: "discussion-1", roundNumber: 2, actor: "bob", content: "Going with B", occurredAt: "2026-01-01T00:05:00.000Z", selected: ["B"] },
+		];
+		await showDiscussionDetailView(harness.ctx, discussion(), posedRounds);
+		const rendered = harness.renders[0]!.join("\n");
+		expect(rendered).toContain("Posed (pick one): A, B");
+		expect(rendered).toContain("Selected: B");
+	});
+
 	it("falls back to a plain notify outside TUI mode", async () => {
 		const notifications: Array<{ message: string; level?: string }> = [];
 		const ctx = {

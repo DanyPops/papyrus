@@ -134,7 +134,8 @@ CREATE INDEX IF NOT EXISTS task_events_history_idx ON task_events(task_id, occur
 CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events
 BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events
-BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
+WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.task_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+BEGIN SELECT RAISE(ABORT, 'task_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
 CREATE TABLE IF NOT EXISTS task_scopes (
 	task_id       TEXT PRIMARY KEY REFERENCES artifacts(id),
 	project_root  TEXT,
@@ -170,7 +171,8 @@ CREATE INDEX IF NOT EXISTS artifact_events_session_idx ON artifact_events(sessio
 CREATE TRIGGER IF NOT EXISTS artifact_events_no_update BEFORE UPDATE ON artifact_events
 BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS artifact_events_no_delete BEFORE DELETE ON artifact_events
-BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
+WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.artifact_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
 CREATE TABLE IF NOT EXISTS graph_projection_checkpoints (
 	producer_id    TEXT PRIMARY KEY,
 	last_sequence  INTEGER NOT NULL,
@@ -218,6 +220,13 @@ CREATE TABLE IF NOT EXISTS session_identities (
 	registered_at TEXT NOT NULL,
 	last_seen_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS artifact_trash (
+	artifact_id  TEXT PRIMARY KEY REFERENCES artifacts(id),
+	trashed_at   TEXT NOT NULL,
+	purge_after  TEXT NOT NULL,
+	reason       TEXT
+);
+CREATE INDEX IF NOT EXISTS artifact_trash_purge_idx ON artifact_trash(purge_after);
 `;
 
 const SEED_SQL = `
@@ -296,6 +305,7 @@ const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; check
 	{ version: 3, name: "log-domain", checksum: "c87f43c22b2608619ada9a529d7899ae74b7f38cd554135c8034116fc96e1eff" },
 	{ version: 4, name: "remove-discourse", checksum: "b923f41c44460f0aaeb2f4e60e28f8b8e1425d03f527955bd991434b46de4c82" },
 	{ version: 5, name: "session-identity", checksum: "1c6a165bbe37f82a100fd34762db70c3f8ab15ff20c3a53c2e60448edc815a5e" },
+	{ version: 6, name: "artifact-trash", checksum: "4a75dbec2892deb54bcc1afdf0d51d81f03a8d10861787d083784a29e5c7e8f9" },
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -388,8 +398,34 @@ export interface PapyrusMigration {
 	up: (db: Db) => void;
 }
 
-/** Currently empty -- no schema version beyond LEGACY_MIGRATION_CHAIN_TARGET_VERSION exists yet. The next migration is appended here, never as a new branch in the legacy chain above. */
-const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [];
+const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
+	{
+		version: 14,
+		name: "artifact-trash",
+		// See domain/artifact-trash.ts for the full design rationale. The two trigger bodies here
+		// must match SCHEMA's fresh-bootstrap versions of the same triggers byte-for-byte -- DROP
+		// then CREATE is required since SQLite has no ALTER TRIGGER.
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS artifact_trash (
+					artifact_id  TEXT PRIMARY KEY REFERENCES artifacts(id),
+					trashed_at   TEXT NOT NULL,
+					purge_after  TEXT NOT NULL,
+					reason       TEXT
+				);
+				CREATE INDEX IF NOT EXISTS artifact_trash_purge_idx ON artifact_trash(purge_after);
+				DROP TRIGGER IF EXISTS task_events_no_delete;
+				CREATE TRIGGER task_events_no_delete BEFORE DELETE ON task_events
+				WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.task_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+				BEGIN SELECT RAISE(ABORT, 'task_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
+				DROP TRIGGER IF EXISTS artifact_events_no_delete;
+				CREATE TRIGGER artifact_events_no_delete BEFORE DELETE ON artifact_events
+				WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.artifact_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
+			`);
+		},
+	},
+];
 
 /**
  * Adapts Papyrus's own Db/inTransaction to daemon-kit's storage-agnostic

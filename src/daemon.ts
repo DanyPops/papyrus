@@ -34,6 +34,14 @@ export function serveMain(): void {
 			if (removed > 0) logEvent("info", "stale_focus_reaped", { removed });
 		} catch (error) { logEvent("error", "reap_stale_focus_failed", { message: error instanceof Error ? error.message : String(error) }); }
 	}, DB_OPTIMIZE_INTERVAL_MS);
+	// Same daily cadence: ARTIFACT_TRASH_RETENTION_MS is 30 days, so a daily sweep finds newly
+	// due artifacts promptly without needing its own tighter interval -- see domain/artifact-trash.ts.
+	const purgeTrashTimer = setInterval(() => {
+		try {
+			const purged = service.purgeDueTrash();
+			if (purged > 0) logEvent("info", "artifact_trash_purged", { purged });
+		} catch (error) { logEvent("error", "purge_trash_failed", { message: error instanceof Error ? error.message : String(error) }); }
+	}, DB_OPTIMIZE_INTERVAL_MS);
 	let stopping = false;
 	const shutdown = () => {
 		if (stopping) return;
@@ -41,6 +49,7 @@ export function serveMain(): void {
 		clearInterval(checkpointTimer);
 		clearInterval(optimizeTimer);
 		clearInterval(reapFocusTimer);
+		clearInterval(purgeTrashTimer);
 		clearDaemonPort(stateDir);
 		service.close();
 		void server.stop(true).finally(() => process.exit(0));

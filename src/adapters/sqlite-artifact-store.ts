@@ -12,7 +12,23 @@ import type {
 	UpdateArtifactInput,
 } from "../domain/artifact.ts";
 import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "../domain/artifact-event.ts";
-import { createArtifact, getArtifact, linkArtifacts, queryArtifactEvents, queryArtifacts, unlinkArtifacts, updateArtifactContent, updateExtra, updateStatus } from "../ops.ts";
+import type { ArtifactTrashRecord } from "../domain/artifact-trash.ts";
+import {
+	createArtifact,
+	getArtifact,
+	getArtifactTrash,
+	linkArtifacts,
+	listArtifactTrash,
+	purgeDueArtifacts,
+	queryArtifactEvents,
+	queryArtifacts,
+	restoreArtifact,
+	trashArtifact,
+	unlinkArtifacts,
+	updateArtifactContent,
+	updateExtra,
+	updateStatus,
+} from "../ops.ts";
 
 export class SQLiteArtifactStore implements AtomicArtifactStore {
 	constructor(private readonly db: Db) {}
@@ -55,6 +71,26 @@ export class SQLiteArtifactStore implements AtomicArtifactStore {
 
 	events(query: ArtifactEventQuery): ArtifactEventPage {
 		return queryArtifactEvents(this.db, query);
+	}
+
+	trash(id: string, options?: { reason?: string; context?: ArtifactEventContext }): ArtifactTrashRecord {
+		return trashArtifact(this.db, id, { reason: options?.reason, context: options?.context });
+	}
+
+	restore(id: string, context?: ArtifactEventContext): { restored: boolean } {
+		return restoreArtifact(this.db, id, context);
+	}
+
+	trashStatus(id: string): ArtifactTrashRecord | null {
+		return getArtifactTrash(this.db, id);
+	}
+
+	listTrash(): ArtifactTrashRecord[] {
+		return listArtifactTrash(this.db);
+	}
+
+	purgeDueTrash(): number {
+		return purgeDueArtifacts(this.db);
 	}
 
 	relationships(filter: RelationshipQuery = {}): ArtifactEdge[] {

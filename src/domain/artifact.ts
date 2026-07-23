@@ -46,6 +46,8 @@ export interface ArtifactQuery {
 	labels?: string[];
 	extraEquals?: Record<string, string | number | boolean>;
 	limit?: number;
+	/** Trashed artifacts (see artifact-trash.ts) are excluded from every query by default; set true to include them, e.g. for a trash-listing view. */
+	includeTrashed?: boolean;
 }
 
 export interface ArtifactGraphOptions {

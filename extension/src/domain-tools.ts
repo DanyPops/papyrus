@@ -31,6 +31,26 @@ function artifactLine(artifact: Artifact): string {
 	return `${artifact.id} [${artifact.status}] ${artifact.title}`;
 }
 
+/**
+ * Shared "remove"/"restore" dispatch for every domain tool (tasks/docs/rules/skills) --
+ * artifact.remove/restore are kind-agnostic composition-root operations (see service.ts),
+ * not owned by any one domain module, so every domain tool exposes the same two actions
+ * over the same two operations rather than reinventing trash semantics four times.
+ * Returns null when action is neither, so callers fall through to their own dispatch.
+ */
+async function handleArtifactRemoveRestore(action: unknown, params: Record<string, unknown>): Promise<ReturnType<typeof text> | null> {
+	if (action === "remove") {
+		const record = await callService<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>("artifact.remove", params);
+		return text(`Trashed ${record.artifactId}, eligible for purge at ${record.purgeAfter}.`, createPreviewDetails("artifact.remove", "Trashed", record.artifactId));
+	}
+	if (action === "restore") {
+		const outcome = await callService<Record<string, unknown>, { restored: boolean }>("artifact.restore", params);
+		const output = outcome.restored ? `Restored ${params["id"]}.` : `${params["id"]} was not trashed.`;
+		return text(output, createPreviewDetails("artifact.restore", "Restored", output));
+	}
+	return null;
+}
+
 const proofReferenceSchema = Type.Object({
 	type: Type.Union(PROOF_TYPES.map((type) => Type.Literal(type))),
 	target: Type.String(),
@@ -45,7 +65,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, undepend, contain, uncontain. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. update can recover a Task accidentally created terminal by setting status=todo with a reason, but cannot rewrite legitimate lifecycle history. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. undepend/uncontain are idempotent for an already-absent relationship and never start, complete, or focus work merely because an edge disappeared; uncontain removes both contains and part_of edges atomically. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, undepend, contain, uncontain, remove, restore. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. update can recover a Task accidentally created terminal by setting status=todo with a reason, but cannot rewrite legitimate lifecycle history. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. undepend/uncontain are idempotent for an already-absent relationship and never start, complete, or focus work merely because an edge disappeared; uncontain removes both contains and part_of edges atomically. remove moves a Task to a time-gated trash (restorable via restore until the purge deadline; refuses if it is the live Task Focus). Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -181,6 +201,8 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						}))),
 					);
 				}
+				const trashResult = await handleArtifactRemoveRestore(action, params);
+				if (trashResult) return trashResult;
 				const operations = {
 					focus: "tasks.focus",
 					start: "tasks.start",
@@ -257,7 +279,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "docs",
 		label: "Documents",
-		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Prefer this over low-level papyrus_* tools for document work.",
+		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Doc to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. Prefer this over low-level papyrus_* tools for document work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -273,6 +295,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			relation: Type.Optional(Type.String()),
 			target_id: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()),
+			reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Documents", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -291,6 +314,8 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const artifact = await callService<Record<string, unknown>, Artifact>("docs.show", params);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("docs.show", artifact));
 				}
+				const trashResult = await handleArtifactRemoveRestore(action, params);
+				if (trashResult) return trashResult;
 				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link", assign_project: "docs.assign_project" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown docs action: ${action}`);
@@ -305,14 +330,14 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "rules",
 		label: "Rules",
-		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt.",
+		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt. remove moves a Rule to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
 			severity: Type.Optional(Type.String()), labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), task_id: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()),
+			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Rules", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -331,6 +356,8 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const preview = await callService<Record<string, unknown>, string>("rules.preview", params);
 					return text(preview, createPreviewDetails("rules.preview", "Rule preview", preview));
 				}
+				const trashResult = await handleArtifactRemoveRestore(action, params);
+				if (trashResult) return trashResult;
 				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate", assign_project: "rules.assign_project" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown rules action: ${action}`);
@@ -345,7 +372,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
-		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted.",
+		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, remove, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
@@ -356,7 +383,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), template_id: Type.Optional(Type.String()),
 			target_kind: Type.Optional(Type.String()), defaults: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			required: Type.Optional(Type.Array(Type.String())), kind: Type.Optional(Type.String()), subtype: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()),
+			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Skills", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -393,6 +420,8 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						roots: run.rootTaskIds,
 					}));
 				}
+				const trashResult = await handleArtifactRemoveRestore(action, params);
+				if (trashResult) return trashResult;
 				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate", assign_project: "skills.assign_project" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown skills action: ${action}`);

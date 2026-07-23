@@ -9,6 +9,7 @@ import type {
 	UpdateArtifactInput,
 } from "../domain/artifact.ts";
 import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "../domain/artifact-event.ts";
+import type { ArtifactTrashRecord } from "../domain/artifact-trash.ts";
 
 export interface ArtifactStore {
 	create(input: CreateArtifactInput, context?: ArtifactEventContext): Artifact;
@@ -23,4 +24,12 @@ export interface ArtifactStore {
 	relationships(filter?: RelationshipQuery): ArtifactEdge[];
 	/** Bounded query over the generic mutation event log shared by every kind. */
 	events(query: ArtifactEventQuery): ArtifactEventPage;
+	/** See domain/artifact-trash.ts. Moves an artifact to the trash; throws if it does not exist or is the live Task Focus in any scope. */
+	trash(id: string, options?: { reason?: string; context?: ArtifactEventContext }): ArtifactTrashRecord;
+	/** Idempotent: restoring an artifact that is not currently trashed is a real no-op. */
+	restore(id: string, context?: ArtifactEventContext): { restored: boolean };
+	trashStatus(id: string): ArtifactTrashRecord | null;
+	listTrash(): ArtifactTrashRecord[];
+	/** Real, cascading, irreversible deletion of every artifact past its purge deadline; returns how many were purged. */
+	purgeDueTrash(): number;
 }

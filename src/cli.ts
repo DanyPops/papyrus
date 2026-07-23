@@ -118,6 +118,16 @@ const USAGE = `Usage:
   papyrus log append --source <id> --level <debug|info|warning|error> --message <text> --operation-id <id> [--source-label <text>] [--fields-json <json>] [--session-id <id>] [--occurred-at <iso>] [--global] [--json]
   papyrus session register --session-id <id> [--json]
   papyrus session release --session-id <id> [--session-secret <secret>] [--json]
+  papyrus discuss open --title <t> --actor <a> --content <c> [--body <b>] [--labels-json <json>] [--blocks-json <json>] [--json]
+  papyrus discuss reply <id> --actor <a> --content <c> [--json]
+  papyrus discuss defer <id> [--reason <text>] [--json]
+  papyrus discuss resume <id> [--json]
+  papyrus discuss settle <id> --settlement <text> [--json]
+  papyrus discuss block <id> --task-id <task-id> [--json]
+  papyrus discuss unblock <id> --task-id <task-id> [--json]
+  papyrus discuss show <id> [--json]
+  papyrus discuss rounds <id> [--after-round <n>] [--limit <n>] [--json]
+  papyrus discuss list [--state active|deferred|settled] [--limit <n>] [--json]
   papyrus log query --source <id> [--since <iso>] [--level <debug|info|warning|error>] [--limit <count>] [--json]
   papyrus tasks plan [--session-id <id>] [--json]
   papyrus tasks graph [--session-id <id>] [--json]
@@ -974,6 +984,106 @@ export async function runSessionIdentityCli(args: string[], client: TaskCliClien
 	throw new Error("session action must be register or release");
 }
 
+export async function runDiscussCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let title: string | undefined;
+	let actor: string | undefined;
+	let content: string | undefined;
+	let body: string | undefined;
+	let labels: string[] | undefined;
+	let blocksTaskIds: string[] | undefined;
+	let taskId: string | undefined;
+	let reason: string | undefined;
+	let settlement: string | undefined;
+	let state: string | undefined;
+	let afterRound: number | undefined;
+	let limit: number | undefined;
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--title") { title = args[++index]; if (!title) throw new Error("--title requires a value"); continue; }
+		if (argument === "--actor") { actor = args[++index]; if (!actor) throw new Error("--actor requires a value"); continue; }
+		if (argument === "--content") { content = args[++index]; if (content === undefined) throw new Error("--content requires a value"); continue; }
+		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
+		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
+		if (argument === "--blocks-json") { blocksTaskIds = parseJsonStringArrayFlag(args[++index], "--blocks-json"); continue; }
+		if (argument === "--task-id") { taskId = args[++index]; if (!taskId) throw new Error("--task-id requires a value"); continue; }
+		if (argument === "--reason") { reason = args[++index]; if (reason === undefined) throw new Error("--reason requires a value"); continue; }
+		if (argument === "--settlement") { settlement = args[++index]; if (!settlement) throw new Error("--settlement requires a value"); continue; }
+		if (argument === "--state") { state = args[++index]; if (!state) throw new Error("--state requires a value"); continue; }
+		if (argument === "--after-round") {
+			const value = args[++index];
+			if (!value || Number.isNaN(Number(value))) throw new Error("--after-round requires a numeric value");
+			afterRound = Number(value);
+			continue;
+		}
+		if (argument === "--limit") {
+			const value = args[++index];
+			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
+			limit = Number(value);
+			continue;
+		}
+		if (argument.startsWith("--")) throw new Error(`unknown discuss option ${argument}`);
+		positional.push(argument);
+	}
+	const [action, id] = positional;
+	switch (action) {
+		case "open": {
+			if (id) throw new Error("discuss open accepts no positional arguments");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.open", { title, actor, content, body, labels, blocks_task_ids: blocksTaskIds });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "reply": {
+			if (!id) throw new Error("discuss reply requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.reply", { id, actor, content });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "defer": {
+			if (!id) throw new Error("discuss defer requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.defer", { id, reason });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "resume": {
+			if (!id) throw new Error("discuss resume requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.resume", { id });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "settle": {
+			if (!id) throw new Error("discuss settle requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.settle", { id, settlement });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "block": {
+			if (!id) throw new Error("discuss block requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.block", { id, task_id: taskId });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "unblock": {
+			if (!id) throw new Error("discuss unblock requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.unblock", { id, task_id: taskId });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "show": {
+			if (!id) throw new Error("discuss show requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.show", { id });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "rounds": {
+			if (!id) throw new Error("discuss rounds requires exactly one discussion id");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.rounds", { id, after_round: afterRound, limit });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		case "list": {
+			if (id) throw new Error("discuss list accepts no positional arguments");
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.list", { state, limit });
+			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
+		}
+		default:
+			throw new Error("discuss action must be open, reply, defer, resume, settle, block, unblock, show, rounds, or list");
+	}
+}
+
 export async function runNoteCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
 	const positional: string[] = [];
@@ -1393,6 +1503,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "session") {
 		const client = await connectPapyrusClient();
 		console.log(await runSessionIdentityCli(args.slice(1), client));
+		return;
+	}
+	if (command === "discuss") {
+		const client = await connectPapyrusClient();
+		console.log(await runDiscussCli(args.slice(1), client));
 		return;
 	}
 	if (command === "migrate") {

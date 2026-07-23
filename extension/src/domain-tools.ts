@@ -7,6 +7,8 @@ import type { TaskExecutionPlan } from "../../src/task-execution.ts";
 import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
+import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
+import type { DiscussionRound } from "../../src/domain/discussion.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
@@ -429,6 +431,74 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
 			} catch (error) {
 				throw new Error(`skills failed: ${error instanceof Error ? error.message : error}`);
+			}
+		},
+	});
+
+	pi.registerTool({
+		name: "discuss",
+		label: "Discuss",
+		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it.",
+		parameters: Type.Object({
+			action: Type.String(),
+			id: Type.Optional(Type.String()),
+			title: Type.Optional(Type.String()),
+			actor: Type.Optional(Type.String()),
+			content: Type.Optional(Type.String()),
+			body: Type.Optional(Type.String()),
+			labels: Type.Optional(Type.Array(Type.String())),
+			blocks_task_ids: Type.Optional(Type.Array(Type.String())),
+			task_id: Type.Optional(Type.String()),
+			reason: Type.Optional(Type.String()),
+			settlement: Type.Optional(Type.String()),
+			state: Type.Optional(Type.String()),
+			after_round: Type.Optional(Type.Number()),
+			limit: Type.Optional(Type.Number()),
+		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
+		async execute(_id, params) {
+			try {
+				const action = params.action;
+				if (action === "open") {
+					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.open", params);
+					return text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion));
+				}
+				if (action === "reply") {
+					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", params);
+					return text(`Round ${result.rounds[0]?.roundNumber} added to ${result.discussion.id}`, createArtifactDetails("discuss.reply", result.discussion));
+				}
+				if (action === "block") {
+					await callService<Record<string, unknown>, { blocked: boolean }>("discuss.block", params);
+					const message = `${params.id} now blocks ${params.task_id}`;
+					return text(message, createPreviewDetails("discuss.block", "Blocked", message));
+				}
+				if (action === "unblock") {
+					const result = await callService<Record<string, unknown>, { unblocked: boolean }>("discuss.unblock", params);
+					const message = result.unblocked ? `${params.id} no longer blocks ${params.task_id}` : "No such blocking relationship.";
+					return text(message, createPreviewDetails("discuss.unblock", "Unblocked", message));
+				}
+				if (action === "show") {
+					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.show", params);
+					const rounds = result.rounds.map((round) => `  [round ${round.roundNumber}] ${round.actor}: ${round.content}`).join("\n");
+					return text(`${artifactLine(result.discussion)}\n\n${rounds}`, createArtifactDetails("discuss.show", result.discussion));
+				}
+				if (action === "rounds") {
+					const rounds = await callService<Record<string, unknown>, DiscussionRound[]>("discuss.rounds", params);
+					const output = rounds.map((round) => `[round ${round.roundNumber}] ${round.actor}: ${round.content}`).join("\n") || "No rounds.";
+					return text(output, createPreviewDetails("discuss.rounds", "Discussion rounds", output));
+				}
+				if (action === "list") {
+					const rows = await callService<Record<string, unknown>, Artifact[]>("discuss.list", params);
+					return text(rows.length ? rows.map(artifactLine).join("\n") : "No discussions found.", createArtifactListDetails("discuss.list", rows));
+				}
+				const operations = { defer: "discuss.defer", resume: "discuss.resume", settle: "discuss.settle" } as const;
+				const operation = operations[action as keyof typeof operations];
+				if (!operation) throw new Error(`unknown discuss action: ${action}`);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
+			} catch (error) {
+				throw new Error(`discuss failed: ${error instanceof Error ? error.message : error}`);
 			}
 		},
 	});

@@ -154,6 +154,23 @@ papyrus notes promote <note-id> <target-id> --reason "Converted to tracked work"
 papyrus notes archive <note-id> declined --reason "No longer relevant" --json
 ```
 
+## Discuss
+
+Discuss is a native, persistent deliberation, distinct from a one-shot ask: it survives across turns and sessions, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. A Discussion is a `doc` artifact with `subtype: "discussion"` -- real graph citizenship (edges, show/list) without a fifth enforced artifact kind. Its fine-grained lifecycle (`active`/`deferred`/`settled`) lives in `extra.discussion`, since Papyrus enforces status vocabulary per kind, not per subtype.
+
+Rounds are a dedicated append-only child table (mirroring Task history's own shape): `open` records round 1, `reply` appends further rounds, refused once the Discussion is `deferred` or `settled` -- resume first. `defer` is explicitly non-blocking (paused, reason optional, resumable); `settle` is terminal, records an outcome, and archives the Doc. `block`/`unblock` manage the blocking relationship to a Task independently of `open`.
+
+Blocking is real: `tasks.complete` is refused while any `active` Discussion has a `blocks` edge to that Task. A `deferred` Discussion does not block -- "we will get back to this" is distinct from "resolved."
+
+```bash
+papyrus discuss open --title "Naming" --actor alice --content "Should we rename this?" --blocks-json '["task-id"]' --json
+papyrus discuss reply <discussion-id> --actor bob --content "I think so, here's why..." --json
+papyrus discuss defer <discussion-id> --reason "Waiting on design review" --json
+papyrus discuss resume <discussion-id> --json
+papyrus discuss settle <discussion-id> --settlement "Agreed: renaming to X" --json
+papyrus discuss show <discussion-id> --json
+```
+
 ## Tasks
 
 Run `/tasks` for the interactive task panel:

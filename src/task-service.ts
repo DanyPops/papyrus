@@ -11,6 +11,7 @@ import {
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
+import { isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
 import type { Gate, GateResult } from "./domain/gate.ts";
 import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
 import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
@@ -419,6 +420,7 @@ export class Tasks {
 
 	complete(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): TaskCompletion {
 		const task = this.requireReview(id);
+		this.requireNotBlocked(id);
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
@@ -428,6 +430,7 @@ export class Tasks {
 
 	async completeAsync(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): Promise<TaskCompletion> {
 		const task = this.requireReview(id);
+		this.requireNotBlocked(id);
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
@@ -677,5 +680,29 @@ export class Tasks {
 		const task = this.require(id);
 		if (task.status !== "review") throw new Error(`cannot complete task from ${task.status}`);
 		return task;
+	}
+
+	/**
+	 * Discuss's forcing behavior (see domain/discussion.ts): an active Discussion doc that
+	 * `blocks` this task refuses its completion until settled or deferred. A discussion whose
+	 * extra.discussion shape is missing or corrupt is treated as non-blocking rather than
+	 * crashing completion -- the same fail-open posture Task Focus's opt-in armor uses for an
+	 * unrecognized shape.
+	 */
+	private blockingDiscussions(id: string): Artifact[] {
+		return this.artifacts.relationships({ artifactIds: [id] })
+			.filter((edge) => edge.relation === "blocks" && edge.to === id)
+			.map((edge) => this.artifacts.get(edge.from))
+			.filter((source): source is Artifact => source !== null && isDiscussionArtifact(source))
+			.filter((discussion) => {
+				try { return readDiscussionExtra(discussion.extra).state === "active"; } catch { return false; }
+			});
+	}
+
+	private requireNotBlocked(id: string): void {
+		const blockers = this.blockingDiscussions(id);
+		if (blockers.length > 0) {
+			throw new Error(`task "${id}" is blocked by ${blockers.length} active Discussion(s): ${blockers.map((discussion) => discussion.id).join(", ")}`);
+		}
 	}
 }

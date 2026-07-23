@@ -99,7 +99,7 @@ describe("append-only task lifecycle history", () => {
 
 		db = openDb(path);
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
-		expect(migrateDb(db)).toEqual({ from: 2, to: 14, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash"] });
+		expect(migrateDb(db)).toEqual({ from: 2, to: 15, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native"] });
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		db.close();
 	});

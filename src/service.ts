@@ -34,7 +34,10 @@ import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
 import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
 import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
+import { discussOperations, DISCUSS_OPERATION_NAMES } from "./modules/discuss.ts";
 import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
+import { Discussions } from "./discussion-service.ts";
+import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-store.ts";
 
 /**
  * Operations with no registered module: the generic, cross-cutting kernel surface
@@ -73,6 +76,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...GRAPH_PROJECTION_OPERATION_NAMES,
 	...LOGS_OPERATION_NAMES,
 	...SESSION_IDENTITY_OPERATION_NAMES,
+	...DISCUSS_OPERATION_NAMES,
 ] as const;
 
 export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
@@ -383,6 +387,16 @@ function handlers(
 		"logs.query": forwardToModule("logs.query"),
 		"session.register": forwardToModule("session.register"),
 		"session.release": forwardToModule("session.release"),
+		"discuss.open": forwardToModule("discuss.open"),
+		"discuss.reply": forwardToModule("discuss.reply"),
+		"discuss.defer": forwardToModule("discuss.defer"),
+		"discuss.resume": forwardToModule("discuss.resume"),
+		"discuss.settle": forwardToModule("discuss.settle"),
+		"discuss.block": forwardToModule("discuss.block"),
+		"discuss.unblock": forwardToModule("discuss.unblock"),
+		"discuss.show": forwardToModule("discuss.show"),
+		"discuss.rounds": forwardToModule("discuss.rounds"),
+		"discuss.list": forwardToModule("discuss.list"),
 	};
 }
 
@@ -399,11 +413,13 @@ export function createPapyrusService(path: string): PapyrusService {
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
+	const discussions = new Discussions(artifacts, new SQLiteDiscussionRoundStore(db));
 	const authority = createAuthorityRegistry();
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(logsOperations(logs));
 	moduleRegistry.registerAll(sessionIdentityOperations(sessionIdentity));
+	moduleRegistry.registerAll(discussOperations(discussions));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));

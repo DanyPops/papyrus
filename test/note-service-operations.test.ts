@@ -1,16 +1,16 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { PapyrusClient } from "../src/client.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
 import { createApp, createPapyrusService, EXPECTED_OPERATION_NAMES } from "../src/service.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 
 const PROJECT = "/workspace/papyrus";
 
 describe("Notes daemon operations", () => {
 	it("exposes authenticated capture, inbox, consumption, promotion, and archive behavior", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "papyrus-note-ops-"));
+		const directory = tempDir("papyrus-note-ops-");
 		const service = createPapyrusService(join(directory, "papyrus.db"));
 		const app = createApp({ service, token: "notes-token" });
 		const client = new PapyrusClient("http://papyrus.test", "notes-token", (request) => app.fetch(request));
@@ -34,7 +34,7 @@ describe("Notes daemon operations", () => {
 	});
 
 	it("prevents generic document and graph mutations from bypassing Note invariants", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "papyrus-note-guard-"));
+		const directory = tempDir("papyrus-note-guard-");
 		const service = createPapyrusService(join(directory, "papyrus.db"));
 		const note = await service.execute("notes.capture", { body: "Guard this", project_root: PROJECT }) as { id: string };
 		expect(await service.execute("docs.list", {})).toEqual([]);

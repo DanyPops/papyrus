@@ -1,7 +1,7 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { migrateDb, openDb } from "../src/db.ts";
 
 /**
@@ -16,7 +16,7 @@ import { migrateDb, openDb } from "../src/db.ts";
  * are the exact ones the old guard would have rejected.
  */
 function freshDbAtVersion(version: number, dropLogTables: boolean): { path: string } {
-	const path = join(mkdtempSync(join(tmpdir(), "papyrus-migration-guard-")), "papyrus.db");
+	const path = join(tempDir("papyrus-migration-guard-"), "papyrus.db");
 	const db = openDb(path); // bootstraps at the full current schema
 	if (dropLogTables) {
 		db.exec(`
@@ -64,7 +64,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 		// Deliberately does not round-trip through openDb() (its own current===0 bootstrap path
 		// intercepts that case before migrateDb ever runs) -- this exercises migrateDb's own
 		// `from < 1` guard directly, on a still-open handle whose version was forced to 0 without closing.
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-migration-guard-")), "papyrus.db");
+		const path = join(tempDir("papyrus-migration-guard-"), "papyrus.db");
 		const db = openDb(path);
 		db.exec("PRAGMA user_version = 0");
 		expect(() => migrateDb(db)).toThrow(/no explicit migration path from database schema 0/);

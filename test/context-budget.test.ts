@@ -1,7 +1,8 @@
-import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import {
 	buildContextBreakdown,
 	buildMessageHistoryTree,
@@ -38,7 +39,7 @@ describe("computeRuleBudget", () => {
 
 describe("computeContextBudget", () => {
 	it("combines rule and skill footprints into one total", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-budget-"));
+		const dir = tempDir("papyrus-budget-");
 		const skillDir = join(dir, "home", ".pi", "agent", "skills", "example");
 		mkdirSync(skillDir, { recursive: true });
 		writeFileSync(join(skillDir, "SKILL.md"), "---\nname: example\ndescription: An example skill.\n---\n");
@@ -48,11 +49,10 @@ describe("computeContextBudget", () => {
 		expect(budget.rules.entries).toHaveLength(1);
 		expect(budget.skills.entries).toHaveLength(1);
 		expect(budget.totalEstimatedTokens).toBe(budget.rules.totalEstimatedTokens + budget.skills.totalEstimatedTokens);
-		rmSync(dir, { recursive: true, force: true });
 	});
 
 	it("reads settings.json's skills array and includes those directories in the scan", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-budget-settings-"));
+		const dir = tempDir("papyrus-budget-settings-");
 		const homeDirectory = join(dir, "home");
 		const externalSkills = join(dir, "external-skills", "imported");
 		mkdirSync(join(homeDirectory, ".pi", "agent"), { recursive: true });
@@ -63,17 +63,15 @@ describe("computeContextBudget", () => {
 		const budget = computeContextBudget([], join(dir, "project"), homeDirectory);
 
 		expect(budget.skills.entries.map((entry) => entry.name)).toEqual(["imported"]);
-		rmSync(dir, { recursive: true, force: true });
 	});
 
 	it("tolerates a missing or malformed settings.json rather than failing the whole report", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-budget-badsettings-"));
+		const dir = tempDir("papyrus-budget-badsettings-");
 		const homeDirectory = join(dir, "home");
 		mkdirSync(join(homeDirectory, ".pi", "agent"), { recursive: true });
 		writeFileSync(join(homeDirectory, ".pi", "agent", "settings.json"), "{ not valid json");
 
 		expect(() => computeContextBudget([], join(dir, "project"), homeDirectory)).not.toThrow();
-		rmSync(dir, { recursive: true, force: true });
 	});
 });
 

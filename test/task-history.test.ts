@@ -1,7 +1,7 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
@@ -76,7 +76,7 @@ describe("append-only task lifecycle history", () => {
 	});
 
 	it("migrates v2 explicitly without fabricating history for existing tasks", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-history-")), "papyrus.db");
+		const path = join(tempDir("papyrus-history-"), "papyrus.db");
 		let db = openDb(path);
 		const artifacts = new SQLiteArtifactStore(db);
 		artifacts.create({ kind: "task", title: "Before history" });

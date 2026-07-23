@@ -1,9 +1,10 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { daemonStateDir, loadOrCreateToken, readDaemonHandle, writeDaemonPort } from "../src/daemon-state.ts";
 import { renderSystemdUnit } from "../src/cli.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 
 describe("Papyrus daemon state", () => {
 	it("uses explicit, runtime, then XDG state locations", () => {
@@ -14,7 +15,7 @@ describe("Papyrus daemon state", () => {
 	});
 
 	it("persists a private token and daemon port handle", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-daemon-state-"));
+		const dir = tempDir("papyrus-daemon-state-");
 		const first = loadOrCreateToken(dir);
 		const second = loadOrCreateToken(dir);
 		expect(first).toBe(second);

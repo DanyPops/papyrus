@@ -1,7 +1,8 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
 import { openDb } from "../src/db.ts";
 import { createArtifact, linkArtifacts } from "../src/ops.ts";
@@ -40,7 +41,7 @@ describe("Papyrus migrate-ids CLI: mirror, then validate, then promote -- never 
 	}
 
 	it("mirrors, validates, and promotes end to end, and refuses to promote an unvalidated or failed mirror", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-cli-id-migration-"));
+		const dir = tempDir("papyrus-cli-id-migration-");
 		const source = join(dir, "papyrus.db");
 		const mirror = join(dir, "papyrus.mirror.db");
 		seededDbFile(source);
@@ -72,7 +73,7 @@ describe("Papyrus migrate-ids CLI: mirror, then validate, then promote -- never 
 	});
 
 	it("refuses to promote a mirror that fails validation", () => {
-		const dir = mkdtempSync(join(tmpdir(), "papyrus-cli-id-migration-"));
+		const dir = tempDir("papyrus-cli-id-migration-");
 		const source = join(dir, "papyrus.db");
 		const mirror = join(dir, "papyrus.mirror.db");
 		seededDbFile(source);

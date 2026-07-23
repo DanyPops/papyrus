@@ -1,6 +1,4 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
@@ -9,9 +7,11 @@ import { Tasks } from "../src/task-service.ts";
 import { createApp, createPapyrusService } from "../src/service.ts";
 import { SQLITE_BUSY_TIMEOUT_MS } from "../src/constants.ts";
 import { callService, resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 
 function dbFile(): string {
-	return join(mkdtempSync(join(tmpdir(), "papyrus-reliability-")), "papyrus.db");
+	return join(tempDir("papyrus-reliability-"), "papyrus.db");
 }
 
 describe("daemon client reliability", () => {

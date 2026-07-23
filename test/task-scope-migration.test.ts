@@ -1,13 +1,13 @@
-import { describe, expect, it } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+afterAll(cleanupTempDirs);
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
 
 describe("task project scope migration", () => {
 	it("keeps existing tasks explicitly unscoped instead of guessing a project", () => {
-		const path = join(mkdtempSync(join(tmpdir(), "papyrus-scope-")), "papyrus.db");
+		const path = join(tempDir("papyrus-scope-"), "papyrus.db");
 		let db = openDb(path);
 		new SQLiteArtifactStore(db).create({ kind: "task", title: "Existing" });
 		db.exec(`

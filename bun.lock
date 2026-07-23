@@ -5,7 +5,7 @@
     "": {
       "name": "@danypops/papyrus",
       "dependencies": {
-        "@danypops/daemon-kit": "^0.2.0",
+        "@danypops/daemon-kit": "^0.2.1",
         "beautiful-mermaid": "1.1.3",
       },
       "devDependencies": {
@@ -73,7 +73,7 @@
 
     "@babel/runtime": ["@babel/runtime@7.29.7", "", {}, "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw=="],
 
-    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.2.0", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-8Nyh83MXjR1rlQ7fagBYzeYXV9a9VOqiLR73g7AoVkr4S5yQXj5qiBoJ9C17nKaM3mbDrOBZDsEfFjmFwl2yRw=="],
+    "@danypops/daemon-kit": ["@danypops/daemon-kit@0.2.1", "", { "dependencies": { "pino": "^10.3.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-lnH45H8zUc6hea2vbywr/PiL5YBiwOuWfSGYrEAX48ebD8LzV1qrDQGY0e9vH5/B1Jp39LN8ONgMQ1yjKPQyZA=="],
 
     "@earendil-works/pi-agent-core": ["@earendil-works/pi-agent-core@0.80.10", "", { "dependencies": { "@earendil-works/pi-ai": "^0.80.10", "ignore": "7.0.5", "typebox": "1.1.38", "yaml": "2.9.0" } }, "sha512-nwnOR3SuLYGRFfyQm8ri4Nj5VGVAvAM9GuqQd3u7BUQj0d6hmD2F8w7OHAAjThE3CuySIdM+v8E22QJG6/RfCg=="],
 

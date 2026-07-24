@@ -16,7 +16,9 @@ export interface PapyrusToolRenderContext {
 }
 
 function primaryArgument(args: Record<string, unknown>): string | undefined {
-	for (const key of ["id", "title", "text", "query", "kind", "template_id"]) {
+	// name/title before id: a caller that already knows the name shouldn't have the raw id echoed
+	// back at it; id only surfaces here when it's genuinely the only identifying argument given.
+	for (const key of ["name", "title", "id", "text", "query", "kind", "template_id"]) {
 		const value = args[key];
 		if (typeof value === "string" && value.trim()) return value.slice(0, CALL_VALUE_MAX_CHARACTERS);
 	}
@@ -45,11 +47,11 @@ function textContent(result: AgentToolResult<unknown>): string {
 function simpleDetailsText(details: Exclude<PapyrusToolDetails, { kind: "artifact" | "artifact-list" | "graph" }>): string {
 	switch (details.kind) {
 		case "transition":
-			return `✓ ${details.artifact.id}  ${details.fromStatus} → ${details.toStatus}\n${details.artifact.title}`;
+			return `✓ ${details.fromStatus} → ${details.toStatus}\n${details.artifact.title}`;
 		case "gate-run": {
 			const passed = details.gates.filter((gate) => gate.passed).length;
 			return [
-				`${passed}/${details.gates.length} gates passed for ${details.artifactId}`,
+				`${passed}/${details.gates.length} gates passed for "${details.artifactTitle}"`,
 				...details.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.type}: ${gate.target}${gate.output ? ` — ${gate.output}` : ""}`),
 			].join("\n");
 		}

@@ -80,6 +80,14 @@ describe("tasks application API", () => {
 		expect(tasks.list()).toHaveLength(1);
 		db.close();
 	});
+
+	it("excludes Discussions, which now share kind \"task\" but are not real work items", () => {
+		const { db, artifacts, tasks } = fixture();
+		tasks.create({ title: "Real task" });
+		artifacts.create({ kind: "task", subtype: "discussion", title: "Some discussion" });
+		expect(tasks.list()).toHaveLength(1);
+		db.close();
+	});
 });
 
 describe("rules domain service", () => {

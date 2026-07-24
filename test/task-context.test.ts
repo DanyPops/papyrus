@@ -57,4 +57,57 @@ describe("task context reconciliation", () => {
 		expect(context).toContain("0/1 done");
 		db.close();
 	});
+
+	it("never counts a Discussion as a task in Progress/Current/Next/Rejected", () => {
+		const { db, artifacts } = fixture();
+		artifacts.create({ kind: "task", subtype: "discussion", title: "Some discussion", status: "in-progress" });
+		expect(taskContext(artifacts)).toBeNull();
+		db.close();
+	});
+
+	it("surfaces a deferred Discussion blocking an in-scope task, by name", () => {
+		const { db, artifacts } = fixture();
+		const task = artifacts.create({ kind: "task", title: "Ship the release" });
+		const discussion = artifacts.create({
+			kind: "task", subtype: "discussion", title: "Which rollout strategy?", status: "in-progress",
+			extra: { discussion: { state: "deferred", roundCount: 1 } },
+		});
+		artifacts.link({ from: discussion.id, relation: "blocks", to: task.id });
+
+		const context = taskContext(artifacts, undefined, new Set([task.id]))!;
+		expect(context).toContain("Deferred discussions blocking this scope");
+		expect(context).toContain("Which rollout strategy?");
+		expect(context).toContain("Ship the release");
+	});
+
+	it("omits a deferred Discussion blocking a task outside the current scope", () => {
+		const { db, artifacts } = fixture();
+		const inScope = artifacts.create({ kind: "task", title: "In scope task" });
+		artifacts.setStatus(inScope.id, "in-progress");
+		const outOfScope = artifacts.create({ kind: "task", title: "Out of scope task" });
+		const discussion = artifacts.create({
+			kind: "task", subtype: "discussion", title: "Unrelated decision", status: "in-progress",
+			extra: { discussion: { state: "deferred", roundCount: 1 } },
+		});
+		artifacts.link({ from: discussion.id, relation: "blocks", to: outOfScope.id });
+
+		const context = taskContext(artifacts, undefined, new Set([inScope.id]))!;
+		expect(context).not.toContain("Unrelated decision");
+		db.close();
+	});
+
+	it("omits an active (not yet deferred) Discussion from the surfaced section", () => {
+		const { db, artifacts } = fixture();
+		const task = artifacts.create({ kind: "task", title: "Ship the release" });
+		artifacts.setStatus(task.id, "in-progress");
+		const discussion = artifacts.create({
+			kind: "task", subtype: "discussion", title: "Still being discussed", status: "in-progress",
+			extra: { discussion: { state: "active", roundCount: 1 } },
+		});
+		artifacts.link({ from: discussion.id, relation: "blocks", to: task.id });
+
+		const context = taskContext(artifacts)!;
+		expect(context).not.toContain("Still being discussed");
+		db.close();
+	});
 });

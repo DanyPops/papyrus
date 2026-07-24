@@ -2,12 +2,15 @@
  * Discuss: a native Papyrus deliberation with a real lifecycle, distinct from a one-shot
  * "ask" (see the design discussion this implements) and from Discourse's forum (kept fully
  * standalone by design -- no dependency here, Discuss reuses none of its storage or wire
- * shape). A Discussion is a `doc` artifact with subtype "discussion": real graph citizenship
- * (edges, show/list) without a fifth enforced artifact kind. Its fine-grained lifecycle
- * lives in extra.discussion rather than the shared doc status vocabulary, since Papyrus
- * enforces status per-kind, not per-subtype -- "deferred" has no equivalent among a plain
- * doc's draft/active/archived. The doc's own status column follows loosely: "active" while
- * extra.discussion.state is active or deferred, "archived" once settled.
+ * shape). A Discussion is a `task` artifact with subtype "discussion": not a passive
+ * record (see the blocking behavior below), so it takes the kind whose lifecycle, focus,
+ * and dependency-graph machinery are already built for unresolved work -- not a fifth
+ * enforced artifact kind. Its fine-grained lifecycle lives in
+ * extra.discussion rather than the shared task status vocabulary, since Papyrus enforces
+ * status per-kind, not per-subtype -- "deferred" has no equivalent among a plain task's
+ * todo/in-progress/review/done/rejected/canceled. The task's own status column follows
+ * loosely: "in-progress" while extra.discussion.state is active or deferred, "done" once
+ * settled.
  *
  * Blocking is the forcing, load-bearing behavior a Discussion adds over a passive record:
  * an "active" Discussion that `blocks` a Task refuses that Task's completion (see
@@ -126,7 +129,7 @@ export function validateSelectedOptions(selected: string[], pendingOptions: stri
 
 /** True for any artifact (already fetched) that is a Discussion, regardless of its current lifecycle state. */
 export function isDiscussionArtifact(artifact: { kind: string; subtype: string }): boolean {
-	return artifact.kind === "doc" && artifact.subtype === DISCUSSION_SUBTYPE;
+	return artifact.kind === "task" && artifact.subtype === DISCUSSION_SUBTYPE;
 }
 
 /** Reads and defensively validates the extra.discussion shape; throws on a corrupt/foreign shape rather than silently treating it as some default state. */

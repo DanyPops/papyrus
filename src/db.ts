@@ -490,6 +490,20 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 			}
 		},
 	},
+	{
+		version: 17,
+		name: "discussion-task-kind",
+		// See domain/discussion.ts for why. Status remaps the same loosely-followed way the
+		// doc column always worked: active/deferred -> in-progress, archived -> done.
+		up: (db) => {
+			db.exec(`
+				UPDATE artifacts SET kind = 'task', status = CASE status
+					WHEN 'archived' THEN 'done'
+					ELSE 'in-progress' END
+				WHERE kind = 'doc' AND subtype = 'discussion';
+			`);
+		},
+	},
 ];
 
 /**

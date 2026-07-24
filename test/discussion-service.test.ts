@@ -26,9 +26,9 @@ describe("Discussions.open", () => {
 	it("creates an active discussion Doc with round 1 recorded", () => {
 		const { discussions } = fixture();
 		const { discussion, rounds } = discussions.open({ title: "Naming", actor: "alice", content: "Should we rename this?" });
-		expect(discussion.kind).toBe("doc");
+		expect(discussion.kind).toBe("task");
 		expect(discussion.subtype).toBe("discussion");
-		expect(discussion.status).toBe("active");
+		expect(discussion.status).toBe("in-progress");
 		expect(discussion.extra["discussion"]).toEqual({ state: "active", roundCount: 1 });
 		expect(rounds).toHaveLength(1);
 		expect(rounds[0]).toMatchObject({ roundNumber: 1, actor: "alice", content: "Should we rename this?" });
@@ -48,7 +48,14 @@ describe("Discussions.open", () => {
 		const doc = artifacts.create({ kind: "doc", title: "Not a task" });
 		expect(() => discussions.open({ title: "x", actor: "a", content: "c", blocksTaskIds: [doc.id] })).toThrow(DiscussionError);
 	});
+
+	it("rejects blocking another Discussion (shares kind with real tasks, but isn't one)", () => {
+		const { discussions } = fixture();
+		const { discussion: other } = discussions.open({ title: "Other", actor: "a", content: "c" });
+		expect(() => discussions.open({ title: "x", actor: "a", content: "c", blocksTaskIds: [other.id] })).toThrow(DiscussionError);
+	});
 });
+
 
 describe("Discussions.reply", () => {
 	it("appends successive rounds and increments roundCount", () => {
@@ -103,11 +110,11 @@ describe("Discussions.defer / resume", () => {
 });
 
 describe("Discussions.settle", () => {
-	it("settles from active, records the settlement, and archives the doc", () => {
+	it("settles from active, records the settlement, and marks the task done", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		const settled = discussions.settle(discussion.id, "we agreed on plan A");
-		expect(settled.status).toBe("archived");
+		expect(settled.status).toBe("done");
 		expect(settled.extra["discussion"]).toMatchObject({ state: "settled", settlement: "we agreed on plan A" });
 		expect((settled.extra["discussion"] as { settledAt: string }).settledAt).toBeTruthy();
 	});

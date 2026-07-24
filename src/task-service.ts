@@ -11,7 +11,7 @@ import {
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
-import { isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
+import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
 import { validateGates, type Gate, type GateResult } from "./domain/gate.ts";
 import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
 import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
@@ -225,7 +225,7 @@ export class Tasks {
 			throw new Error(`task list limit must be between 1 and ${TASK_SCOPE_MAX_TASKS + 1}`);
 		}
 		if (selection.mode === "all") {
-			return this.artifacts.query({ kind: "task", status: filter.status, text: filter.text, limit });
+			return this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, status: filter.status, text: filter.text, limit });
 		}
 		const ids = this.scopes.taskIds(selection.projectRoot, TASK_SCOPE_MAX_TASKS + 1);
 		if (ids.length > TASK_SCOPE_MAX_TASKS) throw new Error(`task project scope exceeds ${TASK_SCOPE_MAX_TASKS} tasks`);
@@ -233,7 +233,7 @@ export class Tasks {
 		const text = filter.text?.toLowerCase();
 		return [...selectedIds]
 			.map((id) => this.artifacts.get(id))
-			.filter((task): task is Artifact => task?.kind === "task")
+			.filter((task): task is Artifact => task?.kind === "task" && !isDiscussionArtifact(task))
 			.filter((task) => filter.status === undefined || task.status === filter.status)
 			.filter((task) => text === undefined || task.title.toLowerCase().includes(text) || task.body.toLowerCase().includes(text))
 			.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))

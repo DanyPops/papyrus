@@ -80,11 +80,11 @@ export class Discussions {
 		const posed = this.validatePosedOptions(input.options, input.optionsMode);
 		return this.artifacts.atomic(() => {
 			const discussion = this.artifacts.create({
-				kind: "doc",
+				kind: "task",
 				subtype: DISCUSSION_SUBTYPE,
 				title: input.title,
 				body: input.body ?? "",
-				status: "active",
+				status: "in-progress",
 				labels: input.labels,
 				extra: {
 					discussion: {
@@ -163,7 +163,7 @@ export class Discussions {
 				...discussion.extra,
 				discussion: { ...state, state: "settled", settlement: validSettlement, settledAt: new Date().toISOString() },
 			}, context)!;
-			return this.artifacts.setStatus(discussionId, "archived", context) ?? updated;
+			return this.artifacts.setStatus(discussionId, "done", context) ?? updated;
 		});
 	}
 
@@ -173,7 +173,7 @@ export class Discussions {
 		if (this.extra(discussion).state === "settled") throw new DiscussionError(`discussion "${discussionId}" is settled; it can no longer block anything`);
 		const task = this.artifacts.get(taskId);
 		if (!task) throw new DiscussionError(`task "${taskId}" not found`);
-		if (task.kind !== "task") throw new DiscussionError(`artifact "${taskId}" is not a task`);
+		if (task.kind !== "task" || isDiscussionArtifact(task)) throw new DiscussionError(`artifact "${taskId}" is not a task`);
 		this.artifacts.link({ from: discussionId, relation: "blocks", to: taskId }, context);
 	}
 
@@ -197,7 +197,7 @@ export class Discussions {
 		// (limit omitted) can never fall through to queryArtifacts' own unbounded default -- the same
 		// class of gap notes.ts's noteListInput comment documents fixing for Notes.
 		const limit = Math.min(DISCUSSION_LIST_MAX_LIMIT, Math.max(1, Math.floor(filter.limit ?? DISCUSSION_LIST_DEFAULT_LIMIT)));
-		const rows = this.artifacts.query({ kind: "doc", subtype: DISCUSSION_SUBTYPE, limit });
+		const rows = this.artifacts.query({ kind: "task", subtype: DISCUSSION_SUBTYPE, limit });
 		if (!filter.state) return rows;
 		return rows.filter((row) => {
 			try { return this.extra(row).state === filter.state; } catch { return false; }

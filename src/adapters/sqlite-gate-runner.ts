@@ -6,8 +6,8 @@ import { runGates, runGatesAsync } from "../ops.ts";
 export class SQLiteGateRunner implements GateRunner {
 	constructor(private readonly db: Db) {}
 
-	run(artifactId: string): GateResult[] {
-		return runGates(this.db, artifactId);
+	run(artifactId: string, options?: GateRunOptions): GateResult[] {
+		return runGates(this.db, artifactId, options);
 	}
 
 	runAsync(artifactId: string, options?: GateRunOptions): Promise<GateResult[]> {

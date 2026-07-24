@@ -424,7 +424,7 @@ export class Tasks {
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
-		const results = this.gates.run(id);
+		const results = this.gates.run(id, { cwd: this.scopes.get(id)?.projectRoot });
 		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
 	}
 
@@ -434,14 +434,17 @@ export class Tasks {
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
-		const results = await this.gates.runAsync(id, { deadlineMs: options.gateDeadlineMs });
+		// project_root, never the daemon's own inherited process cwd -- see GateRunOptions.cwd's doc
+		// comment for the real incident this fixes (a command gate once tested the daemon's entire
+		// home directory instead of the task's project and crashed the bun process outright).
+		const results = await this.gates.runAsync(id, { deadlineMs: options.gateDeadlineMs, cwd: this.scopes.get(id)?.projectRoot });
 		this.requireReview(id);
 		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
 	}
 
 	async runGates(id: string, context: TaskEventContext = {}): Promise<GateResult[]> {
 		this.require(id);
-		const results = await this.gates.runAsync(id);
+		const results = await this.gates.runAsync(id, { cwd: this.scopes.get(id)?.projectRoot });
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "gates_evaluated", evidence: { gates: results, result: results.every((gate) => gate.passed) ? "passed" : "failed" } }, context));
 		return results;
 	}

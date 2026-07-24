@@ -92,6 +92,7 @@ const USAGE = `Usage:
   papyrus docs activate|archive|reopen <id> [--json]
   papyrus docs link <id> <relation> <target-id> [--json]
   papyrus docs assign-project <id> [project-root] [--json]
+  papyrus docs update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus rules create --title <title> [--body <body>] [--condition <text>] [--rule-action <text>] [--severity block|warn|info] [--labels-json <json>] [--extra-json <json>] [--project-root <path>] [--json]
   papyrus rules list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus rules show <id> [--json]
@@ -100,6 +101,7 @@ const USAGE = `Usage:
   papyrus rules gate <rule-id> <task-id> [--json]
   papyrus rules injectable [--json]
   papyrus rules assign-project <id> [project-root] [--json]
+  papyrus rules update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
   papyrus skills create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--definition-json <json>] [--labels-json <json>] [--extra-json <json>] [--project-root <path>] [--json]
   papyrus skills create-template --title <title> --target-kind <kind> [--defaults-json <json>] [--required-json <json>] [--body <body>] [--labels-json <json>] [--project-root <path>] [--json]
@@ -109,6 +111,7 @@ const USAGE = `Usage:
   papyrus skills enable|disable <id> [--json]
   papyrus skills instantiate <template-id> [--title <title>] [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--json]
   papyrus skills assign-project <id> [project-root] [--json]
+  papyrus skills update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus notes capture <request> [--title <title>] [--json]
   papyrus notes list [--status <draft|active|archived>] [--text <query>] [--limit <count>] [--json]
   papyrus notes show <id> [--json]
@@ -466,8 +469,16 @@ export async function runSkillCli(args: string[], client: TaskCliClient, project
 			human = `Created: ${artifactLabel(artifact)}`;
 			break;
 		}
+		case "update": {
+			if (!id || second) throw new Error("skills update requires exactly one skill id");
+			if (title === undefined && body === undefined && labels === undefined) throw new Error("skills update requires --title, --body, or --labels-json");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.update", { id, title, body, labels });
+			result = artifact;
+			human = `${artifactLabel(artifact)}`;
+			break;
+		}
 		default:
-			throw new Error("skills action must be run, create, create-template, list, show, invoke, enable, disable, instantiate, or assign-project");
+			throw new Error("skills action must be run, create, create-template, list, show, invoke, enable, disable, instantiate, assign-project, or update");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -632,8 +643,16 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 			human = `Linked ${id} --${second}--> ${third}`;
 			break;
 		}
+		case "update": {
+			if (!id || second) throw new Error("docs update requires exactly one document id");
+			if (title === undefined && body === undefined && labels === undefined) throw new Error("docs update requires --title, --body, or --labels-json");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.update", { id, title, body, labels });
+			result = artifact;
+			human = `${artifactLabel(artifact)}`;
+			break;
+		}
 		default:
-			throw new Error("docs action must be create, list, show, activate, archive, reopen, link, or assign-project");
+			throw new Error("docs action must be create, list, show, activate, archive, reopen, link, assign-project, or update");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -736,8 +755,16 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 			human = rows.length === 0 ? "No injectable rules." : rows.map((row) => row.title).join("\n");
 			break;
 		}
+		case "update": {
+			if (!id || second) throw new Error("rules update requires exactly one rule id");
+			if (title === undefined && body === undefined && labels === undefined) throw new Error("rules update requires --title, --body, or --labels-json");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.update", { id, title, body, labels });
+			result = artifact;
+			human = `${artifactLabel(artifact)}`;
+			break;
+		}
 		default:
-			throw new Error("rules action must be create, list, show, preview, enable, disable, gate, injectable, or assign-project");
+			throw new Error("rules action must be create, list, show, preview, enable, disable, gate, injectable, assign-project, or update");
 	}
 	return json ? JSON.stringify(result) : human;
 }

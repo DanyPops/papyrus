@@ -6,12 +6,12 @@
  * anywhere in @earendil-works/pi-coding-agent or pi-tui (checked both) -- so this is a small,
  * genuinely domain-specific checkbox-list component, not a generic library replacement.
  */
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { DiscussionOptionsMode } from "../../src/domain/discussion.ts";
 
 /** Toggle with space, confirm with enter (refuses an empty confirm -- at least one pick is required), cancel with escape. */
-async function pickMultiple(ctx: ExtensionCommandContext, title: string, options: string[]): Promise<string[] | undefined> {
+async function pickMultiple(ctx: ExtensionContext, title: string, options: string[]): Promise<string[] | undefined> {
 	return ctx.ui.custom<string[] | undefined>((tui, theme, _keybindings, done) => {
 		const checked = new Set<number>();
 		let selectedIndex = 0;
@@ -49,8 +49,13 @@ async function pickMultiple(ctx: ExtensionCommandContext, title: string, options
 	});
 }
 
-/** Picks one (single) or several (multi) of the given options, or undefined if the user cancels. */
-export async function pickDiscussionOptions(ctx: ExtensionCommandContext, mode: DiscussionOptionsMode, options: string[]): Promise<string[] | undefined> {
+/**
+ * Picks one (single) or several (multi) of the given options, or undefined if the user cancels.
+ * Takes the base ExtensionContext (just .ui) rather than the wider ExtensionCommandContext, since
+ * a tool's execute() only ever receives the former -- the discuss tool's own live mode reuses
+ * this same picker, not just the /discuss TUI panel.
+ */
+export async function pickDiscussionOptions(ctx: ExtensionContext, mode: DiscussionOptionsMode, options: string[]): Promise<string[] | undefined> {
 	if (mode === "single") {
 		const pick = await ctx.ui.select("Pick one:", options);
 		return pick ? [pick] : undefined;

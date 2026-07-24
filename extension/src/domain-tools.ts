@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { PROOF_TYPES } from "../../src/domain/checklist.ts";
@@ -8,7 +8,8 @@ import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
-import type { DiscussionRound } from "../../src/domain/discussion.ts";
+import { readDiscussionExtra, type DiscussionRound } from "../../src/domain/discussion.ts";
+import { pickDiscussionOptions } from "./discussion-picker.ts";
 import type { OperationName } from "../../src/service.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { sessionSecretField } from "./session-identity.ts";
@@ -28,6 +29,24 @@ import {
 function text(message: string, details: unknown = {}) {
 	const modelContent = createModelContent(message);
 	return { content: [{ type: "text" as const, text: modelContent.text }], details };
+}
+
+/**
+ * live:true's synchronous half: renders the same picker /discuss's own "Reply" action uses when
+ * the just-created round posed a structured choice, or a plain freeform prompt otherwise -- so
+ * "ask" covers both a completely open question and a choice tied to this specific Discussion.
+ * Returns undefined on cancel or when no interactive UI is available, never throws -- an
+ * unanswered live prompt still leaves the round it already recorded intact.
+ */
+async function liveAnswer(ctx: ExtensionContext, discussion: Artifact): Promise<{ content: string; selected?: string[] } | undefined> {
+	if (!ctx.hasUI) return undefined;
+	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
+	if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
+		const selected = await pickDiscussionOptions(ctx, pending.pendingOptionsMode, pending.pendingOptions);
+		return selected ? { content: selected.join(", "), selected } : undefined;
+	}
+	const content = await ctx.ui.input(`Reply to "${discussion.title}":`, "");
+	return content ? { content } : undefined;
 }
 
 /**
@@ -397,7 +416,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "docs",
 		label: "Documents",
-		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Doc to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the doc's exact title) over `id`, and `target_name` over `target_id` for link -- both are backend implementation details, resolved from name automatically (target_name searches across every kind, since a link target can be a doc, task, rule, or skill). Prefer this over low-level papyrus_* tools for document work.",
+		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project, update, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. update changes title/body/labels (at least one required) and is refused for a read-only external projection (e.g. web-spider-ingested Docs) -- capture a correction as a new linked Doc instead. remove moves a Doc to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the doc's exact title) over `id`, and `target_name` over `target_id` for link -- both are backend implementation details, resolved from name automatically (target_name searches across every kind, since a link target can be a doc, task, rule, or skill). Prefer this over low-level papyrus_* tools for document work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -443,7 +462,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;
-				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link", assign_project: "docs.assign_project" } as const;
+				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link", assign_project: "docs.assign_project", update: "docs.update" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown docs action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
@@ -457,7 +476,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "rules",
 		label: "Rules",
-		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt. remove moves a Rule to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the rule's exact title) over `id`, and `task_name` over `task_id` for gate -- both are backend implementation details, resolved from name automatically.",
+		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project, update, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt. update changes title/body/labels (at least one required); body updates still enforce the same combined condition+action+body context-tax bound as creation, and are refused for a read-only external projection. remove moves a Rule to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the rule's exact title) over `id`, and `task_name` over `task_id` for gate -- both are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
@@ -491,7 +510,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;
-				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate", assign_project: "rules.assign_project" } as const;
+				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate", assign_project: "rules.assign_project", update: "rules.update" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown rules action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
@@ -505,7 +524,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
-		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, remove, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the skill's exact title) over `id`, and `template_name` over `template_id` for instantiate -- both are backend implementation details, resolved from name automatically.",
+		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, update, remove, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the skill's exact title) over `id`, and `template_name` over `template_id` for instantiate -- both are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
@@ -570,7 +589,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;
-				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate", assign_project: "skills.assign_project" } as const;
+				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate", assign_project: "skills.assign_project", update: "skills.update" } as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown skills action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, action === "instantiate" ? request : params);
@@ -584,7 +603,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
-		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
+		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -606,6 +625,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			options: Type.Optional(Type.Array(Type.String())),
 			options_mode: Type.Optional(Type.String()),
 			selected: Type.Optional(Type.Array(Type.String())),
+			live: Type.Optional(Type.Boolean()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -619,13 +639,19 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					{ nameKey: "task_name", idKey: "task_id", listOperation: "tasks.list", baseRequest: taskScope },
 				]);
 				await resolveNameArrayField(params, "blocks_task_names", "blocks_task_ids", "tasks.list", taskScope);
-				if (action === "open") {
-					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.open", params);
-					return text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion));
-				}
-				if (action === "reply") {
-					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", params);
-					return text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
+				if (action === "open" || action === "reply") {
+					const operation = action === "open" ? "discuss.open" : "discuss.reply";
+					const result = await callService<Record<string, unknown>, DiscussionAndRounds>(operation, params);
+					const fallback = action === "open"
+						? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
+						: text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
+					if (params.live !== true) return fallback;
+					const answer = await liveAnswer(ctx, result.discussion);
+					if (!answer) return fallback;
+					const answered = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
+						id: result.discussion.id, actor: "human", content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: "discuss-live",
+					});
+					return text(`"${answered.discussion.title}": ${answer.content}`, createArtifactDetails("discuss.reply", answered.discussion));
 				}
 				if (action === "block" || action === "unblock") {
 					const operation = action === "block" ? "discuss.block" : "discuss.unblock";

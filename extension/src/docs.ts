@@ -24,10 +24,19 @@ export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
 		statusOrder: ["draft", "active", "archived"],
 		presentation: DOC_STATUS_PRESENTATION,
 		rowMeta: documentRowMeta,
-		actions: (document) => ["Show details", "Link artifact", ...(DOC_ACTIONS[document.status] ?? [])],
+		actions: (document) => ["Show details", "Edit", "Link artifact", ...(DOC_ACTIONS[document.status] ?? [])],
 		handleAction: async (choice, document, commandCtx) => {
 			if (choice === "Show details") {
 				await showArtifactDetails(commandCtx, document.id, "docs.show");
+				return;
+			}
+			if (choice === "Edit") {
+				const title = await commandCtx.ui.input("Title:", document.title);
+				if (title === undefined) return; // canceled
+				const body = await commandCtx.ui.input("Body:", document.body);
+				if (body === undefined) return; // canceled
+				const updated = await callService<Record<string, unknown>, Artifact>("docs.update", { id: document.id, title, body });
+				commandCtx.ui.notify(`Updated "${updated.title}"`, "info");
 				return;
 			}
 			if (choice === "Link artifact") {

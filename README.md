@@ -119,9 +119,9 @@ Agent-facing domain tools own lifecycle invariants and sit above this store API:
 
 - **`tasks`** — create/update/list/show/plan, manage the singleton active focus, replace evidence-bearing checklists, hierarchy/dependencies, lifecycle transitions, non-blocking gates, and review completion that focuses one deterministic ready successor without claiming effort
 - **`notes`** — capture/list/show deferred human intent, mark it consumed, promote it to an existing Task/Doc/Rule/Skill, or archive it with an explicit disposition
-- **`docs`** — create/list/show, activate/archive/reopen, and document-safe graph links; Note mutations remain behind the Notes facade
-- **`rules`** — create/list/show/preview, enable/disable, and attach governance gates to tasks
-- **`skills`** — create/list/show/invoke/run, enable/disable, create compatibility templates, and atomically instantiate parameterized workflow runs
+- **`docs`** — create/update/list/show, activate/archive/reopen, and document-safe graph links; Note mutations remain behind the Notes facade
+- **`rules`** — create/update/list/show/preview, enable/disable, and attach governance gates to tasks
+- **`skills`** — create/update/list/show/invoke/run, enable/disable, create compatibility templates, and atomically instantiate parameterized workflow runs
 
 Every tool operation is registered in the daemon’s `/api/v1/ops` registry; parity is verified in tests. The task consumer uses the `tasks.graph` operation, which returns task nodes with explicit parent, child, and dependency IDs rather than leaking SQLite rows or asking the UI to reconstruct relationships.
 
@@ -131,14 +131,18 @@ Internally, application services depend on the `ArtifactStore` and `GateRunner` 
 
 Every agent domain tool (tasks, docs, rules, skills, notes, discuss) addresses its artifacts by `name` (the exact title) wherever `id` would otherwise be required -- `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` (tasks), `target_name` (docs link, searches every kind since a link target can be any of them), `task_name` (rules gate, discuss block/unblock), `template_name` (skills instantiate), and `blocks_task_names` (discuss open) are the name-based equivalents of their `*_id` counterparts. Resolution is an exact, case-insensitive, trimmed title match scoped like a plain list call; an unmatched or ambiguous name fails with a clear error (ambiguous names list the real ids, since that's the one point disambiguation genuinely needs them). Results returned to the agent likewise lead with name and status, never id, unless two artifacts in the same result share a title -- id is a backend implementation detail, not a conversational handle. `id` itself still works exactly as before for every action, in every tool.
 
+### Mutability
+
+Tasks, Docs, Rules, and Skills all support first-class `update` (title/body/labels, at least one required) alongside creation -- a Doc's body is no longer immutable once created. Every update is bounded the same way creation is (Rules keep their own stricter combined condition+action+body ceiling; Docs/Skills share Tasks' own length bounds) and recorded on the artifact's append-only mutation history, queryable via `graph.history`. An artifact carrying a `source:<system>` label (e.g. `source:web-spider` on an ingested page) is a read-only projection from a system Papyrus doesn't own the source of; updating one is refused with a clear error rather than silently forking it -- capture a correction as a new linked Doc instead until a write-back capability to that system exists. Notes stay behind their own facade for any content change, same as every other Notes mutation.
+
 ## Interactive frontends
 
 - `/tasks` — project/focused-graph scope, task lifecycle, append-only history, gates, dependencies, and nested metadata
 - `/note <request>` — directly capture one project-scoped deferred request without creating a Task
 - `/notes` — searchable project Notes inbox with consume, promote, and disposition-aware archive actions
-- `/docs` — searchable non-Note documents, lifecycle, details, and graph links
-- `/rules` — severity/condition rows, exact injection preview, enable/disable, and task gating
-- `/skills` — trigger/tools rows, invocation into the editor, and artifact templates
+- `/docs` — searchable non-Note documents, lifecycle, details, edit, and graph links
+- `/rules` — severity/condition rows, exact injection preview, edit, enable/disable, and task gating
+- `/skills` — trigger/tools rows, edit, invocation into the editor, and artifact templates
 
 All frontends use daemon-backed domain operations; none opens SQLite from the Pi process. **Show details** opens a bounded navigable view across Tasks, Notes, Docs, Rules, legacy Skills, templates, and workflow Skills. User-authored bodies render as width-aware Markdown with headings, emphasis, links, quotes, lists, tables, inline/fenced code, syntax highlighting, and every color/decorative style derived dynamically from the active Pi theme. Generated lifecycle, metadata, checklist, gate, history, and relationship sections keep explicit semantic theme colors. `↑/↓` scrolls, `←/→` pans wide relationships, and Esc returns to the browser; non-interactive clients receive stable source text.
 

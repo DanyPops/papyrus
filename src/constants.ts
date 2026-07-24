@@ -119,6 +119,11 @@ export const TASK_TITLE_MAX_LENGTH = 500;
 export const TASK_BODY_MAX_LENGTH = 100_000;
 export const TASK_LABEL_MAX_COUNT = 64;
 export const TASK_LABEL_MAX_LENGTH = 128;
+/** Mutable Doc/Rule/Skill content bounds -- same numbers as Task's, since these are the same kind of freeform content at the same scale. Rules also enforce their own stricter RULE_TEXT_HARD_LIMIT_CHARACTERS on top of this. */
+export const ARTIFACT_TITLE_MAX_LENGTH = 500;
+export const ARTIFACT_BODY_MAX_LENGTH = 100_000;
+export const ARTIFACT_LABEL_MAX_COUNT = 64;
+export const ARTIFACT_LABEL_MAX_LENGTH = 128;
 /** Append-only Task chronology query and evidence bounds. */
 export const TASK_HISTORY_DEFAULT_LIMIT = 25;
 export const TASK_HISTORY_MAX_LIMIT = 100;

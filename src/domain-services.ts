@@ -1,17 +1,51 @@
 import {
+	ARTIFACT_BODY_MAX_LENGTH,
+	ARTIFACT_LABEL_MAX_COUNT,
+	ARTIFACT_LABEL_MAX_LENGTH,
 	ARTIFACT_SCOPE_MAX_ARTIFACTS,
+	ARTIFACT_TITLE_MAX_LENGTH,
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
 	SKILL_INVOCATION_MAX_CALL_DEPTH,
 	SKILL_INVOCATION_MAX_LINKED_ARTIFACTS,
 } from "./constants.ts";
-import type { Artifact, CreateArtifactInput } from "./domain/artifact.ts";
+import { requireLocallyOwnedContent, type Artifact, type CreateArtifactInput } from "./domain/artifact.ts";
 import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import { validateSkillDefinition } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { ArtifactScopeStore } from "./ports/artifact-scope-store.ts";
 import { NOTE_SUBTYPE } from "./note-service.ts";
-import type { AuthorityRegistry } from "./authority-registry.ts";
+import { type ArtifactAction, type AuthorityRegistry } from "./authority-registry.ts";
+
+export interface UpdateContentInput {
+	title?: string;
+	body?: string;
+	labels?: string[];
+}
+
+function requireContentUpdateFields(input: UpdateContentInput): void {
+	if (input.title === undefined && input.body === undefined && input.labels === undefined) {
+		throw new Error("update requires title, body, or labels");
+	}
+}
+
+function assertTitleBounds(title: string | undefined): void {
+	if (title !== undefined && (title.trim().length === 0 || title.length > ARTIFACT_TITLE_MAX_LENGTH)) {
+		throw new Error(`title must be between 1 and ${ARTIFACT_TITLE_MAX_LENGTH} characters`);
+	}
+}
+
+function assertBodyBounds(body: string | undefined): void {
+	if (body !== undefined && body.length > ARTIFACT_BODY_MAX_LENGTH) throw new Error(`body cannot exceed ${ARTIFACT_BODY_MAX_LENGTH} characters`);
+}
+
+function assertLabelsBounds(labels: string[] | undefined): void {
+	if (labels === undefined) return;
+	if (labels.length > ARTIFACT_LABEL_MAX_COUNT) throw new Error(`labels cannot exceed ${ARTIFACT_LABEL_MAX_COUNT} entries`);
+	if (labels.some((label) => label.length === 0 || label.length > ARTIFACT_LABEL_MAX_LENGTH)) {
+		throw new Error(`each label must be between 1 and ${ARTIFACT_LABEL_MAX_LENGTH} characters`);
+	}
+}
 
 export interface ListFilter {
 	status?: string;
@@ -83,8 +117,8 @@ function templateSubtype(artifacts: ArtifactStore, templateId: string | undefine
 	return typeof subtype === "string" ? subtype : undefined;
 }
 
-function requireMutableDocument(document: Artifact, authority: AuthorityRegistry): Artifact {
-	authority.requireArtifactAllowed(document.kind, document.subtype, "status", "docs");
+function requireMutableDocument(document: Artifact, authority: AuthorityRegistry, action: ArtifactAction = "status"): Artifact {
+	authority.requireArtifactAllowed(document.kind, document.subtype, action, "docs");
 	return document;
 }
 
@@ -98,6 +132,8 @@ export interface CreateDocumentInput {
 	/** Optional at creation, unlike Tasks -- omitting it leaves the Doc in the unscoped bucket, matching today's default behavior for every existing caller. */
 	projectRoot?: string;
 }
+
+export type UpdateDocumentInput = UpdateContentInput;
 
 export type DocumentTransition = "activate" | "archive" | "reopen";
 export type DocumentRelation = "references" | "documents" | "supersedes" | "relates_to" | "contains" | "part_of";
@@ -155,6 +191,23 @@ export function transitionDocument(artifacts: ArtifactStore, id: string, action:
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
 	return artifacts.setStatus(id, transition.to, context)!;
+}
+
+/**
+ * Docs are immutable-by-convention only in the sense that no path existed to change them --
+ * this is that path. A read-only external projection (see requireLocallyOwnedContent) still
+ * refuses, on purpose: rewriting it here would silently fork from whatever system actually
+ * owns it (e.g. web-spider's ingested pages), with nothing to ever reconcile the two again.
+ */
+export function updateDocument(artifacts: ArtifactStore, id: string, input: UpdateDocumentInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+	requireContentUpdateFields(input);
+	assertTitleBounds(input.title);
+	assertBodyBounds(input.body);
+	assertLabelsBounds(input.labels);
+	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "update"));
+	const updated = artifacts.updateContent(id, input, context);
+	if (!updated) throw new Error(`document "${id}" not found`);
+	return updated;
 }
 
 export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
@@ -258,6 +311,24 @@ export function transitionRule(artifacts: ArtifactStore, id: string, action: Rul
 	return artifacts.setStatus(id, target, context)!;
 }
 
+export type UpdateRuleInput = UpdateContentInput;
+
+/** A Rule's body update stays under the same combined condition+action+body ceiling as creation -- a permanent per-turn injection cost doesn't get looser just because it's an edit, not a create. */
+export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRuleInput, context?: ArtifactEventContext): Artifact {
+	requireContentUpdateFields(input);
+	assertTitleBounds(input.title);
+	assertLabelsBounds(input.labels);
+	const rule = requireLocallyOwnedContent(requireKind(artifacts, id, "rule"));
+	if (input.body !== undefined) {
+		const condition = typeof rule.extra["condition"] === "string" ? rule.extra["condition"] : undefined;
+		const action = typeof rule.extra["action"] === "string" ? rule.extra["action"] : undefined;
+		assertRuleTextWithinBounds(condition, action, input.body);
+	}
+	const updated = artifacts.updateContent(id, input, context);
+	if (!updated) throw new Error(`rule "${id}" not found`);
+	return updated;
+}
+
 export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskId: string, context?: ArtifactEventContext): Artifact {
 	requireKind(artifacts, ruleId, "rule");
 	requireKind(artifacts, taskId, "task");
@@ -351,6 +422,19 @@ export function assignSkillProject(artifacts: ArtifactStore, scopes: ArtifactSco
 export function showSkill(artifacts: ArtifactStore, id: string): Artifact {
 	requireKind(artifacts, id, "skill");
 	return artifacts.get(id, { tree: true })!;
+}
+
+export type UpdateSkillInput = UpdateContentInput;
+
+export function updateSkill(artifacts: ArtifactStore, id: string, input: UpdateSkillInput, context?: ArtifactEventContext): Artifact {
+	requireContentUpdateFields(input);
+	assertTitleBounds(input.title);
+	assertBodyBounds(input.body);
+	assertLabelsBounds(input.labels);
+	const skill = requireLocallyOwnedContent(requireKind(artifacts, id, "skill"));
+	const updated = artifacts.updateContent(skill.id, input, context);
+	if (!updated) throw new Error(`skill "${id}" not found`);
+	return updated;
 }
 
 function skillInvocationBody(skill: Artifact): string {

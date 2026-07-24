@@ -17,7 +17,7 @@
  * extraction.
  */
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import { assignSkillProject, createArtifactTemplate, createSkill, listSkills, showSkill, skillInvocation, transitionSkill } from "../domain-services.ts";
+import { assignSkillProject, createArtifactTemplate, createSkill, listSkills, showSkill, skillInvocation, transitionSkill, updateSkill } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -79,7 +79,7 @@ export interface SkillsModuleDeps {
 /** Registers every skills.* operation except skills.instantiate (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. skills.instantiate is deliberately absent -- see the module comment above. */
 export const SKILLS_OPERATION_NAMES = [
-	"skills.create", "skills.create_template", "skills.list", "skills.show", "skills.invoke", "skills.run", "skills.enable", "skills.disable", "skills.assign_project",
+	"skills.create", "skills.create_template", "skills.list", "skills.show", "skills.invoke", "skills.run", "skills.enable", "skills.disable", "skills.assign_project", "skills.update",
 ] as const;
 
 export function skillsOperations({ artifacts, events, scopes, artifactScopes, authority }: SkillsModuleDeps): OperationDefinition[] {
@@ -109,5 +109,8 @@ export function skillsOperations({ artifacts, events, scopes, artifactScopes, au
 		define("skills.enable", (input: OperationInput) => transitionSkill(artifacts, string(input, "id"), "enable", eventContext(input))),
 		define("skills.disable", (input: OperationInput) => transitionSkill(artifacts, string(input, "id"), "disable", eventContext(input))),
 		define("skills.assign_project", (input: OperationInput) => assignSkillProject(artifacts, artifactScopes, string(input, "id"), optionalString(input, "project_root"))),
+		define("skills.update", (input: OperationInput) => updateSkill(artifacts, string(input, "id"), {
+			title: optionalString(input, "title"), body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
+		}, eventContext(input))),
 	];
 }

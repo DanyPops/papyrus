@@ -14,12 +14,14 @@ import {
 	listDocuments,
 	transitionDocument,
 	assignDocumentProject,
+	updateDocument,
 	createRule,
 	listRules,
 	previewRule,
 	transitionRule,
 	gateTaskWithRule,
 	assignRuleProject,
+	updateRule,
 	createSkill,
 	createArtifactTemplate,
 	instantiateTemplate,
@@ -27,6 +29,7 @@ import {
 	skillInvocation,
 	transitionSkill,
 	assignSkillProject,
+	updateSkill,
 } from "../src/domain-services.ts";
 
 function fixture() {
@@ -120,6 +123,25 @@ describe("rules domain service", () => {
 		})).toThrow(/4000-character bound/);
 		db.close();
 	});
+
+	it("updates a rule's title/body/labels, still enforcing the combined context-tax bound against its existing condition/action", () => {
+		const { db, artifacts, scopes } = fixture();
+		const rule = createRule(artifacts, scopes, { title: "Test before commit", condition: "x".repeat(1900), action: "x".repeat(1900), body: "short" });
+		const updated = updateRule(artifacts, rule.id, { title: "Test before commit v2", labels: ["reviewed"] });
+		expect(updated.title).toBe("Test before commit v2");
+		expect(updated.labels).toEqual(["reviewed"]);
+		// Existing condition/action (1900+1900) plus a new, larger body pushes the combined total over 4000.
+		expect(() => updateRule(artifacts, rule.id, { body: "x".repeat(300) })).toThrow(/4000-character bound/);
+		expect(() => updateRule(artifacts, rule.id, { body: "short still" })).not.toThrow();
+		db.close();
+	});
+
+	it("refuses to update a Rule that is a read-only projection from an external system", () => {
+		const { db, artifacts, scopes } = fixture();
+		const rule = createRule(artifacts, scopes, { title: "Imported policy", labels: ["source:some-external-system"] });
+		expect(() => updateRule(artifacts, rule.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
+		db.close();
+	});
 });
 
 describe("skills domain service", () => {
@@ -130,6 +152,19 @@ describe("skills domain service", () => {
 		expect(transitionSkill(artifacts, skill.id, "disable").status).toBe("deprecated");
 		expect(transitionSkill(artifacts, skill.id, "enable").status).toBe("active");
 		expect(listSkills(artifacts, scopes, {})).toHaveLength(1);
+		db.close();
+	});
+
+	it("updates a skill's title/body/labels, refuses an empty update, and refuses an external projection", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const skill = createSkill(artifacts, scopes, { title: "TDD workflow" }, authority);
+		const updated = updateSkill(artifacts, skill.id, { title: "TDD workflow v2", body: "revised", labels: ["stable"] });
+		expect(updated.title).toBe("TDD workflow v2");
+		expect(updated.body).toBe("revised");
+		expect(() => updateSkill(artifacts, skill.id, {})).toThrow("update requires title, body, or labels");
+
+		const projected = createSkill(artifacts, scopes, { title: "Imported workflow", labels: ["source:some-external-system"] }, authority);
+		expect(() => updateSkill(artifacts, projected.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
 		db.close();
 	});
 
@@ -197,6 +232,32 @@ describe("documents domain service", () => {
 		const { db, artifacts, authority, tasks } = fixture();
 		const task = tasks.create({ title: "Not a document" });
 		expect(() => transitionDocument(artifacts, task.id, "archive", authority)).toThrow("is not a doc");
+		db.close();
+	});
+
+	it("updates a document's title, body, and labels, and refuses an empty update", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const document = createDocument(artifacts, scopes, { title: "Architecture v1", body: "draft notes" }, authority);
+		const updated = updateDocument(artifacts, document.id, { title: "Architecture v2", body: "revised notes", labels: ["reviewed"] }, authority);
+		expect(updated.title).toBe("Architecture v2");
+		expect(updated.body).toBe("revised notes");
+		expect(updated.labels).toEqual(["reviewed"]);
+		expect(() => updateDocument(artifacts, document.id, {}, authority)).toThrow("update requires title, body, or labels");
+		expect(() => updateDocument(artifacts, document.id, { title: "" }, authority)).toThrow(/title must be between/);
+		db.close();
+	});
+
+	it("refuses to update a Doc that is a read-only projection from an external system", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const document = createDocument(artifacts, scopes, { title: "Ingested page", labels: ["source:web-spider", "domain:example.com"] }, authority);
+		expect(() => updateDocument(artifacts, document.id, { title: "Edited locally" }, authority)).toThrow(/read-only projection from web-spider/);
+		db.close();
+	});
+
+	it("rejects updating a Note through docs.update -- notes go through notes.* like everything else about them", () => {
+		const { db, artifacts, authority } = fixture();
+		const note = artifacts.create({ kind: "doc", subtype: "note", title: "A note", status: "active" });
+		expect(() => updateDocument(artifacts, note.id, { title: "Edited" }, authority)).toThrow("note access requires a notes.* operation");
 		db.close();
 	});
 });

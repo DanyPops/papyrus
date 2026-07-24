@@ -67,3 +67,27 @@ export interface RelationshipQuery {
 	artifactIds?: string[];
 	limit?: number;
 }
+
+/**
+ * A label of the form "source:<system>" marks an artifact as ingested/projected from an
+ * external, non-Papyrus system (e.g. web-spider's own "source:web-spider" convention on the
+ * Docs it creates) -- content Papyrus does not own and cannot safely rewrite without silently
+ * diverging from the true source. Editing one directly would look like a correction but really
+ * just be a local fork nobody re-syncs.
+ */
+export const EXTERNAL_SOURCE_LABEL_PREFIX = "source:";
+
+/** The external system name from a "source:<system>" label, or undefined if this artifact has no such label (i.e. it's Papyrus-native content). */
+export function externalSourceOf(artifact: Pick<Artifact, "labels">): string | undefined {
+	const label = artifact.labels.find((entry) => entry.startsWith(EXTERNAL_SOURCE_LABEL_PREFIX));
+	return label === undefined ? undefined : label.slice(EXTERNAL_SOURCE_LABEL_PREFIX.length) || undefined;
+}
+
+/** Throws if the artifact is a read-only external projection; a caller must never silently rewrite content it doesn't own the source of. */
+export function requireLocallyOwnedContent(artifact: Artifact): Artifact {
+	const system = externalSourceOf(artifact);
+	if (system !== undefined) {
+		throw new Error(`"${artifact.title}" is a read-only projection from ${system}; edit it there, or capture a correction as a new linked Doc, until a write-back capability is integrated`);
+	}
+	return artifact;
+}

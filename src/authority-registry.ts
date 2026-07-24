@@ -22,7 +22,7 @@ import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import type { Artifact, ArtifactLink } from "./domain/artifact.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 
-export type ArtifactAction = "create" | "link" | "status";
+export type ArtifactAction = "create" | "link" | "status" | "update";
 
 export interface AuthorityClaim {
 	/** Module id that owns this kind/subtype/relation, e.g. "notes", "tasks". */

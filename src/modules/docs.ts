@@ -7,7 +7,7 @@
  * ArtifactStore-based with no other module's concrete class dependency.
  */
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import { assignDocumentProject, createDocument, linkDocument, listDocuments, showDocument, transitionDocument, type DocumentRelation } from "../domain-services.ts";
+import { assignDocumentProject, createDocument, linkDocument, listDocuments, showDocument, transitionDocument, updateDocument, type DocumentRelation } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -52,7 +52,7 @@ const artifactFilter = (input: OperationInput) => ({
 /** Registers every docs.* operation against the shared ArtifactStore port. Behavior is unchanged from the prior inline handlers in src/service.ts. */
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const DOCS_OPERATION_NAMES = [
-	"docs.create", "docs.list", "docs.show", "docs.activate", "docs.archive", "docs.reopen", "docs.link", "docs.assign_project",
+	"docs.create", "docs.list", "docs.show", "docs.activate", "docs.archive", "docs.reopen", "docs.link", "docs.assign_project", "docs.update",
 ] as const;
 
 export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore, authority: AuthorityRegistry): OperationDefinition[] {
@@ -73,5 +73,8 @@ export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeSt
 		define("docs.reopen", (input: OperationInput) => transitionDocument(artifacts, string(input, "id"), "reopen", authority, eventContext(input))),
 		define("docs.link", (input: OperationInput) => linkDocument(artifacts, string(input, "id"), string(input, "relation") as DocumentRelation, string(input, "target_id"), authority, eventContext(input))),
 		define("docs.assign_project", (input: OperationInput) => assignDocumentProject(artifacts, scopes, string(input, "id"), optionalString(input, "project_root"))),
+		define("docs.update", (input: OperationInput) => updateDocument(artifacts, string(input, "id"), {
+			title: optionalString(input, "title"), body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
+		}, authority, eventContext(input))),
 	];
 }

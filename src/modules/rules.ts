@@ -10,7 +10,7 @@
  * into this module or introducing a premature "modules call each other through the
  * registry" convention.
  */
-import { assignRuleProject, createRule, gateTaskWithRule, listRules, previewRule, showRule, transitionRule } from "../domain-services.ts";
+import { assignRuleProject, createRule, gateTaskWithRule, listRules, previewRule, showRule, transitionRule, updateRule } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -55,7 +55,7 @@ const artifactFilter = (input: OperationInput) => ({
 /** Registers every rules.* operation except rules.injectable (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. rules.injectable is deliberately absent -- see the module comment above. */
 export const RULES_OPERATION_NAMES = [
-	"rules.create", "rules.list", "rules.show", "rules.preview", "rules.enable", "rules.disable", "rules.gate", "rules.assign_project",
+	"rules.create", "rules.list", "rules.show", "rules.preview", "rules.enable", "rules.disable", "rules.gate", "rules.assign_project", "rules.update",
 ] as const;
 
 export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore): OperationDefinition[] {
@@ -77,5 +77,8 @@ export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeS
 		define("rules.disable", (input: OperationInput) => transitionRule(artifacts, string(input, "id"), "disable", eventContext(input))),
 		define("rules.gate", (input: OperationInput) => gateTaskWithRule(artifacts, string(input, "id"), string(input, "task_id"), eventContext(input))),
 		define("rules.assign_project", (input: OperationInput) => assignRuleProject(artifacts, scopes, string(input, "id"), optionalString(input, "project_root"))),
+		define("rules.update", (input: OperationInput) => updateRule(artifacts, string(input, "id"), {
+			title: optionalString(input, "title"), body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
+		}, eventContext(input))),
 	];
 }

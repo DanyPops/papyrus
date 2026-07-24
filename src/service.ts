@@ -144,6 +144,7 @@ const notesAuthorityClaim: AuthorityClaim = {
 	denyMessage: (action) => {
 		if (action === "link") return "note relationships require a notes.* operation so disposition provenance is preserved";
 		if (action === "status") return "note lifecycle changes require a notes.* operation so disposition provenance is preserved";
+		if (action === "update") return "note content changes require a notes.* operation so disposition provenance is preserved";
 		return "note creation requires notes.capture";
 	},
 };
@@ -341,6 +342,7 @@ function handlers(
 		"docs.reopen": forwardToModule("docs.reopen"),
 		"docs.link": forwardToModule("docs.link"),
 		"docs.assign_project": forwardToModule("docs.assign_project"),
+		"docs.update": forwardToModule("docs.update"),
 		"notes.capture": forwardToModule("notes.capture"),
 		"notes.list": forwardToModule("notes.list"),
 		"notes.show": forwardToModule("notes.show"),
@@ -355,6 +357,7 @@ function handlers(
 		"rules.disable": forwardToModule("rules.disable"),
 		"rules.gate": forwardToModule("rules.gate"),
 		"rules.assign_project": forwardToModule("rules.assign_project"),
+		"rules.update": forwardToModule("rules.update"),
 		"skills.create": forwardToModule("skills.create"),
 		"skills.create_template": forwardToModule("skills.create_template"),
 		"skills.list": forwardToModule("skills.list"),
@@ -364,6 +367,7 @@ function handlers(
 		"skills.enable": forwardToModule("skills.enable"),
 		"skills.disable": forwardToModule("skills.disable"),
 		"skills.assign_project": forwardToModule("skills.assign_project"),
+		"skills.update": forwardToModule("skills.update"),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);

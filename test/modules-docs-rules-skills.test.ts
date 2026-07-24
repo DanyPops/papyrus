@@ -40,6 +40,14 @@ describe("modules/docs — a Papyrus-native registered module", () => {
 		const shown = await registry.get("docs.show")!.execute({ id: created.id }) as { id: string };
 		expect(shown.id).toBe(created.id);
 	});
+
+	it("updates a document's title/body/labels through docs.update", async () => {
+		const { registry } = fixture();
+		const created = await registry.get("docs.create")!.execute({ title: "Design note" }) as { id: string };
+		const updated = await registry.get("docs.update")!.execute({ id: created.id, title: "Design note v2", labels: ["reviewed"] }) as { title: string; labels: string[] };
+		expect(updated.title).toBe("Design note v2");
+		expect(updated.labels).toEqual(["reviewed"]);
+	});
 });
 
 describe("modules/rules — a Papyrus-native registered module (excluding rules.injectable)", () => {
@@ -57,6 +65,13 @@ describe("modules/rules — a Papyrus-native registered module (excluding rules.
 		const gated = await registry.get("rules.gate")!.execute({ id: rule.id, task_id: task.id }) as { id: string };
 		expect(gated.id).toBe(rule.id);
 	});
+
+	it("updates a rule's title/body/labels through rules.update", async () => {
+		const { registry } = fixture();
+		const rule = await registry.get("rules.create")!.execute({ title: "A rule" }) as { id: string };
+		const updated = await registry.get("rules.update")!.execute({ id: rule.id, title: "A rule v2" }) as { title: string };
+		expect(updated.title).toBe("A rule v2");
+	});
 });
 
 describe("modules/skills — a Papyrus-native registered module (excluding skills.instantiate)", () => {
@@ -72,5 +87,12 @@ describe("modules/skills — a Papyrus-native registered module (excluding skill
 		const created = await registry.get("skills.create")!.execute({ title: "A skill", trigger: "manual" }) as { id: string };
 		const shown = await registry.get("skills.show")!.execute({ id: created.id }) as { id: string };
 		expect(shown.id).toBe(created.id);
+	});
+
+	it("updates a skill's title/body/labels through skills.update", async () => {
+		const { registry } = fixture();
+		const created = await registry.get("skills.create")!.execute({ title: "A skill" }) as { id: string };
+		const updated = await registry.get("skills.update")!.execute({ id: created.id, body: "revised" }) as { body: string };
+		expect(updated.body).toBe("revised");
 	});
 });

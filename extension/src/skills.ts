@@ -76,12 +76,20 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 		rowMeta: skillRowMeta,
 		actions: (skill) => [
 			"Show details",
+			"Edit",
 			skill.subtype === "artifact-template" ? "Use template" : skill.subtype === "workflow" ? "Run workflow" : "Invoke skill",
 			skill.status === "active" ? "Disable" : "Enable",
 		],
 		handleAction: async (choice, skill, commandCtx) => {
 			if (choice === "Show details") await showArtifactDetails(commandCtx, skill.id, "skills.show");
-			else if (choice === "Run workflow") {
+			else if (choice === "Edit") {
+				const title = await commandCtx.ui.input("Title:", skill.title);
+				if (title === undefined) return; // canceled
+				const body = await commandCtx.ui.input("Body:", skill.body);
+				if (body === undefined) return; // canceled
+				const updated = await callService<Record<string, unknown>, Artifact>("skills.update", { id: skill.id, title, body });
+				commandCtx.ui.notify(`Updated "${updated.title}"`, "info");
+			} else if (choice === "Run workflow") {
 				const source = await commandCtx.ui.input("Workflow arguments JSON:", "{}");
 				if (source === undefined) return;
 				try {

@@ -179,6 +179,8 @@ papyrus discuss show <discussion-id> --json
 
 ## Tasks
 
+The `tasks` agent tool addresses a task by `name` (its exact title) wherever `id` would otherwise be required -- `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` are the name-based equivalents of `dependency_id`/`parent_id`/`child_id`/`root_task_id`/`depends_on`. Resolution is an exact, case-insensitive, trimmed title match scoped like a plain list call; an unmatched or ambiguous name fails with a clear error (ambiguous names list the real ids, since that's the one point disambiguation genuinely needs them). Task results returned to the agent likewise lead with name and status, never id, unless two tasks in the same result share a title -- id is a backend implementation detail, not a conversational handle. `id` itself still works exactly as before for every action.
+
 Run `/tasks` for the interactive task panel:
 
 - `/` filters; arrow keys navigate; Enter opens task actions; `s` switches among the persisted current-project, focused-root graph, and explicit all-projects views

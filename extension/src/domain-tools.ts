@@ -34,6 +34,47 @@ function artifactLine(artifact: Artifact): string {
 }
 
 /**
+ * Tasks-only: the model's primary interfacing point is the task's NAME, not its id -- id is a
+ * backend detail (a stable key other operations need, and titles aren't guaranteed unique), so
+ * it stays out of what the model reads by default. It only resurfaces when genuinely needed to
+ * tell two same-titled tasks apart (taskLines below), or in a matchTaskByName disambiguation
+ * error, never as a matter of course. This is scoped to the tasks tool specifically -- Docs/
+ * Rules/Skills/Discuss keep the shared artifactLine above unless a similar request covers them.
+ */
+export function taskLine(task: Artifact): string {
+	return `[${task.status}] ${task.title}`;
+}
+
+/** Appends " (id)" only for tasks whose title collides with another in this same result set. */
+export function taskLines(tasks: Artifact[]): string[] {
+	const titleCounts = new Map<string, number>();
+	for (const task of tasks) titleCounts.set(task.title, (titleCounts.get(task.title) ?? 0) + 1);
+	return tasks.map((task) => (titleCounts.get(task.title)! > 1 ? `${taskLine(task)} (${task.id})` : taskLine(task)));
+}
+
+/**
+ * Exact, case-insensitive, trimmed title match against an already-fetched candidate set. Throws
+ * a clear "not found" or "ambiguous -- use id" error rather than guessing at a fuzzy match -- id
+ * remains the one truly unambiguous key, so ambiguity is exactly where it's allowed to resurface.
+ * Pure and synchronous so it's directly testable without a service round-trip.
+ */
+export function matchTaskByName(candidates: Artifact[], name: string): string {
+	const needle = name.trim().toLowerCase();
+	const matches = candidates.filter((task) => task.title.trim().toLowerCase() === needle);
+	if (matches.length === 0) throw new Error(`no task named "${name}" found in this scope`);
+	if (matches.length > 1) {
+		throw new Error(`${matches.length} tasks are named "${name}": ${matches.map((task) => `${task.title} (${task.id})`).join(", ")} -- use id to disambiguate`);
+	}
+	return matches[0]!.id;
+}
+
+/** Resolves a task name to its id, scoped the same way a plain `tasks list` call would be (same project_root/session_id/scope). */
+async function resolveTaskIdByName(baseRequest: Record<string, unknown>, name: string): Promise<string> {
+	const candidates = await callService<Record<string, unknown>, Artifact[]>("tasks.list", { ...baseRequest, text: name });
+	return matchTaskByName(candidates, name);
+}
+
+/**
  * Shared "remove"/"restore" dispatch for every domain tool (tasks/docs/rules/skills) --
  * artifact.remove/restore are kind-agnostic composition-root operations (see service.ts),
  * not owned by any one domain module, so every domain tool exposes the same two actions
@@ -67,10 +108,11 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, undepend, contain, uncontain, remove, restore. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. update can recover a Task accidentally created terminal by setting status=todo with a reason, but cannot rewrite legitimate lifecycle history. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. undepend/uncontain are idempotent for an already-absent relationship and never start, complete, or focus work merely because an edge disappeared; uncontain removes both contains and part_of edges atomically. remove moves a Task to a time-gated trash (restorable via restore until the purge deadline; refuses if it is the live Task Focus). Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, undepend, contain, uncontain, remove, restore. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. update can recover a Task accidentally created terminal by setting status=todo with a reason, but cannot rewrite legitimate lifecycle history. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. undepend/uncontain are idempotent for an already-absent relationship and never start, complete, or focus work merely because an edge disappeared; uncontain removes both contains and part_of edges atomically. remove moves a Task to a time-gated trash (restorable via restore until the purge deadline; refuses if it is the live Task Focus). PREFER addressing a task by `name` (its exact title) over `id` for every action -- id is a backend implementation detail, resolved from name automatically, and only needs to appear explicitly when a name is genuinely ambiguous (two tasks share a title; the error will say so and list the real ids to disambiguate with). Task results likewise show name and status, not id, unless two shown tasks share a title. `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` are the name-based equivalents of `dependency_id`/`parent_id`/`child_id`/`root_task_id`/`depends_on`. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
+			name: Type.Optional(Type.String()),
 			title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()),
 			status: Type.Optional(Type.String()),
@@ -86,17 +128,23 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			checklist: Type.Optional(Type.Record(Type.String(), checklistCriterionSchema)),
 			template_id: Type.Optional(Type.String()),
 			parent_id: Type.Optional(Type.String()),
+			parent_name: Type.Optional(Type.String()),
 			child_id: Type.Optional(Type.String()),
+			child_name: Type.Optional(Type.String()),
 			dependency_id: Type.Optional(Type.String()),
+			dependency_name: Type.Optional(Type.String()),
 			depends_on: Type.Optional(Type.Array(Type.String())),
+			depends_on_names: Type.Optional(Type.Array(Type.String())),
 			project_root: Type.Optional(Type.String()),
 			scope: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("graph"), Type.Literal("all")])),
 			root_task_id: Type.Optional(Type.String()),
+			root_task_name: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Tasks", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params, _signal, _onUpdate, ctx) {
+		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
 				// Defaults to this Pi session's own id so Focus reads/writes are isolated per agent
 				// without depending on the model to know or supply its own session identity.
@@ -105,18 +153,37 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				// session never gets this session's secret smuggled in on its behalf -- the cache only
 				// ever holds this extension's own registered session anyway (see session-identity.ts).
 				const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
-				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) };
+				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) };
+				// Resolves every *_name field to its *_id counterpart before dispatch, so every action
+				// below can go on reading id/dependency_id/parent_id/child_id/root_task_id exactly as
+				// before -- id-based calls are unaffected; name-based ones are transparently rewritten.
+				const resolveField = async (nameKey: string, idKey: string) => {
+					const nameValue = params[nameKey];
+					if (typeof nameValue === "string" && nameValue.length > 0 && !params[idKey]) {
+						params[idKey] = await resolveTaskIdByName(baseRequest, nameValue);
+					}
+				};
+				await resolveField("name", "id");
+				await resolveField("dependency_name", "dependency_id");
+				await resolveField("parent_name", "parent_id");
+				await resolveField("child_name", "child_id");
+				await resolveField("root_task_name", "root_task_id");
+				const dependsOnNames = params["depends_on_names"];
+				if (Array.isArray(dependsOnNames) && dependsOnNames.length > 0 && !params["depends_on"]) {
+					params["depends_on"] = await Promise.all(dependsOnNames.map((entry) => resolveTaskIdByName(baseRequest, String(entry))));
+				}
+				const request = { ...params, ...baseRequest };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
-					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
+					return text(`Created task ${taskLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", request);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No tasks found.", createArtifactListDetails("tasks.list", rows));
+					return text(rows.length ? taskLines(rows).join("\n") : "No tasks found.", createArtifactListDetails("tasks.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("tasks.show", artifact));
+					return text(`${taskLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("tasks.show", artifact));
 				}
 				if (action === "history") {
 					const page = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", request);
@@ -131,20 +198,20 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "active") {
 					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", request);
 					return artifact
-						? text(`Active: ${artifactLine(artifact)}`, createArtifactDetails("tasks.active", artifact))
+						? text(`Active: ${taskLine(artifact)}`, createArtifactDetails("tasks.active", artifact))
 						: text("No active task.", createPreviewDetails("tasks.active", "Active task", "No active task."));
 				}
 				if (action === "focused") {
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string } | null>("tasks.focused", request);
 					return focus
-						? text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails("tasks.focused", focus.artifact))
+						? text(`Focused (${focus.status}): ${taskLine(focus.artifact)}`, createArtifactDetails("tasks.focused", focus.artifact))
 						: text("No focused task.", createPreviewDetails("tasks.focused", "Focused task", "No focused task."));
 				}
 				if (action === "pause" || action === "unpause") {
 					const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, request);
 					emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId: request.session_id as string, status: action === "pause" ? "paused" : "unpaused" });
-					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
+					return text(`Focused (${focus.status}): ${taskLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
 				}
 				if (action === "clear_focus") {
 					const result = await callService<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", request);
@@ -168,11 +235,16 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "plan") {
 					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", request);
 					const byId = new Map(plan.nodes.map((node) => [node.id, node]));
+					const titleCounts = new Map<string, number>();
+					for (const node of plan.nodes) titleCounts.set(node.title, (titleCounts.get(node.title) ?? 0) + 1);
 					const lines = plan.layers.flatMap((layer, index) => [
 						`Layer ${index + 1}`,
 						...layer.map((id) => {
 							const node = byId.get(id);
-							return node ? `  [${node.state}] ${node.id} ${node.title}` : `  [unknown] ${id}`;
+							if (!node) return `  [unknown] ${id}`;
+							return (titleCounts.get(node.title) ?? 0) > 1
+								? `  [${node.state}] ${node.title} (${node.id})`
+								: `  [${node.state}] ${node.title}`;
 						}),
 					]);
 					if (plan.cycleIds.length > 0) lines.push(`Invalid cycle: ${plan.cycleIds.join(", ")}`);
@@ -181,24 +253,25 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				if (action === "set_checklist") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_checklist", params);
-					return text(`Updated checklist: ${artifactLine(artifact)}`, createArtifactDetails("tasks.set_checklist", artifact));
+					return text(`Updated checklist: ${taskLine(artifact)}`, createArtifactDetails("tasks.set_checklist", artifact));
 				}
 				if (action === "complete") {
 					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", request);
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
-					const focused = result.focused ? `\nActive: ${artifactLine(result.focused)}` : "";
+					const focused = result.focused ? `\nActive: ${taskLine(result.focused)}` : "";
+					const blockedLines = taskLines(result.blocked.map((entry) => entry.artifact));
 					const blocked = result.blocked.length > 0
-						? `\nBlocked: ${result.blocked.map((entry) => `${artifactLine(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
+						? `\nBlocked: ${result.blocked.map((entry, index) => `${blockedLines[index]} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
 						: "";
-					const output = `${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
+					const output = `${result.completed ? "Completed" : "Rejected"}: ${taskLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
 					return text(output, createPreviewDetails("tasks.complete", "Task completion", output));
 				}
 				if (action === "run_gates") {
 					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", request);
 					return text(
 						gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.",
-						createGateRunDetails("tasks.run_gates", params.id ?? "", gates.map((gate) => ({
+						createGateRunDetails("tasks.run_gates", (params.id as string | undefined) ?? "", gates.map((gate) => ({
 							passed: gate.passed, type: gate.gate.type, target: gate.gate.target, output: gate.output,
 						}))),
 					);
@@ -224,7 +297,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (!operation) throw new Error(`unknown tasks action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
 				if (operation === "tasks.focus") emitTaskFocusEvent({ taskId: artifact.id, sessionId: request.session_id as string, status: "focused" });
-				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
+				return text(taskLine(artifact), createArtifactDetails(operation, artifact));
 			} catch (error) {
 				throw new Error(`tasks failed: ${error instanceof Error ? error.message : error}`);
 			}

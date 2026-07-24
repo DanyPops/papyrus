@@ -89,7 +89,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.create", "tasks.update", "tasks.list", "tasks.graph", "tasks.plan", "tasks.show", "tasks.history",
 	"tasks.scope", "tasks.set_scope", "tasks.assign_project", "tasks.active", "tasks.focused", "tasks.focus",
 	"tasks.pause", "tasks.unpause", "tasks.clear_focus", "tasks.start", "tasks.submit", "tasks.complete",
-	"tasks.run_gates", "tasks.set_checklist", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel",
+	"tasks.run_gates", "tasks.set_checklist", "tasks.set_gates", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel",
 	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain", "tasks.reap_stale_focus",
 ] as const;
 
@@ -157,6 +157,7 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		define("tasks.complete", (input: OperationInput) => tasks.completeAsync(string(input, "id"), eventContext(input))),
 		define("tasks.run_gates", (input: OperationInput) => tasks.runGates(string(input, "id"), eventContext(input))),
 		define("tasks.set_checklist", (input: OperationInput) => tasks.setChecklist(string(input, "id"), input["checklist"] as Checklist)),
+		define("tasks.set_gates", (input: OperationInput) => tasks.setGates(string(input, "id"), input["gates"] as Parameters<Tasks["setGates"]>[1])),
 		define("tasks.context", (input: OperationInput) => taskContext(
 			artifacts,
 			tasks.active(taskFilter(input))?.id,

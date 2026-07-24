@@ -323,6 +323,7 @@ function handlers(
 		"tasks.complete": forwardToModule("tasks.complete"),
 		"tasks.run_gates": forwardToModule("tasks.run_gates"),
 		"tasks.set_checklist": forwardToModule("tasks.set_checklist"),
+		"tasks.set_gates": forwardToModule("tasks.set_gates"),
 		"tasks.context": forwardToModule("tasks.context"),
 		"tasks.reject": forwardToModule("tasks.reject"),
 		"tasks.retry": forwardToModule("tasks.retry"),

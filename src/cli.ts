@@ -157,6 +157,7 @@ const USAGE = `Usage:
   papyrus tasks show <id> [--json]
   papyrus tasks run-gates <id> [--json]
   papyrus tasks set-checklist <id> --checklist-json <json> [--json]
+  papyrus tasks set-gates <id> --gates-json <json> [--json]
   papyrus tasks context [--scope <project|graph|all>] [--root-task-id <id>] [--session-id <id>] [--json]
 
 A "--session-id" scopes Task Focus to one agent session; omit it to use the shared "global" Focus (today's behavior).
@@ -1322,6 +1323,14 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			human = `Updated checklist: ${artifactLabel(artifact)}`;
 			break;
 		}
+		case "set-gates": {
+			if (!id || dependencyId) throw new Error("tasks set-gates requires exactly one task id");
+			if (!gates) throw new Error("tasks set-gates requires --gates-json");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.set_gates", { id, gates });
+			result = artifact;
+			human = `Updated gates: ${artifactLabel(artifact)}`;
+			break;
+		}
 		case "context": {
 			if (id) throw new Error("tasks context accepts no positional arguments");
 			const summary = await client.call<Record<string, unknown>, string | null>("tasks.context", {
@@ -1478,7 +1487,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			break;
 		}
 		default:
-			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, depend, undepend, contain, uncontain, run-gates, or set-checklist");
+			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, depend, undepend, contain, uncontain, run-gates, set-checklist, or set-gates");
 	}
 	return json ? JSON.stringify(result) : human;
 }

@@ -127,6 +127,10 @@ Every tool operation is registered in the daemon’s `/api/v1/ops` registry; par
 
 Internally, application services depend on the `ArtifactStore` and `GateRunner` ports. SQLite and subprocess execution are adapters composed only by the daemon; task behavior is unit-tested against fakes without a database. Task visualization projects the same `TaskGraph` into semantic display graphs and sends them through a `GraphRenderer` port; the Pi adapter uses `beautiful-mermaid` for terminal Unicode output without leaking Mermaid syntax into the task domain.
 
+### Naming vs. ids
+
+Every agent domain tool (tasks, docs, rules, skills, notes, discuss) addresses its artifacts by `name` (the exact title) wherever `id` would otherwise be required -- `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` (tasks), `target_name` (docs link, searches every kind since a link target can be any of them), `task_name` (rules gate, discuss block/unblock), `template_name` (skills instantiate), and `blocks_task_names` (discuss open) are the name-based equivalents of their `*_id` counterparts. Resolution is an exact, case-insensitive, trimmed title match scoped like a plain list call; an unmatched or ambiguous name fails with a clear error (ambiguous names list the real ids, since that's the one point disambiguation genuinely needs them). Results returned to the agent likewise lead with name and status, never id, unless two artifacts in the same result share a title -- id is a backend implementation detail, not a conversational handle. `id` itself still works exactly as before for every action, in every tool.
+
 ## Interactive frontends
 
 - `/tasks` — project/focused-graph scope, task lifecycle, append-only history, gates, dependencies, and nested metadata
@@ -178,8 +182,6 @@ papyrus discuss show <discussion-id> --json
 ```
 
 ## Tasks
-
-The `tasks` agent tool addresses a task by `name` (its exact title) wherever `id` would otherwise be required -- `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` are the name-based equivalents of `dependency_id`/`parent_id`/`child_id`/`root_task_id`/`depends_on`. Resolution is an exact, case-insensitive, trimmed title match scoped like a plain list call; an unmatched or ambiguous name fails with a clear error (ambiguous names list the real ids, since that's the one point disambiguation genuinely needs them). Task results returned to the agent likewise lead with name and status, never id, unless two tasks in the same result share a title -- id is a backend implementation detail, not a conversational handle. `id` itself still works exactly as before for every action.
 
 Run `/tasks` for the interactive task panel:
 

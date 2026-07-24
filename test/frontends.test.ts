@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
-import { matchTaskByName, taskLine, taskLines } from "../extension/src/domain-tools.ts";
+import { artifactLine as domainToolsArtifactLine, artifactLines, matchArtifactByName } from "../extension/src/domain-tools.ts";
 import { discussionRowMeta } from "../extension/src/discuss.ts";
 import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
@@ -210,37 +210,44 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 		return artifact({ kind: "task", subtype: "", status: "todo", title: "Fix the thing", ...overrides });
 	}
 
-	it("taskLine never includes id, unlike the shared artifactLine", () => {
+	it("artifactLine never includes id", () => {
 		const t = task({ id: "1307c008-7326-47fa-9551-9529aff1592c", status: "review", title: "Observe Vertex budget" });
-		expect(taskLine(t)).toBe("[review] Observe Vertex budget");
-		expect(taskLine(t)).not.toContain("1307c008");
+		expect(domainToolsArtifactLine(t)).toBe("[review] Observe Vertex budget");
+		expect(domainToolsArtifactLine(t)).not.toContain("1307c008");
 	});
 
-	it("taskLines omits id for distinct titles but appends it for a colliding title, so two same-named tasks stay distinguishable", () => {
+	it("artifactLines omits id for distinct titles but appends it for a colliding title, so two same-named artifacts stay distinguishable", () => {
 		const unique = [task({ id: "a", title: "Alpha" }), task({ id: "b", title: "Beta" })];
-		expect(taskLines(unique)).toEqual(["[todo] Alpha", "[todo] Beta"]);
+		expect(artifactLines(unique)).toEqual(["[todo] Alpha", "[todo] Beta"]);
 
 		const colliding = [task({ id: "a", title: "Fix bug" }), task({ id: "b", title: "Fix bug" }), task({ id: "c", title: "Ship it" })];
-		expect(taskLines(colliding)).toEqual(["[todo] Fix bug (a)", "[todo] Fix bug (b)", "[todo] Ship it"]);
+		expect(artifactLines(colliding)).toEqual(["[todo] Fix bug (a)", "[todo] Fix bug (b)", "[todo] Ship it"]);
 	});
 
-	it("matchTaskByName resolves a unique, case-insensitive, trimmed title match", () => {
+	it("matchArtifactByName resolves a unique, case-insensitive, trimmed title match", () => {
 		const candidates = [task({ id: "a", title: "Fix the thing" }), task({ id: "b", title: "Something else" })];
-		expect(matchTaskByName(candidates, "  fix THE thing  ")).toBe("a");
+		expect(matchArtifactByName(candidates, "  fix THE thing  ")).toBe("a");
 	});
 
-	it("matchTaskByName refuses when nothing matches", () => {
-		expect(() => matchTaskByName([task({ title: "Something else" })], "missing")).toThrow(/no task named "missing" found/);
+	it("matchArtifactByName refuses when nothing matches", () => {
+		expect(() => matchArtifactByName([task({ title: "Something else" })], "missing")).toThrow(/no artifact named "missing" found/);
 	});
 
-	it("matchTaskByName refuses ambiguity and surfaces real ids only at that point, to disambiguate", () => {
+	it("matchArtifactByName refuses ambiguity and surfaces real ids only at that point, to disambiguate", () => {
 		const candidates = [task({ id: "task-a", title: "Fix bug" }), task({ id: "task-b", title: "Fix bug" })];
-		expect(() => matchTaskByName(candidates, "Fix bug")).toThrow(/2 tasks are named "Fix bug": Fix bug \(task-a\), Fix bug \(task-b\) -- use id to disambiguate/);
+		expect(() => matchArtifactByName(candidates, "Fix bug")).toThrow(/2 artifacts are named "Fix bug": Fix bug \(task-a\), Fix bug \(task-b\) -- use id to disambiguate/);
 	});
 
 	it("registers name-based equivalents for id, dependency_id, parent_id, child_id, root_task_id, and depends_on", () => {
 		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
 		for (const field of ["name:", "dependency_name:", "parent_name:", "child_name:", "root_task_name:", "depends_on_names:"]) {
+			expect(tools).toContain(field);
+		}
+	});
+
+	it("registers name-based equivalents across docs, rules, skills, notes, and discuss too", () => {
+		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
+		for (const field of ["target_name:", "task_name:", "template_name:", "blocks_task_names:"]) {
 			expect(tools).toContain(field);
 		}
 	});

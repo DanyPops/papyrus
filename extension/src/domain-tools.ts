@@ -9,6 +9,7 @@ import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
 import type { DiscussionRound } from "../../src/domain/discussion.ts";
+import type { OperationName } from "../../src/service.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { NOTE_DISPOSITIONS } from "../../src/note-service.ts";
@@ -29,27 +30,22 @@ function text(message: string, details: unknown = {}) {
 	return { content: [{ type: "text" as const, text: modelContent.text }], details };
 }
 
-function artifactLine(artifact: Artifact): string {
-	return `${artifact.id} [${artifact.status}] ${artifact.title}`;
-}
-
 /**
- * Tasks-only: the model's primary interfacing point is the task's NAME, not its id -- id is a
- * backend detail (a stable key other operations need, and titles aren't guaranteed unique), so
- * it stays out of what the model reads by default. It only resurfaces when genuinely needed to
- * tell two same-titled tasks apart (taskLines below), or in a matchTaskByName disambiguation
- * error, never as a matter of course. This is scoped to the tasks tool specifically -- Docs/
- * Rules/Skills/Discuss keep the shared artifactLine above unless a similar request covers them.
+ * Every domain tool's primary interfacing point is an artifact's NAME, not its id -- id is a
+ * backend implementation detail (a stable key other operations need, and titles aren't
+ * guaranteed unique), so it stays out of what the model reads by default. It only resurfaces
+ * when genuinely needed to tell two same-titled artifacts apart (artifactLines below), or in a
+ * matchArtifactByName disambiguation error, never as a matter of course.
  */
-export function taskLine(task: Artifact): string {
-	return `[${task.status}] ${task.title}`;
+export function artifactLine(artifact: Artifact): string {
+	return `[${artifact.status}] ${artifact.title}`;
 }
 
-/** Appends " (id)" only for tasks whose title collides with another in this same result set. */
-export function taskLines(tasks: Artifact[]): string[] {
+/** Appends " (id)" only for artifacts whose title collides with another in this same result set. */
+export function artifactLines(artifacts: Artifact[]): string[] {
 	const titleCounts = new Map<string, number>();
-	for (const task of tasks) titleCounts.set(task.title, (titleCounts.get(task.title) ?? 0) + 1);
-	return tasks.map((task) => (titleCounts.get(task.title)! > 1 ? `${taskLine(task)} (${task.id})` : taskLine(task)));
+	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
+	return artifacts.map((artifact) => (titleCounts.get(artifact.title)! > 1 ? `${artifactLine(artifact)} (${artifact.id})` : artifactLine(artifact)));
 }
 
 /**
@@ -58,20 +54,53 @@ export function taskLines(tasks: Artifact[]): string[] {
  * remains the one truly unambiguous key, so ambiguity is exactly where it's allowed to resurface.
  * Pure and synchronous so it's directly testable without a service round-trip.
  */
-export function matchTaskByName(candidates: Artifact[], name: string): string {
+export function matchArtifactByName(candidates: Artifact[], name: string): string {
 	const needle = name.trim().toLowerCase();
-	const matches = candidates.filter((task) => task.title.trim().toLowerCase() === needle);
-	if (matches.length === 0) throw new Error(`no task named "${name}" found in this scope`);
+	const matches = candidates.filter((artifact) => artifact.title.trim().toLowerCase() === needle);
+	if (matches.length === 0) throw new Error(`no artifact named "${name}" found in this scope`);
 	if (matches.length > 1) {
-		throw new Error(`${matches.length} tasks are named "${name}": ${matches.map((task) => `${task.title} (${task.id})`).join(", ")} -- use id to disambiguate`);
+		throw new Error(`${matches.length} artifacts are named "${name}": ${matches.map((artifact) => `${artifact.title} (${artifact.id})`).join(", ")} -- use id to disambiguate`);
 	}
 	return matches[0]!.id;
 }
 
-/** Resolves a task name to its id, scoped the same way a plain `tasks list` call would be (same project_root/session_id/scope). */
-async function resolveTaskIdByName(baseRequest: Record<string, unknown>, name: string): Promise<string> {
-	const candidates = await callService<Record<string, unknown>, Artifact[]>("tasks.list", { ...baseRequest, text: name });
-	return matchTaskByName(candidates, name);
+/**
+ * Resolves a name to its id via `listOperation` (whichever kind's list call is the right search
+ * scope -- tasks.list, docs.list, rules.list, skills.list, notes.list, discuss.list, or the
+ * kind-agnostic artifact.query for a cross-kind reference like a link target). `baseRequest`
+ * should mirror whatever scoping (project_root, etc.) that operation's own "list" action already
+ * uses, so resolution never searches a wider or narrower scope than a plain list call would.
+ */
+async function resolveArtifactIdByName(listOperation: OperationName, baseRequest: Record<string, unknown>, name: string): Promise<string> {
+	const candidates = await callService<Record<string, unknown>, Artifact[]>(listOperation, { ...baseRequest, text: name });
+	return matchArtifactByName(candidates, name);
+}
+
+/** Resolves every {nameKey -> idKey} pair present and not already satisfied by an explicit id, in place. */
+async function resolveNameFields(
+	params: Record<string, unknown>,
+	fields: ReadonlyArray<{ nameKey: string; idKey: string; listOperation: OperationName; baseRequest: Record<string, unknown> }>,
+): Promise<void> {
+	for (const { nameKey, idKey, listOperation, baseRequest } of fields) {
+		const nameValue = params[nameKey];
+		if (typeof nameValue === "string" && nameValue.length > 0 && !params[idKey]) {
+			params[idKey] = await resolveArtifactIdByName(listOperation, baseRequest, nameValue);
+		}
+	}
+}
+
+/** Resolves a `namesKey` string array to an `idsKey` id array, only when idsKey isn't already explicitly given. */
+async function resolveNameArrayField(
+	params: Record<string, unknown>,
+	namesKey: string,
+	idsKey: string,
+	listOperation: OperationName,
+	baseRequest: Record<string, unknown>,
+): Promise<void> {
+	const names = params[namesKey];
+	if (Array.isArray(names) && names.length > 0 && !params[idsKey]) {
+		params[idsKey] = await Promise.all(names.map((entry) => resolveArtifactIdByName(listOperation, baseRequest, String(entry))));
+	}
 }
 
 /**
@@ -82,13 +111,27 @@ async function resolveTaskIdByName(baseRequest: Record<string, unknown>, name: s
  * Returns null when action is neither, so callers fall through to their own dispatch.
  */
 async function handleArtifactRemoveRestore(action: unknown, params: Record<string, unknown>): Promise<ReturnType<typeof text> | null> {
+	// Trashed/restored are still directly showable by id (see artifact-trash.ts), so the title is
+	// available either side of the action -- fetched here purely for a name-primary message; falls
+	// back to the raw id only if the artifact genuinely can't be shown (e.g. an unknown id).
+	const titleOf = async (): Promise<string> => {
+		try {
+			const artifact = await callService<Record<string, unknown>, Artifact | null>("artifact.show", { id: params["id"] });
+			return artifact ? `"${artifact.title}"` : String(params["id"]);
+		} catch {
+			return String(params["id"]);
+		}
+	};
 	if (action === "remove") {
+		const label = await titleOf();
 		const record = await callService<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>("artifact.remove", params);
-		return text(`Trashed ${record.artifactId}, eligible for purge at ${record.purgeAfter}.`, createPreviewDetails("artifact.remove", "Trashed", record.artifactId));
+		const message = `Trashed ${label}, eligible for purge at ${record.purgeAfter}.`;
+		return text(message, createPreviewDetails("artifact.remove", "Trashed", record.artifactId));
 	}
 	if (action === "restore") {
+		const label = await titleOf();
 		const outcome = await callService<Record<string, unknown>, { restored: boolean }>("artifact.restore", params);
-		const output = outcome.restored ? `Restored ${params["id"]}.` : `${params["id"]} was not trashed.`;
+		const output = outcome.restored ? `Restored ${label}.` : `${label} was not trashed.`;
 		return text(output, createPreviewDetails("artifact.restore", "Restored", output));
 	}
 	return null;
@@ -157,33 +200,26 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				// Resolves every *_name field to its *_id counterpart before dispatch, so every action
 				// below can go on reading id/dependency_id/parent_id/child_id/root_task_id exactly as
 				// before -- id-based calls are unaffected; name-based ones are transparently rewritten.
-				const resolveField = async (nameKey: string, idKey: string) => {
-					const nameValue = params[nameKey];
-					if (typeof nameValue === "string" && nameValue.length > 0 && !params[idKey]) {
-						params[idKey] = await resolveTaskIdByName(baseRequest, nameValue);
-					}
-				};
-				await resolveField("name", "id");
-				await resolveField("dependency_name", "dependency_id");
-				await resolveField("parent_name", "parent_id");
-				await resolveField("child_name", "child_id");
-				await resolveField("root_task_name", "root_task_id");
-				const dependsOnNames = params["depends_on_names"];
-				if (Array.isArray(dependsOnNames) && dependsOnNames.length > 0 && !params["depends_on"]) {
-					params["depends_on"] = await Promise.all(dependsOnNames.map((entry) => resolveTaskIdByName(baseRequest, String(entry))));
-				}
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "tasks.list", baseRequest },
+					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "tasks.list", baseRequest },
+					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "tasks.list", baseRequest },
+					{ nameKey: "child_name", idKey: "child_id", listOperation: "tasks.list", baseRequest },
+					{ nameKey: "root_task_name", idKey: "root_task_id", listOperation: "tasks.list", baseRequest },
+				]);
+				await resolveNameArrayField(params, "depends_on_names", "depends_on", "tasks.list", baseRequest);
 				const request = { ...params, ...baseRequest };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
-					return text(`Created task ${taskLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
+					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", request);
-					return text(rows.length ? taskLines(rows).join("\n") : "No tasks found.", createArtifactListDetails("tasks.list", rows));
+					return text(rows.length ? artifactLines(rows).join("\n") : "No tasks found.", createArtifactListDetails("tasks.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
-					return text(`${taskLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("tasks.show", artifact));
+					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("tasks.show", artifact));
 				}
 				if (action === "history") {
 					const page = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", request);
@@ -198,20 +234,20 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (action === "active") {
 					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", request);
 					return artifact
-						? text(`Active: ${taskLine(artifact)}`, createArtifactDetails("tasks.active", artifact))
+						? text(`Active: ${artifactLine(artifact)}`, createArtifactDetails("tasks.active", artifact))
 						: text("No active task.", createPreviewDetails("tasks.active", "Active task", "No active task."));
 				}
 				if (action === "focused") {
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string } | null>("tasks.focused", request);
 					return focus
-						? text(`Focused (${focus.status}): ${taskLine(focus.artifact)}`, createArtifactDetails("tasks.focused", focus.artifact))
+						? text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails("tasks.focused", focus.artifact))
 						: text("No focused task.", createPreviewDetails("tasks.focused", "Focused task", "No focused task."));
 				}
 				if (action === "pause" || action === "unpause") {
 					const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
 					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, request);
 					emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId: request.session_id as string, status: action === "pause" ? "paused" : "unpaused" });
-					return text(`Focused (${focus.status}): ${taskLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
+					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
 				}
 				if (action === "clear_focus") {
 					const result = await callService<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", request);
@@ -253,18 +289,18 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				if (action === "set_checklist") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_checklist", params);
-					return text(`Updated checklist: ${taskLine(artifact)}`, createArtifactDetails("tasks.set_checklist", artifact));
+					return text(`Updated checklist: ${artifactLine(artifact)}`, createArtifactDetails("tasks.set_checklist", artifact));
 				}
 				if (action === "complete") {
 					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", request);
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
-					const focused = result.focused ? `\nActive: ${taskLine(result.focused)}` : "";
-					const blockedLines = taskLines(result.blocked.map((entry) => entry.artifact));
+					const focused = result.focused ? `\nActive: ${artifactLine(result.focused)}` : "";
+					const blockedLines = artifactLines(result.blocked.map((entry) => entry.artifact));
 					const blocked = result.blocked.length > 0
 						? `\nBlocked: ${result.blocked.map((entry, index) => `${blockedLines[index]} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
 						: "";
-					const output = `${result.completed ? "Completed" : "Rejected"}: ${taskLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
+					const output = `${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
 					return text(output, createPreviewDetails("tasks.complete", "Task completion", output));
 				}
 				if (action === "run_gates") {
@@ -297,7 +333,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				if (!operation) throw new Error(`unknown tasks action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
 				if (operation === "tasks.focus") emitTaskFocusEvent({ taskId: artifact.id, sessionId: request.session_id as string, status: "focused" });
-				return text(taskLine(artifact), createArtifactDetails(operation, artifact));
+				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
 			} catch (error) {
 				throw new Error(`tasks failed: ${error instanceof Error ? error.message : error}`);
 			}
@@ -307,10 +343,11 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "notes",
 		label: "Notes",
-		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id. Archive requires an explicit disposition.",
+		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id. Archive requires an explicit disposition. PREFER `name` (the note's exact title) over `id` for show/consume/promote/archive -- id is a backend implementation detail, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
+			name: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()),
 			title: Type.Optional(Type.String()),
 			status: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("active"), Type.Literal("archived")])),
@@ -324,17 +361,20 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Notes", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params, _signal, _onUpdate, ctx) {
+		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
-				const request = { ...params, project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "notes-tool" };
+				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "notes-tool" };
+				await resolveNameFields(params, [{ nameKey: "name", idKey: "id", listOperation: "notes.list", baseRequest }]);
+				const request = { ...params, ...baseRequest };
 				if (action === "capture") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("notes.capture", request);
 					return text(`Captured note ${artifactLine(artifact)}`, createArtifactDetails("notes.capture", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", request);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No open notes.", createArtifactListDetails("notes.list", rows));
+					return text(rows.length ? artifactLines(rows).join("\n") : "No open notes.", createArtifactListDetails("notes.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("notes.show", request);
@@ -354,10 +394,11 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "docs",
 		label: "Documents",
-		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Doc to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. Prefer this over low-level papyrus_* tools for document work.",
+		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Doc to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the doc's exact title) over `id`, and `target_name` over `target_id` for link -- both are backend implementation details, resolved from name automatically (target_name searches across every kind, since a link target can be a doc, task, rule, or skill). Prefer this over low-level papyrus_* tools for document work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
+			name: Type.Optional(Type.String()),
 			title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()),
 			subtype: Type.Optional(Type.String()),
@@ -369,21 +410,29 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			template_id: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			target_id: Type.Optional(Type.String()),
+			target_name: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()),
 			reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Documents", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params) {
+		async execute(_id, rawParams) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
+				const scopeRequest = { project_root: params.project_root };
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "docs.list", baseRequest: scopeRequest },
+					// Kind-agnostic: a link target can be a doc, task, rule, or skill, so this searches every kind rather than only docs.
+					{ nameKey: "target_name", idKey: "target_id", listOperation: "artifact.query", baseRequest: scopeRequest },
+				]);
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("docs.create", params);
 					return text(`Created document ${artifactLine(artifact)}`, createArtifactDetails("docs.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("docs.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No documents found.", createArtifactListDetails("docs.list", rows));
+					return text(rows.length ? artifactLines(rows).join("\n") : "No documents found.", createArtifactListDetails("docs.list", rows));
 				}
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("docs.show", params);
@@ -405,27 +454,33 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "rules",
 		label: "Rules",
-		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt. remove moves a Rule to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline.",
+		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt. remove moves a Rule to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the rule's exact title) over `id`, and `task_name` over `task_id` for gate -- both are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
-			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
+			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
 			severity: Type.Optional(Type.String()), labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), task_id: Type.Optional(Type.String()),
+			task_name: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Rules", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params) {
+		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "rules.list", baseRequest: { project_root: params.project_root } },
+					{ nameKey: "task_name", idKey: "task_id", listOperation: "tasks.list", baseRequest: { project_root: params.project_root ?? ctx.cwd } },
+				]);
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("rules.create", params);
 					return text(`Created rule ${artifactLine(artifact)}`, createArtifactDetails("rules.create", artifact));
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("rules.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No rules found.", createArtifactListDetails("rules.list", rows));
+					return text(rows.length ? artifactLines(rows).join("\n") : "No rules found.", createArtifactListDetails("rules.list", rows));
 				}
 				if (action === "preview") {
 					const preview = await callService<Record<string, unknown>, string>("rules.preview", params);
@@ -447,25 +502,31 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
-		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, remove, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline.",
+		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, remove, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the skill's exact title) over `id`, and `template_name` over `template_id` for instantiate -- both are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
-			action: Type.String(), id: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
+			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
 			tools: Type.Optional(Type.Array(Type.String())), definition: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())), run_id: Type.Optional(Type.String()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), template_id: Type.Optional(Type.String()),
+			template_name: Type.Optional(Type.String()),
 			target_kind: Type.Optional(Type.String()), defaults: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 			required: Type.Optional(Type.Array(Type.String())), kind: Type.Optional(Type.String()), subtype: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Skills", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params, _signal, _onUpdate, ctx) {
+		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
 				const request = { ...params, project_root: params.project_root ?? ctx.cwd };
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "skills.list", baseRequest: { project_root: params.project_root } },
+					{ nameKey: "template_name", idKey: "template_id", listOperation: "skills.list", baseRequest: { project_root: params.project_root } },
+				]);
 				if (action === "create" || action === "create_template") {
 					const operation = action === "create" ? "skills.create" : "skills.create_template";
 					const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
@@ -473,7 +534,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("skills.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No skills found.", createArtifactListDetails("skills.list", rows));
+					return text(rows.length ? artifactLines(rows).join("\n") : "No skills found.", createArtifactListDetails("skills.list", rows));
 				}
 				if (action === "invoke") {
 					const invocation = await callService<Record<string, unknown>, string>("skills.invoke", params);
@@ -481,10 +542,19 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				if (action === "run") {
 					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", request);
-					const execution = run.execution.nodes.map((node) => `  [${node.state}] ${node.id} ${node.title}`).join("\n");
+					const runTitleCounts = new Map<string, number>();
+					for (const node of run.execution.nodes) runTitleCounts.set(node.title, (runTitleCounts.get(node.title) ?? 0) + 1);
+					const execution = run.execution.nodes.map((node) => (runTitleCounts.get(node.title) ?? 0) > 1
+						? `  [${node.state}] ${node.title} (${node.id})`
+						: `  [${node.state}] ${node.title}`).join("\n");
+					// Root task titles are free here (already present in execution.nodes); created docs/rules
+					// are a different kind not covered by this run's own execution nodes, so those still list by
+					// id below -- fetching their titles would mean an extra round-trip per artifact.
+					const nodeById = new Map(run.execution.nodes.map((node) => [node.id, node]));
+					const rootLabels = run.rootTaskIds.map((id) => nodeById.get(id)?.title ?? id);
 					return text([
 						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs.`,
-						`Ready roots: ${run.rootTaskIds.join(", ") || "none"}.`,
+						`Ready roots: ${rootLabels.join(", ") || "none"}.`,
 						`Context docs: ${run.created.docs.join(", ") || "none"}.`,
 						`Scoped rules: ${run.created.rules.join(", ") || "none"}.`,
 						...(execution ? ["Execution:", execution] : []),
@@ -511,17 +581,20 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
-		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it.",
+		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
+			name: Type.Optional(Type.String()),
 			title: Type.Optional(Type.String()),
 			actor: Type.Optional(Type.String()),
 			content: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()),
 			labels: Type.Optional(Type.Array(Type.String())),
 			blocks_task_ids: Type.Optional(Type.Array(Type.String())),
+			blocks_task_names: Type.Optional(Type.Array(Type.String())),
 			task_id: Type.Optional(Type.String()),
+			task_name: Type.Optional(Type.String()),
 			reason: Type.Optional(Type.String()),
 			settlement: Type.Optional(Type.String()),
 			state: Type.Optional(Type.String()),
@@ -533,26 +606,36 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params) {
+		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
+				const taskScope = { project_root: ctx.cwd };
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "discuss.list", baseRequest: {} },
+					{ nameKey: "task_name", idKey: "task_id", listOperation: "tasks.list", baseRequest: taskScope },
+				]);
+				await resolveNameArrayField(params, "blocks_task_names", "blocks_task_ids", "tasks.list", taskScope);
 				if (action === "open") {
 					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.open", params);
 					return text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion));
 				}
 				if (action === "reply") {
 					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", params);
-					return text(`Round ${result.rounds[0]?.roundNumber} added to ${result.discussion.id}`, createArtifactDetails("discuss.reply", result.discussion));
+					return text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
 				}
-				if (action === "block") {
-					await callService<Record<string, unknown>, { blocked: boolean }>("discuss.block", params);
-					const message = `${params.id} now blocks ${params.task_id}`;
-					return text(message, createPreviewDetails("discuss.block", "Blocked", message));
-				}
-				if (action === "unblock") {
-					const result = await callService<Record<string, unknown>, { unblocked: boolean }>("discuss.unblock", params);
-					const message = result.unblocked ? `${params.id} no longer blocks ${params.task_id}` : "No such blocking relationship.";
-					return text(message, createPreviewDetails("discuss.unblock", "Unblocked", message));
+				if (action === "block" || action === "unblock") {
+					const operation = action === "block" ? "discuss.block" : "discuss.unblock";
+					const [outcome, discussionAndRounds, task] = await Promise.all([
+						callService<Record<string, unknown>, { blocked?: boolean; unblocked?: boolean }>(operation, params),
+						callService<Record<string, unknown>, DiscussionAndRounds>("discuss.show", { id: params.id }),
+						callService<Record<string, unknown>, Artifact>("tasks.show", { id: params.task_id }),
+					]);
+					const discussion = discussionAndRounds.discussion;
+					const message = action === "unblock" && !outcome.unblocked
+						? "No such blocking relationship."
+						: `"${discussion.title}" ${action === "block" ? "now blocks" : "no longer blocks"} "${task.title}"`;
+					return text(message, createPreviewDetails(operation, action === "block" ? "Blocked" : "Unblocked", message));
 				}
 				if (action === "show") {
 					const result = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.show", params);
@@ -566,7 +649,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("discuss.list", params);
-					return text(rows.length ? rows.map(artifactLine).join("\n") : "No discussions found.", createArtifactListDetails("discuss.list", rows));
+					return text(rows.length ? artifactLines(rows).join("\n") : "No discussions found.", createArtifactListDetails("discuss.list", rows));
 				}
 				const operations = { defer: "discuss.defer", resume: "discuss.resume", settle: "discuss.settle" } as const;
 				const operation = operations[action as keyof typeof operations];

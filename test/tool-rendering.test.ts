@@ -69,7 +69,7 @@ describe("Papyrus native tool rendering", () => {
 			createArtifactListDetails("tasks.list", [artifact(1), artifact(2)]),
 			createTransitionDetails("tasks.start", { ...artifact(), status: "in-progress" }, "todo", "in-progress"),
 			createGraphDetails("tasks.graph", [artifact(1), artifact(2)], [{ from: "task-1", relation: "contains", to: "task-2" }]),
-			createGateRunDetails("tasks.run_gates", "task-1", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
+			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
 			createInvocationDetails("skills.run", "run-1", { tasks: ["task-1"], docs: ["doc-1"], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task not found."),
@@ -80,6 +80,28 @@ describe("Papyrus native tool rendering", () => {
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			expect(lines.join("\n")).not.toContain("MODEL_ONLY_SENTINEL");
 		}
+	});
+
+	it("prefers name over id in the compact call header, since id is a backend detail", () => {
+		const byName = renderPapyrusToolCall("Tasks", { action: "show", name: "Fix the thing", id: "1307c008-7326-47fa-9551-9529aff1592c" }, theme);
+		expect(byName.render(60).join("\n")).toContain("Fix the thing");
+		expect(byName.render(60).join("\n")).not.toContain("1307c008");
+
+		// id is still shown when it's genuinely the only identifying argument given.
+		const byIdOnly = renderPapyrusToolCall("Tasks", { action: "show", id: "1307c008-7326-47fa-9551-9529aff1592c" }, theme);
+		expect(byIdOnly.render(60).join("\n")).toContain("1307c008");
+	});
+
+	it("never echoes a raw artifact id in gate-run or transition summary text -- title only", () => {
+		const gateRun = createGateRunDetails("tasks.run_gates", "6c6c7445-9c2a-41db-9b40-809d07432430", "Ship the diagnostics", []);
+		const gateRunOutput = renderPapyrusToolResult(result(gateRun), { expanded: true, isPartial: false }, theme, context()).render(60).join("\n");
+		expect(gateRunOutput).toContain("Ship the diagnostics");
+		expect(gateRunOutput).not.toContain("6c6c7445");
+
+		const transition = createTransitionDetails("tasks.start", artifact(), "todo", "in-progress");
+		const transitionOutput = renderPapyrusToolResult(result(transition), { expanded: true, isPartial: false }, theme, context()).render(60).join("\n");
+		expect(transitionOutput).toContain(transition.artifact.title);
+		expect(transitionOutput).not.toContain(transition.artifact.id);
 	});
 
 	it("reuses artifact components and falls back safely for legacy details", () => {

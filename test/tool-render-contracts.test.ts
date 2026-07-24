@@ -44,7 +44,7 @@ describe("Papyrus tool render contracts", () => {
 			createArtifactListDetails("tasks.list", [artifact()], 1),
 			createTransitionDetails("tasks.start", artifact({ status: "in-progress" }), "todo", "in-progress"),
 			createGraphDetails("tasks.graph", [artifact()], [{ from: "task-1", relation: "depends_on", to: "task-2" }]),
-			createGateRunDetails("tasks.run_gates", "task-1", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
+			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
 			createInvocationDetails("skills.run", "run-1", { tasks: ["task-1"], docs: [], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task was not found."),
@@ -86,7 +86,7 @@ describe("Papyrus tool render contracts", () => {
 		expect(graph.edges).toHaveLength(TOOL_DETAILS_MAX_EDGES);
 		expect(graph.edgeCompleteness).toEqual({ truncated: true, omitted: 2 });
 
-		const gateRun = createGateRunDetails("tasks.run_gates", "task-1", [{
+		const gateRun = createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{
 			passed: false,
 			type: "command",
 			target: "bun test",

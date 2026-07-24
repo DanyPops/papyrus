@@ -304,10 +304,13 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					return text(output, createPreviewDetails("tasks.complete", "Task completion", output));
 				}
 				if (action === "run_gates") {
-					const gates = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", request);
+					const [gates, task] = await Promise.all([
+						callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", request),
+						callService<Record<string, unknown>, Artifact>("tasks.show", { id: params.id }),
+					]);
 					return text(
 						gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.",
-						createGateRunDetails("tasks.run_gates", (params.id as string | undefined) ?? "", gates.map((gate) => ({
+						createGateRunDetails("tasks.run_gates", (params.id as string | undefined) ?? "", task.title, gates.map((gate) => ({
 							passed: gate.passed, type: gate.gate.type, target: gate.gate.target, output: gate.output,
 						}))),
 					);

@@ -81,6 +81,7 @@ export interface ToolGateRow {
 export interface GateRunToolDetails extends ToolDetailsBase {
 	kind: "gate-run";
 	artifactId: string;
+	artifactTitle: string;
 	gates: ToolGateRow[];
 	completeness: ResultCompleteness;
 }
@@ -218,6 +219,7 @@ export function createGraphDetails(
 export function createGateRunDetails(
 	operation: string,
 	artifactId: string,
+	artifactTitle: string,
 	gates: readonly ToolGateRow[],
 ): GateRunToolDetails {
 	const boundedGates = gates.slice(0, TOOL_DETAILS_MAX_ITEMS).map((gate) => ({
@@ -229,6 +231,7 @@ export function createGateRunDetails(
 		kind: "gate-run",
 		operation,
 		artifactId,
+		artifactTitle,
 		gates: boundedGates,
 		completeness: completeness(gates.length, boundedGates.length),
 	};
@@ -383,6 +386,7 @@ export function parsePapyrusToolDetails(value: unknown): PapyrusToolDetails | un
 				? value as unknown as GraphToolDetails : undefined;
 		case "gate-run":
 			return isBoundedString(value.artifactId)
+				&& isBoundedString(value.artifactTitle)
 				&& isBoundedArray(value.gates, TOOL_DETAILS_MAX_ITEMS, isGateRow)
 				&& isCompleteness(value.completeness)
 				? value as unknown as GateRunToolDetails : undefined;

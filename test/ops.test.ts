@@ -1,8 +1,8 @@
 import { afterAll, describe, it, expect } from "bun:test";
 import { openDb, type Db } from "../src/db.ts";
-import { createArtifact, queryArtifacts, linkArtifacts, getArtifact, runGates } from "../src/ops.ts";
+import { createArtifact, queryArtifacts, linkArtifacts, getArtifact, runGates, runGatesAsync } from "../src/ops.ts";
 import { dbPath } from "../src/constants.ts";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 afterAll(cleanupTempDirs);
@@ -138,6 +138,63 @@ describe("papyrus: four-kind model", () => {
 		expect(results[0]!.passed).toBe(true);
 		expect(results[1]!.passed).toBe(true);
 		expect(results[2]!.passed).toBe(false);
+		db.close();
+	});
+
+	// Real incident: a command gate with no explicit cwd inherited the Papyrus daemon's own
+	// process cwd (its systemd unit's launch directory) instead of the task's project, so a gate
+	// like `bun test` recursively discovered and ran every test file under every project on the
+	// machine -- exhausting memory and crashing the bun process. These two tests prove `cwd` is
+	// honored, for both the sync and async gate runners.
+	it("runGates (sync): a command gate runs in the given cwd, not the process's own working directory", () => {
+		const { db, dir } = tmpDb();
+		writeFileSync(join(dir, "marker.txt"), "present");
+		const task = createArtifact(db, { kind: "task", title: "CWD gate", extra: { gates: [{ type: "command", target: "ls", expect: "marker.txt" }] } });
+
+		const withoutCwd = runGates(db, task.id!);
+		expect(withoutCwd[0]?.passed).toBe(false);
+
+		const withCwd = runGates(db, task.id!, { cwd: dir });
+		expect(withCwd[0]?.passed).toBe(true);
+		db.close();
+	});
+
+	it("runGatesAsync: a command gate runs in the given cwd, not the process's own working directory", async () => {
+		const { db, dir } = tmpDb();
+		writeFileSync(join(dir, "marker.txt"), "present");
+		const task = createArtifact(db, { kind: "task", title: "CWD gate async", extra: { gates: [{ type: "command", target: "ls", expect: "marker.txt" }] } });
+
+		const withoutCwd = await runGatesAsync(db, task.id!);
+		expect(withoutCwd[0]?.passed).toBe(false);
+
+		const withCwd = await runGatesAsync(db, task.id!, { cwd: dir });
+		expect(withCwd[0]?.passed).toBe(true);
+		db.close();
+	});
+
+	it("runGatesAsync: kills the whole process group on timeout, so a real grandchild does not survive it", async () => {
+		// A prior implementation only ever signaled the immediate shell exec() spawned; a
+		// backgrounded grandchild (like `bun` under `sh -c "bun test"`) was never killed by that
+		// signal and kept running -- and consuming memory -- long after Papyrus considered the gate
+		// timed out. `sleep 5 & ... ; wait` forces a real forked grandchild (not a tail-call-
+		// optimized single process image) so this test can prove that grandchild is actually gone.
+		const { db, dir } = tmpDb();
+		const pidFile = join(dir, "child.pid");
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "Timeout kills the group",
+			extra: { gates: [{ type: "command", target: `sh -c 'sleep 5 & echo $! > ${pidFile}; wait'` }] },
+		});
+
+		const results = await runGatesAsync(db, task.id!, { deadlineMs: Date.now() + 300 });
+		expect(results[0]?.passed).toBe(false);
+		expect(results[0]?.output).toContain("timed out");
+
+		// Give the SIGKILL a moment to actually land before checking.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const grandchildPid = Number(readFileSync(pidFile, "utf8").trim());
+		expect(Number.isInteger(grandchildPid)).toBe(true);
+		expect(() => process.kill(grandchildPid, 0)).toThrow();
 		db.close();
 	});
 

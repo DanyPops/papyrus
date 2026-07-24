@@ -3,7 +3,6 @@
  * Enforces the schema protocol (kinds, statuses, relations) via FK + app validation.
  */
 import { createRequire } from "node:module";
-import { exec } from "node:child_process";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
 import { ARTIFACT_TRASH_RETENTION_MS, DEFAULT_STATUS_BY_KIND } from "./constants.ts";
@@ -508,10 +507,11 @@ function readBoundedGateFile(path: string): string {
 	return readFileSync(path, "utf-8") as string;
 }
 
-export function runGates(db: Db, artifactId: string): GateResult[] {
+export function runGates(db: Db, artifactId: string, options: GateRunOptions = {}): GateResult[] {
 	const art = getArtifact(db, artifactId);
 	if (!art) throw new Error("artifact not found");
 	const gates = (art.extra["gates"] as Gate[]) ?? [];
+	const cwd = options.cwd;
 	return gates.map((gate) => {
 		switch (gate.type) {
 			case "file-exists": {
@@ -531,7 +531,7 @@ export function runGates(db: Db, artifactId: string): GateResult[] {
 			case "command": {
 				const { execSync } = require_("node:child_process");
 				try {
-					const output = execSync(gate.target, { encoding: "utf-8", timeout: GATE_COMMAND_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"] }).trim();
+					const output = execSync(gate.target, { encoding: "utf-8", timeout: GATE_COMMAND_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"], ...(cwd ? { cwd } : {}) }).trim();
 					const passed = gate.expect ? output.includes(gate.expect) : true;
 					return { gate, passed, output: output.slice(0, GATE_OUTPUT_LIMIT) };
 				} catch (e) {
@@ -541,7 +541,7 @@ export function runGates(db: Db, artifactId: string): GateResult[] {
 			case "test": {
 				const { execSync } = require_("node:child_process");
 				try {
-					execSync(`npx vitest run ${gate.target} --reporter=dot`, { encoding: "utf-8", timeout: GATE_TEST_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"] });
+					execSync(`npx vitest run ${gate.target} --reporter=dot`, { encoding: "utf-8", timeout: GATE_TEST_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"], ...(cwd ? { cwd } : {}) });
 					return { gate, passed: true, output: "tests passed" };
 				} catch (e) {
 					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, GATE_OUTPUT_LIMIT) : "tests failed" };
@@ -553,15 +553,64 @@ export function runGates(db: Db, artifactId: string): GateResult[] {
 	});
 }
 
-function executeGateCommand(command: string, timeout: number): Promise<{ passed: boolean; output: string }> {
+/**
+ * Runs one gate command with two invariants a prior implementation lacked (a real incident; see
+ * GateRunOptions.cwd's doc comment):
+ *   1. `cwd` is always explicit, never inherited from the daemon's own process cwd.
+ *   2. The whole process group is killed on timeout, not just the immediate shell. `exec()`'s own
+ *      `timeout` option only signals the process it directly spawned (the shell running
+ *      `command`); a shell's own child (e.g. `bun` under `sh -c "bun test"`) is not in general
+ *      killed by that signal and can be reparented and keep running -- and consuming memory --
+ *      indefinitely after Papyrus considers the gate "timed out". Spawning detached (its own
+ *      process group) and killing the negated pid on our own timer reaches the whole tree.
+ */
+function executeGateCommand(command: string, timeout: number, cwd?: string): Promise<{ passed: boolean; output: string }> {
+	// `spawn(..., { shell: true, detached: true })` instead of the `exec()` convenience wrapper:
+	// `detached` (needed to make the shell the leader of its own process group, so the negated pid
+	// below reaches every descendant, not just the shell) is not part of Node's `exec()`/
+	// `ExecOptions` type at all -- `spawn`'s options support it directly and correctly.
+	const { spawn } = require_("node:child_process") as typeof import("node:child_process");
 	return new Promise((resolve) => {
-		exec(command, { encoding: "utf8", timeout, maxBuffer: GATE_MAX_BUFFER_BYTES }, (error, stdout, stderr) => {
-			const output = `${stdout}${stderr}`.trim().slice(0, GATE_OUTPUT_LIMIT);
-			resolve({
-				passed: error === null,
-				output: output || (error ? error.message.slice(0, GATE_OUTPUT_LIMIT) : "ok"),
-			});
+		let settled = false;
+		let buffered = "";
+		let truncated = false;
+		const child = spawn(command, { shell: true, detached: true, ...(cwd ? { cwd } : {}) });
+
+		const append = (chunk: Buffer): void => {
+			if (truncated) return;
+			buffered += chunk.toString("utf8");
+			if (buffered.length > GATE_MAX_BUFFER_BYTES) {
+				buffered = buffered.slice(0, GATE_MAX_BUFFER_BYTES);
+				truncated = true;
+			}
+		};
+		child.stdout?.on("data", append);
+		child.stderr?.on("data", append);
+
+		const finish = (result: { passed: boolean; output: string }): void => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(result);
+		};
+
+		child.on("error", (error) => finish({ passed: false, output: error.message.slice(0, GATE_OUTPUT_LIMIT) }));
+		child.on("close", (code) => {
+			const output = buffered.trim().slice(0, GATE_OUTPUT_LIMIT);
+			finish({ passed: code === 0, output: output || (code === 0 ? "ok" : `command exited with code ${code}`) });
 		});
+
+		const timer = setTimeout(() => {
+			if (settled) return;
+			if (child.pid !== undefined) {
+				try {
+					process.kill(-child.pid, "SIGKILL");
+				} catch {
+					child.kill("SIGKILL");
+				}
+			}
+			finish({ passed: false, output: `gate command timed out after ${timeout}ms` });
+		}, timeout);
 	});
 }
 
@@ -599,7 +648,7 @@ export async function runGatesAsync(db: Db, artifactId: string, options: GateRun
 			const command = gate.type === "test" ? `npx vitest run ${gate.target} --reporter=dot` : gate.target;
 			const configuredTimeout = gate.type === "test" ? GATE_TEST_TIMEOUT_MS : GATE_COMMAND_TIMEOUT_MS;
 			const timeout = remainingMs === undefined ? configuredTimeout : Math.max(1, Math.min(configuredTimeout, remainingMs));
-			const executed = await executeGateCommand(command, timeout);
+			const executed = await executeGateCommand(command, timeout, options.cwd);
 			results.push({
 				gate,
 				passed: executed.passed && (gate.expect ? executed.output.includes(gate.expect) : true),

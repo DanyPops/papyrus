@@ -121,11 +121,18 @@ class FakeArtifactStore implements ArtifactStore {
 class FakeGateRunner implements GateRunner {
 	results: GateResult[] = [];
 	readonly calls: string[] = [];
-	run(artifactId: string): GateResult[] {
+	readonly runOptions: Array<import("../src/domain/gate.ts").GateRunOptions | undefined> = [];
+	readonly runAsyncOptions: Array<import("../src/domain/gate.ts").GateRunOptions | undefined> = [];
+	run(artifactId: string, options?: import("../src/domain/gate.ts").GateRunOptions): GateResult[] {
 		this.calls.push(artifactId);
+		this.runOptions.push(options);
 		return structuredClone(this.results);
 	}
-	async runAsync(artifactId: string): Promise<GateResult[]> { return this.run(artifactId); }
+	async runAsync(artifactId: string, options?: import("../src/domain/gate.ts").GateRunOptions): Promise<GateResult[]> {
+		this.calls.push(artifactId);
+		this.runAsyncOptions.push(options);
+		return structuredClone(this.results);
+	}
 }
 
 describe("Tasks port behavior", () => {
@@ -194,6 +201,45 @@ describe("Tasks port behavior", () => {
 		expect(tasks.complete(task.id).completed).toBe(false);
 		expect(tasks.show(task.id).status).toBe("rejected");
 		expect(tasks.active()?.id).toBe(task.id);
+	});
+
+	it("threads the task's project_root through to the gate runner as cwd, on every completion path", async () => {
+		// Real incident: a command gate with no explicit cwd inherited the Papyrus daemon's own
+		// process cwd instead of the task's project, letting a gate like `bun test` recursively
+		// discover and run every test file under every project on the machine. This is the
+		// daemon-level half of the fix (the executeGateCommand-level half is covered directly in
+		// ops.test.ts): TaskService must always resolve the task's own project_root and pass it as
+		// `cwd`, never leave it to whatever directory the gate runner happens to inherit.
+		const artifacts = new FakeArtifactStore();
+		const gates = new FakeGateRunner();
+		const tasks = new Tasks(artifacts, gates);
+
+		const syncTask = tasks.create({ title: "Scoped sync", projectRoot: "/tmp/fake-project" });
+		tasks.transition(syncTask.id, "start");
+		tasks.transition(syncTask.id, "submit");
+		tasks.complete(syncTask.id);
+		expect(gates.runOptions.at(-1)?.cwd).toBe("/tmp/fake-project");
+
+		const asyncTask = tasks.create({ title: "Scoped async", projectRoot: "/tmp/fake-project" });
+		tasks.transition(asyncTask.id, "start");
+		tasks.transition(asyncTask.id, "submit");
+		await tasks.completeAsync(asyncTask.id);
+		expect(gates.runAsyncOptions.at(-1)?.cwd).toBe("/tmp/fake-project");
+
+		await tasks.runGates(asyncTask.id);
+		expect(gates.runAsyncOptions.at(-1)?.cwd).toBe("/tmp/fake-project");
+	});
+
+	it("passes no cwd for an unscoped task, rather than fabricating one", async () => {
+		const artifacts = new FakeArtifactStore();
+		const gates = new FakeGateRunner();
+		const tasks = new Tasks(artifacts, gates);
+		const task = tasks.create({ title: "Unscoped" });
+		tasks.transition(task.id, "start");
+		tasks.transition(task.id, "submit");
+
+		tasks.complete(task.id);
+		expect(gates.runOptions.at(-1)?.cwd).toBeUndefined();
 	});
 
 	it("completes passing review and focuses one ready fan-out successor without claiming effort", () => {

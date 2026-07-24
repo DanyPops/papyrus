@@ -25,6 +25,29 @@ import { callService } from "./service-client.ts";
 const SOURCE = "discuss-tui";
 const ACTOR = "human";
 
+/** Tasks a human could plausibly want to block on -- excludes terminal ones, since blocking already-finished or canceled work is meaningless. */
+export async function openTaskChoices(cwd: string): Promise<Artifact[]> {
+	const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", { project_root: cwd });
+	return rows.filter((task) => task.status !== "done" && task.status !== "canceled");
+}
+
+/** Resolves the task ids a Discussion currently has a `blocks` edge to, by title -- so "Unblock" only ever offers tasks actually blocked by this one, never the whole task list. */
+export async function blockedTaskChoices(discussionId: string): Promise<Artifact[]> {
+	const tree = await callService<Record<string, unknown>, Artifact>("graph.tree", { id: discussionId, depth: 1 });
+	const blockedIds = (tree.edges ?? []).filter((edge) => edge.relation === "blocks" && edge.from === discussionId).map((edge) => edge.to);
+	const tasks = await Promise.all(blockedIds.map((id) => callService<Record<string, unknown>, Artifact | null>("tasks.show", { id }).catch(() => null)));
+	return tasks.filter((task): task is Artifact => task !== null);
+}
+
+/** Picking a task by title, the same ui.select pattern used for Discuss's own single-choice options -- no ecosystem extension (Pi's own docs/examples, pi-tasks) builds a bespoke fuzzy picker for a plain "choose one named thing" list. */
+export async function pickTaskByName(ctx: ExtensionCommandContext, title: string, tasks: Artifact[]): Promise<Artifact | undefined> {
+	if (tasks.length === 0) { ctx.ui.notify("No open tasks to choose from.", "info"); return undefined; }
+	const label = await ctx.ui.select(title, tasks.map((task) => `${task.title} [${task.status}]`));
+	if (!label) return undefined;
+	const index = tasks.map((task) => `${task.title} [${task.status}]`).indexOf(label);
+	return index === -1 ? undefined : tasks[index];
+}
+
 export function discussionRowMeta(discussion: Artifact, theme: Theme): string {
 	const state = discussionStateOf(discussion);
 	const presentation = DISCUSSION_STATE_PRESENTATION[state];
@@ -93,17 +116,19 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 				return;
 			}
 			if (choice === "Block a task") {
-				const taskId = await commandCtx.ui.input("Task artifact id to block:", "");
-				if (!taskId) return;
-				await callService("discuss.block", { id: discussion.id, task_id: taskId, actor: ACTOR, source: SOURCE });
-				commandCtx.ui.notify(`${discussion.id} now blocks ${taskId}`, "info");
+				const target = await pickTaskByName(commandCtx, "Block which task?", await openTaskChoices(commandCtx.cwd));
+				if (!target) return;
+				await callService("discuss.block", { id: discussion.id, task_id: target.id, actor: ACTOR, source: SOURCE });
+				commandCtx.ui.notify(`"${discussion.title}" now blocks "${target.title}"`, "info");
 				return;
 			}
 			if (choice === "Unblock a task") {
-				const taskId = await commandCtx.ui.input("Task artifact id to unblock:", "");
-				if (!taskId) return;
-				const result = await callService<Record<string, unknown>, { unblocked: boolean }>("discuss.unblock", { id: discussion.id, task_id: taskId, actor: ACTOR, source: SOURCE });
-				commandCtx.ui.notify(result.unblocked ? `${discussion.id} no longer blocks ${taskId}` : "No such blocking relationship.", "info");
+				const blocked = await blockedTaskChoices(discussion.id);
+				if (blocked.length === 0) { commandCtx.ui.notify("This discussion isn't blocking any task.", "info"); return; }
+				const target = await pickTaskByName(commandCtx, "Unblock which task?", blocked);
+				if (!target) return;
+				const result = await callService<Record<string, unknown>, { unblocked: boolean }>("discuss.unblock", { id: discussion.id, task_id: target.id, actor: ACTOR, source: SOURCE });
+				commandCtx.ui.notify(result.unblocked ? `"${discussion.title}" no longer blocks "${target.title}"` : "No such blocking relationship.", "info");
 			}
 		},
 	});

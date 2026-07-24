@@ -166,7 +166,11 @@ describe("Discuss blocking a real Task's completion (task-service.ts integration
 		const { discussions, tasks } = fixture();
 		const task = readyTaskForCompletion(tasks, "Ship it");
 		const { discussion } = discussions.open({ title: "Needs sign-off", actor: "alice", content: "hold on", blocksTaskIds: [task.id] });
-		expect(() => tasks.complete(task.id)).toThrow(new RegExp(discussion.id));
+		let caught: Error | undefined;
+		try { tasks.complete(task.id); } catch (error) { caught = error as Error; }
+		expect(caught?.message).toBe('task "Ship it" is blocked by 1 active Discussion(s): "Needs sign-off"');
+		expect(caught?.message).not.toContain(discussion.id);
+		expect(caught?.message).not.toContain(task.id);
 	});
 
 	it("allows tasks.complete once the blocking Discussion is settled", () => {

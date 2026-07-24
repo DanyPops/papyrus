@@ -404,8 +404,8 @@ export class Tasks {
 			const transition = TASK_TRANSITIONS[action];
 			if (!transition.from.includes(task.status as TaskStatus)) throw new Error(`cannot ${action} task from ${task.status}`);
 			if (action === "start") {
-				const blocking = this.dependencyIds(id).filter((dependencyId) => this.require(dependencyId).status !== "done");
-				if (blocking.length > 0) throw new Error(`task "${id}" is blocked by dependencies: ${blocking.join(", ")}`);
+				const blocking = this.dependencyIds(id).map((dependencyId) => this.require(dependencyId)).filter((dependency) => dependency.status !== "done");
+				if (blocking.length > 0) throw new Error(`task "${task.title}" is blocked by dependencies: ${blocking.map((dependency) => `"${dependency.title}"`).join(", ")}`);
 				this.focusStore.set(id, context.sessionId);
 			}
 			const updated = this.artifacts.setStatus(id, transition.to)!;
@@ -420,7 +420,7 @@ export class Tasks {
 
 	complete(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): TaskCompletion {
 		const task = this.requireReview(id);
-		this.requireNotBlocked(id);
+		this.requireNotBlocked(task);
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
@@ -430,7 +430,7 @@ export class Tasks {
 
 	async completeAsync(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): Promise<TaskCompletion> {
 		const task = this.requireReview(id);
-		this.requireNotBlocked(id);
+		this.requireNotBlocked(task);
 		const attemptId = crypto.randomUUID();
 		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
 		const checklist = this.reviewChecklist(task);
@@ -712,10 +712,10 @@ export class Tasks {
 			});
 	}
 
-	private requireNotBlocked(id: string): void {
-		const blockers = this.blockingDiscussions(id);
+	private requireNotBlocked(task: Artifact): void {
+		const blockers = this.blockingDiscussions(task.id);
 		if (blockers.length > 0) {
-			throw new Error(`task "${id}" is blocked by ${blockers.length} active Discussion(s): ${blockers.map((discussion) => discussion.id).join(", ")}`);
+			throw new Error(`task "${task.title}" is blocked by ${blockers.length} active Discussion(s): ${blockers.map((discussion) => `"${discussion.title}"`).join(", ")}`);
 		}
 	}
 }

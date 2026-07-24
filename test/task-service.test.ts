@@ -295,6 +295,19 @@ describe("Tasks port behavior", () => {
 		expect(gates.calls).toEqual([root.id]);
 	});
 
+	it("refuses completion while an active Discussion blocks the task, naming both by title not id", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		const task = tasks.create({ title: "Ship feature X", status: "review" });
+		const discussion = artifacts.create({ kind: "task", subtype: "discussion", title: "Which approach?", extra: { discussion: { state: "active", roundCount: 1 } } });
+		artifacts.link({ from: discussion.id, relation: "blocks", to: task.id });
+
+		expect(() => tasks.complete(task.id)).toThrow('task "Ship feature X" is blocked by 1 active Discussion(s): "Which approach?"');
+
+		artifacts.setExtra(discussion.id, { discussion: { state: "settled", roundCount: 1, settlement: "Went with approach A" } });
+		expect(tasks.complete(task.id).completed).toBe(true);
+	});
+
 	it("holds a fan-in successor until every prerequisite is done", () => {
 		const artifacts = new FakeArtifactStore();
 		const tasks = new Tasks(artifacts, new FakeGateRunner());
@@ -357,7 +370,7 @@ describe("Tasks port behavior", () => {
 		const prerequisite = tasks.create({ title: "Prerequisite" });
 		const dependent = tasks.create({ title: "Dependent", dependsOn: [prerequisite.id] });
 
-		expect(() => tasks.transition(dependent.id, "start")).toThrow(`blocked by dependencies: ${prerequisite.id}`);
+		expect(() => tasks.transition(dependent.id, "start")).toThrow('blocked by dependencies: "Prerequisite"');
 		artifacts.setStatus(prerequisite.id, "done");
 		expect(tasks.transition(dependent.id, "start").status).toBe("in-progress");
 		expect(tasks.active()?.id).toBe(dependent.id);

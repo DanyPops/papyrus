@@ -145,6 +145,7 @@ Tasks, Docs, Rules, and Skills all support first-class `update` (title/body/labe
 - `/rules` — severity/condition rows, exact injection preview, edit, enable/disable, and task gating
 - `/skills` — trigger/tools rows, edit, invocation into the editor, and artifact templates
 - `/playbooks` — trigger/tools rows, edit, invocation into the editor, and graph links
+- `/playbook <name>` — tab-completes active playbook titles and places that one's invocation directly in the editor, one step instead of browse-then-select; no argument falls back to the full `/playbooks` browser
 
 All frontends use daemon-backed domain operations; none opens SQLite from the Pi process. **Show details** opens a bounded navigable view across Tasks, Notes, Docs, Rules, legacy Skills, templates, and workflow Skills. User-authored bodies render as width-aware Markdown with headings, emphasis, links, quotes, lists, tables, inline/fenced code, syntax highlighting, and every color/decorative style derived dynamically from the active Pi theme. Generated lifecycle, metadata, checklist, gate, history, and relationship sections keep explicit semantic theme colors. `↑/↓` scrolls, `←/→` pans wide relationships, and Esc returns to the browser; non-interactive clients receive stable source text.
 

@@ -462,6 +462,11 @@ export default async function (pi: ExtensionAPI) {
 		description: "Browse, edit, and invoke Papyrus playbooks -- trigger/steps guidance an agent reads and follows (interactive)",
 		handler: async (_args, ctx) => { await playbooksModule.showPlaybooks(ctx); },
 	});
+	pi.registerCommand("playbook", {
+		description: "Open one Papyrus playbook directly by name (tab-completes active playbook titles) and place its invocation in the editor; no argument opens the full /playbooks browser instead",
+		getArgumentCompletions: (argumentPrefix) => playbooksModule.playbookArgumentCompletions(argumentPrefix),
+		handler: async (args, ctx) => { await playbooksModule.openPlaybookByName(args, ctx); },
+	});
 	pi.registerCommand("discuss", {
 		description: "Browse Papyrus Discussions and reply, defer, resume, settle, or block/unblock a task (interactive)",
 		handler: async (_args, ctx) => { await discussModule.showDiscussions(ctx); },

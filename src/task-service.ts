@@ -12,7 +12,7 @@ import {
 import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
 import { isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
-import type { Gate, GateResult } from "./domain/gate.ts";
+import { validateGates, type Gate, type GateResult } from "./domain/gate.ts";
 import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
 import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
@@ -141,7 +141,7 @@ export class Tasks {
 			if (input.parentId) this.require(input.parentId);
 			for (const dependency of input.dependsOn ?? []) this.require(dependency);
 			const extra: Record<string, unknown> = { ...(input.extra ?? {}) };
-			if (input.gates !== undefined) extra["gates"] = input.gates;
+			if (input.gates !== undefined) extra["gates"] = validateGates(input.gates);
 			if (input.checklist !== undefined) extra["checklist"] = validateChecklist(input.checklist);
 			const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 			if (input.parentId && this.scopes.get(input.parentId)?.projectRoot !== projectRoot) {
@@ -457,6 +457,16 @@ export class Tasks {
 	setChecklist(id: string, checklist: Checklist): Artifact {
 		const task = this.require(id);
 		return this.artifacts.setExtra(id, { ...task.extra, checklist: validateChecklist(checklist) })!;
+	}
+
+	/**
+	 * The only way to change a task's gates after creation. "tasks update" (title/body/labels/
+	 * status only) silently ignored a `gates` field with no error at all -- a real incident (see
+	 * GateRunOptions.cwd's doc comment for the crash this masked while debugging).
+	 */
+	setGates(id: string, gates: Gate[]): Artifact {
+		const task = this.require(id);
+		return this.artifacts.setExtra(id, { ...task.extra, gates: validateGates(gates) })!;
 	}
 
 	depend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {

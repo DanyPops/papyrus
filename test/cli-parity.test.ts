@@ -88,6 +88,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.complete", result: { artifact, gates: [], checklist: [], blocked: [], completed: true }, invoke: (c) => runTaskCli(["complete", "a1", "--json"], c) },
 	{ operation: "tasks.run_gates", result: [], invoke: (c) => runTaskCli(["run-gates", "a1", "--json"], c) },
 	{ operation: "tasks.set_checklist", result: artifact, invoke: (c) => runTaskCli(["set-checklist", "a1", "--checklist-json", "{}", "--json"], c) },
+	{ operation: "tasks.set_gates", result: artifact, invoke: (c) => runTaskCli(["set-gates", "a1", "--gates-json", "[]", "--json"], c) },
 	{ operation: "tasks.context", result: "Progress: 0/0 done", invoke: (c) => runTaskCli(["context", "--json"], c) },
 	{ operation: "tasks.reject", result: artifact, invoke: (c) => runTaskCli(["reject", "a1", "--json"], c) },
 	{ operation: "tasks.retry", result: artifact, invoke: (c) => runTaskCli(["retry", "a1", "--json"], c) },

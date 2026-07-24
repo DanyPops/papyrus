@@ -189,6 +189,38 @@ describe("Tasks port behavior", () => {
 		});
 	});
 
+	// Real incident: "tasks update" (title/body/labels/status only) silently accepted and dropped
+	// a `gates` field with no error, repeatedly, across several attempts to fix a broken gate
+	// command -- there was no way to change gates after creation at all. setGates is that missing
+	// operation, mirroring setChecklist exactly.
+	it("replaces gates without overwriting checklist or other task metadata", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const created = tasks.create({
+			title: "Update gates",
+			extra: { owner: "agent" },
+			checklist: { "Write tests": { proof: [{ type: "test" as const, target: "test/task-service.test.ts" }] } },
+		});
+
+		const updated = tasks.setGates(created.id, [{ type: "command", target: "bun test 2>&1 | tail -3", expect: "0 fail" }]);
+
+		expect(updated.extra).toEqual({
+			owner: "agent",
+			checklist: { "Write tests": { proof: [{ type: "test", target: "test/task-service.test.ts" }] } },
+			gates: [{ type: "command", target: "bun test 2>&1 | tail -3", expect: "0 fail" }],
+		});
+	});
+
+	it("rejects malformed gates at both creation and setGates, instead of silently dropping or storing them", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		expect(() => tasks.create({ title: "Bad gate type", gates: [{ type: "not-a-real-type", target: "x" }] as never })).toThrow("requires a valid type");
+		expect(() => tasks.create({ title: "Bad gate target", gates: [{ type: "command", target: "" }] as never })).toThrow("non-empty target");
+
+		const created = tasks.create({ title: "Scoped", gates: [{ type: "command", target: "echo ok" }] });
+		expect(() => tasks.setGates(created.id, [{ type: "bogus", target: "x" }] as never)).toThrow("requires a valid type");
+		// The rejected setGates call must not have partially applied.
+		expect(tasks.show(created.id).extra["gates"]).toEqual([{ type: "command", target: "echo ok" }]);
+	});
+
 	it("rejects a task when review gates fail and keeps it focused for corrective effort", () => {
 		const artifacts = new FakeArtifactStore();
 		const gates = new FakeGateRunner();

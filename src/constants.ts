@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 17;
+export const SQLITE_SCHEMA_VERSION = 18;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -99,6 +99,7 @@ export const SKILL_MAX_RENDERED_BYTES = 1_048_576;
  */
 export const SKILL_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
 export const SKILL_INVOCATION_MAX_CALL_DEPTH = 4;
+export const PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
 
 /**
  * At the core, a workflow Skill creates Tasks and begins a pipeline -- an Ansible playbook or

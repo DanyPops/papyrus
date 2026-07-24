@@ -36,6 +36,11 @@ export const SKILL_STATUS_PRESENTATION: Record<string, StatusPresentation> = {
 	deprecated: { label: "deprecated", glyph: "○", color: "muted" },
 };
 
+export const PLAYBOOK_STATUS_PRESENTATION: Record<string, StatusPresentation> = {
+	active: { label: "active", glyph: "●", color: "success" },
+	deprecated: { label: "deprecated", glyph: "○", color: "muted" },
+};
+
 /**
  * Keyed by extra.discussion.state, not the shared Doc status column -- a settled Discussion's
  * doc.status becomes "archived", but a deferred one stays "active" at the doc level (see

@@ -253,6 +253,7 @@ INSERT OR IGNORE INTO kinds VALUES ('doc','Knowledge — what we know (specs, de
 INSERT OR IGNORE INTO kinds VALUES ('task','Work — what we are doing (objectives, steps, checklists)');
 INSERT OR IGNORE INTO kinds VALUES ('rule','Governance — when doing X, follow Y');
 INSERT OR IGNORE INTO kinds VALUES ('skill','Parameterized workflow bundle — inputs and templates load tasks, rules, and docs');
+INSERT OR IGNORE INTO kinds VALUES ('playbook','Reusable procedure — a trigger and an ordered list of steps an agent reads and follows, not a mechanically instantiated blueprint');
 INSERT OR IGNORE INTO statuses VALUES ('draft','doc');
 INSERT OR IGNORE INTO statuses VALUES ('active','doc');
 INSERT OR IGNORE INTO statuses VALUES ('archived','doc');
@@ -266,6 +267,8 @@ INSERT OR IGNORE INTO statuses VALUES ('active','rule');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','rule');
 INSERT OR IGNORE INTO statuses VALUES ('active','skill');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','skill');
+INSERT OR IGNORE INTO statuses VALUES ('active','playbook');
+INSERT OR IGNORE INTO statuses VALUES ('deprecated','playbook');
 INSERT OR IGNORE INTO relation_names VALUES ('references','Source material (doc→doc, doc→task, doc→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('implements','This work satisfies that (task→doc, task→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('follows','This work obeys that (task→rule, task→skill)');
@@ -501,6 +504,23 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 					WHEN 'archived' THEN 'done'
 					ELSE 'in-progress' END
 				WHERE kind = 'doc' AND subtype = 'discussion';
+			`);
+		},
+	},
+	{
+		version: 18,
+		name: "playbook-kind",
+		// Playbooks (trigger/steps/tools guidance an agent reads and follows) were a subtype-less
+		// shape squeezed into the "skill" kind alongside artifact-templates and workflow blueprints
+		// -- fundamentally different mechanisms (mechanical multi-artifact instantiation) from a flat
+		// step list. Split into its own kind; only rows with no subtype move -- artifact-template and
+		// workflow rows stay exactly where they are.
+		up: (db) => {
+			db.exec(`
+				INSERT OR IGNORE INTO kinds VALUES ('playbook','Reusable procedure — a trigger and an ordered list of steps an agent reads and follows, not a mechanically instantiated blueprint');
+				INSERT OR IGNORE INTO statuses VALUES ('active','playbook');
+				INSERT OR IGNORE INTO statuses VALUES ('deprecated','playbook');
+				UPDATE artifacts SET kind = 'playbook' WHERE kind = 'skill' AND (subtype IS NULL OR subtype = '');
 			`);
 		},
 	},

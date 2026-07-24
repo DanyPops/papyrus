@@ -30,6 +30,13 @@ import {
 	transitionSkill,
 	assignSkillProject,
 	updateSkill,
+	createPlaybook,
+	listPlaybooks,
+	showPlaybook,
+	transitionPlaybook,
+	assignPlaybookProject,
+	updatePlaybook,
+	playbookInvocation,
 } from "../src/domain-services.ts";
 
 function fixture() {
@@ -213,6 +220,56 @@ describe("skills domain service", () => {
 
 		const invocation = skillInvocation(artifacts, a.id); // must return, not hang or throw
 		expect(invocation).toContain("already invoked above in this chain, not repeated");
+		db.close();
+	});
+});
+
+describe("playbooks domain service -- a completely different beast from Skills, not a subtype", () => {
+	it("owns playbook lifecycle and renders trigger/steps/tools plus real linked context on invocation", () => {
+		const { db, artifacts, scopes } = fixture();
+		const linked = artifacts.create({ kind: "doc", title: "Reference doc", status: "draft" });
+		const playbook = createPlaybook(artifacts, scopes, { title: "New Project", trigger: "starting something from scratch", steps: ["Frame the problem", "State the goal"], tools: ["discuss"] });
+		expect(playbook.kind).toBe("playbook");
+		artifacts.link({ from: playbook.id, relation: "references", to: linked.id });
+
+		const invocation = playbookInvocation(artifacts, playbook.id);
+		expect(invocation).toContain('Apply Papyrus playbook "New Project"');
+		expect(invocation).toContain("Trigger: starting something from scratch");
+		expect(invocation).toContain("1. Frame the problem");
+		expect(invocation).toContain("2. State the goal");
+		expect(invocation).toContain("Tools: discuss");
+		expect(invocation).toContain('references doc "Reference doc"');
+		// No skill-calls-skill-style nested composition exists for Playbooks.
+		expect(invocation).not.toContain("Also invoke linked");
+
+		expect(transitionPlaybook(artifacts, playbook.id, "disable").status).toBe("deprecated");
+		expect(transitionPlaybook(artifacts, playbook.id, "enable").status).toBe("active");
+		expect(listPlaybooks(artifacts, scopes, {})).toHaveLength(1);
+		expect(showPlaybook(artifacts, playbook.id).id).toBe(playbook.id);
+		db.close();
+	});
+
+	it("scopes, reassigns, updates, and rejects a read-only external projection, the same as Docs/Rules/Skills", () => {
+		const { db, artifacts, scopes } = fixture();
+		const playbook = createPlaybook(artifacts, scopes, { title: "Scoped playbook", projectRoot: "/workspace/papyrus" });
+		expect(listPlaybooks(artifacts, scopes, { projectRoot: "/workspace/papyrus" })).toHaveLength(1);
+		expect(assignPlaybookProject(artifacts, scopes, playbook.id, undefined).id).toBe(playbook.id);
+		expect(listPlaybooks(artifacts, scopes, { projectRoot: "/workspace/papyrus" })).toHaveLength(0);
+
+		const updated = updatePlaybook(artifacts, playbook.id, { title: "Renamed playbook" });
+		expect(updated.title).toBe("Renamed playbook");
+		expect(() => updatePlaybook(artifacts, playbook.id, {})).toThrow("update requires title, body, or labels");
+
+		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
+		expect(() => updatePlaybook(artifacts, projected.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
+		db.close();
+	});
+
+	it("rejects playbook actions against another artifact kind, including a real Skill", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const skill = createSkill(artifacts, scopes, { title: "Not a playbook", trigger: "x", steps: [] }, authority);
+		expect(() => showPlaybook(artifacts, skill.id)).toThrow("is not a playbook");
+		expect(() => transitionPlaybook(artifacts, skill.id, "disable")).toThrow("is not a playbook");
 		db.close();
 	});
 });

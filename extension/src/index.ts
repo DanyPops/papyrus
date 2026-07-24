@@ -22,6 +22,7 @@ import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
+import { registerPlaybookBridge } from "./playbook-bridge.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
@@ -159,6 +160,7 @@ class TaskOverlay {
 export default async function (pi: ExtensionAPI) {
 	setTaskFocusEventBus(pi);
 	registerDomainTools(pi);
+	registerPlaybookBridge(pi);
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
 	let previousContextInjectionFingerprint: string | undefined;
@@ -416,12 +418,13 @@ export default async function (pi: ExtensionAPI) {
 	// ── Interactive artifact browsers ──────────────────────────────────
 
 	// Lazy imports keep TUI components out of non-interactive startup paths.
-	const [tasksModule, docsModule, notesModule, rulesModule, skillsModule, discussModule] = await Promise.all([
+	const [tasksModule, docsModule, notesModule, rulesModule, skillsModule, playbooksModule, discussModule] = await Promise.all([
 		import("./tasks.ts"),
 		import("./docs.ts"),
 		import("./notes.ts"),
 		import("./rules.ts"),
 		import("./skills.ts"),
+		import("./playbooks.ts"),
 		import("./discuss.ts"),
 	]);
 	let overlay: TaskOverlay | undefined;
@@ -454,6 +457,10 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("skills", {
 		description: "Browse and invoke Papyrus skills and templates (interactive)",
 		handler: async (_args, ctx) => { await skillsModule.showSkills(ctx); },
+	});
+	pi.registerCommand("playbooks", {
+		description: "Browse, edit, and invoke Papyrus playbooks -- trigger/steps guidance an agent reads and follows (interactive)",
+		handler: async (_args, ctx) => { await playbooksModule.showPlaybooks(ctx); },
 	});
 	pi.registerCommand("discuss", {
 		description: "Browse Papyrus Discussions and reply, defer, resume, settle, or block/unblock a task (interactive)",

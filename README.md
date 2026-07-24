@@ -122,6 +122,7 @@ Agent-facing domain tools own lifecycle invariants and sit above this store API:
 - **`docs`** — create/update/list/show, activate/archive/reopen, and document-safe graph links; Note mutations remain behind the Notes facade
 - **`rules`** — create/update/list/show/preview, enable/disable, and attach governance gates to tasks
 - **`skills`** — create/update/list/show/invoke/run, enable/disable, create compatibility templates, and atomically instantiate parameterized workflow runs
+- **`playbooks`** — a completely different beast from Skills, not a subtype: a trigger and an ordered list of steps an agent reads and follows, never mechanically instantiated and never composed the way Skills call other Skills. create/update/list/show/invoke, enable/disable
 
 Every tool operation is registered in the daemon’s `/api/v1/ops` registry; parity is verified in tests. The task consumer uses the `tasks.graph` operation, which returns task nodes with explicit parent, child, and dependency IDs rather than leaking SQLite rows or asking the UI to reconstruct relationships.
 
@@ -143,6 +144,7 @@ Tasks, Docs, Rules, and Skills all support first-class `update` (title/body/labe
 - `/docs` — searchable non-Note documents, lifecycle, details, edit, and graph links
 - `/rules` — severity/condition rows, exact injection preview, edit, enable/disable, and task gating
 - `/skills` — trigger/tools rows, edit, invocation into the editor, and artifact templates
+- `/playbooks` — trigger/tools rows, edit, invocation into the editor, and graph links
 
 All frontends use daemon-backed domain operations; none opens SQLite from the Pi process. **Show details** opens a bounded navigable view across Tasks, Notes, Docs, Rules, legacy Skills, templates, and workflow Skills. User-authored bodies render as width-aware Markdown with headings, emphasis, links, quotes, lists, tables, inline/fenced code, syntax highlighting, and every color/decorative style derived dynamically from the active Pi theme. Generated lifecycle, metadata, checklist, gate, history, and relationship sections keep explicit semantic theme colors. `↑/↓` scrolls, `←/→` pans wide relationships, and Esc returns to the browser; non-interactive clients receive stable source text.
 

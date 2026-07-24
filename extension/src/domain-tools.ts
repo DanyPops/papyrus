@@ -522,6 +522,52 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
+		name: "playbooks",
+		label: "Playbooks",
+		description: "Playbook domain tool -- a completely different beast from the skills tool, not a subtype of it. A Playbook is a trigger and an ordered list of steps an agent reads and follows; it is never mechanically instantiated the way a Skill's artifact-template or workflow blueprint is, and it never composes other Playbooks. ACTIONS: create, list, show, invoke, enable, disable, assign_project, update, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. invoke renders the trigger/steps/tools into guidance plus any real linked artifacts. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id` -- id is a backend implementation detail, resolved from name automatically.",
+		parameters: Type.Object({
+			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
+			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
+			tools: Type.Optional(Type.Array(Type.String())), labels: Type.Optional(Type.Array(Type.String())),
+			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
+			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()),
+			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
+		}),
+		renderCall(args, theme) { return renderPapyrusToolCall("Playbooks", args, theme); },
+		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
+		async execute(_id, rawParams) {
+			try {
+				const params: Record<string, unknown> = { ...rawParams };
+				const action = params.action;
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: { project_root: params.project_root } },
+				]);
+				if (action === "create") {
+					const artifact = await callService<Record<string, unknown>, Artifact>("playbooks.create", params);
+					return text(`Created playbook ${artifactLine(artifact)}`, createArtifactDetails("playbooks.create", artifact));
+				}
+				if (action === "list") {
+					const rows = await callService<Record<string, unknown>, Artifact[]>("playbooks.list", params);
+					return text(rows.length ? artifactLines(rows).join("\n") : "No playbooks found.", createArtifactListDetails("playbooks.list", rows));
+				}
+				if (action === "invoke") {
+					const invocation = await callService<Record<string, unknown>, string>("playbooks.invoke", params);
+					return text(invocation, createPreviewDetails("playbooks.invoke", "Playbook invocation", invocation));
+				}
+				const trashResult = await handleArtifactRemoveRestore(action, params);
+				if (trashResult) return trashResult;
+				const operations = { show: "playbooks.show", enable: "playbooks.enable", disable: "playbooks.disable", assign_project: "playbooks.assign_project", update: "playbooks.update" } as const;
+				const operation = operations[action as keyof typeof operations];
+				if (!operation) throw new Error(`unknown playbooks action: ${action}`);
+				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
+				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
+			} catch (error) {
+				throw new Error(`playbooks failed: ${error instanceof Error ? error.message : error}`);
+			}
+		},
+	});
+
+	pi.registerTool({
 		name: "skills",
 		label: "Skills",
 		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, update, remove, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the skill's exact title) over `id`, and `template_name` over `template_id` for instantiate -- both are backend implementation details, resolved from name automatically.",

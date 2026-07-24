@@ -112,6 +112,13 @@ const USAGE = `Usage:
   papyrus skills instantiate <template-id> [--title <title>] [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--json]
   papyrus skills assign-project <id> [project-root] [--json]
   papyrus skills update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
+  papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--project-root <path>] [--json]
+  papyrus playbooks list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
+  papyrus playbooks show <id> [--json]
+  papyrus playbooks invoke <id> [--json]
+  papyrus playbooks enable|disable <id> [--json]
+  papyrus playbooks assign-project <id> [project-root] [--json]
+  papyrus playbooks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus notes capture <request> [--title <title>] [--json]
   papyrus notes list [--status <draft|active|archived>] [--text <query>] [--limit <count>] [--json]
   papyrus notes show <id> [--json]
@@ -765,6 +772,104 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 		}
 		default:
 			throw new Error("rules action must be create, list, show, preview, enable, disable, gate, injectable, assign-project, or update");
+	}
+	return json ? JSON.stringify(result) : human;
+}
+
+export async function runPlaybooksCli(args: string[], client: TaskCliClient): Promise<string> {
+	const json = args.includes("--json");
+	const positional: string[] = [];
+	let title: string | undefined;
+	let body: string | undefined;
+	let trigger: string | undefined;
+	let steps: string[] | undefined;
+	let tools: string[] | undefined;
+	let labels: string[] | undefined;
+	let extra: Record<string, unknown> | undefined;
+	let status: string | undefined;
+	let text: string | undefined;
+	let limit: number | undefined;
+	let playbookProjectRoot: string | undefined;
+	for (let index = 0; index < args.length; index++) {
+		const argument = args[index]!;
+		if (argument === "--json") continue;
+		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
+		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
+		if (argument === "--trigger") { trigger = args[++index]; if (trigger === undefined) throw new Error("--trigger requires a value"); continue; }
+		if (argument === "--steps-json") { steps = parseJsonStringArrayFlag(args[++index], "--steps-json"); continue; }
+		if (argument === "--tools-json") { tools = parseJsonStringArrayFlag(args[++index], "--tools-json"); continue; }
+		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
+		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
+		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
+		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
+		if (argument === "--project-root") { playbookProjectRoot = args[++index]; if (!playbookProjectRoot) throw new Error("--project-root requires a value"); continue; }
+		if (argument === "--limit") {
+			const value = args[++index];
+			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
+			limit = Number(value);
+			continue;
+		}
+		if (argument.startsWith("--")) throw new Error(`unknown playbooks option ${argument}`);
+		positional.push(argument);
+	}
+	const [action, id, second] = positional;
+	let result: unknown;
+	let human: string;
+	switch (action) {
+		case "create": {
+			if (id) throw new Error("playbooks create accepts no positional arguments");
+			if (!title) throw new Error("playbooks create requires --title");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.create", { title, body, trigger, steps, tools, labels, extra, project_root: playbookProjectRoot });
+			result = artifact;
+			human = `Created playbook: ${artifactLabel(artifact)}`;
+			break;
+		}
+		case "list": {
+			if (id) throw new Error("playbooks list accepts no positional arguments");
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("playbooks.list", { status, text, limit, project_root: playbookProjectRoot });
+			result = rows;
+			human = rows.length === 0 ? "No playbooks found." : rows.map((row) => artifactLabel(row)).join("\n");
+			break;
+		}
+		case "show": {
+			if (!id || second) throw new Error("playbooks show requires exactly one playbook id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.show", { id });
+			result = artifact;
+			human = `${artifactLabel(artifact)}\n\n${artifact.body ?? ""}`;
+			break;
+		}
+		case "invoke": {
+			if (!id || second) throw new Error("playbooks invoke requires exactly one playbook id");
+			const invocation = await client.call<Record<string, unknown>, string>("playbooks.invoke", { id });
+			result = invocation;
+			human = invocation;
+			break;
+		}
+		case "enable":
+		case "disable": {
+			if (!id || second) throw new Error(`playbooks ${action} requires exactly one playbook id`);
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>(`playbooks.${action}`, { id });
+			result = artifact;
+			human = `${artifactLabel(artifact)}`;
+			break;
+		}
+		case "assign-project": {
+			if (!id || second === undefined && positional.length > 2) throw new Error("playbooks assign-project requires <id> [project-root]");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.assign_project", { id, project_root: second });
+			result = artifact;
+			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
+			break;
+		}
+		case "update": {
+			if (!id || second) throw new Error("playbooks update requires exactly one playbook id");
+			if (title === undefined && body === undefined && labels === undefined) throw new Error("playbooks update requires --title, --body, or --labels-json");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.update", { id, title, body, labels });
+			result = artifact;
+			human = `${artifactLabel(artifact)}`;
+			break;
+		}
+		default:
+			throw new Error("playbooks action must be create, list, show, invoke, enable, disable, assign-project, or update");
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -1530,6 +1635,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "skills") {
 		const client = await connectPapyrusClient();
 		console.log(await runSkillCli(args.slice(1), client));
+		return;
+	}
+	if (command === "playbooks") {
+		const client = await connectPapyrusClient();
+		console.log(await runPlaybooksCli(args.slice(1), client));
 		return;
 	}
 	if (command === "notes") {

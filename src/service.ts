@@ -33,6 +33,7 @@ import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
 import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
 import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
+import { playbooksOperations, PLAYBOOKS_OPERATION_NAMES } from "./modules/playbooks.ts";
 import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
 import { discussOperations, DISCUSS_OPERATION_NAMES } from "./modules/discuss.ts";
 import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
@@ -73,6 +74,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...NOTES_OPERATION_NAMES,
 	...RULES_OPERATION_NAMES,
 	...SKILLS_OPERATION_NAMES,
+	...PLAYBOOKS_OPERATION_NAMES,
 	...GRAPH_PROJECTION_OPERATION_NAMES,
 	...LOGS_OPERATION_NAMES,
 	...SESSION_IDENTITY_OPERATION_NAMES,
@@ -368,6 +370,14 @@ function handlers(
 		"skills.disable": forwardToModule("skills.disable"),
 		"skills.assign_project": forwardToModule("skills.assign_project"),
 		"skills.update": forwardToModule("skills.update"),
+		"playbooks.create": forwardToModule("playbooks.create"),
+		"playbooks.list": forwardToModule("playbooks.list"),
+		"playbooks.show": forwardToModule("playbooks.show"),
+		"playbooks.invoke": forwardToModule("playbooks.invoke"),
+		"playbooks.enable": forwardToModule("playbooks.enable"),
+		"playbooks.disable": forwardToModule("playbooks.disable"),
+		"playbooks.assign_project": forwardToModule("playbooks.assign_project"),
+		"playbooks.update": forwardToModule("playbooks.update"),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);
@@ -429,6 +439,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
 	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
+	moduleRegistry.registerAll(playbooksOperations(artifacts, artifactScopes));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {

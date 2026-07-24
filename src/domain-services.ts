@@ -4,6 +4,7 @@ import {
 	ARTIFACT_LABEL_MAX_LENGTH,
 	ARTIFACT_SCOPE_MAX_ARTIFACTS,
 	ARTIFACT_TITLE_MAX_LENGTH,
+	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
 	SKILL_INVOCATION_MAX_CALL_DEPTH,
 	SKILL_INVOCATION_MAX_LINKED_ARTIFACTS,
@@ -513,4 +514,96 @@ export function transitionSkill(artifacts: ArtifactStore, id: string, action: Sk
 	const target = action === "enable" ? "active" : "deprecated";
 	if (skill.status !== expected) throw new Error(`cannot ${action} skill from ${skill.status}`);
 	return artifacts.setStatus(id, target, context)!;
+}
+
+/**
+ * Playbooks: a trigger and an ordered list of steps an agent reads and follows -- a completely
+ * different beast from Skills, not a subtype of one. A Skill (artifact-template or workflow) is
+ * mechanically instantiated into other artifacts; a Playbook is never instantiated, it's read
+ * and followed, and it never composes other Playbooks the way a Skill can call another Skill.
+ */
+export interface CreatePlaybookInput {
+	title: string;
+	body?: string;
+	trigger?: string;
+	steps?: string[];
+	tools?: string[];
+	labels?: string[];
+	extra?: Record<string, unknown>;
+	projectRoot?: string;
+}
+
+export type PlaybookTransition = "enable" | "disable";
+export type UpdatePlaybookInput = UpdateContentInput;
+
+export function createPlaybook(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreatePlaybookInput, context?: ArtifactEventContext): Artifact {
+	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
+	const playbook = artifacts.create({
+		kind: "playbook",
+		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
+		title: input.title,
+		body: input.body,
+		labels: input.labels,
+		extra: {
+			...(input.extra ?? {}),
+			...(input.trigger ? { trigger: input.trigger } : {}),
+			...(input.steps ? { steps: input.steps } : {}),
+			...(input.tools ? { tools: input.tools } : {}),
+		},
+	}, context);
+	scopes.assign(playbook.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	return playbook;
+}
+
+export function listPlaybooks(artifacts: ArtifactStore, scopes: ArtifactScopeStore, filter: ListFilter): Artifact[] {
+	return listScoped(artifacts, scopes, "playbook", filter);
+}
+
+export function assignPlaybookProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, projectRoot: string | undefined): Artifact {
+	return assignArtifactProject(artifacts, scopes, id, "playbook", projectRoot);
+}
+
+export function showPlaybook(artifacts: ArtifactStore, id: string): Artifact {
+	requireKind(artifacts, id, "playbook");
+	return artifacts.get(id, { tree: true })!;
+}
+
+export function updatePlaybook(artifacts: ArtifactStore, id: string, input: UpdatePlaybookInput, context?: ArtifactEventContext): Artifact {
+	requireContentUpdateFields(input);
+	assertTitleBounds(input.title);
+	assertBodyBounds(input.body);
+	assertLabelsBounds(input.labels);
+	const playbook = requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
+	const updated = artifacts.updateContent(playbook.id, input, context);
+	if (!updated) throw new Error(`playbook "${id}" not found`);
+	return updated;
+}
+
+export function transitionPlaybook(artifacts: ArtifactStore, id: string, action: PlaybookTransition, context?: ArtifactEventContext): Artifact {
+	const playbook = requireKind(artifacts, id, "playbook");
+	const expected = action === "enable" ? "deprecated" : "active";
+	const target = action === "enable" ? "active" : "deprecated";
+	if (playbook.status !== expected) throw new Error(`cannot ${action} playbook from ${playbook.status}`);
+	return artifacts.setStatus(id, target, context)!;
+}
+
+/** Renders trigger/steps/tools into readable guidance, plus any real linked artifacts. No nested playbook-calls-playbook composition -- a Playbook is a flat procedure, not a composable bundle. */
+export function playbookInvocation(artifacts: ArtifactStore, id: string): string {
+	const playbook = requireKind(artifacts, id, "playbook");
+	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
+	const steps = Array.isArray(playbook.extra["steps"]) ? playbook.extra["steps"].filter((step): step is string => typeof step === "string") : [];
+	const tools = Array.isArray(playbook.extra["tools"]) ? playbook.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
+	const sections = [[
+		`Apply Papyrus playbook "${playbook.title}" (${playbook.id}).`,
+		`Trigger: ${trigger}`,
+		...(playbook.body ? [`Context: ${playbook.body}`] : []),
+		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
+		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
+	].join("\n")];
+	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
+	const linkedLines = edges
+		.map((edge) => { const target = artifacts.get(edge.to); return target ? `- ${edge.relation} ${target.kind} "${target.title}" (${target.id})` : undefined; })
+		.filter((line): line is string => line !== undefined);
+	if (linkedLines.length > 0) sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedLines].join("\n"));
+	return sections.join("\n\n");
 }

@@ -2,11 +2,18 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { askQuestion, isLiveAskPending } from "../extension/src/discuss-ask-view.ts";
+import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
 const originalEnv = { ...process.env };
+// askQuestion's diag() heartbeat writes go through callService -- without a mocked connector
+// they'd hit whatever real Papyrus daemon happens to be running on this machine, polluting its
+// live log store with test fixture data. A no-op connector keeps every test hermetic.
+setPapyrusClientConnectorForTests(async () => ({ call: async () => undefined }) as any);
 afterEach(() => {
 	for (const key of Object.keys(process.env)) if (!(key in originalEnv)) delete process.env[key];
 	Object.assign(process.env, originalEnv);
+	resetPapyrusClientForTests();
+	setPapyrusClientConnectorForTests(async () => ({ call: async () => undefined }) as any);
 });
 
 const theme = { bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t } as Theme;

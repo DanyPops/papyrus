@@ -10,7 +10,7 @@
  * registration, its own event emission, malformed-options recovery for other tools' schemas)
  * removed since Discuss already owns its schema, persistence, and rendering.
  */
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
 	Container,
@@ -62,6 +62,16 @@ export interface AskQuestionParams {
 	allowComment?: boolean;
 	displayMode?: AskDisplayMode;
 	timeout?: number;
+	/**
+	 * Streamed once before blocking on the human. A live ask can legitimately sit pending far
+	 * longer than a typical tool call (real human response time, not milliseconds) -- without any
+	 * progress signal, a tool call sitting silent that long looks indistinguishable from a dead
+	 * one to anything upstream watching for stalled calls. pi-ask-user's own original code (the
+	 * prior art this view is adapted from) sent exactly this same heartbeat before presenting its
+	 * UI; dropping it during the port was the regression that let two independent executions of
+	 * the same live ask run concurrently, each opening its own picker for the same question.
+	 */
+	onUpdate?: AgentToolUpdateCallback;
 }
 
 export interface AskAnswer {
@@ -1080,6 +1090,8 @@ export async function askQuestion(ctx: ExtensionContext, params: AskQuestionPara
 	const envDisplayMode: AskDisplayMode | undefined = envMode === "overlay" || envMode === "inline" ? envMode : undefined;
 	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
+
+	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
 
 	if (options.length === 0) {
 		const prompt = normalizedContext ? `${params.question}\n\nContext:\n${normalizedContext}` : params.question;

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { PROOF_TYPES } from "../../src/domain/checklist.ts";
@@ -39,7 +39,7 @@ function text(message: string, details: unknown = {}) {
  * is available, never throws -- an unanswered live prompt still leaves the round it already
  * recorded intact.
  */
-async function liveAnswer(ctx: ExtensionContext, discussion: Artifact): Promise<{ content: string; selected?: string[] } | undefined> {
+async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate: AgentToolUpdateCallback | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 	const question = `Reply to "${discussion.title}":`;
@@ -48,9 +48,10 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact): Promise<
 			question,
 			options: pending.pendingOptions.map((title) => ({ title })),
 			allowMultiple: pending.pendingOptionsMode === "multi",
+			onUpdate,
 		});
 	}
-	return askQuestion(ctx, { question });
+	return askQuestion(ctx, { question, onUpdate });
 }
 
 /**
@@ -697,9 +698,13 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			selected: Type.Optional(Type.Array(Type.String())),
 			live: Type.Optional(Type.Boolean()),
 		}),
+		// Blocks other tool calls in the same assistant turn until live:true's human answer comes
+		// back, same reasoning as pi-ask-user's own tool: the model must not batch a live ask with
+		// bash/edit/write and let those run before the human sees the prompt.
+		executionMode: "sequential",
 		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
+		async execute(_id, rawParams, _signal, onUpdate, ctx) {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
@@ -716,7 +721,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
 						: text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
 					if (params.live !== true) return fallback;
-					const answer = await liveAnswer(ctx, result.discussion);
+					const answer = await liveAnswer(ctx, result.discussion, onUpdate);
 					if (!answer) return fallback;
 					const answered = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
 						id: result.discussion.id, actor: "human", content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: "discuss-live",

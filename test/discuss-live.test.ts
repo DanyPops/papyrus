@@ -5,7 +5,9 @@ import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from ".
 
 afterEach(resetPapyrusClientForTests);
 
-type ToolExecute = (id: string, params: Record<string, unknown>, signal: undefined, onUpdate: undefined, ctx: ExtensionContext) => Promise<{ content: Array<{ type: "text"; text: string }> }>;
+type ToolUpdate = { content: Array<{ type: "text"; text: string }>; details?: unknown };
+type ToolExecute = (id: string, params: Record<string, unknown>, signal: undefined, onUpdate: ((update: ToolUpdate) => void) | undefined, ctx: ExtensionContext) => Promise<{ content: Array<{ type: "text"; text: string }> }>;
+interface RegisteredDiscussTool { execute: ToolExecute; executionMode?: string; }
 
 /**
  * Discuss's own ask UI (discuss-ask-view.ts) runs directly -- no capture, no adapter, no
@@ -13,11 +15,15 @@ type ToolExecute = (id: string, params: Record<string, unknown>, signal: undefin
  * RPC/headless dialog fallback (ctx.ui.select/input), the same path Papyrus runs in non-TUI
  * modes.
  */
-function discussExecute(): ToolExecute {
-	const tools = new Map<string, ToolExecute>();
-	const fakeApi = { registerTool: (tool: { name: string; execute: ToolExecute }) => tools.set(tool.name, tool.execute) } as unknown as ExtensionAPI;
+function discussTool(): RegisteredDiscussTool {
+	const tools = new Map<string, RegisteredDiscussTool>();
+	const fakeApi = { registerTool: (tool: RegisteredDiscussTool & { name: string }) => tools.set(tool.name, tool) } as unknown as ExtensionAPI;
 	registerDomainTools(fakeApi);
 	return tools.get("discuss")!;
+}
+
+function discussExecute(): ToolExecute {
+	return discussTool().execute;
 }
 
 function fakeCtx(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
@@ -98,5 +104,31 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		const result = await execute("id1", { action: "reply", name: "Ship or not?", id: "d1", actor: "assistant", content: "q2", live: true }, undefined, undefined, ctx);
 		expect(result.content[0]!.text).toContain("Round 2 added");
 		expect(calls.filter((call) => call.operation === "discuss.reply")).toHaveLength(1);
+	});
+
+	/**
+	 * Regression coverage for a real live-observed bug: a live ask legitimately blocks far longer
+	 * than a typical tool call (real human response time), and without any progress signal an
+	 * upstream layer watching for stalled tool calls has no way to tell "still waiting on a human"
+	 * apart from "dead" -- a retry meant for the latter case re-invokes execute() a second time,
+	 * producing two independent live-ask prompts for the same question, one of which is orphaned
+	 * and later resolves on its own. pi-ask-user's original code (the prior art discuss-ask-view.ts
+	 * is adapted from) sent exactly this heartbeat; dropping it during the port was the regression.
+	 */
+	it("declares executionMode: sequential, so the model can't batch other tool calls behind a pending live ask", () => {
+		expect(discussTool().executionMode).toBe("sequential");
+	});
+
+	it("live:true streams a heartbeat onUpdate before blocking on the human, so a slow human response isn't mistaken for a dead tool call", async () => {
+		const execute = discussExecute();
+		mockCalls({
+			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
+			"discuss.reply": (input: any) => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 2, discussionId: "d1", roundNumber: 2, actor: "human", content: input.content, occurredAt: "x" }] }),
+		});
+		const updates: ToolUpdate[] = [];
+		const ctx = fakeCtx({ ui: { select: async () => undefined, input: async () => "Yes", notify: () => {}, custom: async () => undefined } as any });
+		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", live: true }, undefined, (update) => updates.push(update), ctx);
+		expect(updates).toHaveLength(1);
+		expect(updates[0]!.content[0]!.text).toBe("Waiting for human input...");
 	});
 });

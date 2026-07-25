@@ -529,14 +529,17 @@ export function runGates(db: Db, artifactId: string, options: GateRunOptions = {
 				}
 			}
 			case "command": {
-				const { execSync } = require_("node:child_process");
-				try {
-					const output = execSync(gate.target, { encoding: "utf-8", timeout: GATE_COMMAND_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"], ...(cwd ? { cwd } : {}) }).trim();
-					const passed = gate.expect ? output.includes(gate.expect) : true;
-					return { gate, passed, output: output.slice(0, GATE_OUTPUT_LIMIT) };
-				} catch (e) {
-					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, GATE_OUTPUT_LIMIT) : "command failed" };
-				}
+				// spawnSync + manual stdout/stderr concatenation, not execSync: execSync's return value is
+				// stdout only. Many real commands (bun test's own per-test lines and its pass/fail summary
+				// among them) write their actual output to stderr, so an execSync-based match against
+				// gate.expect saw only the first line of a banner and never the result -- every such gate
+				// failed regardless of whether the command actually passed.
+				const { spawnSync } = require_("node:child_process");
+				const result = spawnSync(gate.target, { shell: true, encoding: "utf-8", timeout: GATE_COMMAND_TIMEOUT_MS, ...(cwd ? { cwd } : {}) });
+				if (result.error) return { gate, passed: false, output: result.error.message.slice(0, GATE_OUTPUT_LIMIT) };
+				const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+				const passed = result.status === 0 && (gate.expect ? combined.includes(gate.expect) : true);
+				return { gate, passed, output: combined.slice(0, GATE_OUTPUT_LIMIT) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`) };
 			}
 			case "test": {
 				const { execSync } = require_("node:child_process");
@@ -564,7 +567,7 @@ export function runGates(db: Db, artifactId: string, options: GateRunOptions = {
  *      indefinitely after Papyrus considers the gate "timed out". Spawning detached (its own
  *      process group) and killing the negated pid on our own timer reaches the whole tree.
  */
-function executeGateCommand(command: string, timeout: number, cwd?: string): Promise<{ passed: boolean; output: string }> {
+function executeGateCommand(command: string, timeout: number, cwd?: string): Promise<{ passed: boolean; output: string; matchable: string }> {
 	// `spawn(..., { shell: true, detached: true })` instead of the `exec()` convenience wrapper:
 	// `detached` (needed to make the shell the leader of its own process group, so the negated pid
 	// below reaches every descendant, not just the shell) is not part of Node's `exec()`/
@@ -587,17 +590,21 @@ function executeGateCommand(command: string, timeout: number, cwd?: string): Pro
 		child.stdout?.on("data", append);
 		child.stderr?.on("data", append);
 
-		const finish = (result: { passed: boolean; output: string }): void => {
+		const finish = (result: { passed: boolean; output: string; matchable: string }): void => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
 			resolve(result);
 		};
 
-		child.on("error", (error) => finish({ passed: false, output: error.message.slice(0, GATE_OUTPUT_LIMIT) }));
+		child.on("error", (error) => finish({ passed: false, output: error.message.slice(0, GATE_OUTPUT_LIMIT), matchable: error.message }));
 		child.on("close", (code) => {
-			const output = buffered.trim().slice(0, GATE_OUTPUT_LIMIT);
-			finish({ passed: code === 0, output: output || (code === 0 ? "ok" : `command exited with code ${code}`) });
+			// `matchable` carries the full (GATE_MAX_BUFFER_BYTES-bounded) buffer so the caller's
+			// gate.expect substring check sees the whole run, not just the first GATE_OUTPUT_LIMIT
+			// characters -- a real bun test run's pass/fail summary is its last line, not its first.
+			const full = buffered.trim();
+			const output = full.slice(0, GATE_OUTPUT_LIMIT);
+			finish({ passed: code === 0, output: output || (code === 0 ? "ok" : `command exited with code ${code}`), matchable: full });
 		});
 
 		const timer = setTimeout(() => {
@@ -609,7 +616,7 @@ function executeGateCommand(command: string, timeout: number, cwd?: string): Pro
 					child.kill("SIGKILL");
 				}
 			}
-			finish({ passed: false, output: `gate command timed out after ${timeout}ms` });
+			finish({ passed: false, output: `gate command timed out after ${timeout}ms`, matchable: "" });
 		}, timeout);
 	});
 }
@@ -651,7 +658,7 @@ export async function runGatesAsync(db: Db, artifactId: string, options: GateRun
 			const executed = await executeGateCommand(command, timeout, options.cwd);
 			results.push({
 				gate,
-				passed: executed.passed && (gate.expect ? executed.output.includes(gate.expect) : true),
+				passed: executed.passed && (gate.expect ? executed.matchable.includes(gate.expect) : true),
 				output: executed.output,
 			});
 		} else {

@@ -198,6 +198,41 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	// Real bug: execSync's return value is stdout only. A command that writes its actual result to
+	// stderr (bun test's own per-test lines and pass/fail summary among them) always failed its
+	// gate.expect match, regardless of whether the command truly passed.
+	it("runGates (sync): a command gate's expect match sees stderr output too, not stdout only", () => {
+		const { db } = tmpDb();
+		const task = createArtifact(db, { kind: "task", title: "stderr gate", extra: { gates: [{ type: "command", target: "echo only-on-stderr 1>&2", expect: "only-on-stderr" }] } });
+		const results = runGates(db, task.id!);
+		expect(results[0]?.passed).toBe(true);
+		db.close();
+	});
+
+	it("runGatesAsync: a command gate's expect match sees stderr output too, not stdout only", async () => {
+		const { db } = tmpDb();
+		const task = createArtifact(db, { kind: "task", title: "stderr gate async", extra: { gates: [{ type: "command", target: "echo only-on-stderr 1>&2", expect: "only-on-stderr" }] } });
+		const results = await runGatesAsync(db, task.id!);
+		expect(results[0]?.passed).toBe(true);
+		db.close();
+	});
+
+	// Real bug: runGatesAsync matched gate.expect against output already truncated to
+	// GATE_OUTPUT_LIMIT (200 chars) for display, so an expect string appearing only near the end of
+	// a long, real command's output (exactly where a test runner's pass/fail summary lives) never
+	// matched even though the command genuinely produced it.
+	it("runGatesAsync: a command gate's expect match sees the full output, not just the first 200 characters kept for display", async () => {
+		const { db } = tmpDb();
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "long output gate",
+			extra: { gates: [{ type: "command", target: "node -e \"console.log('x'.repeat(500)); console.log('FOUND-AT-THE-END')\"", expect: "FOUND-AT-THE-END" }] },
+		});
+		const results = await runGatesAsync(db, task.id!);
+		expect(results[0]?.passed).toBe(true);
+		db.close();
+	});
+
 	it("rule with condition/action/severity in extra", () => {
 		const { db } = tmpDb();
 		const rule = createArtifact(db, {

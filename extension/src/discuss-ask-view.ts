@@ -658,7 +658,10 @@ class AskComponent extends Container {
 		this.addChild(new BoxBorderBottom((s) => theme.fg("accent", s)));
 
 		this.updateStaticText();
-		this.showSelectMode();
+		// A freeform-only ask (no options at all) has no select list to show -- start directly in
+		// the freeform editor instead of a select mode that would have nothing to render.
+		if (this.options.length === 0) this.showFreeformMode();
+		else this.showSelectMode();
 	}
 
 	override invalidate(): void { super.invalidate(); this.updateStaticText(); this.updateHelpText(); }
@@ -877,12 +880,13 @@ class AskComponent extends Container {
 
 		if (this.mode === "freeform" || this.mode === "comment") {
 			const alternateCancelKeys = this.keybindings.getKeys("tui.select.cancel").filter((key) => key !== "escape" && key !== "esc");
+			const canGoBack = this.options.length > 0;
 			const hints = [
 				keybindingHint(theme, this.keybindings, "tui.input.submit", this.mode === "comment" ? "submit/skip" : "submit"),
 				keybindingHint(theme, this.keybindings, "tui.input.newLine", "newline"),
-				literalHint(theme, "esc", "back"),
+				literalHint(theme, "esc", canGoBack ? "back" : "cancel"),
 				overlayHint,
-				alternateCancelKeys.length > 0 ? literalHint(theme, formatKeyList(alternateCancelKeys), "cancel") : null,
+				canGoBack && alternateCancelKeys.length > 0 ? literalHint(theme, formatKeyList(alternateCancelKeys), "cancel") : null,
 			].filter((hint): hint is string => !!hint).join(" • ");
 			this.helpText.setText(theme.fg("dim", hints));
 			return;
@@ -1031,7 +1035,8 @@ class AskComponent extends Container {
 	handleInput(data: string): void {
 		if (this.handlePromptScrollInput(data)) { this.tui.requestRender(); return; }
 		if (this.mode === "freeform" || this.mode === "comment") {
-			if (matchesKey(data, Key.escape)) { this.showSelectMode(); return; }
+			// A freeform-only ask has no select mode to go back to -- escape cancels outright.
+			if (matchesKey(data, Key.escape)) { if (this.options.length > 0) this.showSelectMode(); else this.onDone(null); return; }
 			if (this.keybindings.matches(data, "tui.select.cancel")) { this.onDone(null); return; }
 			this.ensureEditor().handleInput(data);
 			this.tui.requestRender();
@@ -1056,6 +1061,11 @@ async function askViaDialogs(
 ): Promise<AskResponse | null> {
 	const dialogOpts = timeout ? { timeout } : undefined;
 	const prompt = context ? `${question}\n\nContext:\n${context}` : question;
+
+	if (options.length === 0) {
+		const answer = (await ui.input(prompt, "Type your answer...", dialogOpts)) as string | undefined;
+		return isCancelledInput(answer) ? null : createFreeformResponse(answer);
+	}
 
 	if (allowMultiple) {
 		const rawSelections = (await ui.input(`${prompt}\n\nOptions (select one or more):\n${formatOptionsForMessage(options)}`, "Type your selection(s)...", dialogOpts)) as string | undefined;
@@ -1139,13 +1149,9 @@ async function askQuestionBlocking(
 	displayMode: AskDisplayMode,
 	normalizedContext: string | undefined,
 ): Promise<AskAnswer | undefined> {
-	if (options.length === 0) {
-		const prompt = normalizedContext ? `${params.question}\n\nContext:\n${normalizedContext}` : params.question;
-		const answer = await ctx.ui.input(prompt, "Type your answer...", params.timeout ? { timeout: params.timeout } : undefined);
-		const response = createFreeformResponse(answer);
-		return response ? toAskAnswer(response) : undefined;
-	}
-
+	// A freeform-only ask (no options) still goes through the same rich AskComponent/ctx.ui.custom()
+	// path below, not a bare ctx.ui.input() -- otherwise it renders as a plain, contextless single
+	// line while every options-bearing ask gets the full bordered box, title, and markdown context.
 	const shortcuts: ResolvedAskShortcuts = {
 		overlayToggle: resolveShortcut(undefined, process.env["PAPYRUS_DISCUSS_OVERLAY_TOGGLE_KEY"], DEFAULT_OVERLAY_TOGGLE_KEY),
 		commentToggle: resolveShortcut(undefined, process.env["PAPYRUS_DISCUSS_COMMENT_TOGGLE_KEY"], DEFAULT_COMMENT_TOGGLE_KEY),

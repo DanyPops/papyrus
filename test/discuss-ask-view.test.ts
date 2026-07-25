@@ -114,7 +114,25 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		expect(answer).toBeUndefined();
 	});
 
-	it("a freeform-only question (no options) skips AskComponent entirely and goes straight through ctx.ui.input", async () => {
+	// Regression: a freeform-only ask (no options) used to bypass AskComponent entirely and go
+	// straight through a bare ctx.ui.input(), rendering as a plain contextless line while every
+	// options-bearing ask got the full bordered box, title, and markdown context. A human live-
+	// observed this inconsistency directly. Freeform-only asks must use the same rich AskComponent
+	// whenever a real ctx.ui.custom() is available, falling back to ctx.ui.input only in RPC/headless
+	// mode (same fallback every other ask already uses).
+	it("a freeform-only question (no options) uses the real AskComponent, typing text and pressing enter", async () => {
+		const ctx = interactiveCtx([..."42", ENTER]);
+		const answer = await askQuestion(ctx, { question: "How many replicas?" });
+		expect(answer).toEqual({ content: "42" });
+	});
+
+	it("a freeform-only question: escape cancels outright (no select mode to fall back to)", async () => {
+		const ctx = interactiveCtx([ESCAPE]);
+		const answer = await askQuestion(ctx, { question: "How many replicas?" });
+		expect(answer).toBeUndefined();
+	});
+
+	it("a freeform-only question still degrades to ctx.ui.input via the dialog fallback in RPC/headless mode", async () => {
 		const prompts: string[] = [];
 		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async (title: string) => { prompts.push(title); return "42"; }, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
 		const answer = await askQuestion(ctx, { question: "How many replicas?" });

@@ -931,7 +931,7 @@ class AskComponent extends Container {
 		if (this.singleSelectList) return this.singleSelectList;
 		const list = new WrappedSingleSelectList(this.options, this.allowFreeform, this.allowComment, this.theme, this.keybindings, this.shortcuts.commentToggle);
 		list.onSubmit = (result) => this.handleSelectionSubmit([result], list.isCommentEnabled());
-		list.onCancel = () => this.onDone(null);
+		list.onCancel = () => { diag("single-select onCancel fired (tui.select.cancel keybinding matched)"); this.onDone(null); };
 		list.onEnterFreeform = () => this.showFreeformMode();
 		this.singleSelectList = list;
 		return list;
@@ -1200,9 +1200,10 @@ async function askQuestionBlocking(
 	let hasAnnouncedHide = false;
 	let response: AskResponse | null;
 	try {
+		diag("factory about to construct AskComponent", { hasSignal: ctx.signal !== undefined, signalAlreadyAborted: ctx.signal?.aborted ?? null, hasExplicitTimeout: params.timeout !== undefined });
 		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
-			if (ctx.signal) ctx.signal.addEventListener("abort", () => done(null), { once: true });
-			if (params.timeout && params.timeout > 0) setTimeout(() => done(null), params.timeout);
+			if (ctx.signal) ctx.signal.addEventListener("abort", () => { diag("ctx.signal fired abort -- resolving null"); done(null); }, { once: true });
+			if (params.timeout && params.timeout > 0) setTimeout(() => { diag("explicit params.timeout expired -- resolving null", { timeout: params.timeout }); done(null); }, params.timeout);
 			return new AskComponent(params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);
 		};
 

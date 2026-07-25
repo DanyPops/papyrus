@@ -1,19 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { askQuestion, isLiveAskPending } from "../extension/src/discuss-ask-view.ts";
-import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
+import { askQuestion, isLiveAskPending, setLiveAskHeartbeatIntervalMsForTests } from "../extension/src/discuss-ask-view.ts";
 
 const originalEnv = { ...process.env };
-// askQuestion's diag() heartbeat writes go through callService -- without a mocked connector
-// they'd hit whatever real Papyrus daemon happens to be running on this machine, polluting its
-// live log store with test fixture data. A no-op connector keeps every test hermetic.
-setPapyrusClientConnectorForTests(async () => ({ call: async () => undefined }) as any);
 afterEach(() => {
 	for (const key of Object.keys(process.env)) if (!(key in originalEnv)) delete process.env[key];
 	Object.assign(process.env, originalEnv);
-	resetPapyrusClientForTests();
-	setPapyrusClientConnectorForTests(async () => ({ call: async () => undefined }) as any);
 });
 
 const theme = { bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t } as Theme;
@@ -239,6 +232,36 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" });
 		await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" });
 		expect(customCalls).toBe(2);
+	});
+
+	/**
+	 * Regression coverage for a real live-observed bug: a single upfront heartbeat only covers the
+	 * first ~8s. Cancellation kept citing "idle timeout, no interaction within 8000ms" regardless of
+	 * whether the real human wait was 5 seconds or 18 minutes -- proof that whatever's upstream
+	 * re-checks liveness periodically, not once. A periodic heartbeat for the whole wait is required.
+	 */
+	it("streams a heartbeat repeatedly for the whole wait, not just once at the start", async () => {
+		setLiveAskHeartbeatIntervalMsForTests(5);
+		const updates: Array<{ content: Array<{ type: "text"; text: string }> }> = [];
+		let resolveCustom: ((value: unknown) => void) | undefined;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
+				custom: () => new Promise((resolve) => { resolveCustom = resolve; }),
+			} as any,
+		} as ExtensionContext;
+		const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], onUpdate: (update) => updates.push(update as any) });
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		expect(updates.length).toBeGreaterThan(1);
+		expect(updates.every((update) => update.content[0]!.text === "Waiting for human input...")).toBe(true);
+		resolveCustom?.({ kind: "selection", selections: ["Ship Friday"] });
+		await promise;
+		const countAfterResolve = updates.length;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		// The interval must be cleared once resolved -- no further heartbeats after the ask is done.
+		expect(updates.length).toBe(countAfterResolve);
+		setLiveAskHeartbeatIntervalMsForTests(4_000);
 	});
 
 	it("honors PAPYRUS_DISCUSS_DISPLAY_MODE=inline instead of the default overlay -- render never throws in inline layout", async () => {

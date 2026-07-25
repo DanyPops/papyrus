@@ -35,27 +35,6 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { renderSingleSelectRows, type AskOption } from "./discuss-ask-layout.ts";
-import { callService } from "./service-client.ts";
-
-/** Temporary RCA instrumentation for the live-observed duplicate-picker defect. Fire-and-forget: never lets a logging failure affect the actual ask. Remove once root-caused. */
-const DIAG_SOURCE = "papyrus-discuss-ask-diag";
-let diagSequence = 0;
-function diag(message: string, fields?: Record<string, unknown>): void {
-	void callService("logs.append", {
-		source_id: DIAG_SOURCE,
-		source_label: "Discuss live-ask RCA",
-		level: "info",
-		message,
-		operation_id: `diag-${Date.now()}-${++diagSequence}`,
-		...(fields ? { fields } : {}),
-	}).catch((error) => {
-		void callService("logs.append", {
-			source_id: DIAG_SOURCE, source_label: "Discuss live-ask RCA", level: "error",
-			message: `diag() itself failed: ${error instanceof Error ? error.message : String(error)}`,
-			operation_id: `diag-error-${Date.now()}-${++diagSequence}`,
-		}).catch(() => {});
-	});
-}
 
 /** See pi-ask-user's identical safeMarkdownTheme() comment: a broken theme Proxy throws only on
  * property access, not construction, so a bare try/catch around getMarkdownTheme() alone would
@@ -943,7 +922,7 @@ class AskComponent extends Container {
 		if (this.singleSelectList) return this.singleSelectList;
 		const list = new WrappedSingleSelectList(this.options, this.allowFreeform, this.allowComment, this.theme, this.keybindings, this.shortcuts.commentToggle);
 		list.onSubmit = (result) => this.handleSelectionSubmit([result], list.isCommentEnabled());
-		list.onCancel = () => { diag("single-select onCancel fired (tui.select.cancel keybinding matched)"); this.onDone(null); };
+		list.onCancel = () => this.onDone(null);
 		list.onEnterFreeform = () => this.showFreeformMode();
 		this.singleSelectList = list;
 		return list;
@@ -1099,9 +1078,7 @@ async function askViaDialogs(
 
 	const selectOptions = options.map((o) => o.title);
 	if (allowFreeform) selectOptions.push(FREEFORM_SENTINEL);
-	diag("askViaDialogs: calling ui.select", { dialogOpts: dialogOpts === undefined ? null : JSON.stringify(dialogOpts), promptPreview: prompt.slice(0, 80) });
 	const selected = (await ui.select(prompt, selectOptions, dialogOpts)) as string | undefined;
-	diag("askViaDialogs: ui.select resolved", { selected: selected ?? null });
 	if (isCancelledInput(selected)) return null;
 
 	if (selected === FREEFORM_SENTINEL) {
@@ -1149,11 +1126,10 @@ const pendingByKey = new Map<string, Promise<AskAnswer | undefined>>();
  * contexts all resolve to undefined.
  */
 export async function askQuestion(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
-	diag("askQuestion() called", { question: params.question, key: params.key, hasUI: ctx.hasUI, mode: ctx.mode, optionCount: params.options?.length ?? 0, alreadyPendingForKey: params.key !== undefined && pendingByKey.has(params.key) });
 	if (!ctx.hasUI || !ctx.ui) return undefined;
 	if (params.key !== undefined) {
 		const existing = pendingByKey.get(params.key);
-		if (existing) { diag("joining an already in-flight ask for this key", { key: params.key }); return existing; }
+		if (existing) return existing;
 	}
 	const promise = askQuestionUnguarded(ctx, params);
 	if (params.key !== undefined) {
@@ -1166,6 +1142,23 @@ export async function askQuestion(ctx: ExtensionContext, params: AskQuestionPara
 	return promise;
 }
 
+/**
+ * Sent at least this often while blocked on the human -- well under any 8-second window a
+ * watchdog upstream might require to consider a tool call still alive. A single upfront ping
+ * (this view's original heartbeat) only covers the first ~8s; for genuinely long human response
+ * times (the whole point of a live ask) it goes silent again after that, indistinguishable from
+ * dead. A live-observed bug traced back to exactly this: cancellation always cited "idle timeout,
+ * no interaction within 8000ms" regardless of whether the real wait was 5 seconds or 18 minutes
+ * -- a fixed re-check window, not a measure of total elapsed time -- meaning periodic liveness,
+ * not a one-time ping, is what's required here.
+ */
+let liveAskHeartbeatIntervalMs = 4_000;
+
+/** Test seam: real tiny interval, not a faked global timer -- exercises the periodic heartbeat deterministically and fast. */
+export function setLiveAskHeartbeatIntervalMsForTests(ms: number): void {
+	liveAskHeartbeatIntervalMs = ms;
+}
+
 async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
 	const options = params.options ?? [];
 	const allowMultiple = params.allowMultiple ?? false;
@@ -1176,12 +1169,15 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
 
-	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
+	const sendHeartbeat = () => params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
+	sendHeartbeat();
+	const heartbeatTimer = params.onUpdate ? setInterval(sendHeartbeat, liveAskHeartbeatIntervalMs) : undefined;
 	livePendingCount += 1;
 	try {
 		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, displayMode, normalizedContext);
 	} finally {
 		livePendingCount -= 1;
+		if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
 	}
 }
 
@@ -1212,15 +1208,9 @@ async function askQuestionBlocking(
 	let hasAnnouncedHide = false;
 	let response: AskResponse | null;
 	try {
-		diag("factory about to construct AskComponent", { hasSignal: params.signal !== undefined, signalAlreadyAborted: params.signal?.aborted ?? null, hasExplicitTimeout: params.timeout !== undefined, allowMultiple });
-		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, realDone: (result: AskResponse | null) => void) => {
-			const startedAt = Date.now();
-			const done = (result: AskResponse | null) => {
-				diag("done() invoked -- generic catch-all", { elapsedMs: Date.now() - startedAt, result: result === null ? null : JSON.stringify(result), stack: new Error().stack?.split("\n").slice(1, 6).join(" | ") });
-				realDone(result);
-			};
-			if (params.signal) params.signal.addEventListener("abort", () => { diag("tool call signal fired abort -- resolving null"); done(null); }, { once: true });
-			if (params.timeout && params.timeout > 0) setTimeout(() => { diag("explicit params.timeout expired -- resolving null", { timeout: params.timeout }); done(null); }, params.timeout);
+		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
+			if (params.signal) params.signal.addEventListener("abort", () => done(null), { once: true });
+			if (params.timeout && params.timeout > 0) setTimeout(() => done(null), params.timeout);
 			return new AskComponent(params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);
 		};
 
@@ -1235,12 +1225,8 @@ async function askQuestionBlocking(
 			});
 		}
 
-		diag("calling ctx.ui.custom()", { displayMode });
 		const customResult = await ctx.ui.custom<AskResponse | null>(factory, buildCustomUIOptions(displayMode, (handle) => { overlayHandle = handle; }));
-		diag("ctx.ui.custom() resolved", { wasUndefined: customResult === undefined, result: customResult === undefined ? undefined : JSON.stringify(customResult) });
-		if (customResult === undefined) diag("falling back to askViaDialogs -- about to call ctx.ui.select with dialogOpts", { explicitTimeout: params.timeout ?? null });
 		response = customResult !== undefined ? customResult : await askViaDialogs(ctx.ui, params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, params.timeout);
-		diag("askQuestionBlocking resolved", { response: response === null ? null : JSON.stringify(response) });
 	} finally {
 		removeOverlayInputListener?.();
 	}

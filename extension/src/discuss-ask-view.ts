@@ -39,14 +39,22 @@ import { callService } from "./service-client.ts";
 
 /** Temporary RCA instrumentation for the live-observed duplicate-picker defect. Fire-and-forget: never lets a logging failure affect the actual ask. Remove once root-caused. */
 const DIAG_SOURCE = "papyrus-discuss-ask-diag";
+let diagSequence = 0;
 function diag(message: string, fields?: Record<string, unknown>): void {
 	void callService("logs.append", {
 		source_id: DIAG_SOURCE,
 		source_label: "Discuss live-ask RCA",
 		level: "info",
 		message,
+		operation_id: `diag-${Date.now()}-${++diagSequence}`,
 		...(fields ? { fields } : {}),
-	}).catch(() => {});
+	}).catch((error) => {
+		void callService("logs.append", {
+			source_id: DIAG_SOURCE, source_label: "Discuss live-ask RCA", level: "error",
+			message: `diag() itself failed: ${error instanceof Error ? error.message : String(error)}`,
+			operation_id: `diag-error-${Date.now()}-${++diagSequence}`,
+		}).catch(() => {});
+	});
 }
 
 /** See pi-ask-user's identical safeMarkdownTheme() comment: a broken theme Proxy throws only on

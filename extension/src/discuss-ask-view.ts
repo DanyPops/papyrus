@@ -1212,8 +1212,13 @@ async function askQuestionBlocking(
 	let hasAnnouncedHide = false;
 	let response: AskResponse | null;
 	try {
-		diag("factory about to construct AskComponent", { hasSignal: params.signal !== undefined, signalAlreadyAborted: params.signal?.aborted ?? null, hasExplicitTimeout: params.timeout !== undefined });
-		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
+		diag("factory about to construct AskComponent", { hasSignal: params.signal !== undefined, signalAlreadyAborted: params.signal?.aborted ?? null, hasExplicitTimeout: params.timeout !== undefined, allowMultiple });
+		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, realDone: (result: AskResponse | null) => void) => {
+			const startedAt = Date.now();
+			const done = (result: AskResponse | null) => {
+				diag("done() invoked -- generic catch-all", { elapsedMs: Date.now() - startedAt, result: result === null ? null : JSON.stringify(result), stack: new Error().stack?.split("\n").slice(1, 6).join(" | ") });
+				realDone(result);
+			};
 			if (params.signal) params.signal.addEventListener("abort", () => { diag("tool call signal fired abort -- resolving null"); done(null); }, { once: true });
 			if (params.timeout && params.timeout > 0) setTimeout(() => { diag("explicit params.timeout expired -- resolving null", { timeout: params.timeout }); done(null); }, params.timeout);
 			return new AskComponent(params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);

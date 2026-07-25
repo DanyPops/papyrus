@@ -194,7 +194,9 @@ describe("skills domain service", () => {
 
 		const invocation = skillInvocation(artifacts, skill.id);
 		expect(invocation).toContain("Linked context (query Papyrus for full detail before proceeding):");
-		expect(invocation).toContain(`- references doc "API spec" (${spec.id})`);
+		expect(invocation).toContain('- references doc "API spec"');
+		expect(invocation).not.toContain(spec.id);
+		expect(invocation).not.toContain(skill.id);
 	});
 
 	it("skills can call other skills: invoking the caller recursively composes the linked skill's own invocation", () => {
@@ -205,8 +207,10 @@ describe("skills domain service", () => {
 
 		const invocation = skillInvocation(artifacts, outer.id);
 		expect(invocation).toContain('Apply Papyrus skill "Outer skill"');
-		expect(invocation).toContain(`Also invoke linked skill (triggers) "Inner skill" (${inner.id}):`);
+		expect(invocation).toContain('Also invoke linked skill (triggers) "Inner skill":');
 		expect(invocation).toContain('Apply Papyrus skill "Inner skill"');
+		expect(invocation).not.toContain(outer.id);
+		expect(invocation).not.toContain(inner.id);
 		expect(invocation).toContain("Do the inner thing");
 		db.close();
 	});
@@ -234,6 +238,8 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 
 		const invocation = playbookInvocation(artifacts, playbook.id);
 		expect(invocation).toContain('Apply Papyrus playbook "New Project"');
+		expect(invocation).not.toContain(playbook.id);
+		expect(invocation).not.toContain(linked.id);
 		expect(invocation).toContain("Trigger: starting something from scratch");
 		expect(invocation).toContain("1. Frame the problem");
 		expect(invocation).toContain("2. State the goal");

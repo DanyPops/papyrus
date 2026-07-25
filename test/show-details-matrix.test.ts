@@ -118,7 +118,7 @@ describe("Show details coverage matrix", () => {
 		const missing = tuiContext();
 		await showArtifactDetails(missing.ctx, "missing", "docs.show", {}, async () => null);
 		expect(missing.state().customCalls).toBe(0);
-		expect(missing.notifications).toEqual([{ message: "Artifact missing not found", level: "error" }]);
+		expect(missing.notifications).toEqual([{ message: "Artifact not found", level: "error" }]);
 
 		const failed = tuiContext();
 		await showArtifactDetails(failed.ctx, "broken", "docs.show", {}, async () => { throw new Error("daemon unavailable"); });

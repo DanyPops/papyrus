@@ -69,6 +69,15 @@ export function artifactLines(artifacts: Artifact[]): string[] {
 	return artifacts.map((artifact) => (titleCounts.get(artifact.title)! > 1 ? `${artifactLine(artifact)} (${artifact.id})` : artifactLine(artifact)));
 }
 
+/** Resolves internal ids for model text; ids resurface only when equal titles need disambiguation. */
+async function artifactLabelsById(ids: readonly string[]): Promise<Map<string, string>> {
+	const uniqueIds = [...new Set(ids)];
+	const artifacts = (await Promise.all(uniqueIds.map((id) => callService<Record<string, unknown>, Artifact | null>("artifact.show", { id })))).filter((artifact): artifact is Artifact => artifact !== null);
+	const titleCounts = new Map<string, number>();
+	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
+	return new Map(artifacts.map((artifact) => [artifact.id, titleCounts.get(artifact.title)! > 1 ? `${artifact.title} (${artifact.id})` : artifact.title]));
+}
+
 /**
  * Exact, case-insensitive, trimmed title match against an already-fetched candidate set. Throws
  * a clear "not found" or "ambiguous -- use id" error rather than guessing at a fuzzy match -- id
@@ -132,15 +141,15 @@ async function resolveNameArrayField(
  * Returns null when action is neither, so callers fall through to their own dispatch.
  */
 async function handleArtifactRemoveRestore(action: unknown, params: Record<string, unknown>): Promise<ReturnType<typeof text> | null> {
-	// Trashed/restored are still directly showable by id (see artifact-trash.ts), so the title is
-	// available either side of the action -- fetched here purely for a name-primary message; falls
-	// back to the raw id only if the artifact genuinely can't be shown (e.g. an unknown id).
+	// Trashed/restored artifacts stay directly showable, so known identities render by title on
+	// either side of the action. An unresolved explicit id stays in structured/error channels;
+	// normal model text does not turn that backend key into the artifact's public name.
 	const titleOf = async (): Promise<string> => {
 		try {
 			const artifact = await callService<Record<string, unknown>, Artifact | null>("artifact.show", { id: params["id"] });
-			return artifact ? `"${artifact.title}"` : String(params["id"]);
+			return artifact ? `"${artifact.title}"` : "unknown artifact";
 		} catch {
-			return String(params["id"]);
+			return "unknown artifact";
 		}
 	};
 	if (action === "remove") {
@@ -218,17 +227,26 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				// ever holds this extension's own registered session anyway (see session-identity.ts).
 				const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
 				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) };
-				// Resolves every *_name field to its *_id counterpart before dispatch, so every action
-				// below can go on reading id/dependency_id/parent_id/child_id/root_task_id exactly as
-				// before -- id-based calls are unaffected; name-based ones are transparently rewritten.
+				// Resolve the graph root first: every other name lookup must use the caller's final
+				// project/scope/root selection, otherwise `scope: all|graph` silently collapses back
+				// to the current project and forces callers to reach for an id.
 				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "tasks.list", baseRequest },
-					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "tasks.list", baseRequest },
-					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "tasks.list", baseRequest },
-					{ nameKey: "child_name", idKey: "child_id", listOperation: "tasks.list", baseRequest },
-					{ nameKey: "root_task_name", idKey: "root_task_id", listOperation: "tasks.list", baseRequest },
+					{ nameKey: "root_task_name", idKey: "root_task_id", listOperation: "tasks.list", baseRequest: { ...baseRequest, scope: "project" } },
 				]);
-				await resolveNameArrayField(params, "depends_on_names", "depends_on", "tasks.list", baseRequest);
+				const resolutionRequest = {
+					...baseRequest,
+					...(params.scope === undefined ? {} : { scope: params.scope }),
+					...(params.root_task_id === undefined ? {} : { root_task_id: params.root_task_id }),
+				};
+				// The daemon remains keyed by stable ids; the agent facade resolves names against the
+				// exact requested view before dispatching those internal ids.
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "tasks.list", baseRequest: resolutionRequest },
+					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
+					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
+					{ nameKey: "child_name", idKey: "child_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
+				]);
+				await resolveNameArrayField(params, "depends_on_names", "depends_on", "tasks.list", resolutionRequest);
 				const request = { ...params, ...baseRequest };
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
@@ -294,17 +312,19 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const byId = new Map(plan.nodes.map((node) => [node.id, node]));
 					const titleCounts = new Map<string, number>();
 					for (const node of plan.nodes) titleCounts.set(node.title, (titleCounts.get(node.title) ?? 0) + 1);
+					const nodeLabel = (id: string): string => {
+						const node = byId.get(id);
+						if (!node) return "unknown task";
+						return (titleCounts.get(node.title) ?? 0) > 1 ? `${node.title} (${node.id})` : node.title;
+					};
 					const lines = plan.layers.flatMap((layer, index) => [
 						`Layer ${index + 1}`,
 						...layer.map((id) => {
 							const node = byId.get(id);
-							if (!node) return `  [unknown] ${id}`;
-							return (titleCounts.get(node.title) ?? 0) > 1
-								? `  [${node.state}] ${node.title} (${node.id})`
-								: `  [${node.state}] ${node.title}`;
+							return `  [${node?.state ?? "unknown"}] ${nodeLabel(id)}`;
 						}),
 					]);
-					if (plan.cycleIds.length > 0) lines.push(`Invalid cycle: ${plan.cycleIds.join(", ")}`);
+					if (plan.cycleIds.length > 0) lines.push(`Invalid cycle: ${plan.cycleIds.map(nodeLabel).join(", ")}`);
 					const output = lines.join("\n") || "No tasks in execution plan.";
 					return text(output, createPreviewDetails("tasks.plan", "Task execution plan", output));
 				}
@@ -318,8 +338,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
 					const focused = result.focused ? `\nActive: ${artifactLine(result.focused)}` : "";
 					const blockedLines = artifactLines(result.blocked.map((entry) => entry.artifact));
+					const dependencyLabels = await artifactLabelsById(result.blocked.flatMap((entry) => entry.dependencyIds));
 					const blocked = result.blocked.length > 0
-						? `\nBlocked: ${result.blocked.map((entry, index) => `${blockedLines[index]} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`
+						? `\nBlocked: ${result.blocked.map((entry, index) => `${blockedLines[index]} waits for ${entry.dependencyIds.map((id) => dependencyLabels.get(id) ?? "unknown task").join(", ")}`).join("; ")}`
 						: "";
 					const output = `${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
 					return text(output, createPreviewDetails("tasks.complete", "Task completion", output));
@@ -618,16 +639,14 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 					const execution = run.execution.nodes.map((node) => (runTitleCounts.get(node.title) ?? 0) > 1
 						? `  [${node.state}] ${node.title} (${node.id})`
 						: `  [${node.state}] ${node.title}`).join("\n");
-					// Root task titles are free here (already present in execution.nodes); created docs/rules
-					// are a different kind not covered by this run's own execution nodes, so those still list by
-					// id below -- fetching their titles would mean an extra round-trip per artifact.
 					const nodeById = new Map(run.execution.nodes.map((node) => [node.id, node]));
-					const rootLabels = run.rootTaskIds.map((id) => nodeById.get(id)?.title ?? id);
+					const rootLabels = run.rootTaskIds.map((id) => nodeById.get(id)?.title ?? "unknown task");
+					const createdLabels = await artifactLabelsById([...run.created.docs, ...run.created.rules]);
 					return text([
 						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs.`,
 						`Ready roots: ${rootLabels.join(", ") || "none"}.`,
-						`Context docs: ${run.created.docs.join(", ") || "none"}.`,
-						`Scoped rules: ${run.created.rules.join(", ") || "none"}.`,
+						`Context docs: ${run.created.docs.map((id) => createdLabels.get(id) ?? "unknown document").join(", ") || "none"}.`,
+						`Scoped rules: ${run.created.rules.map((id) => createdLabels.get(id) ?? "unknown rule").join(", ") || "none"}.`,
 						...(execution ? ["Execution:", execution] : []),
 					].join("\n"), createInvocationDetails("skills.run", run.runId, {
 						tasks: run.created.tasks,

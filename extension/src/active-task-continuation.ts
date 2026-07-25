@@ -43,7 +43,7 @@ function continuationPrompt(task: ActiveTaskMarker): string {
 		"Reconcile its lifecycle, take the next concrete action, use tools, submit it for review when implementation effort is ready, and run gates plus checklist review before completion.",
 		"Do not shrink the task's scope to whatever fits in this turn, and do not treat a status update or summary as a substitute for doing the work or as proof of completion.",
 		"If something blocks progress, do not reject or pause on the first obstacle -- only after it genuinely recurs, and only when the task truly cannot proceed without external input.",
-		`Active task: ${task.id}: ${task.title.slice(0, TITLE_LIMIT)}`,
+		`Active task: ${task.title.slice(0, TITLE_LIMIT)}`,
 	].join("\n");
 }
 

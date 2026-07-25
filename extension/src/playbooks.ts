@@ -86,12 +86,12 @@ export async function showPlaybooks(ctx: ExtensionCommandContext): Promise<void>
 				const relation = await commandCtx.ui.select("Relation", PLAYBOOK_RELATIONS);
 				if (!relation) return;
 				await callService("graph.link", { from: playbook.id, relation, to: targetId });
-				commandCtx.ui.notify(`Linked ${playbook.id} --${relation}--> ${targetId}`, "info");
+				commandCtx.ui.notify(`Linked "${playbook.title}" via ${relation}`, "info");
 				return;
 			}
 			const operation = choice === "Disable" ? "playbooks.disable" : "playbooks.enable";
 			const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: playbook.id });
-			commandCtx.ui.notify(`${updated.id} \u2192 [${updated.status}]`, "info");
+			commandCtx.ui.notify(`${updated.title} \u2192 [${updated.status}]`, "info");
 		},
 	});
 }

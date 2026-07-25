@@ -34,6 +34,7 @@ describe("task context reconciliation", () => {
 
 		const context = taskContext(artifacts)!;
 		expect(context).toContain("Current: Ship task frontend");
+		expect(context).not.toContain(active.id);
 		expect(context).toContain("Desired: Users can manage tasks interactively.");
 		expect(context).toContain("Verify: command: bun test = 0 fail");
 		expect(context).toContain("Next: Document task workflow");
@@ -54,6 +55,7 @@ describe("task context reconciliation", () => {
 
 		const context = taskContext(artifacts)!;
 		expect(context).toContain("Rejected: Repair release");
+		expect(context).not.toContain(rejected.id);
 		expect(context).toContain("0/1 done");
 		db.close();
 	});
@@ -78,6 +80,8 @@ describe("task context reconciliation", () => {
 		expect(context).toContain("Deferred discussions blocking this scope");
 		expect(context).toContain("Which rollout strategy?");
 		expect(context).toContain("Ship the release");
+		expect(context).not.toContain(discussion.id);
+		expect(context).not.toContain(task.id);
 	});
 
 	it("omits a deferred Discussion blocking a task outside the current scope", () => {

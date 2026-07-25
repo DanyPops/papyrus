@@ -47,6 +47,27 @@ function text(value: string, details: unknown = {}) {
 	return { content: [{ type: "text" as const, text: modelContent.text }], details };
 }
 
+function artifactTextLabel(artifact: Artifact): string {
+	return `[${artifact.kind}|${artifact.status}] ${artifact.title}`;
+}
+
+function artifactTextLines(artifacts: readonly Artifact[]): string[] {
+	const titleCounts = new Map<string, number>();
+	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
+	return artifacts.map((artifact) => titleCounts.get(artifact.title)! > 1
+		? `${artifactTextLabel(artifact)} (${artifact.id})`
+		: artifactTextLabel(artifact));
+}
+
+/** Resolves graph protocol ids into model-facing names; equal titles retain ids only to disambiguate. */
+async function artifactNamesById(ids: readonly string[]): Promise<Map<string, string>> {
+	const uniqueIds = [...new Set(ids)];
+	const artifacts = (await Promise.all(uniqueIds.map((id) => callService<Record<string, unknown>, Artifact | null>("artifact.show", { id })))).filter((artifact): artifact is Artifact => artifact !== null);
+	const titleCounts = new Map<string, number>();
+	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
+	return new Map(artifacts.map((artifact) => [artifact.id, titleCounts.get(artifact.title)! > 1 ? `${artifact.title} (${artifact.id})` : artifact.title]));
+}
+
 // ---------------------------------------------------------------------------
 // Task widget (TodoOverlay pattern from rpiv-todo: factory form, requestRender)
 // ---------------------------------------------------------------------------
@@ -272,7 +293,7 @@ export default async function (pi: ExtensionAPI) {
 					...params,
 					...(params.kind === "task" ? { project_root: params.project_root ?? ctx.cwd } : {}),
 				});
-				return text(`Created ${a.id} [${a.kind}|${a.status}] ${a.title}`, createArtifactDetails("artifact.create", a));
+				return text(`Created ${artifactTextLabel(a)}`, createArtifactDetails("artifact.create", a));
 			} catch (e) {
 				throw new Error(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
 			}
@@ -295,7 +316,7 @@ export default async function (pi: ExtensionAPI) {
 			try {
 				const rows = await callService<Record<string, unknown>, Artifact[]>("artifact.query", { ...params, limit: params.limit ?? 50 });
 				if (rows.length === 0) return text("No artifacts found.", createArtifactListDetails("artifact.query", rows));
-				const lines = rows.map((row, index) => `${index + 1}. ${row.id} [${row.kind}|${row.status}] ${row.title}`);
+				const lines = artifactTextLines(rows).map((line, index) => `${index + 1}. ${line}`);
 				return text(`${rows.length} artifact(s):\n\n${lines.join("\n")}`, createArtifactListDetails("artifact.query", rows));
 			} catch (e) {
 				throw new Error(`papyrus_query failed: ${e instanceof Error ? e.message : e}`);
@@ -332,12 +353,15 @@ export default async function (pi: ExtensionAPI) {
 			try {
 				if (params.action === "link") {
 					await callService("graph.link", { from: params.from!, relation: params.relation!, to: params.to! });
-					const output = `Linked ${params.from} --${params.relation}--> ${params.to}`;
+					const names = await artifactNamesById([params.from!, params.to!]);
+					const output = `Linked "${names.get(params.from!) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to!) ?? "unknown artifact"}"`;
 					return text(output, createPreviewDetails("graph.link", "Artifact relationship", output));
 				}
 				if (params.action === "unlink") {
 					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: params.from!, relation: params.relation!, to: params.to! });
-					const output = result.removed ? `Unlinked ${params.from} --${params.relation}--> ${params.to}` : `No such relationship: ${params.from} --${params.relation}--> ${params.to}`;
+					const names = await artifactNamesById([params.from!, params.to!]);
+					const relationship = `"${names.get(params.from!) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to!) ?? "unknown artifact"}"`;
+					const output = result.removed ? `Unlinked ${relationship}` : `No such relationship: ${relationship}`;
 					return text(output, createPreviewDetails("graph.unlink", "Artifact relationship", output));
 				}
 				if (params.action === "tree") {
@@ -351,22 +375,25 @@ export default async function (pi: ExtensionAPI) {
 					if (!a) throw new Error(`artifact ${root} not found`);
 					const edges = a.edges ?? [];
 					if (edges.length === 0) return text(`${a.title} — no edges`, createGraphDetails("graph.tree", [a], []));
+					const names = await artifactNamesById(edges.flatMap((edge) => [edge.from, edge.to]));
 					return text(
-						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((edge: any) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`,
+						`Subgraph from ${a.title} (${edges.length} edges):\n\n${edges.map((edge) => `  "${names.get(edge.from) ?? "unknown artifact"}" --${edge.relation}--> "${names.get(edge.to) ?? "unknown artifact"}"`).join("\n")}`,
 						createGraphDetails("graph.tree", [a], edges),
 					);
 				}
 				if (params.action === "status") {
 					const a = await callService<Record<string, unknown>, Artifact | null>("graph.status", { id: params.id!, status: params.status! });
 					if (!a) throw new Error(`artifact ${params.id} not found`);
-					return text(`Updated ${a.id} → [${a.status}]`, createArtifactDetails("graph.status", a));
+					return text(`Updated "${a.title}" → [${a.status}]`, createArtifactDetails("graph.status", a));
 				}
 				if (params.action === "history") {
 					const page = await callService<Record<string, unknown>, { events: Array<Record<string, unknown>> }>("graph.history", {
 						id: params.id, actor: params.actor, session_id: params.session_id, since: params.since, limit: params.limit,
 					});
 					if (page.events.length === 0) return text("No recorded events.", createPreviewDetails("graph.history", "Mutation event log", "No recorded events."));
-					const output = page.events.map((event) => `${event["occurredAt"]} ${event["artifactId"]} ${event["type"]} · ${event["actor"]}/${event["source"]}`).join("\n");
+					const eventIds = page.events.map((event) => event["artifactId"]).filter((id): id is string => typeof id === "string");
+					const names = await artifactNamesById(eventIds);
+					const output = page.events.map((event) => `${event["occurredAt"]} "${typeof event["artifactId"] === "string" ? names.get(event["artifactId"]) ?? "unknown artifact" : "unknown artifact"}" ${event["type"]} · ${event["actor"]}/${event["source"]}`).join("\n");
 					return text(output, createPreviewDetails("graph.history", "Mutation event log", output));
 				}
 				throw new Error(`unknown action: ${params.action}; use link, tree, status, or history`);
@@ -397,12 +424,13 @@ export default async function (pi: ExtensionAPI) {
 					max_nodes: params.max_nodes,
 				});
 				if (!a) throw new Error(`artifact ${params.id} not found`);
-				let out = `${a.id} [${a.kind}|${a.status}]\n${a.title}\n\n${a.body}`;
+				let out = `${artifactTextLabel(a)}\n\n${a.body}`;
 				if (Object.keys(a.extra).length > 0) {
 					out += `\n\nMetadata:\n${formatMetadata(a.extra).map((line) => `  ${line}`).join("\n")}`;
 				}
 				if (a.edges?.length) {
-					out += `\n\nEdges:\n${a.edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
+					const names = await artifactNamesById(a.edges.flatMap((edge) => [edge.from, edge.to]));
+					out += `\n\nEdges:\n${a.edges.map((edge) => `  "${names.get(edge.from) ?? "unknown artifact"}" --${edge.relation}--> "${names.get(edge.to) ?? "unknown artifact"}"`).join("\n")}`;
 				}
 				if (params.run_gates) {
 					const results = await callService<Record<string, unknown>, GateResult[]>("gates.run", { id: params.id });

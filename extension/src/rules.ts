@@ -44,7 +44,7 @@ export async function showRules(ctx: ExtensionCommandContext): Promise<void> {
 			} else {
 				const operation = choice === "Disable" ? "rules.disable" : "rules.enable";
 				const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: rule.id });
-				commandCtx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
+				commandCtx.ui.notify(`${updated.title} → [${updated.status}]`, "info");
 			}
 		},
 	});

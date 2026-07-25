@@ -201,7 +201,8 @@ describe("kind-specific frontend projections (continued)", () => {
 	it("identifies artifact templates in the skills browser", () => {
 		const template = artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "task" } });
 		expect(skillRowMeta(template)).toBe("template → task");
-		expect(skillInvocationPrompt(template)).toContain("template_id: artifact-1");
+		expect(skillInvocationPrompt(template)).toContain("template_name: Architecture");
+		expect(skillInvocationPrompt(template)).not.toContain(template.id);
 	});
 });
 

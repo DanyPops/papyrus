@@ -85,7 +85,7 @@ export class ArtifactCard implements Component {
 		const status = `${statusGlyph(artifact.status)} ${artifact.status}`;
 		const header = [
 			this.theme.fg("toolTitle", this.theme.bold(`${kindGlyph(artifact.kind)} ${artifact.kind.toUpperCase()}`)),
-			this.theme.fg("accent", artifact.id),
+			...(this.expanded ? [this.theme.fg("accent", artifact.id)] : []),
 			this.theme.fg(statusColor(artifact.status), status),
 		].join("  ");
 		const lines = [truncateToWidth(header, safeWidth)];

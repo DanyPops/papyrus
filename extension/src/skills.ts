@@ -32,11 +32,11 @@ export function skillRowMeta(skill: Artifact): string {
 
 export function skillInvocationPrompt(skill: Artifact): string {
 	if (skill.subtype === "artifact-template") {
-		return [`Create an artifact using Papyrus template \"${skill.title}\".`, `template_id: ${skill.id}`, "Ask for or infer the title and all required template fields, then call papyrus_create."].join("\n");
+		return [`Create an artifact using Papyrus template \"${skill.title}\".`, `template_name: ${skill.title}`, "Ask for or infer the title and all required template fields, then call the skills domain tool with action=instantiate."].join("\n");
 	}
 	if (skill.subtype === "workflow") {
 		return [
-			`Run Papyrus workflow Skill \"${skill.title}\" (${skill.id}).`,
+			`Run Papyrus workflow Skill \"${skill.title}\".`,
 			"Collect its required arguments, then call the skills domain tool with action=run.",
 		].join("\n");
 	}
@@ -44,7 +44,7 @@ export function skillInvocationPrompt(skill: Artifact): string {
 	const steps = strings(skill.extra["steps"]);
 	const tools = strings(skill.extra["tools"]);
 	return [
-		`Apply Papyrus skill \"${skill.title}\" (${skill.id}).`,
+		`Apply Papyrus skill \"${skill.title}\".`,
 		`Trigger: ${trigger}`,
 		...(skill.body ? [`Context: ${skill.body}`] : []),
 		...(steps.length > 0 ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
@@ -120,7 +120,7 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 			} else {
 				const operation = choice === "Disable" ? "skills.disable" : "skills.enable";
 				const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: skill.id });
-				commandCtx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
+				commandCtx.ui.notify(`${updated.title} → [${updated.status}]`, "info");
 			}
 		},
 	});

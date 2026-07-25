@@ -45,13 +45,13 @@ export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
 				const relation = await commandCtx.ui.select("Relation", DOC_RELATIONS);
 				if (!relation) return;
 				await callService("docs.link", { id: document.id, relation, target_id: targetId });
-				commandCtx.ui.notify(`Linked ${document.id} --${relation}--> ${targetId}`, "info");
+				commandCtx.ui.notify(`Linked "${document.title}" via ${relation}`, "info");
 				return;
 			}
 			const operation = choice === "Activate" ? "docs.activate" : choice === "Archive" ? "docs.archive" : choice === "Reopen" ? "docs.reopen" : undefined;
 			if (operation) {
 				const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: document.id });
-				commandCtx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
+				commandCtx.ui.notify(`${updated.title} → [${updated.status}]`, "info");
 			}
 		},
 	});

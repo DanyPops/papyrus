@@ -78,7 +78,7 @@ export async function showArtifactDetails(
 			depth: DETAIL_GRAPH_DEPTH,
 			max_nodes: DETAIL_GRAPH_NODES,
 		});
-		if (!artifact) { ctx.ui.notify(`Artifact ${id} not found`, "error"); return; }
+		if (!artifact) { ctx.ui.notify("Artifact not found", "error"); return; }
 		await showArtifactDetailView(ctx, artifact);
 	} catch (error) {
 		ctx.ui.notify(`Show details failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -92,7 +92,7 @@ export async function linkFromArtifact(ctx: ExtensionCommandContext, fromId: str
 	if (!relation) return;
 	try {
 		await callService("graph.link", { from: fromId, relation, to: target });
-		ctx.ui.notify(`Linked ${fromId} --${relation}--> ${target}`, "info");
+		ctx.ui.notify(`Artifacts linked via ${relation}`, "info");
 	} catch (error) {
 		ctx.ui.notify(`Link failed: ${error instanceof Error ? error.message : error}`, "error");
 	}
@@ -101,8 +101,8 @@ export async function linkFromArtifact(ctx: ExtensionCommandContext, fromId: str
 export async function setArtifactStatus(ctx: ExtensionCommandContext, id: string, status: string): Promise<void> {
 	try {
 		const artifact = await callService<Record<string, unknown>, Artifact | null>("graph.status", { id, status });
-		if (!artifact) { ctx.ui.notify(`Artifact ${id} not found`, "error"); return; }
-		ctx.ui.notify(`${artifact.id} → [${artifact.status}]`, "info");
+		if (!artifact) { ctx.ui.notify("Artifact not found", "error"); return; }
+		ctx.ui.notify(`${artifact.title} → [${artifact.status}]`, "info");
 	} catch (error) {
 		ctx.ui.notify(`Status change failed: ${error instanceof Error ? error.message : error}`, "error");
 	}

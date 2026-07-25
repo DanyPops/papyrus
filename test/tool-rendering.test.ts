@@ -104,6 +104,14 @@ describe("Papyrus native tool rendering", () => {
 		expect(transitionOutput).not.toContain(transition.artifact.id);
 	});
 
+	it("keeps ids out of collapsed output and reveals them only when explicitly expanded", () => {
+		const details = createArtifactDetails("tasks.show", artifact());
+		const collapsed = renderPapyrusToolResult(result(details), { expanded: false, isPartial: false }, theme, context());
+		expect(collapsed.render(80).join("\n")).not.toContain(details.artifact.id);
+		const expanded = renderPapyrusToolResult(result(details), { expanded: true, isPartial: false }, theme, context(collapsed));
+		expect(expanded.render(80).join("\n")).toContain(details.artifact.id);
+	});
+
 	it("reuses artifact components and falls back safely for legacy details", () => {
 		const first = renderPapyrusToolResult(result(createArtifactDetails("tasks.show", artifact())), { expanded: false, isPartial: false }, theme, context());
 		const second = renderPapyrusToolResult(result(createArtifactDetails("tasks.show", artifact())), { expanded: true, isPartial: false }, theme, context(first));

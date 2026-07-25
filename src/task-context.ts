@@ -29,7 +29,7 @@ function renderCurrent(task: Artifact): string[] {
 	const desired = task.body.trim() || task.title;
 	const gates = gatesFrom(task);
 	return [
-		`Current: ${task.title} (${task.id})`,
+		`Current: ${task.title}`,
 		`Desired: ${desired}`,
 		`Verify: ${gates.length > 0 ? gates.map(renderGate).join("; ") : "inspect the desired outcome; no automated gates configured"}`,
 	];
@@ -56,7 +56,7 @@ function deferredBlockingDiscussions(artifacts: ArtifactStore, activeTaskId: str
 			if (!inScope(edge.to, activeTaskId, taskIds)) continue;
 			const blockedTask = artifacts.get(edge.to);
 			if (!blockedTask || blockedTask.status === "done" || blockedTask.status === "canceled") continue;
-			lines.push(`${discussion.title} (${discussion.id}) -- blocks "${blockedTask.title}"`);
+			lines.push(`${discussion.title} -- blocks "${blockedTask.title}"`);
 		}
 	}
 	return lines;
@@ -77,8 +77,8 @@ export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, tas
 	const rejected = open.filter((task) => task.status === "rejected").slice(0, TASK_CONTEXT_REJECTED_LIMIT);
 	const lines = tasks.length > 0 ? [`Progress: ${done}/${tasks.length} done`] : [];
 	for (const task of current) lines.push(...renderCurrent(task));
-	if (next) lines.push(`Next: ${next.title} (${next.id})`);
-	if (rejected.length > 0) lines.push(`Rejected: ${rejected.map((task) => `${task.title} (${task.id})`).join(", ")}`);
+	if (next) lines.push(`Next: ${next.title}`);
+	if (rejected.length > 0) lines.push(`Rejected: ${rejected.map((task) => task.title).join(", ")}`);
 	if (deferredDiscussions.length > 0) {
 		lines.push("", "Deferred discussions blocking this scope -- resume and re-surface these, do not leave them dormant:");
 		for (const line of deferredDiscussions) lines.push(`• ${line}`);

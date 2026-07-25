@@ -443,7 +443,7 @@ export function updateSkill(artifacts: ArtifactStore, id: string, input: UpdateS
 
 function skillInvocationBody(skill: Artifact): string {
 	if (skill.subtype === "artifact-template") {
-		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_id: ${skill.id}\nAsk for or infer all required template fields, then call the skills domain tool instantiate action.`;
+		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_name: ${skill.title}\nAsk for or infer all required template fields, then call the skills domain tool instantiate action.`;
 	}
 	if (skill.subtype === "workflow") {
 		const definition = validateSkillDefinition(skill.extra["definition"]);
@@ -451,7 +451,7 @@ function skillInvocationBody(skill: Artifact): string {
 			.filter(([, input]) => input.required && input.default === undefined)
 			.map(([name]) => name);
 		return [
-			`Run Papyrus workflow Skill "${skill.title}" (${skill.id}).`,
+			`Run Papyrus workflow Skill "${skill.title}".`,
 			`Required arguments: ${required.length > 0 ? required.join(", ") : "none"}.`,
 			"Call the skills domain tool with action=run and arguments after collecting required values.",
 		].join("\n");
@@ -460,7 +460,7 @@ function skillInvocationBody(skill: Artifact): string {
 	const steps = Array.isArray(skill.extra["steps"]) ? skill.extra["steps"].filter((step): step is string => typeof step === "string") : [];
 	const tools = Array.isArray(skill.extra["tools"]) ? skill.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
 	return [
-		`Apply Papyrus skill "${skill.title}" (${skill.id}).`,
+		`Apply Papyrus skill "${skill.title}".`,
 		`Trigger: ${trigger}`,
 		...(skill.body ? [`Context: ${skill.body}`] : []),
 		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
@@ -492,16 +492,16 @@ export function skillInvocation(artifacts: ArtifactStore, id: string, visited: S
 		const target = artifacts.get(edge.to);
 		if (!target) continue; // dangling edge -- defensive, should not happen
 		if (target.kind !== "skill") {
-			linkedArtifactLines.push(`- ${edge.relation} ${target.kind} "${target.title}" (${target.id})`);
+			linkedArtifactLines.push(`- ${edge.relation} ${target.kind} "${target.title}"`);
 			continue;
 		}
 		if (visited.has(target.id)) {
-			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" (${target.id}) -- already invoked above in this chain, not repeated.`);
+			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" -- already invoked above in this chain, not repeated.`);
 		} else if (depth + 1 > SKILL_INVOCATION_MAX_CALL_DEPTH) {
-			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" (${target.id}) -- call depth limit reached, invoke it separately.`);
+			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" -- call depth limit reached, invoke it separately.`);
 		} else {
 			const nested = skillInvocation(artifacts, target.id, visited, depth + 1);
-			linkedSkillSections.push(`Also invoke linked skill (${edge.relation}) "${target.title}" (${target.id}):\n${nested}`);
+			linkedSkillSections.push(`Also invoke linked skill (${edge.relation}) "${target.title}":\n${nested}`);
 		}
 	}
 	if (linkedArtifactLines.length > 0) {
@@ -647,7 +647,7 @@ export function playbookInvocation(artifacts: ArtifactStore, id: string, provide
 	});
 	const missingRequired = declaredArguments.filter((argument) => argument.required && provided[argument.name] === undefined);
 	const sections = [[
-		`Apply Papyrus playbook "${playbook.title}" (${playbook.id}).`,
+		`Apply Papyrus playbook "${playbook.title}".`,
 		`Trigger: ${trigger}`,
 		...(playbook.body ? [`Context: ${playbook.body}`] : []),
 		...(argumentLines.length > 0 ? ["Arguments:", ...argumentLines] : []),
@@ -659,7 +659,7 @@ export function playbookInvocation(artifacts: ArtifactStore, id: string, provide
 	].join("\n")];
 	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
 	const linkedLines = edges
-		.map((edge) => { const target = artifacts.get(edge.to); return target ? `- ${edge.relation} ${target.kind} "${target.title}" (${target.id})` : undefined; })
+		.map((edge) => { const target = artifacts.get(edge.to); return target ? `- ${edge.relation} ${target.kind} "${target.title}"` : undefined; })
 		.filter((line): line is string => line !== undefined);
 	if (linkedLines.length > 0) sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedLines].join("\n"));
 	return sections.join("\n\n");

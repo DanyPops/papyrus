@@ -13,6 +13,7 @@ describe("Papyrus active task continuation", () => {
 		const continuation = driver.evaluate(active(), { idle: true, pendingMessages: false });
 		expect(continuation.action).toBe("continue");
 		expect(continuation.prompt).toContain("Implement workflow");
+		expect(continuation.prompt).not.toContain(active().id);
 		// Codex goal-mode-informed additions: don't shrink scope to fit the turn, and don't
 		// treat the first obstacle as grounds to reject/pause.
 		expect(continuation.prompt).toContain("Do not shrink the task's scope to whatever fits in this turn");

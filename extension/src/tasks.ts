@@ -32,6 +32,12 @@ const STATUS_ACTIONS: Record<string, string[]> = {
 
 type TaskRow = Artifact;
 
+function taskChoiceLabels(tasks: readonly Artifact[]): string[] {
+	const titleCounts = new Map<string, number>();
+	for (const task of tasks) titleCounts.set(task.title, (titleCounts.get(task.title) ?? 0) + 1);
+	return tasks.map((task) => titleCounts.get(task.title)! > 1 ? `${task.title} (${task.id})` : task.title);
+}
+
 export interface TaskHierarchyRow {
 	task: TaskRow;
 	depth: number;
@@ -101,9 +107,10 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			if (scope === "graph") {
 				const projectGraph = await loadTaskGraph(ctx.cwd, sessionId, "project");
 				const roots = projectGraph.rootIds.map((id) => projectGraph.nodes.find((node) => node.task.id === id)?.task).filter((task): task is Artifact => task !== undefined);
-				const selected = await ctx.ui.select("Focused root or epic", roots.map((task) => `${task.title} · ${task.id}`));
+				const rootLabels = taskChoiceLabels(roots);
+				const selected = await ctx.ui.select("Focused root or epic", rootLabels);
 				if (!selected) continue;
-				rootTaskId = roots.find((task) => `${task.title} · ${task.id}` === selected)?.id;
+				rootTaskId = roots[rootLabels.indexOf(selected)]?.id;
 				if (!rootTaskId) continue;
 			}
 			await callService("tasks.set_scope", { project_root: ctx.cwd, scope, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) });
@@ -131,17 +138,20 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 
 		if (choice === "Remove dependency" || choice === "Remove from parent") {
 			const relatedIds = choice === "Remove dependency" ? node!.dependencyIds : node!.parentIds;
-			const relatedTitles = relatedIds.map((relatedId) => `${graph.nodes.find((entry) => entry.task.id === relatedId)?.task.title ?? relatedId} · ${relatedId}`);
+			const relatedTasks = relatedIds.map((relatedId) => graph.nodes.find((entry) => entry.task.id === relatedId)?.task).filter((task): task is Artifact => task !== undefined);
+			const relatedTitles = taskChoiceLabels(relatedTasks);
 			const selected = await ctx.ui.select(choice === "Remove dependency" ? "Remove which dependency?" : "Remove from which parent?", relatedTitles);
 			if (!selected) continue;
-			const relatedId = relatedIds[relatedTitles.indexOf(selected)]!;
+			const relatedTask = relatedTasks[relatedTitles.indexOf(selected)];
+			if (!relatedTask) continue;
+			const relatedId = relatedTask.id;
 			try {
 				if (choice === "Remove dependency") {
 					await callService("tasks.undepend", { id: action.row.id, dependency_id: relatedId, actor: "user", source: "tasks-tui", session_id: sessionId });
-					ctx.ui.notify(`Removed dependency on ${relatedId}`, "info");
+					ctx.ui.notify(`Removed dependency on ${relatedTask.title}`, "info");
 				} else {
 					await callService("tasks.uncontain", { parent_id: relatedId, child_id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
-					ctx.ui.notify(`Removed from parent ${relatedId}`, "info");
+					ctx.ui.notify(`Removed from parent ${relatedTask.title}`, "info");
 				}
 			} catch (error) {
 				ctx.ui.notify(`Relationship removal failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -222,19 +232,20 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}`).join("\n");
 					const focused = result.focused ? `\nActive: ${result.focused.title}` : "";
+					const taskById = new Map(graph.nodes.map((entry) => [entry.task.id, entry.task]));
 					const blocked = result.blocked.length > 0
-						? `\nWaiting: ${result.blocked.map((entry) => `${entry.artifact.title} needs ${entry.dependencyIds.join(", ")}`).join("; ")}`
+						? `\nWaiting: ${result.blocked.map((entry) => `${entry.artifact.title} needs ${entry.dependencyIds.map((id) => taskById.get(id)?.title ?? "unknown task").join(", ")}`).join("; ")}`
 						: "";
 					ctx.ui.notify(
 						result.completed
-							? `Completed ${result.artifact.id}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`
+							? `Completed ${result.artifact.title}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`
 							: `Review rejected${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`,
 						result.completed ? "info" : "warning",
 					);
 				} else {
 					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
 					action.row.status = updated.status;
-					ctx.ui.notify(`${updated.id} → [${updated.status}]`, "info");
+					ctx.ui.notify(`${updated.title} → [${updated.status}]`, "info");
 				}
 			} catch (error) {
 				ctx.ui.notify(`Task action failed: ${error instanceof Error ? error.message : error}`, "error");

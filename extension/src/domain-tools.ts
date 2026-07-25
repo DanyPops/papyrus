@@ -9,7 +9,7 @@ import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
 import { readDiscussionExtra, type DiscussionRound } from "../../src/domain/discussion.ts";
-import { pickDiscussionOptions } from "./discussion-picker.ts";
+import { askQuestion } from "./discuss-ask-view.ts";
 import type { OperationName } from "../../src/service.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { sessionSecretField } from "./session-identity.ts";
@@ -32,23 +32,25 @@ function text(message: string, details: unknown = {}) {
 }
 
 /**
- * live:true's synchronous half: renders the same picker /discuss's own "Reply" action uses when
- * the just-created round posed a structured choice, or a plain freeform prompt otherwise -- so
- * "ask" covers both a completely open question and a choice tied to this specific Discussion.
- * Returns undefined on cancel or when no interactive UI is available, never throws -- an
- * unanswered live prompt still leaves the round it already recorded intact.
+ * live:true's synchronous half: reuses the same Discuss-owned ask UI (discuss-ask-view.ts) the
+ * /discuss TUI's own "Reply" action uses when the just-created round posed a structured choice,
+ * or a plain freeform prompt otherwise -- so "ask" covers both a completely open question and a
+ * choice tied to this specific Discussion. Returns undefined on cancel or when no interactive UI
+ * is available, never throws -- an unanswered live prompt still leaves the round it already
+ * recorded intact.
  */
 async function liveAnswer(ctx: ExtensionContext, discussion: Artifact): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
+	const question = `Reply to "${discussion.title}":`;
 	if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
-		const result = await pickDiscussionOptions(ctx, pending.pendingOptionsMode, pending.pendingOptions);
-		if (!result) return undefined;
-		if (result.kind === "freeform") return { content: result.text };
-		return { content: result.selected.join(", "), selected: result.selected };
+		return askQuestion(ctx, {
+			question,
+			options: pending.pendingOptions.map((title) => ({ title })),
+			allowMultiple: pending.pendingOptionsMode === "multi",
+		});
 	}
-	const content = await ctx.ui.input(`Reply to "${discussion.title}":`, "");
-	return content ? { content } : undefined;
+	return askQuestion(ctx, { question });
 }
 
 /**

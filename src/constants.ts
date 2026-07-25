@@ -175,9 +175,6 @@ export const DISCUSSION_ACTOR_MAX_LENGTH = 128;
 export const DISCUSSION_OPTIONS_MIN_COUNT = 2;
 export const DISCUSSION_OPTIONS_MAX_COUNT = 10;
 export const DISCUSSION_OPTION_MAX_LENGTH = 200;
-/** The multi-select picker's idle auto-cancel countdown and its render tick (also drives the cursor-row blink). Single-select has no equivalent -- it delegates to Pi's own native ctx.ui.select, whose input loop this package does not control. */
-export const DISCUSSION_PICKER_IDLE_TIMEOUT_MS = 30_000;
-export const DISCUSSION_PICKER_TICK_MS = 500;
 /** Bounds for the generic graph projection protocol (external bounded contexts). */
 export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
 export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;

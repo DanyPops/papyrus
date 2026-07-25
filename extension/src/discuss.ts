@@ -16,10 +16,10 @@ import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-a
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
 import { readDiscussionExtra } from "../../src/domain/discussion.ts";
+import { askQuestion } from "./discuss-ask-view.ts";
 import { showArtifactBrowser } from "./artifact-browser.ts";
 import { DISCUSSION_STATE_PRESENTATION, DOC_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { discussionRoundCountOf, discussionStateOf, showDiscussionDetailView } from "./discussion-detail-view.ts";
-import { pickDiscussionOptions } from "./discussion-picker.ts";
 import { callService } from "./service-client.ts";
 
 const SOURCE = "discuss-tui";
@@ -82,25 +82,13 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 			}
 			if (choice === "Reply") {
 				const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
-				if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
-					const result = await pickDiscussionOptions(commandCtx, pending.pendingOptionsMode, pending.pendingOptions);
-					if (!result) return; // canceled
-					if (result.kind === "freeform") {
-						await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: result.text, source: SOURCE });
-						commandCtx.ui.notify("Reply added.", "info");
-						return;
-					}
-					const { selected } = result;
-					const elaboration = await commandCtx.ui.input("Elaborate (optional):", selected.join(", "));
-					if (elaboration === undefined) return; // canceled
-					await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: elaboration || selected.join(", "), selected, source: SOURCE });
-					commandCtx.ui.notify(`Selected: ${selected.join(", ")}`, "info");
-					return;
-				}
-				const content = await commandCtx.ui.input("Reply:", "");
-				if (!content) return;
-				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content, source: SOURCE });
-				commandCtx.ui.notify("Round added.", "info");
+				const question = `Reply to "${discussion.title}":`;
+				const answer = pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
+					? await askQuestion(commandCtx, { question, options: pending.pendingOptions.map((title) => ({ title })), allowMultiple: pending.pendingOptionsMode === "multi" })
+					: await askQuestion(commandCtx, { question });
+				if (!answer) return; // canceled
+				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: SOURCE });
+				commandCtx.ui.notify(answer.selected ? `Selected: ${answer.selected.join(", ")}` : "Reply added.", "info");
 				return;
 			}
 			if (choice === "Defer") {

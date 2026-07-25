@@ -35,6 +35,19 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { renderSingleSelectRows, type AskOption } from "./discuss-ask-layout.ts";
+import { callService } from "./service-client.ts";
+
+/** Temporary RCA instrumentation for the live-observed duplicate-picker defect. Fire-and-forget: never lets a logging failure affect the actual ask. Remove once root-caused. */
+const DIAG_SOURCE = "papyrus-discuss-ask-diag";
+function diag(message: string, fields?: Record<string, unknown>): void {
+	void callService("logs.append", {
+		source_id: DIAG_SOURCE,
+		source_label: "Discuss live-ask RCA",
+		level: "info",
+		message,
+		...(fields ? { fields } : {}),
+	}).catch(() => {});
+}
 
 /** See pi-ask-user's identical safeMarkdownTheme() comment: a broken theme Proxy throws only on
  * property access, not construction, so a bare try/catch around getMarkdownTheme() alone would
@@ -1066,7 +1079,9 @@ async function askViaDialogs(
 
 	const selectOptions = options.map((o) => o.title);
 	if (allowFreeform) selectOptions.push(FREEFORM_SENTINEL);
+	diag("askViaDialogs: calling ui.select", { dialogOpts: dialogOpts === undefined ? null : JSON.stringify(dialogOpts), promptPreview: prompt.slice(0, 80) });
 	const selected = (await ui.select(prompt, selectOptions, dialogOpts)) as string | undefined;
+	diag("askViaDialogs: ui.select resolved", { selected: selected ?? null });
 	if (isCancelledInput(selected)) return null;
 
 	if (selected === FREEFORM_SENTINEL) {
@@ -1114,10 +1129,11 @@ const pendingByKey = new Map<string, Promise<AskAnswer | undefined>>();
  * contexts all resolve to undefined.
  */
 export async function askQuestion(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
+	diag("askQuestion() called", { question: params.question, key: params.key, hasUI: ctx.hasUI, mode: ctx.mode, optionCount: params.options?.length ?? 0, alreadyPendingForKey: params.key !== undefined && pendingByKey.has(params.key) });
 	if (!ctx.hasUI || !ctx.ui) return undefined;
 	if (params.key !== undefined) {
 		const existing = pendingByKey.get(params.key);
-		if (existing) return existing;
+		if (existing) { diag("joining an already in-flight ask for this key", { key: params.key }); return existing; }
 	}
 	const promise = askQuestionUnguarded(ctx, params);
 	if (params.key !== undefined) {
@@ -1193,8 +1209,12 @@ async function askQuestionBlocking(
 			});
 		}
 
+		diag("calling ctx.ui.custom()", { displayMode });
 		const customResult = await ctx.ui.custom<AskResponse | null>(factory, buildCustomUIOptions(displayMode, (handle) => { overlayHandle = handle; }));
+		diag("ctx.ui.custom() resolved", { wasUndefined: customResult === undefined, result: customResult === undefined ? undefined : JSON.stringify(customResult) });
+		if (customResult === undefined) diag("falling back to askViaDialogs -- about to call ctx.ui.select with dialogOpts", { explicitTimeout: params.timeout ?? null });
 		response = customResult !== undefined ? customResult : await askViaDialogs(ctx.ui, params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, params.timeout);
+		diag("askQuestionBlocking resolved", { response: response === null ? null : JSON.stringify(response) });
 	} finally {
 		removeOverlayInputListener?.();
 	}

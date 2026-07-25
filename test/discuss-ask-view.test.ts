@@ -233,4 +233,70 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		expect(rendered.length).toBeGreaterThan(0);
 		expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
 	});
+
+	/**
+	 * displayMode: "editor" hosts the picker via ctx.ui.setEditorComponent -- Pi's own
+	 * slash-command menu mechanism -- instead of a floating ctx.ui.custom() overlay.
+	 */
+	describe("displayMode: \"editor\" -- hosted in the real input editor, not a floating overlay", () => {
+		function editorCtx() {
+			const setCalls: Array<((...args: unknown[]) => unknown) | undefined> = [];
+			const previousFactory = () => "previous-editor-sentinel";
+			const ctx = {
+				cwd: "/tmp", hasUI: true,
+				ui: {
+					select: async () => { throw new Error("should not fall back to dialogs"); },
+					input: async () => { throw new Error("should not fall back to dialogs"); },
+					notify: () => {},
+					custom: async () => { throw new Error("editor mode must not use ctx.ui.custom()"); },
+					theme,
+					getEditorText: () => "human's in-progress draft",
+					getEditorComponent: () => previousFactory,
+					setEditorComponent: (factory: ((...args: unknown[]) => unknown) | undefined) => { setCalls.push(factory); },
+				} as any,
+			} as ExtensionContext;
+			return { ctx, setCalls, previousFactory };
+		}
+
+		it("never touches ctx.ui.custom() -- hosts the AskComponent via setEditorComponent instead", async () => {
+			const { ctx, setCalls } = editorCtx();
+			const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }], displayMode: "editor" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(setCalls).toHaveLength(1);
+			const host = (setCalls[0] as any)({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, keybindings);
+			host.handleInput(ENTER);
+			const answer = await promise;
+			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
+		});
+
+		it("restores the exact previous editor factory once answered, and the host's getText() always returns the preserved draft verbatim", async () => {
+			const { ctx, setCalls, previousFactory } = editorCtx();
+			const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], displayMode: "editor" });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			const host = (setCalls[0] as any)({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, keybindings);
+			// setEditorComponent's own swap logic reads getText() off the outgoing editor to carry a
+			// draft forward -- must never report anything but the human's real preserved text, even
+			// after setText() is called on it (Pi's swap machinery calls setText with the prior text
+			// when installing a NEW custom editor, not this one, but the contract must hold regardless).
+			host.setText("anything else");
+			expect(host.getText()).toBe("human's in-progress draft");
+			host.handleInput(ENTER);
+			await promise;
+			expect(setCalls).toHaveLength(2);
+			expect(setCalls[1]).toBe(previousFactory);
+		});
+
+		it("degrades to inline (ctx.ui.custom(), not setEditorComponent) when setEditorComponent isn't available in this UI mode", async () => {
+			const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+			const ctx = {
+				cwd: "/tmp", hasUI: true,
+				ui: {
+					select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
+					custom: async (factory: any) => new Promise((resolve) => { const component = factory(tui, theme, keybindings, resolve); component.handleInput(ENTER); }),
+				} as any,
+			} as ExtensionContext;
+			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], displayMode: "editor" });
+			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
+		});
+	});
 });

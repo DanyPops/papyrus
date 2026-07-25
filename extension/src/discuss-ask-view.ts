@@ -18,6 +18,7 @@ import {
 	CURSOR_MARKER,
 	decodeKittyPrintable,
 	Editor,
+	type EditorComponent,
 	type EditorTheme,
 	fuzzyFilter,
 	Key,
@@ -51,7 +52,7 @@ function safeMarkdownTheme(): MarkdownTheme | undefined {
 	}
 }
 
-export type AskDisplayMode = "overlay" | "inline";
+export type AskDisplayMode = "overlay" | "inline" | "editor";
 
 export interface AskQuestionParams {
 	question: string;
@@ -1142,7 +1143,7 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const allowFreeform = params.allowFreeform ?? true;
 	const allowComment = params.allowComment ?? parseBooleanPreference(process.env["PAPYRUS_DISCUSS_ALLOW_COMMENT"]) ?? false;
 	const envMode = process.env["PAPYRUS_DISCUSS_DISPLAY_MODE"]?.trim().toLowerCase();
-	const envDisplayMode: AskDisplayMode | undefined = envMode === "overlay" || envMode === "inline" ? envMode : undefined;
+	const envDisplayMode: AskDisplayMode | undefined = envMode === "overlay" || envMode === "inline" || envMode === "editor" ? envMode : undefined;
 	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
 
@@ -1153,6 +1154,63 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	} finally {
 		livePendingCount -= 1;
 	}
+}
+
+/**
+ * Hosts an AskComponent in place of the real input editor (ctx.ui.setEditorComponent), the same
+ * mechanism Pi's own slash-command menu ecosystem uses to render attached to the prompt rather
+ * than as a floating overlay. getText() always returns the human's real in-progress draft,
+ * captured once before swapping in -- setEditorComponent's own swap logic reads getText() off
+ * the OUTGOING editor to carry a draft forward when restoring the previous one afterward; if
+ * this returned anything else, restoring would silently overwrite a real draft with an empty
+ * string. Implements EditorComponent directly rather than extending CustomEditor: CustomEditor's
+ * duck-typed actionHandlers Map would otherwise get every app-level action (model switching,
+ * clear, suspend) copied onto it by Pi's own editor-swap code, none of which this host uses or
+ * forwards -- avoiding the inheritance sidesteps that dead weight entirely.
+ */
+class DiscussEditorHost implements EditorComponent {
+	constructor(
+		private readonly ask: AskComponent,
+		private readonly preservedText: string,
+	) {}
+	getText(): string { return this.preservedText; }
+	setText(_text: string): void {}
+	render(width: number): string[] { return this.ask.render(width); }
+	handleInput(data: string): void { this.ask.handleInput(data); }
+	invalidate(): void { this.ask.invalidate(); }
+}
+
+async function askViaEditorSwap(
+	ctx: ExtensionContext,
+	params: AskQuestionParams,
+	options: AskOption[],
+	allowMultiple: boolean,
+	allowFreeform: boolean,
+	allowComment: boolean,
+	normalizedContext: string | undefined,
+	shortcuts: ResolvedAskShortcuts,
+): Promise<AskResponse | null> {
+	const previousFactory = ctx.ui.getEditorComponent();
+	const preservedText = ctx.ui.getEditorText();
+	// setEditorComponent's factory only receives an EditorTheme (borderColor + selectList) --
+	// nowhere near AskComponent's actual dependency on the full Theme surface (.fg(), .bold(),
+	// etc). ctx.ui.theme is the real, rich Theme; captured here rather than from the factory.
+	const theme = ctx.ui.theme;
+	return new Promise<AskResponse | null>((resolve) => {
+		let settled = false;
+		const finish = (result: AskResponse | null) => {
+			if (settled) return;
+			settled = true;
+			ctx.ui.setEditorComponent(previousFactory);
+			resolve(result);
+		};
+		if (params.signal) params.signal.addEventListener("abort", () => finish(null), { once: true });
+		if (params.timeout && params.timeout > 0) setTimeout(() => finish(null), params.timeout);
+		ctx.ui.setEditorComponent((tui: TUI, _editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
+			const ask = new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, "inline", tui, theme, keybindings, shortcuts, finish);
+			return new DiscussEditorHost(ask, preservedText);
+		});
+	});
 }
 
 async function askQuestionBlocking(
@@ -1173,6 +1231,15 @@ async function askQuestionBlocking(
 		commentToggle: resolveShortcut(undefined, process.env["PAPYRUS_DISCUSS_COMMENT_TOGGLE_KEY"], DEFAULT_COMMENT_TOGGLE_KEY),
 	};
 
+	// "editor" hosts the picker in place of the real input editor (Pi's own slash-command menu's
+	// mechanism) instead of a floating overlay -- degrades to "inline" if setEditorComponent isn't
+	// available in this UI mode (interactive-only, like onTerminalInput below).
+	if (displayMode === "editor" && typeof ctx.ui.setEditorComponent === "function" && typeof ctx.ui.getEditorComponent === "function" && typeof ctx.ui.getEditorText === "function") {
+		const response = await askViaEditorSwap(ctx, params, options, allowMultiple, allowFreeform, allowComment, normalizedContext, shortcuts);
+		return response ? toAskAnswer(response) : undefined;
+	}
+	const effectiveDisplayMode: AskDisplayMode = displayMode === "editor" ? "inline" : displayMode;
+
 	let overlayHandle: OverlayHandle | undefined;
 	let removeOverlayInputListener: (() => void) | undefined;
 	let hasAnnouncedHide = false;
@@ -1181,7 +1248,7 @@ async function askQuestionBlocking(
 		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
 			if (params.signal) params.signal.addEventListener("abort", () => done(null), { once: true });
 			if (params.timeout && params.timeout > 0) setTimeout(() => done(null), params.timeout);
-			return new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);
+			return new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, effectiveDisplayMode, tui, theme, keybindings, shortcuts, done);
 		};
 
 		const overlayToggle = shortcuts.overlayToggle;
@@ -1195,7 +1262,7 @@ async function askQuestionBlocking(
 			});
 		}
 
-		const customResult = await ctx.ui.custom<AskResponse | null>(factory, buildCustomUIOptions(displayMode, (handle) => { overlayHandle = handle; }));
+		const customResult = await ctx.ui.custom<AskResponse | null>(factory, buildCustomUIOptions(effectiveDisplayMode, (handle) => { overlayHandle = handle; }));
 		response = customResult !== undefined ? customResult : await askViaDialogs(ctx.ui, params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, params.timeout);
 	} finally {
 		removeOverlayInputListener?.();

@@ -119,6 +119,68 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		expect(isLiveAskPending()).toBe(false);
 	});
 
+	/**
+	 * Regression coverage for a real live-observed bug that persisted even after the heartbeat and
+	 * isLiveAskPending fixes: whatever the exact external trigger, a second concurrent live ask for
+	 * the same Discussion must never open a second picker. Keying by the Discussion's id makes a
+	 * genuine duplicate call join the first's in-flight promise instead of starting a new one.
+	 */
+	it("a second concurrent call with the same key joins the first's in-flight picker instead of opening a second one", async () => {
+		let customCalls = 0;
+		let resolveFirst: ((value: unknown) => void) | undefined;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => { throw new Error("should not fall back to dialogs"); },
+				input: async () => { throw new Error("should not fall back to dialogs"); },
+				notify: () => {},
+				custom: (_factory: any) => { customCalls += 1; return new Promise((resolve) => { resolveFirst = resolve; }); },
+			} as any,
+		} as ExtensionContext;
+		const first = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }], key: "disc-1" });
+		const second = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }], key: "disc-1" });
+		expect(customCalls).toBe(1);
+		resolveFirst?.({ kind: "selection", selections: ["Ship Friday"] });
+		const [firstAnswer, secondAnswer] = await Promise.all([first, second]);
+		expect(firstAnswer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
+		expect(secondAnswer).toEqual(firstAnswer);
+		expect(customCalls).toBe(1);
+	});
+
+	it("different keys never join -- each gets its own independent picker", async () => {
+		let customCalls = 0;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => { throw new Error("should not fall back to dialogs"); },
+				input: async () => { throw new Error("should not fall back to dialogs"); },
+				notify: () => {},
+				custom: async (_factory: any) => { customCalls += 1; return { kind: "selection", selections: ["Ship Friday"] }; },
+			} as any,
+		} as ExtensionContext;
+		await Promise.all([
+			askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" }),
+			askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-2" }),
+		]);
+		expect(customCalls).toBe(2);
+	});
+
+	it("a key is freed once the ask resolves, so a later call with the same key opens a fresh picker rather than joining a stale one", async () => {
+		let customCalls = 0;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => { throw new Error("should not fall back to dialogs"); },
+				input: async () => { throw new Error("should not fall back to dialogs"); },
+				notify: () => {},
+				custom: async (_factory: any) => { customCalls += 1; return { kind: "selection", selections: ["Ship Friday"] }; },
+			} as any,
+		} as ExtensionContext;
+		await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" });
+		await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" });
+		expect(customCalls).toBe(2);
+	});
+
 	it("honors PAPYRUS_DISCUSS_DISPLAY_MODE=inline instead of the default overlay -- render never throws in inline layout", async () => {
 		process.env["PAPYRUS_DISCUSS_DISPLAY_MODE"] = "inline";
 		const tui = { terminal: { rows: 40 }, requestRender: () => {} };

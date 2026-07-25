@@ -63,6 +63,12 @@ export interface AskQuestionParams {
 	displayMode?: AskDisplayMode;
 	timeout?: number;
 	/**
+	 * Joins a second concurrent call for the same key to the first's in-flight promise instead of
+	 * opening a second picker. Pass a stable id (the target Discussion's id) whenever the caller
+	 * cannot otherwise guarantee only one live ask is ever issued for that same question.
+	 */
+	key?: string;
+	/**
 	 * Streamed once before blocking on the human. A live ask can legitimately sit pending far
 	 * longer than a typical tool call (real human response time, not milliseconds) -- without any
 	 * progress signal, a tool call sitting silent that long looks indistinguishable from a dead
@@ -1092,6 +1098,16 @@ export function isLiveAskPending(): boolean {
 }
 
 /**
+ * Keyed reentrancy join: whatever the exact external cause (an upstream retry, a duplicate turn,
+ * anything outside code this package controls -- verified Pi's own ctx.ui.custom() is a clean,
+ * single-shot, well-guarded call with no retry/timeout logic of its own), a second concurrent
+ * askQuestion() call for the SAME key must never open a second picker for the same question. It
+ * joins the already-in-flight promise instead. Keyed by the target Discussion's id (stable across
+ * a genuine duplicate call, unlike a fresh toolCallId each retry might mint).
+ */
+const pendingByKey = new Map<string, Promise<AskAnswer | undefined>>();
+
+/**
  * Discuss's live:true synchronous ask -- interactive AskComponent when a real TUI is available,
  * dialog fallback (ctx.ui.select/input) in RPC/headless mode, no-op undefined without any
  * interactive UI at all. Never fabricates an answer: cancel, timeout, and non-interactive
@@ -1099,7 +1115,22 @@ export function isLiveAskPending(): boolean {
  */
 export async function askQuestion(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
 	if (!ctx.hasUI || !ctx.ui) return undefined;
+	if (params.key !== undefined) {
+		const existing = pendingByKey.get(params.key);
+		if (existing) return existing;
+	}
+	const promise = askQuestionUnguarded(ctx, params);
+	if (params.key !== undefined) {
+		const key = params.key;
+		pendingByKey.set(key, promise);
+		void promise.finally(() => {
+			if (pendingByKey.get(key) === promise) pendingByKey.delete(key);
+		});
+	}
+	return promise;
+}
 
+async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
 	const options = params.options ?? [];
 	const allowMultiple = params.allowMultiple ?? false;
 	const allowFreeform = params.allowFreeform ?? true;

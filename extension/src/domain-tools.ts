@@ -49,9 +49,10 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate:
 			options: pending.pendingOptions.map((title) => ({ title })),
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
+			key: discussion.id,
 		});
 	}
-	return askQuestion(ctx, { question, onUpdate });
+	return askQuestion(ctx, { question, onUpdate, key: discussion.id });
 }
 
 /**

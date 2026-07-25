@@ -43,7 +43,60 @@ function interactiveCtx(keySequence: string[]): ExtensionContext {
 	} as ExtensionContext;
 }
 
+/**
+ * Regression coverage for a real live-observed bug: the picker silently resolved to "cancelled"
+ * roughly 7-10 seconds after opening, well before a human had actually finished deciding, with
+ * their real answer then arriving disconnected as a stray follow-up message. Root cause: the
+ * abort listener was wired to ExtensionContext.signal ("is the agent currently streaming") --
+ * which settles/aborts shortly after the assistant's tool_call message finishes generating, not
+ * when the human is done -- instead of the tool call's own per-execution signal (execute()'s 3rd
+ * parameter). ctx.signal firing must never cancel the ask; only the passed-through params.signal
+ * (or its absence) should.
+ */
 describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", () => {
+	it("ctx.signal aborting must NOT cancel the ask -- only the tool call's own passed-through signal should", async () => {
+		const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+		const contextSignalController = new AbortController();
+		let component: { handleInput: (data: string) => void } | undefined;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			signal: contextSignalController.signal,
+			ui: {
+				select: async () => { throw new Error("should not fall back to dialog select in interactive mode"); },
+				input: async () => { throw new Error("should not fall back to dialog input in interactive mode"); },
+				notify: () => {},
+				custom: async (factory: any) => new Promise((resolve) => { component = factory(tui, theme, keybindings, resolve); }),
+			} as any,
+		} as ExtensionContext;
+		const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }] });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		// Simulate the session's own streaming-turn signal settling shortly after the tool_call was
+		// emitted -- routine, unrelated bookkeeping that happens long before a human actually answers.
+		contextSignalController.abort();
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		// The ask must still be genuinely pending -- ctx.signal aborting must not have resolved it.
+		const raced = await Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve("still-pending"), 20))]);
+		expect(raced).toBe("still-pending");
+		// Clean up: answer for real so this test doesn't leak a permanently-pending ask/livePendingCount into later tests.
+		component?.handleInput(ENTER);
+		expect(await promise).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
+	});
+
+	it("the tool call's own passed-through signal DOES cancel the ask when it aborts", async () => {
+		const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+		const toolCallController = new AbortController();
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
+				custom: async (factory: any) => new Promise((resolve) => { factory(tui, theme, keybindings, resolve); }),
+			} as any,
+		} as ExtensionContext;
+		const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], signal: toolCallController.signal });
+		toolCallController.abort();
+		expect(await promise).toBeUndefined();
+	});
+
 	it("single-select: pressing enter picks the currently highlighted option through the real AskComponent", async () => {
 		const ctx = interactiveCtx([ENTER]);
 		const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }] });

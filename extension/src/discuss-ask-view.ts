@@ -99,6 +99,18 @@ export interface AskQuestionParams {
 	 * the same live ask run concurrently, each opening its own picker for the same question.
 	 */
 	onUpdate?: AgentToolUpdateCallback;
+	/**
+	 * The tool call's OWN abort signal (execute()'s 3rd parameter) -- fires only if this specific
+	 * tool call is genuinely interrupted (e.g. the human pressed Ctrl+C on the whole agent
+	 * operation). Deliberately NOT `ExtensionContext.signal`: that one tracks "is the agent
+	 * currently streaming a model response" and settles/aborts within a second or two of the
+	 * assistant's tool_call message finishing generation -- which is normal, unrelated bookkeeping
+	 * that happens long before a human actually answers a slow interactive prompt. A live-observed
+	 * bug (the picker silently self-cancelling ~7-10s after opening, well before the human
+	 * finished deciding, with their real answer then arriving disconnected as a stray follow-up)
+	 * traced back to listening on the wrong signal here.
+	 */
+	signal?: AbortSignal;
 }
 
 export interface AskAnswer {
@@ -1200,9 +1212,9 @@ async function askQuestionBlocking(
 	let hasAnnouncedHide = false;
 	let response: AskResponse | null;
 	try {
-		diag("factory about to construct AskComponent", { hasSignal: ctx.signal !== undefined, signalAlreadyAborted: ctx.signal?.aborted ?? null, hasExplicitTimeout: params.timeout !== undefined });
+		diag("factory about to construct AskComponent", { hasSignal: params.signal !== undefined, signalAlreadyAborted: params.signal?.aborted ?? null, hasExplicitTimeout: params.timeout !== undefined });
 		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
-			if (ctx.signal) ctx.signal.addEventListener("abort", () => { diag("ctx.signal fired abort -- resolving null"); done(null); }, { once: true });
+			if (params.signal) params.signal.addEventListener("abort", () => { diag("tool call signal fired abort -- resolving null"); done(null); }, { once: true });
 			if (params.timeout && params.timeout > 0) setTimeout(() => { diag("explicit params.timeout expired -- resolving null", { timeout: params.timeout }); done(null); }, params.timeout);
 			return new AskComponent(params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);
 		};

@@ -39,7 +39,7 @@ function text(message: string, details: unknown = {}) {
  * is available, never throws -- an unanswered live prompt still leaves the round it already
  * recorded intact.
  */
-async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate: AgentToolUpdateCallback | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
+async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 	const question = `Reply to "${discussion.title}":`;
@@ -49,10 +49,11 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate:
 			options: pending.pendingOptions.map((title) => ({ title })),
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
+			signal,
 			key: discussion.id,
 		});
 	}
-	return askQuestion(ctx, { question, onUpdate, key: discussion.id });
+	return askQuestion(ctx, { question, onUpdate, signal, key: discussion.id });
 }
 
 /**
@@ -705,7 +706,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, onUpdate, ctx) {
+		async execute(_id, rawParams, signal, onUpdate, ctx) {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
@@ -722,7 +723,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
 						: text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
 					if (params.live !== true) return fallback;
-					const answer = await liveAnswer(ctx, result.discussion, onUpdate);
+					const answer = await liveAnswer(ctx, result.discussion, onUpdate, signal);
 					if (!answer) return fallback;
 					const answered = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
 						id: result.discussion.id, actor: "human", content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: "discuss-live",

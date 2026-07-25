@@ -127,4 +127,59 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		expect(updates).toHaveLength(1);
 		expect(updates[0]!.content[0]!.text).toBe("Waiting for human input...");
 	});
+
+	// Each option is either a bare string (self-evident choices) or {title, description} (a real
+	// tradeoff worth spelling out) at the tool boundary -- normalized into the two parallel arrays
+	// (options, option_descriptions) the discuss.open/discuss.reply service operations expect.
+	it("normalizes mixed string/{title,description} options into parallel options + option_descriptions arrays before calling the service", async () => {
+		const execute = discussExecute();
+		const calls = mockCalls({
+			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
+		});
+		await execute("id1", {
+			action: "open", title: "Ship or not?", actor: "assistant", content: "q", options_mode: "single",
+			options: [{ title: "Ship Friday", description: "Fast, but skips the security review" }, "Slip to Monday"],
+		}, undefined, undefined, fakeCtx());
+		const openCall = calls.find((call) => call.operation === "discuss.open");
+		expect(openCall?.input).toMatchObject({
+			options: ["Ship Friday", "Slip to Monday"],
+			option_descriptions: ["Fast, but skips the security review", ""],
+		});
+	});
+
+	it("sends no option_descriptions at all when every option is a bare string (no tradeoff worth conveying)", async () => {
+		const execute = discussExecute();
+		const calls = mockCalls({
+			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
+		});
+		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", options_mode: "single", options: ["Yes", "No"] }, undefined, undefined, fakeCtx());
+		const openCall = calls.find((call) => call.operation === "discuss.open");
+		expect(openCall?.input).toMatchObject({ options: ["Yes", "No"] });
+		expect(openCall?.input).not.toHaveProperty("option_descriptions");
+	});
+
+	it("live:true renders pending option descriptions in the picker via ctx.ui.select's dialog fallback", async () => {
+		const execute = discussExecute();
+		const withPending = { ...OPENED_DISCUSSION, extra: { discussion: { state: "active", roundCount: 1, pendingOptions: ["Ship Friday", "Slip to Monday"], pendingOptionsMode: "single", pendingOptionDescriptions: ["Fast, riskier", "Slower, safer"] } } };
+		mockCalls({
+			"discuss.open": () => ({ discussion: withPending, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x", options: ["Ship Friday", "Slip to Monday"], optionsMode: "single", optionDescriptions: ["Fast, riskier", "Slower, safer"] }] }),
+			"discuss.reply": (input: any) => ({ discussion: withPending, rounds: [{ id: 2, discussionId: "d1", roundNumber: 2, actor: "human", content: input.content, occurredAt: "x", selected: input.selected }] }),
+		});
+		let askedOptions: unknown;
+		const ctx = fakeCtx({
+			ui: {
+				select: async () => undefined, input: async () => undefined, notify: () => {},
+				// custom() receives the real AskComponent factory -- inspect the options it was built
+				// with directly rather than trying to parse rendered ANSI text.
+				custom: async (factory: any) => { askedOptions = (factory as unknown as (...args: unknown[]) => { options: unknown })(
+					{ terminal: { rows: 40 }, requestRender: () => {} },
+					{ bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t },
+					{ matches: () => false, getKeys: () => [] },
+					() => {},
+				).options; return undefined; },
+			} as any,
+		});
+		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", options: ["Ship Friday", "Slip to Monday"], options_mode: "single", live: true }, undefined, undefined, ctx);
+		expect(askedOptions).toEqual([{ title: "Ship Friday", description: "Fast, riskier" }, { title: "Slip to Monday", description: "Slower, safer" }]);
+	});
 });

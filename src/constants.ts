@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 18;
+export const SQLITE_SCHEMA_VERSION = 19;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -175,6 +175,10 @@ export const DISCUSSION_ACTOR_MAX_LENGTH = 128;
 export const DISCUSSION_OPTIONS_MIN_COUNT = 2;
 export const DISCUSSION_OPTIONS_MAX_COUNT = 10;
 export const DISCUSSION_OPTION_MAX_LENGTH = 200;
+// Deliberately much shorter than DISCUSSION_ROUND_CONTENT_MAX_CHARACTERS -- a per-option
+// description is meant to be a one-line tradeoff/consequence, not a restatement of the whole
+// question. Long enough for a real pro/con, short enough to force conciseness.
+export const DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH = 240;
 /** Bounds for the generic graph projection protocol (external bounded contexts). */
 export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
 export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;

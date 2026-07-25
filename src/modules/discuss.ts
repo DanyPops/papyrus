@@ -77,6 +77,7 @@ export function discussOperations(discussions: Discussions): OperationDefinition
 			blocksTaskIds: optionalStringArray(input, "blocks_task_ids") ?? optionalStringArray(input, "blocksTaskIds"),
 			options: optionalStringArray(input, "options"),
 			optionsMode: optionsMode(input),
+			optionDescriptions: optionalStringArray(input, "option_descriptions") ?? optionalStringArray(input, "optionDescriptions"),
 		}, eventContext(input))),
 		define("discuss.reply", (input: OperationInput) => discussions.reply(string(input, "id"), {
 			actor: string(input, "actor"),
@@ -84,6 +85,7 @@ export function discussOperations(discussions: Discussions): OperationDefinition
 			selected: optionalStringArray(input, "selected"),
 			options: optionalStringArray(input, "options"),
 			optionsMode: optionsMode(input),
+			optionDescriptions: optionalStringArray(input, "option_descriptions") ?? optionalStringArray(input, "optionDescriptions"),
 		}, eventContext(input))),
 		define("discuss.defer", (input: OperationInput) => discussions.defer(string(input, "id"), optionalString(input, "reason"), eventContext(input))),
 		define("discuss.resume", (input: OperationInput) => discussions.resume(string(input, "id"), eventContext(input))),

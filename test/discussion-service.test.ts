@@ -271,6 +271,73 @@ describe("Discuss: structured options (single/multi-select questions)", () => {
 	});
 });
 
+describe("Discuss: per-option descriptions (pros/cons)", () => {
+	it("persists descriptions with the round and as the pending choice, index-aligned with the options themselves", () => {
+		const { discussions } = fixture();
+		const { discussion, rounds } = discussions.open({
+			title: "Ship or slip?", actor: "alice", content: "Ship Friday or slip to Monday?",
+			options: ["Ship Friday", "Slip to Monday"], optionsMode: "single",
+			optionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"],
+		});
+		expect(rounds[0]).toMatchObject({ options: ["Ship Friday", "Slip to Monday"], optionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"] });
+		expect(discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["Ship Friday", "Slip to Monday"], pendingOptionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"] });
+	});
+
+	it("an empty-string description means \"none for this option\", not an error, and self-evident choices need no descriptions at all", () => {
+		const { discussions } = fixture();
+		const withPartial = discussions.open({
+			title: "Ship?", actor: "alice", content: "Ship or not?", options: ["Yes", "No"], optionsMode: "single",
+			optionDescriptions: ["", "Blocks the release entirely"],
+		});
+		expect(withPartial.rounds[0]?.optionDescriptions).toEqual(["", "Blocks the release entirely"]);
+
+		const withNone = discussions.open({ title: "Ship?", actor: "alice", content: "Ship or not?", options: ["Yes", "No"], optionsMode: "single" });
+		expect(withNone.rounds[0]?.optionDescriptions).toBeUndefined();
+		expect(withNone.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionDescriptions");
+	});
+
+	it("rejects a description array whose length doesn't match the options array 1:1", () => {
+		const { discussions } = fixture();
+		expect(() => discussions.open({
+			title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "single", optionDescriptions: ["only one"],
+		})).toThrow(/exactly one entry per option/);
+	});
+
+	it("rejects a description over the max length", () => {
+		const { discussions } = fixture();
+		expect(() => discussions.open({
+			title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "single", optionDescriptions: ["x".repeat(1000), ""],
+		})).toThrow(/at most .* characters/);
+	});
+
+	// Regression: re-posing new options without descriptions this time must clear the OLD
+	// pendingOptionDescriptions, not leave it spread through unchanged and misaligned with the new,
+	// differently-sized options array.
+	it("a re-pose that omits descriptions clears the previous pose's stale pendingOptionDescriptions", () => {
+		const { discussions } = fixture();
+		const opened = discussions.open({
+			title: "T", actor: "a", content: "first", options: ["A", "B"], optionsMode: "single",
+			optionDescriptions: ["pro A", "pro B"],
+		});
+		const replied = discussions.reply(opened.discussion.id, {
+			actor: "a", content: "actually, reconsider", options: ["C", "D", "E"], optionsMode: "single",
+		});
+		expect(replied.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["C", "D", "E"] });
+		expect(replied.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionDescriptions");
+	});
+
+	it("round-trips through a real SQLite DiscussionRoundStore (not just in-memory)", () => {
+		const { db, discussions } = fixture();
+		const opened = discussions.open({
+			title: "Ship or slip?", actor: "alice", content: "q", options: ["Ship", "Slip"], optionsMode: "single",
+			optionDescriptions: ["Fast, riskier", "Slower, safer"],
+		});
+		const roundStore = new SQLiteDiscussionRoundStore(db);
+		const reloaded = roundStore.list({ discussionId: opened.discussion.id });
+		expect(reloaded[0]?.optionDescriptions).toEqual(["Fast, riskier", "Slower, safer"]);
+	});
+});
+
 describe("Discussions.list / listRounds", () => {
 	it("lists discussions filtered by state", () => {
 		const { discussions } = fixture();

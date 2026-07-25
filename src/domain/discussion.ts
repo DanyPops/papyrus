@@ -20,6 +20,7 @@
 import {
 	DISCUSSION_ACTOR_MAX_LENGTH,
 	DISCUSSION_DEFER_REASON_MAX_CHARACTERS,
+	DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH,
 	DISCUSSION_OPTION_MAX_LENGTH,
 	DISCUSSION_OPTIONS_MAX_COUNT,
 	DISCUSSION_OPTIONS_MIN_COUNT,
@@ -49,6 +50,10 @@ export interface DiscussionExtra {
 	settledAt?: string;
 	pendingOptions?: string[];
 	pendingOptionsMode?: DiscussionOptionsMode;
+	/** Index-aligned with pendingOptions when present -- one entry per option, empty string meaning
+	 * "no description for this one". Purely descriptive metadata: selection/validation only ever
+	 * matches against pendingOptions itself, never against this array. */
+	pendingOptionDescriptions?: string[];
 }
 
 /** One append-only round of a Discussion -- opening statement is round 1. options/optionsMode/selected are the historical record of what was posed/picked in this specific round (extra.discussion.pendingOptions is the separate, mutable "what's unanswered right now" cache). */
@@ -61,6 +66,8 @@ export interface DiscussionRound {
 	occurredAt: string;
 	options?: string[];
 	optionsMode?: DiscussionOptionsMode;
+	/** Index-aligned with options -- see DiscussionExtra.pendingOptionDescriptions. */
+	optionDescriptions?: string[];
 	selected?: string[];
 }
 
@@ -71,6 +78,7 @@ export interface AppendDiscussionRound {
 	content: string;
 	options?: string[];
 	optionsMode?: DiscussionOptionsMode;
+	optionDescriptions?: string[];
 	selected?: string[];
 }
 
@@ -101,8 +109,8 @@ export function validateSettlement(settlement: string): string {
 	return boundedString(settlement, "settlement", DISCUSSION_SETTLEMENT_MAX_CHARACTERS);
 }
 
-/** Validates a freshly-posed choice: 2..DISCUSSION_OPTIONS_MAX_COUNT unique, bounded-length options and a real mode. */
-export function validateDiscussionOptions(options: string[], mode: string): { options: string[]; mode: DiscussionOptionsMode } {
+/** Validates a freshly-posed choice: 2..DISCUSSION_OPTIONS_MAX_COUNT unique, bounded-length options, a real mode, and -- if given -- one description per option (empty string means "none for this one"). */
+export function validateDiscussionOptions(options: string[], mode: string, optionDescriptions?: string[]): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } {
 	if (!(DISCUSSION_OPTIONS_MODES as readonly string[]).includes(mode)) {
 		throw new Error(`options_mode must be one of ${DISCUSSION_OPTIONS_MODES.join(", ")}`);
 	}
@@ -111,7 +119,13 @@ export function validateDiscussionOptions(options: string[], mode: string): { op
 	}
 	for (const option of options) boundedString(option, "option", DISCUSSION_OPTION_MAX_LENGTH);
 	if (new Set(options).size !== options.length) throw new Error("options must not repeat an entry");
-	return { options: [...options], mode: mode as DiscussionOptionsMode };
+	if (optionDescriptions !== undefined) {
+		if (optionDescriptions.length !== options.length) throw new Error("option_descriptions must have exactly one entry per option (use an empty string for none)");
+		for (const description of optionDescriptions) {
+			if (description.length > DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH) throw new Error(`option description must be at most ${DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH} characters`);
+		}
+	}
+	return { options: [...options], mode: mode as DiscussionOptionsMode, ...(optionDescriptions !== undefined ? { optionDescriptions: [...optionDescriptions] } : {}) };
 }
 
 /** Validates an answer against the Discussion's currently pending posed choice, if any. */
@@ -153,6 +167,15 @@ export function readDiscussionExtra(extra: Record<string, unknown>): DiscussionE
 	if (pendingOptionsMode !== undefined && !(DISCUSSION_OPTIONS_MODES as readonly unknown[]).includes(pendingOptionsMode)) {
 		throw new Error("invalid Discussion pendingOptionsMode");
 	}
+	const pendingOptionDescriptions = record["pendingOptionDescriptions"];
+	if (pendingOptionDescriptions !== undefined) {
+		if (!Array.isArray(pendingOptionDescriptions) || pendingOptionDescriptions.some((entry) => typeof entry !== "string")) {
+			throw new Error("invalid Discussion pendingOptionDescriptions");
+		}
+		if (!Array.isArray(pendingOptions) || pendingOptionDescriptions.length !== pendingOptions.length) {
+			throw new Error("invalid Discussion pendingOptionDescriptions: must align 1:1 with pendingOptions");
+		}
+	}
 	return {
 		state: state as DiscussionState,
 		roundCount,
@@ -161,5 +184,6 @@ export function readDiscussionExtra(extra: Record<string, unknown>): DiscussionE
 		...(typeof record["settledAt"] === "string" ? { settledAt: record["settledAt"] } : {}),
 		...(pendingOptions !== undefined ? { pendingOptions: pendingOptions as string[] } : {}),
 		...(pendingOptionsMode !== undefined ? { pendingOptionsMode: pendingOptionsMode as DiscussionOptionsMode } : {}),
+		...(pendingOptionDescriptions !== undefined ? { pendingOptionDescriptions: pendingOptionDescriptions as string[] } : {}),
 	};
 }

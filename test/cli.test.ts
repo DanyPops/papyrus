@@ -237,6 +237,21 @@ describe("Papyrus Discuss CLI", () => {
 		}]);
 	});
 
+	it("translates --option-descriptions-json into discuss.open, index-aligned with --options-json", async () => {
+		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
+		await runDiscussCli([
+			"open", "--title", "Pick one", "--actor", "alice", "--content", "A or B?",
+			"--options-json", '["A","B"]', "--options-mode", "single", "--option-descriptions-json", '["pro A","pro B"]', "--json",
+		], client);
+		expect(client.calls).toEqual([{
+			operation: "discuss.open",
+			input: {
+				title: "Pick one", actor: "alice", content: "A or B?", body: undefined, labels: undefined,
+				blocks_task_ids: undefined, options: ["A", "B"], options_mode: "single", option_descriptions: ["pro A", "pro B"],
+			},
+		}]);
+	});
+
 	it("translates --selected-json into discuss.reply, answering a pending choice", async () => {
 		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
 		await runDiscussCli(["reply", "d1", "--actor", "bob", "--content", "Going with B", "--selected-json", '["B"]', "--json"], client);

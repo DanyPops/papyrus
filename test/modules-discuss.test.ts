@@ -57,6 +57,13 @@ describe("modules/discuss — registered operations", () => {
 		expect(replied.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
 	});
 
+	it("discuss.open and discuss.reply accept snake_case option_descriptions, index-aligned with options", () => {
+		const { registry } = fixture();
+		const open = registry.get("discuss.open")!;
+		const opened = open.execute({ title: "T", actor: "a", content: "A or B?", options: ["A", "B"], options_mode: "single", option_descriptions: ["pro A", "pro B"] }) as { discussion: { id: string; extra: Record<string, unknown> } };
+		expect(opened.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionDescriptions: ["pro A", "pro B"] });
+	});
+
 	it("discuss.reply rejects an invalid options_mode", () => {
 		const { registry } = fixture();
 		const open = registry.get("discuss.open")!;

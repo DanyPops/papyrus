@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS discussion_rounds (
 	options       TEXT,
 	options_mode  TEXT,
 	selected      TEXT,
+	option_descriptions TEXT,
 	UNIQUE (discussion_id, round_number)
 );
 CREATE INDEX IF NOT EXISTS discussion_rounds_discussion_idx ON discussion_rounds(discussion_id, round_number, id);
@@ -522,6 +523,17 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				INSERT OR IGNORE INTO statuses VALUES ('deprecated','playbook');
 				UPDATE artifacts SET kind = 'playbook' WHERE kind = 'skill' AND (subtype IS NULL OR subtype = '');
 			`);
+		},
+	},
+	{
+		version: 19,
+		name: "discuss-option-descriptions",
+		// See domain/discussion.ts's pendingOptionDescriptions. Nullable, purely additive column, same
+		// pattern as version 16's discuss-options -- a round with no per-option description (every
+		// round before this feature existed, and any that simply doesn't need one) stores NULL.
+		up: (db) => {
+			const existing = new Set((db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name));
+			if (!existing.has("option_descriptions")) db.exec("ALTER TABLE discussion_rounds ADD COLUMN option_descriptions TEXT");
 		},
 	},
 ];

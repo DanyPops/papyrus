@@ -21,6 +21,7 @@ interface DiscussionRoundRow {
 	options: string | null;
 	options_mode: string | null;
 	selected: string | null;
+	option_descriptions: string | null;
 }
 
 function mapRow(row: DiscussionRoundRow): DiscussionRound {
@@ -34,6 +35,7 @@ function mapRow(row: DiscussionRoundRow): DiscussionRound {
 		...(row.options !== null ? { options: JSON.parse(row.options) as string[] } : {}),
 		...(row.options_mode !== null ? { optionsMode: row.options_mode as DiscussionOptionsMode } : {}),
 		...(row.selected !== null ? { selected: JSON.parse(row.selected) as string[] } : {}),
+		...(row.option_descriptions !== null ? { optionDescriptions: JSON.parse(row.option_descriptions) as string[] } : {}),
 	};
 }
 
@@ -47,16 +49,17 @@ export class SQLiteDiscussionRoundStore implements DiscussionRoundStore {
 		// currently pending options (extra.discussion), which this store, deliberately scoped to
 		// the rounds table alone, has no access to. discussion-service.ts validates it beforehand.
 		const posed = round.options !== undefined || round.optionsMode !== undefined
-			? validateDiscussionOptions(round.options ?? [], round.optionsMode ?? "")
+			? validateDiscussionOptions(round.options ?? [], round.optionsMode ?? "", round.optionDescriptions)
 			: undefined;
 		const result = this.db.prepare(`
-			INSERT INTO discussion_rounds (discussion_id, round_number, actor, content, occurred_at, event_schema_version, options, options_mode, selected)
-			VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+			INSERT INTO discussion_rounds (discussion_id, round_number, actor, content, occurred_at, event_schema_version, options, options_mode, selected, option_descriptions)
+			VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
 		`).run(
 			round.discussionId, round.roundNumber, actor, content, occurredAt,
 			posed ? JSON.stringify(posed.options) : null,
 			posed ? posed.mode : null,
 			round.selected !== undefined ? JSON.stringify(round.selected) : null,
+			posed?.optionDescriptions ? JSON.stringify(posed.optionDescriptions) : null,
 		);
 		return {
 			id: Number(result.lastInsertRowid),
@@ -66,6 +69,7 @@ export class SQLiteDiscussionRoundStore implements DiscussionRoundStore {
 			content,
 			occurredAt,
 			...(posed ? { options: posed.options, optionsMode: posed.mode } : {}),
+			...(posed?.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}),
 			...(round.selected !== undefined ? { selected: [...round.selected] } : {}),
 		};
 	}
@@ -73,7 +77,7 @@ export class SQLiteDiscussionRoundStore implements DiscussionRoundStore {
 	list(query: DiscussionRoundQuery): DiscussionRound[] {
 		const limit = Math.min(DISCUSSION_ROUNDS_MAX_LIMIT, Math.max(1, Math.floor(query.limit ?? DISCUSSION_ROUNDS_DEFAULT_LIMIT)));
 		const rows = this.db.prepare(`
-			SELECT id, discussion_id, round_number, actor, content, occurred_at, options, options_mode, selected
+			SELECT id, discussion_id, round_number, actor, content, occurred_at, options, options_mode, selected, option_descriptions
 			FROM discussion_rounds
 			WHERE discussion_id = ? AND round_number > ?
 			ORDER BY round_number ASC

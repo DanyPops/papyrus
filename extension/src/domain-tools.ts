@@ -39,6 +39,35 @@ function text(message: string, details: unknown = {}) {
  * is available, never throws -- an unanswered live prompt still leaves the round it already
  * recorded intact.
  */
+/**
+ * The discuss tool accepts each option as either a bare string (self-evident choices) or
+ * {title, description} (a real tradeoff worth spelling out) -- normalizes to the two parallel
+ * arrays discuss.open/discuss.reply actually expect (options: string[], option_descriptions:
+ * string[], index-aligned, empty string meaning "none for this one"). Mutates params in place.
+ */
+function normalizeDiscussOptions(params: Record<string, unknown>): void {
+	const raw = params.options;
+	if (!Array.isArray(raw)) return;
+	let anyDescription = false;
+	const titles: string[] = [];
+	const descriptions: string[] = [];
+	for (const entry of raw) {
+		if (typeof entry === "string") { titles.push(entry); descriptions.push(""); continue; }
+		if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).title === "string") {
+			const record = entry as Record<string, unknown>;
+			titles.push(record.title as string);
+			const description = typeof record.description === "string" ? record.description : "";
+			if (description) anyDescription = true;
+			descriptions.push(description);
+			continue;
+		}
+		titles.push(String(entry));
+		descriptions.push("");
+	}
+	params.options = titles;
+	if (anyDescription) params.option_descriptions = descriptions;
+}
+
 async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestContent: string | undefined, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
@@ -52,7 +81,7 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestCon
 		return askQuestion(ctx, {
 			question,
 			subtitle,
-			options: pending.pendingOptions.map((title) => ({ title })),
+			options: pending.pendingOptions.map((title, index) => ({ title, description: pending.pendingOptionDescriptions?.[index] || undefined })),
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
 			signal,
@@ -681,7 +710,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
-		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
+		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Each option is either a bare string (fine for a self-evident choice like yes/no) or {title, description} -- add a description only when there's a genuine tradeoff, risk, or consequence worth conveying (a real pro/con), keep it to one line, and never pad it with something the title already says; skip descriptions entirely when the options don't need them. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -700,7 +729,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			state: Type.Optional(Type.String()),
 			after_round: Type.Optional(Type.Number()),
 			limit: Type.Optional(Type.Number()),
-			options: Type.Optional(Type.Array(Type.String())),
+			options: Type.Optional(Type.Array(Type.Union([Type.String(), Type.Object({ title: Type.String(), description: Type.Optional(Type.String()) })]))),
 			options_mode: Type.Optional(Type.String()),
 			selected: Type.Optional(Type.Array(Type.String())),
 			live: Type.Optional(Type.Boolean()),
@@ -722,6 +751,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				]);
 				await resolveNameArrayField(params, "blocks_task_names", "blocks_task_ids", "tasks.list", taskScope);
 				if (action === "open" || action === "reply") {
+					normalizeDiscussOptions(params);
 					const operation = action === "open" ? "discuss.open" : "discuss.reply";
 					const result = await callService<Record<string, unknown>, DiscussionAndRounds>(operation, params);
 					const fallback = action === "open"

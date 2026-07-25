@@ -89,7 +89,7 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 				const question = transcript.rounds.at(-1)?.content?.trim() || `Reply to "${discussion.title}":`;
 				const subtitle = discussion.title;
 				const answer = pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
-					? await askQuestion(commandCtx, { question, subtitle, options: pending.pendingOptions.map((title) => ({ title })), allowMultiple: pending.pendingOptionsMode === "multi" })
+					? await askQuestion(commandCtx, { question, subtitle, options: pending.pendingOptions.map((title, index) => ({ title, description: pending.pendingOptionDescriptions?.[index] || undefined })), allowMultiple: pending.pendingOptionsMode === "multi" })
 					: await askQuestion(commandCtx, { question, subtitle });
 				if (!answer) return; // canceled
 				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: SOURCE });

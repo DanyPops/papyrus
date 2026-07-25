@@ -56,6 +56,9 @@ export type AskDisplayMode = "overlay" | "inline";
 export interface AskQuestionParams {
 	question: string;
 	context?: string;
+	/** Plain orientation line ("which discussion is this"), shown dim above the question -- not a
+	 * labeled section like context. Typically the Discussion's own title. */
+	subtitle?: string;
 	options?: AskOption[];
 	allowMultiple?: boolean;
 	allowFreeform?: boolean;
@@ -621,6 +624,7 @@ class AskComponent extends Container {
 	constructor(
 		private question: string,
 		private context: string | undefined,
+		private subtitle: string | undefined,
 		private options: AskOption[],
 		private allowMultiple: boolean,
 		private allowFreeform: boolean,
@@ -781,6 +785,9 @@ class AskComponent extends Container {
 				"",
 			];
 		}
+		// Only meaningful when reached by escaping OUT of a real select list -- see showFreeformMode's
+		// identical guard for the non-overlay layout.
+		if (this.options.length === 0) return [];
 		return [...new Text(this.theme.fg("accent", this.theme.bold("Custom answer")), 1, 0).render(width), ""];
 	}
 
@@ -864,7 +871,11 @@ class AskComponent extends Container {
 
 	private updateStaticText(): void {
 		const theme = this.theme;
-		this.titleText.setText(theme.fg("accent", theme.bold(this.mode === "comment" ? "Optional comment" : "Question")));
+		// Reuses the same slot for two different purposes: a plain "which discussion is this" subtitle
+		// normally, or "Optional comment" while in comment mode. A generic "Question" header above the
+		// real question text added nothing beyond what the question itself already says, and read
+		// confusingly like the question text WAS the header.
+		this.titleText.setText(this.mode === "comment" ? theme.fg("accent", theme.bold("Optional comment")) : this.subtitle ? theme.fg("dim", this.subtitle) : "");
 		this.questionText.setText(theme.fg("text", theme.bold(this.question)));
 		if (this.contextComponent && this.context) {
 			if (this.contextComponent instanceof Markdown) (this.contextComponent as Markdown).setText(`**Context:**\n${this.context}`);
@@ -985,8 +996,13 @@ class AskComponent extends Container {
 		const editor = this.ensureEditor();
 		this.setEditorText(this.freeformDraft);
 		(editor as any).focused = this._focused;
-		this.modeContainer.addChild(new Text(this.theme.fg("accent", this.theme.bold("Custom answer")), 1, 0));
-		this.modeContainer.addChild(new Spacer(1));
+		// Only meaningful when reached by escaping OUT of a real select list ("instead of these
+		// options, here's a custom one") -- with no options at all there's nothing to contrast
+		// against, so the label is pure noise.
+		if (this.options.length > 0) {
+			this.modeContainer.addChild(new Text(this.theme.fg("accent", this.theme.bold("Custom answer")), 1, 0));
+			this.modeContainer.addChild(new Spacer(1));
+		}
 		this.modeContainer.addChild(editor);
 		this.updateHelpText();
 		this.invalidate();
@@ -1165,7 +1181,7 @@ async function askQuestionBlocking(
 		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
 			if (params.signal) params.signal.addEventListener("abort", () => done(null), { once: true });
 			if (params.timeout && params.timeout > 0) setTimeout(() => done(null), params.timeout);
-			return new AskComponent(params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);
+			return new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, displayMode, tui, theme, keybindings, shortcuts, done);
 		};
 
 		const overlayToggle = shortcuts.overlayToggle;

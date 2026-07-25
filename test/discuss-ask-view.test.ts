@@ -120,6 +120,30 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 	// observed this inconsistency directly. Freeform-only asks must use the same rich AskComponent
 	// whenever a real ctx.ui.custom() is available, falling back to ctx.ui.input only in RPC/headless
 	// mode (same fallback every other ask already uses).
+	// Regression: liveAnswer's generic "Reply to <title>:" wrapper was shown as the primary,
+	// bolded "Question", with the discussion's real content demoted to a "Context:" section below
+	// it -- backwards, live-observed directly. The real content is now the question itself; the
+	// discussion title is a plain dim subtitle, not a labeled section.
+	it("renders the subtitle as plain dim text, never a generic 'Question' header, and never a redundant 'Custom answer' label when there are no options", async () => {
+		const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+		let component: { render: (w: number) => string[] } | undefined;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
+				custom: (factory: any) => new Promise((resolve) => { component = factory(tui, theme, keybindings, resolve); }),
+			} as any,
+		} as ExtensionContext;
+		const pending = askQuestion(ctx, { question: "Should we ship Friday?", subtitle: "Ship or not?" });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const rendered = component!.render(100).join("\n");
+		expect(rendered).toContain("Ship or not?"); // subtitle present
+		expect(rendered).not.toContain("Question"); // no generic header
+		expect(rendered).not.toContain("Custom answer"); // no options to contrast against
+		(component as unknown as { handleInput: (data: string) => void }).handleInput(ESCAPE);
+		await pending; // let isLiveAskPending's guard clear before the next test observes it
+	});
+
 	it("a freeform-only question (no options) uses the real AskComponent, typing text and pressing enter", async () => {
 		const ctx = interactiveCtx([..."42", ENTER]);
 		const answer = await askQuestion(ctx, { question: "How many replicas?" });

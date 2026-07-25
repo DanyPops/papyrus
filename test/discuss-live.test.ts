@@ -66,8 +66,9 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		const ctx = fakeCtx({ ui: { select: async () => undefined, input: async (title: string) => { inputPrompts.push(title); return "Yes, ship Friday"; }, notify: () => {}, custom: async () => undefined } as any });
 		const result = await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "Should we ship Friday?", live: true }, undefined, undefined, ctx);
 		// Regression: a bare "Reply to <title>:" prompt with no visible question content left the
-		// human with nothing to answer -- the just-recorded round's own content must show as context.
-		expect(inputPrompts).toEqual(['Reply to "Ship or not?":\n\nContext:\nShould we ship Friday?']);
+		// human with nothing to answer. The round's own real content is now the question itself
+		// (dialog fallback doesn't render the subtitle -- that's an AskComponent-only affordance).
+		expect(inputPrompts).toEqual(["Should we ship Friday?"]);
 		expect(result.content[0]!.text).toBe('"Ship or not?": Yes, ship Friday');
 		const replyCall = calls.find((call) => call.operation === "discuss.reply");
 		expect(replyCall?.input).toMatchObject({ id: "d1", actor: "human", content: "Yes, ship Friday", source: "discuss-live" });
@@ -85,7 +86,7 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		const ctx = fakeCtx({ ui: { select: async (title: string, options: string[]) => { selectCalls.push({ title, options }); return "Slip to Monday"; }, input: async () => { inputTouched = true; return undefined; }, notify: () => {}, custom: async () => undefined } as any });
 		const result = await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", options: ["Ship Friday", "Slip to Monday"], options_mode: "single", live: true }, undefined, undefined, ctx);
 		expect(inputTouched).toBe(false);
-		expect(selectCalls).toEqual([{ title: 'Reply to "Ship or not?":\n\nContext:\nq', options: ["Ship Friday", "Slip to Monday", "\u270f\ufe0f Type a custom answer..."] }]);
+		expect(selectCalls).toEqual([{ title: "q", options: ["Ship Friday", "Slip to Monday", "\u270f\ufe0f Type a custom answer..."] }]);
 		expect(result.content[0]!.text).toBe('"Ship or not?": Slip to Monday');
 		const replyCall = calls.find((call) => call.operation === "discuss.reply");
 		expect(replyCall?.input).toMatchObject({ selected: ["Slip to Monday"] });

@@ -82,14 +82,15 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 			}
 			if (choice === "Reply") {
 				const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
-				const question = `Reply to "${discussion.title}":`;
-				// Same fix as the live discuss tool: the title alone isn't the actual question -- show
-				// the most recent round's real content as context, not a bare title prompt.
+				// Same fix as the live discuss tool: the most recent round's own content IS the real
+				// question -- the title becomes a plain orientation subtitle, not a labeled-backwards
+				// "Context:" section under a generic "Reply to <title>:" wrapper.
 				const transcript = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.show", { id: discussion.id });
-				const context = transcript.rounds.at(-1)?.content?.trim() || undefined;
+				const question = transcript.rounds.at(-1)?.content?.trim() || `Reply to "${discussion.title}":`;
+				const subtitle = discussion.title;
 				const answer = pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
-					? await askQuestion(commandCtx, { question, context, options: pending.pendingOptions.map((title) => ({ title })), allowMultiple: pending.pendingOptionsMode === "multi" })
-					: await askQuestion(commandCtx, { question, context });
+					? await askQuestion(commandCtx, { question, subtitle, options: pending.pendingOptions.map((title) => ({ title })), allowMultiple: pending.pendingOptionsMode === "multi" })
+					: await askQuestion(commandCtx, { question, subtitle });
 				if (!answer) return; // canceled
 				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: SOURCE });
 				commandCtx.ui.notify(answer.selected ? `Selected: ${answer.selected.join(", ")}` : "Reply added.", "info");

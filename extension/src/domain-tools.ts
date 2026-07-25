@@ -42,22 +42,23 @@ function text(message: string, details: unknown = {}) {
 async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestContent: string | undefined, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
-	const question = `Reply to "${discussion.title}":`;
-	// The discussion's title alone is often not the actual question -- a human staring at a bare
-	// "Reply to '<title>':" prompt with no visible content has no way to tell what's being asked.
-	// The just-recorded round's own content is the real question text; show it as context.
-	const context = latestContent?.trim() || undefined;
+	// The just-recorded round's own content IS the real question -- a generic "Reply to <title>:"
+	// wrapper as the primary question, with the real content demoted to "Context:", left a human
+	// staring at a labeled-backwards prompt (live-observed). The wrapper is now only a fallback for
+	// the degenerate case of empty content; the title becomes a plain orientation subtitle instead.
+	const question = latestContent?.trim() || `Reply to "${discussion.title}":`;
+	const subtitle = discussion.title;
 	if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
 		return askQuestion(ctx, {
 			question,
-			context,
+			subtitle,
 			options: pending.pendingOptions.map((title) => ({ title })),
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
 			signal,
 		});
 	}
-	return askQuestion(ctx, { question, context, onUpdate, signal });
+	return askQuestion(ctx, { question, subtitle, onUpdate, signal });
 }
 
 /**

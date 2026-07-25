@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { askQuestion } from "../extension/src/discuss-ask-view.ts";
+import { askQuestion, isLiveAskPending } from "../extension/src/discuss-ask-view.ts";
 
 const originalEnv = { ...process.env };
 afterEach(() => {
@@ -86,6 +86,37 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		const ctx = { cwd: "/tmp", hasUI: false, ui: {} } as unknown as ExtensionContext;
 		const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
 		expect(answer).toBeUndefined();
+	});
+
+	/**
+	 * Regression coverage for a real live-observed bug: extension/src/index.ts's active-task
+	 * continuation driver queues a "continue the active task" nudge on agent_settled, and
+	 * ctx.isIdle() ("not streaming") reads true while a live ask is genuinely still pending on the
+	 * human -- so without this guard, that nudge starts a second, concurrent turn reasoning about
+	 * the very Discussion the pending live ask hasn't resolved yet. index.ts's driveActiveTasks
+	 * checks isLiveAskPending() and skips queuing while a live ask is in flight.
+	 */
+	it("isLiveAskPending() is false at rest, true only while a live ask is genuinely blocked on the human, and false again once it resolves", async () => {
+		expect(isLiveAskPending()).toBe(false);
+		let observedDuringAsk: boolean | undefined;
+		const ctx = {
+			cwd: "/tmp", hasUI: true,
+			ui: {
+				select: async () => undefined,
+				input: async () => { observedDuringAsk = isLiveAskPending(); return "42"; },
+				notify: () => {}, custom: async () => undefined,
+			},
+		} as unknown as ExtensionContext;
+		const answer = await askQuestion(ctx, { question: "How many replicas?" });
+		expect(observedDuringAsk).toBe(true);
+		expect(isLiveAskPending()).toBe(false);
+		expect(answer).toEqual({ content: "42" });
+	});
+
+	it("isLiveAskPending() still clears on cancel, so a rejected/cancelled ask never leaves the guard stuck open", async () => {
+		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
+		await askQuestion(ctx, { question: "How many replicas?" });
+		expect(isLiveAskPending()).toBe(false);
 	});
 
 	it("honors PAPYRUS_DISCUSS_DISPLAY_MODE=inline instead of the default overlay -- render never throws in inline layout", async () => {

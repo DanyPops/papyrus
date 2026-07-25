@@ -1074,6 +1074,24 @@ async function askViaDialogs(
 }
 
 /**
+ * Tracks whether a live ask is genuinely mid-flight, blocked on the human. `ExtensionContext.isIdle()`
+ * means "not streaming a model response" -- it reads true while a slow, human-blocking tool call
+ * like this one is still pending, since the model already finished emitting the tool_call and
+ * is not itself generating anything. Left unguarded, that lets the active-task continuation
+ * driver (extension/src/index.ts's driveActiveTasks, on agent_settled) queue a "continue the
+ * active task" nudge as a `deliverAs: "nextTurn"` message while this exact live ask is still
+ * awaiting an answer -- starting a second, concurrent turn that reasons about the very Discussion
+ * this call is already resolving, independently of it. A live-observed bug (two pickers for the
+ * same question, one orphaned and later auto-resolving with fabricated "defer" text) traced back
+ * to exactly this race. driveActiveTasks checks isLiveAskPending() and skips queuing while true.
+ */
+let livePendingCount = 0;
+
+export function isLiveAskPending(): boolean {
+	return livePendingCount > 0;
+}
+
+/**
  * Discuss's live:true synchronous ask -- interactive AskComponent when a real TUI is available,
  * dialog fallback (ctx.ui.select/input) in RPC/headless mode, no-op undefined without any
  * interactive UI at all. Never fabricates an answer: cancel, timeout, and non-interactive
@@ -1092,7 +1110,24 @@ export async function askQuestion(ctx: ExtensionContext, params: AskQuestionPara
 	const normalizedContext = params.context?.trim() || undefined;
 
 	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
+	livePendingCount += 1;
+	try {
+		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, displayMode, normalizedContext);
+	} finally {
+		livePendingCount -= 1;
+	}
+}
 
+async function askQuestionBlocking(
+	ctx: ExtensionContext,
+	params: AskQuestionParams,
+	options: AskOption[],
+	allowMultiple: boolean,
+	allowFreeform: boolean,
+	allowComment: boolean,
+	displayMode: AskDisplayMode,
+	normalizedContext: string | undefined,
+): Promise<AskAnswer | undefined> {
 	if (options.length === 0) {
 		const prompt = normalizedContext ? `${params.question}\n\nContext:\n${normalizedContext}` : params.question;
 		const answer = await ctx.ui.input(prompt, "Type your answer...", params.timeout ? { timeout: params.timeout } : undefined);

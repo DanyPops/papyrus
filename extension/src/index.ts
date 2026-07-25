@@ -22,6 +22,7 @@ import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
+import { isLiveAskPending } from "./discuss-ask-view.ts";
 import { registerPlaybookBridge } from "./playbook-bridge.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
@@ -202,6 +203,11 @@ export default async function (pi: ExtensionAPI) {
 
 	const driveActiveTasks = async (ctx: ExtensionContext): Promise<void> => {
 		if (ctx.mode !== "tui" && ctx.mode !== "rpc") return;
+		// ctx.isIdle() means "not streaming a model response" -- it reads true while a live discuss
+		// ask is still genuinely pending, blocked on the human. Queuing a "continue the active task"
+		// nudge here would start a second, concurrent turn reasoning about the very Discussion this
+		// live ask is already resolving. See discuss-ask-view.ts's isLiveAskPending() doc comment.
+		if (isLiveAskPending()) return;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
 			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd, session_id: sessionId });

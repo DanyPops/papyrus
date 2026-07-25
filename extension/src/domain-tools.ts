@@ -39,20 +39,25 @@ function text(message: string, details: unknown = {}) {
  * is available, never throws -- an unanswered live prompt still leaves the round it already
  * recorded intact.
  */
-async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
+async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestContent: string | undefined, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 	const question = `Reply to "${discussion.title}":`;
+	// The discussion's title alone is often not the actual question -- a human staring at a bare
+	// "Reply to '<title>':" prompt with no visible content has no way to tell what's being asked.
+	// The just-recorded round's own content is the real question text; show it as context.
+	const context = latestContent?.trim() || undefined;
 	if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
 		return askQuestion(ctx, {
 			question,
+			context,
 			options: pending.pendingOptions.map((title) => ({ title })),
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
 			signal,
 		});
 	}
-	return askQuestion(ctx, { question, onUpdate, signal });
+	return askQuestion(ctx, { question, context, onUpdate, signal });
 }
 
 /**
@@ -722,7 +727,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
 						: text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
 					if (params.live !== true) return fallback;
-					const answer = await liveAnswer(ctx, result.discussion, onUpdate, signal);
+					const answer = await liveAnswer(ctx, result.discussion, result.rounds[0]?.content, onUpdate, signal);
 					if (!answer) return fallback;
 					const answered = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
 						id: result.discussion.id, actor: "human", content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: "discuss-live",

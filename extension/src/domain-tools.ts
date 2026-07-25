@@ -9,7 +9,7 @@ import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
 import { readDiscussionExtra, type DiscussionRound } from "../../src/domain/discussion.ts";
-import { askQuestion } from "./discuss-ask-view.ts";
+import { askQuestion, type AskDisplayMode } from "./discuss-ask-view.ts";
 import type { OperationName } from "../../src/service.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { sessionSecretField } from "./session-identity.ts";
@@ -68,7 +68,11 @@ function normalizeDiscussOptions(params: Record<string, unknown>): void {
 	if (anyDescription) params.option_descriptions = descriptions;
 }
 
-async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestContent: string | undefined, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
+function parseDisplayMode(value: unknown): AskDisplayMode | undefined {
+	return value === "overlay" || value === "inline" || value === "editor" ? value : undefined;
+}
+
+async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestContent: string | undefined, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined, displayMode: AskDisplayMode | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 	// The just-recorded round's own content IS the real question -- a generic "Reply to <title>:"
@@ -85,9 +89,10 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestCon
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
 			signal,
+			displayMode,
 		});
 	}
-	return askQuestion(ctx, { question, subtitle, onUpdate, signal });
+	return askQuestion(ctx, { question, subtitle, onUpdate, signal, displayMode });
 }
 
 /**
@@ -710,7 +715,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
-		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Each option is either a bare string or {title, description}; description is optional for exactly 2 options (a self-evident yes/no) but REQUIRED and non-empty for every option once there are 3 or more -- rejected otherwise. One line: the real pro/con/risk/consequence, never padding that just restates the title. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
+		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Each option is either a bare string or {title, description}; description is optional for exactly 2 options (a self-evident yes/no) but REQUIRED and non-empty for every option once there are 3 or more -- rejected otherwise. One line: the real pro/con/risk/consequence, never padding that just restates the title. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. display_mode picks how the live picker renders: 'overlay' (default, a floating dialog), 'inline' (renders in the normal transcript flow, no floating), or 'editor' (hosted in place of the input box itself, like a slash-command menu; falls back to 'inline' if unsupported in the current UI mode). PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -733,6 +738,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			options_mode: Type.Optional(Type.String()),
 			selected: Type.Optional(Type.Array(Type.String())),
 			live: Type.Optional(Type.Boolean()),
+			display_mode: Type.Optional(Type.String()),
 		}),
 		// Blocks other tool calls in the same assistant turn until live:true's human answer comes
 		// back, same reasoning as pi-ask-user's own tool: the model must not batch a live ask with
@@ -758,7 +764,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 						? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
 						: text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
 					if (params.live !== true) return fallback;
-					const answer = await liveAnswer(ctx, result.discussion, result.rounds[0]?.content, onUpdate, signal);
+					const answer = await liveAnswer(ctx, result.discussion, result.rounds[0]?.content, onUpdate, signal, parseDisplayMode(rawParams.display_mode));
 					if (!answer) return fallback;
 					const answered = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
 						id: result.discussion.id, actor: "human", content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: "discuss-live",

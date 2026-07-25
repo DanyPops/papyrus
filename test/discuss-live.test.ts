@@ -182,4 +182,41 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", options: ["Ship Friday", "Slip to Monday"], options_mode: "single", live: true }, undefined, undefined, ctx);
 		expect(askedOptions).toEqual([{ title: "Ship Friday", description: "Fast, riskier" }, { title: "Slip to Monday", description: "Slower, safer" }]);
 	});
+
+	it("threads display_mode through to askQuestion, so a caller can request the editor-hosted picker per call", async () => {
+		const execute = discussExecute();
+		mockCalls({
+			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
+		});
+		const setCalls: unknown[] = [];
+		const ctx = fakeCtx({
+			ui: {
+				select: async () => { throw new Error("editor mode must not fall back to dialogs"); },
+				input: async () => { throw new Error("editor mode must not fall back to dialogs"); },
+				notify: () => {},
+				custom: async () => { throw new Error("editor mode must not use ctx.ui.custom()"); },
+				theme: { bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t },
+				getEditorText: () => "", getEditorComponent: () => undefined,
+				setEditorComponent: (factory: any) => { setCalls.push(factory); },
+			} as any,
+		});
+		const promise = execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", live: true, display_mode: "editor" }, undefined, undefined, ctx);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(setCalls).toHaveLength(1); // hosted via setEditorComponent, not a dialog or ctx.ui.custom()
+		const host = (setCalls[0] as any)({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, { matches: () => false, getKeys: () => [] });
+		host.handleInput("\x1b"); // escape cancels -- resolves without needing a real answer
+		await promise;
+		expect(setCalls).toHaveLength(2); // restored the prior (undefined) factory afterward
+	});
+
+	it("an unrecognized display_mode is ignored, falling back to the default (overlay)", async () => {
+		const execute = discussExecute();
+		mockCalls({
+			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
+		});
+		let customCalled = false;
+		const ctx = fakeCtx({ ui: { select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async () => { customCalled = true; return undefined; } } as any });
+		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", live: true, display_mode: "nonsense" }, undefined, undefined, ctx);
+		expect(customCalled).toBe(true); // went through ctx.ui.custom(), not the editor-hosting path
+	});
 });

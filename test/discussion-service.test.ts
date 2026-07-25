@@ -233,7 +233,7 @@ describe("Discuss: structured options (single/multi-select questions)", () => {
 
 	it("allows several selections when the pending choice is multi-select", () => {
 		const { discussions } = fixture();
-		const { discussion } = discussions.open({ title: "Pick some", actor: "alice", content: "Which apply?", options: ["A", "B", "C"], optionsMode: "multi" });
+		const { discussion } = discussions.open({ title: "Pick some", actor: "alice", content: "Which apply?", options: ["A", "B", "C"], optionsMode: "multi", optionDescriptions: ["first", "second", "third"] });
 		const result = discussions.reply(discussion.id, { actor: "bob", content: "A and C", selected: ["A", "C"] });
 		expect(result.rounds[0]).toMatchObject({ selected: ["A", "C"] });
 	});
@@ -310,6 +310,20 @@ describe("Discuss: per-option descriptions (pros/cons)", () => {
 		})).toThrow(/at most .* characters/);
 	});
 
+	it("requires a non-empty description for every option once 3 or more are posed", () => {
+		const { discussions } = fixture();
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single" })).toThrow(/option_descriptions is required/);
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single", optionDescriptions: ["has one", "", "has one"] })).toThrow(/option_descriptions is required/);
+		const ok = discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single", optionDescriptions: ["d1", "d2", "d3"] });
+		expect(ok.rounds[0]?.optionDescriptions).toEqual(["d1", "d2", "d3"]);
+	});
+
+	it("a binary (2-option) choice remains fully optional -- often self-evident", () => {
+		const { discussions } = fixture();
+		const opened = discussions.open({ title: "Ship?", actor: "a", content: "c", options: ["Yes", "No"], optionsMode: "single" });
+		expect(opened.rounds[0]?.optionDescriptions).toBeUndefined();
+	});
+
 	// Regression: re-posing new options without descriptions this time must clear the OLD
 	// pendingOptionDescriptions, not leave it spread through unchanged and misaligned with the new,
 	// differently-sized options array.
@@ -320,9 +334,9 @@ describe("Discuss: per-option descriptions (pros/cons)", () => {
 			optionDescriptions: ["pro A", "pro B"],
 		});
 		const replied = discussions.reply(opened.discussion.id, {
-			actor: "a", content: "actually, reconsider", options: ["C", "D", "E"], optionsMode: "single",
+			actor: "a", content: "actually, reconsider", options: ["C", "D"], optionsMode: "single",
 		});
-		expect(replied.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["C", "D", "E"] });
+		expect(replied.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["C", "D"] });
 		expect(replied.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionDescriptions");
 	});
 

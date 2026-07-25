@@ -21,6 +21,7 @@ import {
 	DISCUSSION_ACTOR_MAX_LENGTH,
 	DISCUSSION_DEFER_REASON_MAX_CHARACTERS,
 	DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH,
+	DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT,
 	DISCUSSION_OPTION_MAX_LENGTH,
 	DISCUSSION_OPTIONS_MAX_COUNT,
 	DISCUSSION_OPTIONS_MIN_COUNT,
@@ -109,7 +110,9 @@ export function validateSettlement(settlement: string): string {
 	return boundedString(settlement, "settlement", DISCUSSION_SETTLEMENT_MAX_CHARACTERS);
 }
 
-/** Validates a freshly-posed choice: 2..DISCUSSION_OPTIONS_MAX_COUNT unique, bounded-length options, a real mode, and -- if given -- one description per option (empty string means "none for this one"). */
+/** Validates a freshly-posed choice: 2..DISCUSSION_OPTIONS_MAX_COUNT unique, bounded-length
+ * options, a real mode, and a non-empty description for every option once
+ * DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT or more are posed. */
 export function validateDiscussionOptions(options: string[], mode: string, optionDescriptions?: string[]): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } {
 	if (!(DISCUSSION_OPTIONS_MODES as readonly string[]).includes(mode)) {
 		throw new Error(`options_mode must be one of ${DISCUSSION_OPTIONS_MODES.join(", ")}`);
@@ -119,6 +122,10 @@ export function validateDiscussionOptions(options: string[], mode: string, optio
 	}
 	for (const option of options) boundedString(option, "option", DISCUSSION_OPTION_MAX_LENGTH);
 	if (new Set(options).size !== options.length) throw new Error("options must not repeat an entry");
+	const descriptionsRequired = options.length >= DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT;
+	if (descriptionsRequired && (optionDescriptions === undefined || optionDescriptions.some((description) => description.trim().length === 0))) {
+		throw new Error(`option_descriptions is required, with a non-empty entry for every option, once ${DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT} or more options are posed`);
+	}
 	if (optionDescriptions !== undefined) {
 		if (optionDescriptions.length !== options.length) throw new Error("option_descriptions must have exactly one entry per option (use an empty string for none)");
 		for (const description of optionDescriptions) {

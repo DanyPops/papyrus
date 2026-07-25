@@ -179,6 +179,8 @@ export const DISCUSSION_OPTION_MAX_LENGTH = 200;
 // description is meant to be a one-line tradeoff/consequence, not a restatement of the whole
 // question. Long enough for a real pro/con, short enough to force conciseness.
 export const DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH = 240;
+// Below this, a binary yes/no choice is often self-evident and a description would just pad it.
+export const DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT = 3;
 /** Bounds for the generic graph projection protocol (external bounded contexts). */
 export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
 export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;

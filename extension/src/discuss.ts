@@ -84,8 +84,8 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 				const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 				const question = `Reply to "${discussion.title}":`;
 				const answer = pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
-					? await askQuestion(commandCtx, { question, options: pending.pendingOptions.map((title) => ({ title })), allowMultiple: pending.pendingOptionsMode === "multi", key: discussion.id })
-					: await askQuestion(commandCtx, { question, key: discussion.id });
+					? await askQuestion(commandCtx, { question, options: pending.pendingOptions.map((title) => ({ title })), allowMultiple: pending.pendingOptionsMode === "multi" })
+					: await askQuestion(commandCtx, { question });
 				if (!answer) return; // canceled
 				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: SOURCE });
 				commandCtx.ui.notify(answer.selected ? `Selected: ${answer.selected.join(", ")}` : "Reply added.", "info");

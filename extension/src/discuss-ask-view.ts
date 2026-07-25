@@ -63,19 +63,10 @@ export interface AskQuestionParams {
 	displayMode?: AskDisplayMode;
 	timeout?: number;
 	/**
-	 * Joins a second concurrent call for the same key to the first's in-flight promise instead of
-	 * opening a second picker. Pass a stable id (the target Discussion's id) whenever the caller
-	 * cannot otherwise guarantee only one live ask is ever issued for that same question.
-	 */
-	key?: string;
-	/**
-	 * Streamed once before blocking on the human. A live ask can legitimately sit pending far
-	 * longer than a typical tool call (real human response time, not milliseconds) -- without any
-	 * progress signal, a tool call sitting silent that long looks indistinguishable from a dead
-	 * one to anything upstream watching for stalled calls. pi-ask-user's own original code (the
-	 * prior art this view is adapted from) sent exactly this same heartbeat before presenting its
-	 * UI; dropping it during the port was the regression that let two independent executions of
-	 * the same live ask run concurrently, each opening its own picker for the same question.
+	 * Streamed once before blocking on the human, matching pi-ask-user's own original code (the
+	 * prior art this view is adapted from) -- gives the tool call's progress UI something to show
+	 * during a wait that legitimately runs far longer than a typical tool call (real human response
+	 * time, not milliseconds).
 	 */
 	onUpdate?: AgentToolUpdateCallback;
 	/**
@@ -1099,25 +1090,14 @@ async function askViaDialogs(
  * driver (extension/src/index.ts's driveActiveTasks, on agent_settled) queue a "continue the
  * active task" nudge as a `deliverAs: "nextTurn"` message while this exact live ask is still
  * awaiting an answer -- starting a second, concurrent turn that reasons about the very Discussion
- * this call is already resolving, independently of it. A live-observed bug (two pickers for the
- * same question, one orphaned and later auto-resolving with fabricated "defer" text) traced back
- * to exactly this race. driveActiveTasks checks isLiveAskPending() and skips queuing while true.
+ * this call is already resolving, independently of it. driveActiveTasks checks isLiveAskPending()
+ * and skips queuing while true.
  */
 let livePendingCount = 0;
 
 export function isLiveAskPending(): boolean {
 	return livePendingCount > 0;
 }
-
-/**
- * Keyed reentrancy join: whatever the exact external cause (an upstream retry, a duplicate turn,
- * anything outside code this package controls -- verified Pi's own ctx.ui.custom() is a clean,
- * single-shot, well-guarded call with no retry/timeout logic of its own), a second concurrent
- * askQuestion() call for the SAME key must never open a second picker for the same question. It
- * joins the already-in-flight promise instead. Keyed by the target Discussion's id (stable across
- * a genuine duplicate call, unlike a fresh toolCallId each retry might mint).
- */
-const pendingByKey = new Map<string, Promise<AskAnswer | undefined>>();
 
 /**
  * Discuss's live:true synchronous ask -- interactive AskComponent when a real TUI is available,
@@ -1127,36 +1107,7 @@ const pendingByKey = new Map<string, Promise<AskAnswer | undefined>>();
  */
 export async function askQuestion(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
 	if (!ctx.hasUI || !ctx.ui) return undefined;
-	if (params.key !== undefined) {
-		const existing = pendingByKey.get(params.key);
-		if (existing) return existing;
-	}
-	const promise = askQuestionUnguarded(ctx, params);
-	if (params.key !== undefined) {
-		const key = params.key;
-		pendingByKey.set(key, promise);
-		void promise.finally(() => {
-			if (pendingByKey.get(key) === promise) pendingByKey.delete(key);
-		});
-	}
-	return promise;
-}
-
-/**
- * Sent at least this often while blocked on the human -- well under any 8-second window a
- * watchdog upstream might require to consider a tool call still alive. A single upfront ping
- * (this view's original heartbeat) only covers the first ~8s; for genuinely long human response
- * times (the whole point of a live ask) it goes silent again after that, indistinguishable from
- * dead. A live-observed bug traced back to exactly this: cancellation always cited "idle timeout,
- * no interaction within 8000ms" regardless of whether the real wait was 5 seconds or 18 minutes
- * -- a fixed re-check window, not a measure of total elapsed time -- meaning periodic liveness,
- * not a one-time ping, is what's required here.
- */
-let liveAskHeartbeatIntervalMs = 4_000;
-
-/** Test seam: real tiny interval, not a faked global timer -- exercises the periodic heartbeat deterministically and fast. */
-export function setLiveAskHeartbeatIntervalMsForTests(ms: number): void {
-	liveAskHeartbeatIntervalMs = ms;
+	return askQuestionUnguarded(ctx, params);
 }
 
 async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionParams): Promise<AskAnswer | undefined> {
@@ -1169,15 +1120,12 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
 
-	const sendHeartbeat = () => params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
-	sendHeartbeat();
-	const heartbeatTimer = params.onUpdate ? setInterval(sendHeartbeat, liveAskHeartbeatIntervalMs) : undefined;
+	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
 	livePendingCount += 1;
 	try {
 		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, displayMode, normalizedContext);
 	} finally {
 		livePendingCount -= 1;
-		if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
 	}
 }
 

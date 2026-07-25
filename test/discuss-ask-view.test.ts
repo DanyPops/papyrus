@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { askQuestion, isLiveAskPending, setLiveAskHeartbeatIntervalMsForTests } from "../extension/src/discuss-ask-view.ts";
+import { askQuestion, isLiveAskPending } from "../extension/src/discuss-ask-view.ts";
 
 const originalEnv = { ...process.env };
 afterEach(() => {
@@ -170,98 +170,6 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
 		await askQuestion(ctx, { question: "How many replicas?" });
 		expect(isLiveAskPending()).toBe(false);
-	});
-
-	/**
-	 * Regression coverage for a real live-observed bug that persisted even after the heartbeat and
-	 * isLiveAskPending fixes: whatever the exact external trigger, a second concurrent live ask for
-	 * the same Discussion must never open a second picker. Keying by the Discussion's id makes a
-	 * genuine duplicate call join the first's in-flight promise instead of starting a new one.
-	 */
-	it("a second concurrent call with the same key joins the first's in-flight picker instead of opening a second one", async () => {
-		let customCalls = 0;
-		let resolveFirst: ((value: unknown) => void) | undefined;
-		const ctx = {
-			cwd: "/tmp", hasUI: true,
-			ui: {
-				select: async () => { throw new Error("should not fall back to dialogs"); },
-				input: async () => { throw new Error("should not fall back to dialogs"); },
-				notify: () => {},
-				custom: (_factory: any) => { customCalls += 1; return new Promise((resolve) => { resolveFirst = resolve; }); },
-			} as any,
-		} as ExtensionContext;
-		const first = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }], key: "disc-1" });
-		const second = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }], key: "disc-1" });
-		expect(customCalls).toBe(1);
-		resolveFirst?.({ kind: "selection", selections: ["Ship Friday"] });
-		const [firstAnswer, secondAnswer] = await Promise.all([first, second]);
-		expect(firstAnswer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
-		expect(secondAnswer).toEqual(firstAnswer);
-		expect(customCalls).toBe(1);
-	});
-
-	it("different keys never join -- each gets its own independent picker", async () => {
-		let customCalls = 0;
-		const ctx = {
-			cwd: "/tmp", hasUI: true,
-			ui: {
-				select: async () => { throw new Error("should not fall back to dialogs"); },
-				input: async () => { throw new Error("should not fall back to dialogs"); },
-				notify: () => {},
-				custom: async (_factory: any) => { customCalls += 1; return { kind: "selection", selections: ["Ship Friday"] }; },
-			} as any,
-		} as ExtensionContext;
-		await Promise.all([
-			askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" }),
-			askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-2" }),
-		]);
-		expect(customCalls).toBe(2);
-	});
-
-	it("a key is freed once the ask resolves, so a later call with the same key opens a fresh picker rather than joining a stale one", async () => {
-		let customCalls = 0;
-		const ctx = {
-			cwd: "/tmp", hasUI: true,
-			ui: {
-				select: async () => { throw new Error("should not fall back to dialogs"); },
-				input: async () => { throw new Error("should not fall back to dialogs"); },
-				notify: () => {},
-				custom: async (_factory: any) => { customCalls += 1; return { kind: "selection", selections: ["Ship Friday"] }; },
-			} as any,
-		} as ExtensionContext;
-		await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" });
-		await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], key: "disc-1" });
-		expect(customCalls).toBe(2);
-	});
-
-	/**
-	 * Regression coverage for a real live-observed bug: a single upfront heartbeat only covers the
-	 * first ~8s. Cancellation kept citing "idle timeout, no interaction within 8000ms" regardless of
-	 * whether the real human wait was 5 seconds or 18 minutes -- proof that whatever's upstream
-	 * re-checks liveness periodically, not once. A periodic heartbeat for the whole wait is required.
-	 */
-	it("streams a heartbeat repeatedly for the whole wait, not just once at the start", async () => {
-		setLiveAskHeartbeatIntervalMsForTests(5);
-		const updates: Array<{ content: Array<{ type: "text"; text: string }> }> = [];
-		let resolveCustom: ((value: unknown) => void) | undefined;
-		const ctx = {
-			cwd: "/tmp", hasUI: true,
-			ui: {
-				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
-				custom: () => new Promise((resolve) => { resolveCustom = resolve; }),
-			} as any,
-		} as ExtensionContext;
-		const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], onUpdate: (update) => updates.push(update as any) });
-		await new Promise((resolve) => setTimeout(resolve, 40));
-		expect(updates.length).toBeGreaterThan(1);
-		expect(updates.every((update) => update.content[0]!.text === "Waiting for human input...")).toBe(true);
-		resolveCustom?.({ kind: "selection", selections: ["Ship Friday"] });
-		await promise;
-		const countAfterResolve = updates.length;
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		// The interval must be cleared once resolved -- no further heartbeats after the ask is done.
-		expect(updates.length).toBe(countAfterResolve);
-		setLiveAskHeartbeatIntervalMsForTests(4_000);
 	});
 
 	it("honors PAPYRUS_DISCUSS_DISPLAY_MODE=inline instead of the default overlay -- render never throws in inline layout", async () => {

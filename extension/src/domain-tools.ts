@@ -50,10 +50,9 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, onUpdate:
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
 			signal,
-			key: discussion.id,
 		});
 	}
-	return askQuestion(ctx, { question, onUpdate, signal, key: discussion.id });
+	return askQuestion(ctx, { question, onUpdate, signal });
 }
 
 /**

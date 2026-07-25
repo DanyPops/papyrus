@@ -106,15 +106,8 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		expect(calls.filter((call) => call.operation === "discuss.reply")).toHaveLength(1);
 	});
 
-	/**
-	 * Regression coverage for a real live-observed bug: a live ask legitimately blocks far longer
-	 * than a typical tool call (real human response time), and without any progress signal an
-	 * upstream layer watching for stalled tool calls has no way to tell "still waiting on a human"
-	 * apart from "dead" -- a retry meant for the latter case re-invokes execute() a second time,
-	 * producing two independent live-ask prompts for the same question, one of which is orphaned
-	 * and later resolves on its own. pi-ask-user's original code (the prior art discuss-ask-view.ts
-	 * is adapted from) sent exactly this heartbeat; dropping it during the port was the regression.
-	 */
+	// The model must not batch a live ask with bash/edit/write and let those run before the human
+	// sees the prompt; matches pi-ask-user's own tool's reasoning.
 	it("declares executionMode: sequential, so the model can't batch other tool calls behind a pending live ask", () => {
 		expect(discussTool().executionMode).toBe("sequential");
 	});

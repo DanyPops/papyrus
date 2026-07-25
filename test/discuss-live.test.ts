@@ -71,7 +71,7 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		const ctx = fakeCtx({ ui: { select: async (title: string, options: string[]) => { selectCalls.push({ title, options }); return "Slip to Monday"; }, input: async () => { inputTouched = true; return undefined; }, notify: () => {}, custom: async () => undefined } as any });
 		const result = await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", options: ["Ship Friday", "Slip to Monday"], options_mode: "single", live: true }, undefined, undefined, ctx);
 		expect(inputTouched).toBe(false);
-		expect(selectCalls).toEqual([{ title: "Pick one:", options: ["Ship Friday", "Slip to Monday"] }]);
+		expect(selectCalls).toEqual([{ title: "Pick one:", options: ["Ship Friday", "Slip to Monday", "Something else (type your own answer)"] }]);
 		expect(result.content[0]!.text).toBe('"Ship or not?": Slip to Monday');
 		const replyCall = calls.find((call) => call.operation === "discuss.reply");
 		expect(replyCall?.input).toMatchObject({ selected: ["Slip to Monday"] });

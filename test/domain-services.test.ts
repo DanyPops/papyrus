@@ -249,6 +249,46 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		db.close();
 	});
 
+	it("declares arguments; invoke lists provided values, flags missing required ones, and directs the agent to discuss live:true rather than guess", () => {
+		const { db, artifacts, scopes } = fixture();
+		const playbook = createPlaybook(artifacts, scopes, {
+			title: "Deploy service",
+			trigger: "deploying a service",
+			steps: ["Build the image", "Push to the target environment"],
+			arguments: [
+				{ name: "service_name", description: "which service to deploy" },
+				{ name: "environment", description: "target environment", required: true },
+				{ name: "dry_run", description: "skip the real push", required: false },
+			],
+		});
+
+		const noArgs = playbookInvocation(artifacts, playbook.id);
+		expect(noArgs).toContain("- service_name (required: which service to deploy) -- not yet provided");
+		expect(noArgs).toContain("- dry_run (optional: skip the real push) -- not yet provided");
+		expect(noArgs).toContain("Missing required argument(s): service_name, environment.");
+		expect(noArgs).toContain("discuss tool with live:true");
+
+		const partial = playbookInvocation(artifacts, playbook.id, { service_name: "payments-api" });
+		expect(partial).toContain("- service_name: payments-api");
+		expect(partial).toContain("Missing required argument(s): environment.");
+		expect(partial).not.toContain("service_name, environment"); // service_name is no longer missing
+
+		const complete = playbookInvocation(artifacts, playbook.id, { service_name: "payments-api", environment: "staging" });
+		expect(complete).not.toContain("Missing required argument");
+		expect(complete).toContain("- environment: staging");
+		db.close();
+	});
+
+	it("rejects malformed argument declarations at creation: not an array, too many, duplicate names, bad required type", () => {
+		const { db, artifacts, scopes } = fixture();
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: "nope" })).toThrow("playbook arguments must be an array");
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: Array.from({ length: 21 }, (_, i) => ({ name: `a${i}` })) })).toThrow(/cannot exceed 20 entries/);
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{ name: "x" }, { name: "x" }] })).toThrow('argument name "x" is declared more than once');
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{ name: "x", required: "yes" }] })).toThrow('argument "x" required must be a boolean');
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{}] })).toThrow(/argument name must be between/);
+		db.close();
+	});
+
 	it("scopes, reassigns, updates, and rejects a read-only external projection, the same as Docs/Rules/Skills", () => {
 		const { db, artifacts, scopes } = fixture();
 		const playbook = createPlaybook(artifacts, scopes, { title: "Scoped playbook", projectRoot: "/workspace/papyrus" });

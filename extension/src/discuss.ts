@@ -83,8 +83,14 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 			if (choice === "Reply") {
 				const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 				if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
-					const selected = await pickDiscussionOptions(commandCtx, pending.pendingOptionsMode, pending.pendingOptions);
-					if (!selected) return; // canceled
+					const result = await pickDiscussionOptions(commandCtx, pending.pendingOptionsMode, pending.pendingOptions);
+					if (!result) return; // canceled
+					if (result.kind === "freeform") {
+						await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: result.text, source: SOURCE });
+						commandCtx.ui.notify("Reply added.", "info");
+						return;
+					}
+					const { selected } = result;
 					const elaboration = await commandCtx.ui.input("Elaborate (optional):", selected.join(", "));
 					if (elaboration === undefined) return; // canceled
 					await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: elaboration || selected.join(", "), selected, source: SOURCE });

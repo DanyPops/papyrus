@@ -4,6 +4,9 @@ import {
 	ARTIFACT_LABEL_MAX_LENGTH,
 	ARTIFACT_SCOPE_MAX_ARTIFACTS,
 	ARTIFACT_TITLE_MAX_LENGTH,
+	PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH,
+	PLAYBOOK_ARGUMENT_MAX_COUNT,
+	PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH,
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
 	SKILL_INVOCATION_MAX_CALL_DEPTH,
@@ -522,12 +525,46 @@ export function transitionSkill(artifacts: ArtifactStore, id: string, action: Sk
  * mechanically instantiated into other artifacts; a Playbook is never instantiated, it's read
  * and followed, and it never composes other Playbooks the way a Skill can call another Skill.
  */
+export interface PlaybookArgument {
+	name: string;
+	description?: string;
+	/** Defaults true: naming an argument at all is a signal it matters, so an author must opt out explicitly to make one optional. */
+	required: boolean;
+}
+
+/** Rejects malformed input rather than silently dropping a bad entry -- the same posture creation validation already takes everywhere else. */
+function validatePlaybookArguments(value: unknown): PlaybookArgument[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value)) throw new Error("playbook arguments must be an array");
+	if (value.length > PLAYBOOK_ARGUMENT_MAX_COUNT) throw new Error(`playbook arguments cannot exceed ${PLAYBOOK_ARGUMENT_MAX_COUNT} entries`);
+	const seen = new Set<string>();
+	return value.map((entry, index) => {
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) throw new Error(`argument at index ${index} must be an object`);
+		const record = entry as Record<string, unknown>;
+		const name = record["name"];
+		if (typeof name !== "string" || name.trim().length === 0 || name.length > PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH) {
+			throw new Error(`argument name must be between 1 and ${PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH} characters`);
+		}
+		if (seen.has(name)) throw new Error(`argument name "${name}" is declared more than once`);
+		seen.add(name);
+		const description = record["description"];
+		if (description !== undefined && (typeof description !== "string" || description.length > PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH)) {
+			throw new Error(`argument "${name}" description cannot exceed ${PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH} characters`);
+		}
+		const required = record["required"];
+		if (required !== undefined && typeof required !== "boolean") throw new Error(`argument "${name}" required must be a boolean`);
+		return { name, ...(description !== undefined ? { description: description as string } : {}), required: required !== false };
+	});
+}
+
 export interface CreatePlaybookInput {
 	title: string;
 	body?: string;
 	trigger?: string;
 	steps?: string[];
 	tools?: string[];
+	/** Declares named arguments this Playbook needs -- see playbookInvocation for how a missing required one surfaces. */
+	arguments?: unknown;
 	labels?: string[];
 	extra?: Record<string, unknown>;
 	projectRoot?: string;
@@ -538,6 +575,7 @@ export type UpdatePlaybookInput = UpdateContentInput;
 
 export function createPlaybook(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreatePlaybookInput, context?: ArtifactEventContext): Artifact {
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
+	const declaredArguments = validatePlaybookArguments(input.arguments);
 	const playbook = artifacts.create({
 		kind: "playbook",
 		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
@@ -549,6 +587,7 @@ export function createPlaybook(artifacts: ArtifactStore, scopes: ArtifactScopeSt
 			...(input.trigger ? { trigger: input.trigger } : {}),
 			...(input.steps ? { steps: input.steps } : {}),
 			...(input.tools ? { tools: input.tools } : {}),
+			...(declaredArguments ? { arguments: declaredArguments } : {}),
 		},
 	}, context);
 	scopes.assign(playbook.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
@@ -587,16 +626,34 @@ export function transitionPlaybook(artifacts: ArtifactStore, id: string, action:
 	return artifacts.setStatus(id, target, context)!;
 }
 
-/** Renders trigger/steps/tools into readable guidance, plus any real linked artifacts. No nested playbook-calls-playbook composition -- a Playbook is a flat procedure, not a composable bundle. */
-export function playbookInvocation(artifacts: ArtifactStore, id: string): string {
+/**
+ * Renders trigger/steps/tools/arguments into readable guidance, plus any real linked artifacts.
+ * No nested playbook-calls-playbook composition -- a Playbook is a flat procedure, not a
+ * composable bundle. `provided` is the caller's already-known argument values (e.g. from the
+ * conversation so far); any declared *required* argument missing from it is called out
+ * explicitly, directing the agent to discuss (live:true) rather than guess or silently proceed.
+ */
+export function playbookInvocation(artifacts: ArtifactStore, id: string, provided: Record<string, string> = {}): string {
 	const playbook = requireKind(artifacts, id, "playbook");
 	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
 	const steps = Array.isArray(playbook.extra["steps"]) ? playbook.extra["steps"].filter((step): step is string => typeof step === "string") : [];
 	const tools = Array.isArray(playbook.extra["tools"]) ? playbook.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
+	const declaredArguments = Array.isArray(playbook.extra["arguments"]) ? (playbook.extra["arguments"] as PlaybookArgument[]) : [];
+	const argumentLines = declaredArguments.map((argument) => {
+		const value = provided[argument.name];
+		if (value !== undefined) return `- ${argument.name}: ${value}`;
+		const qualifier = argument.required ? "required" : "optional";
+		return `- ${argument.name} (${qualifier}${argument.description ? `: ${argument.description}` : ""}) -- not yet provided`;
+	});
+	const missingRequired = declaredArguments.filter((argument) => argument.required && provided[argument.name] === undefined);
 	const sections = [[
 		`Apply Papyrus playbook "${playbook.title}" (${playbook.id}).`,
 		`Trigger: ${trigger}`,
 		...(playbook.body ? [`Context: ${playbook.body}`] : []),
+		...(argumentLines.length > 0 ? ["Arguments:", ...argumentLines] : []),
+		...(missingRequired.length > 0
+			? [`Missing required argument(s): ${missingRequired.map((argument) => argument.name).join(", ")}. Ask the human for these directly -- the discuss tool with live:true asks synchronously and gets a real answer in this same turn -- before proceeding with the steps below. Do not guess or invent a value.`]
+			: []),
 		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
 		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
 	].join("\n")];

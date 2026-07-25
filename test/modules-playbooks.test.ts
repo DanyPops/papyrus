@@ -34,4 +34,17 @@ describe("modules/playbooks — a Papyrus-native registered module, a completely
 		const disabled = await registry.get("playbooks.disable")!.execute({ id: created.id }) as { status: string };
 		expect(disabled.status).toBe("deprecated");
 	});
+
+	it("declares arguments at create and supplies values at invoke through the registered operations", async () => {
+		const { registry } = fixture();
+		const created = await registry.get("playbooks.create")!.execute({
+			title: "Deploy service", trigger: "deploying", steps: ["Deploy it"],
+			arguments: [{ name: "environment", required: true }],
+		}) as { id: string };
+		const withoutValue = await registry.get("playbooks.invoke")!.execute({ id: created.id }) as string;
+		expect(withoutValue).toContain("Missing required argument(s): environment.");
+		const withValue = await registry.get("playbooks.invoke")!.execute({ id: created.id, arguments: { environment: "staging" } }) as string;
+		expect(withValue).toContain("- environment: staging");
+		expect(withValue).not.toContain("Missing required argument");
+	});
 });

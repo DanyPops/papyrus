@@ -42,8 +42,10 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact): Promise<
 	if (!ctx.hasUI) return undefined;
 	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
 	if (pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode) {
-		const selected = await pickDiscussionOptions(ctx, pending.pendingOptionsMode, pending.pendingOptions);
-		return selected ? { content: selected.join(", "), selected } : undefined;
+		const result = await pickDiscussionOptions(ctx, pending.pendingOptionsMode, pending.pendingOptions);
+		if (!result) return undefined;
+		if (result.kind === "freeform") return { content: result.text };
+		return { content: result.selected.join(", "), selected: result.selected };
 	}
 	const content = await ctx.ui.input(`Reply to "${discussion.title}":`, "");
 	return content ? { content } : undefined;
@@ -524,11 +526,12 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "playbooks",
 		label: "Playbooks",
-		description: "Playbook domain tool -- a completely different beast from the skills tool, not a subtype of it. A Playbook is a trigger and an ordered list of steps an agent reads and follows; it is never mechanically instantiated the way a Skill's artifact-template or workflow blueprint is, and it never composes other Playbooks. ACTIONS: create, list, show, invoke, enable, disable, assign_project, update, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. invoke renders the trigger/steps/tools into guidance plus any real linked artifacts. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id` -- id is a backend implementation detail, resolved from name automatically.",
+		description: "Playbook domain tool -- a completely different beast from the skills tool, not a subtype of it. A Playbook is a trigger and an ordered list of steps an agent reads and follows; it is never mechanically instantiated the way a Skill's artifact-template or workflow blueprint is, and it never composes other Playbooks. ACTIONS: create, list, show, invoke, enable, disable, assign_project, update, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. On create, `arguments` declares named inputs the Playbook needs: [{name, description?, required?}] (required defaults true). On invoke, `arguments` supplies known values as {name: value}; invoke renders which declared REQUIRED arguments are still missing and directs you to ask the human for them via the discuss tool with live:true -- never guess or invent a value for a missing required argument. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id` -- id is a backend implementation detail, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
 			tools: Type.Optional(Type.Array(Type.String())), labels: Type.Optional(Type.Array(Type.String())),
+			arguments: Type.Optional(Type.Unknown()),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()),
 			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),

@@ -162,12 +162,13 @@ content and details have independent named bounds.
 
 | Tool/action | Model result | Collapsed interactive result | Expanded interactive result |
 |---|---|---|---|
-| `papyrus_create` | created identity/kind/status | `✓ Created` | bounded subtype/labels |
 | `papyrus_query` | bounded identity rows | count plus first five | all returned rows and continuation |
 | `papyrus_graph link` | source/relation/target | `✓ Linked` | relation row |
 | `papyrus_graph tree` | root and bounded graph counts | root/count summary | bounded relationship graph |
-| `papyrus_graph status` | identity and new status | `✓ Updated` | lifecycle summary |
+| `papyrus_graph history` | bounded event log rows | count plus recent events | full returned event rows |
 | `papyrus_show` | identity, requested body, metadata/edge/gate completeness | identity/status/title | Markdown body, bounded metadata, graph footer, optional gate rows |
+
+`papyrus_graph status` is refused for every kind with its own lifecycle (Doc/Rule/Skill/Playbook/Task/Note) -- use that kind's own domain tool instead.
 
 ## Graph eligibility
 

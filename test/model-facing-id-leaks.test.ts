@@ -91,7 +91,6 @@ describe("model-facing artifact references are name-first", () => {
 		const tools = await registeredTools();
 		const rows = [artifact(), artifact({ id: OTHER_ID, kind: "doc", title: "Trust model", status: "draft" })];
 		mockService((operation, input) => {
-			if (operation === "artifact.create") return rows[0];
 			if (operation === "artifact.query") return rows;
 			if (operation === "artifact.show") return rows.find((row) => row.id === input.id) ?? rows[0];
 			if (operation === "graph.status") return { ...rows[0], status: "in-progress" };
@@ -101,7 +100,6 @@ describe("model-facing artifact references are name-first", () => {
 			throw new Error(`unexpected operation ${operation}`);
 		});
 
-		const createResult = await tools.get("papyrus_create")!("c", { kind: "task", title: rows[0]!.title }, undefined, undefined, context());
 		const queryResult = await tools.get("papyrus_query")!("q", {}, undefined, undefined, context());
 		const showResult = await tools.get("papyrus_show")!("s", { id: TASK_ID }, undefined, undefined, context());
 		const statusResult = await tools.get("papyrus_graph")!("g", { action: "status", id: TASK_ID, status: "in-progress" }, undefined, undefined, context());
@@ -109,8 +107,7 @@ describe("model-facing artifact references are name-first", () => {
 		const treeResult = await tools.get("papyrus_graph")!("g", { action: "tree", id: TASK_ID }, undefined, undefined, context());
 		const historyResult = await tools.get("papyrus_graph")!("g", { action: "history", id: TASK_ID }, undefined, undefined, context());
 
-		for (const result of [createResult, queryResult, showResult, statusResult, linkResult, treeResult, historyResult]) expect(modelText(result)).not.toMatch(UUID);
-		expect(JSON.stringify(createResult.details)).toContain(TASK_ID);
+		for (const result of [queryResult, showResult, statusResult, linkResult, treeResult, historyResult]) expect(modelText(result)).not.toMatch(UUID);
 		expect(JSON.stringify(queryResult.details)).toContain(OTHER_ID);
 		expect(JSON.stringify(showResult.details)).toContain(TASK_ID);
 	});

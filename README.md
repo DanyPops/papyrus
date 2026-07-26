@@ -98,7 +98,7 @@ papyrus skills run <skill-id> \
   --json
 ```
 
-The existing `artifact-template` skill subtype remains a compatibility mechanism for one-artifact templates with metadata `{targetKind, defaults, required}`. Instantiate it through `papyrus_create` with `template_id`; defaults merge recursively, explicit arrays replace defaults, required paths such as `extra.owner` are validated, and target-kind mismatches are rejected.
+The existing `artifact-template` skill subtype remains a compatibility mechanism for one-artifact templates with metadata `{targetKind, defaults, required}`. Instantiate it through the `skills` tool's `instantiate` action with `template_id`; defaults merge recursively, explicit arrays replace defaults, required paths such as `extra.owner` are validated, and target-kind mismatches are rejected.
 
 ### Removing an artifact
 
@@ -110,9 +110,8 @@ Once the deadline passes, the daemon's periodic sweep performs a real, cascading
 
 The `papyrus_*` tools are the low-level graph-store API:
 
-- **`papyrus_create`** — create directly or instantiate via `template_id`
 - **`papyrus_query`** — filter by kind/status or search title and body
-- **`papyrus_graph`** — link artifacts, perform bounded traversal, or update status
+- **`papyrus_graph`** — link artifacts, perform bounded traversal, or read the mutation event log
 - **`papyrus_show`** — read nested metadata and bounded edges, optionally running gates
 
 Agent-facing domain tools own lifecycle invariants and sit above this store API:

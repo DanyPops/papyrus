@@ -134,8 +134,8 @@ describe("Papyrus native tool rendering", () => {
 		const lowLevelTools = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
 		expect(domainTools.match(/renderCall\(/g)).toHaveLength(7);
 		expect(domainTools.match(/renderResult\(/g)).toHaveLength(7);
-		expect(lowLevelTools.match(/renderCall\(/g)).toHaveLength(4);
-		expect(lowLevelTools.match(/renderResult\(/g)).toHaveLength(4);
+		expect(lowLevelTools.match(/renderCall\(/g)).toHaveLength(3);
+		expect(lowLevelTools.match(/renderResult\(/g)).toHaveLength(3);
 		expect(`${domainTools}\n${lowLevelTools}`).not.toMatch(/return text\(`[^`]*failed:/);
 		expect(domainTools).toContain("createArtifactDetails");
 		expect(domainTools).toContain("createArtifactListDetails");

@@ -1,7 +1,7 @@
 /**
  * pi-papyrus — native Pi extension for the Papyrus graph store.
  *
- * Tools: papyrus_create/query/graph/show.
+ * Tools: papyrus_query/graph/show (low-level), plus one native tool per domain (docs/rules/skills/playbooks/tasks/discuss/notes).
  * Command: /tasks (interactive task panel).
  * Widget: persistent task status above editor (rpiv-todo pattern).
  * Injection: active rules + open tasks appended to system prompt every turn.
@@ -278,43 +278,6 @@ export default async function (pi: ExtensionAPI) {
 	};
 
 	// ── Low-level graph-store tools ────────────────────────────────────
-
-	pi.registerTool({
-		name: "papyrus_create",
-		label: "Papyrus Create",
-		description:
-			"Create a graph artifact. KINDS: doc (knowledge — specs, decisions, research), " +
-			"task (work — with gates/checklists in extra), rule (governance — when doing X, follow Y; " +
-			"active rules inject into the system prompt), skill (parameterized workflow bundle — validated inputs render connected Tasks, Rules, and Docs). " +
-			"RULE extra: {condition, action, severity: 'block'|'warn'|'info'}. " +
-			"TASK extra: {gates: [{type:'file-exists'|'contains'|'command'|'test', target, expect}], checklist: {'criterion': {proof: [{type:'file'|'symbol'|'code'|'test'|'command'|'artifact'|'url', target, expect}]}}}. " +
-			"Legacy SKILL extra: {trigger, steps: [...], tools: [...]}. Workflow Skill schemas are versioned separately. " +
-			"Templates are skills with subtype='artifact-template' and extra {targetKind, defaults, required}; pass template_id to instantiate.",
-		parameters: Type.Object({
-			kind: Type.Optional(Type.String({ description: "doc | task | rule | skill; optional when template_id supplies targetKind" })),
-			title: Type.Optional(Type.String({ description: "required unless supplied by template defaults" })),
-			status: Type.Optional(Type.String({ description: "default: first registered for kind" })),
-			subtype: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()),
-			labels: Type.Optional(Type.Array(Type.String())),
-			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-			template_id: Type.Optional(Type.String({ description: "skill/artifact-template id whose defaults and requirements apply" })),
-			project_root: Type.Optional(Type.String({ description: "required for Tasks; defaults to Pi cwd" })),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Create artifact", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params, _signal, _onUpdate, ctx) {
-			try {
-				const a = await callService<Record<string, unknown>, Artifact>("artifact.create", {
-					...params,
-					...(params.kind === "task" ? { project_root: params.project_root ?? ctx.cwd } : {}),
-				});
-				return text(`Created ${artifactTextLabel(a)}`, createArtifactDetails("artifact.create", a));
-			} catch (e) {
-				throw new Error(`papyrus_create failed: ${e instanceof Error ? e.message : e}`);
-			}
-		},
-	});
 
 	pi.registerTool({
 		name: "papyrus_query",

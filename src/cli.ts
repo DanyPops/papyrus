@@ -148,6 +148,12 @@ const USAGE = `Usage:
   papyrus tasks unpause [--session-id <id>] [--session-secret <secret>] [--json]
   papyrus tasks clear-focus [--session-id <id>] [--session-secret <secret>] [--json]
   papyrus tasks reap-stale-focus [--json]
+  papyrus tasks claim <id> --owner <owner> [--ttl-ms <ms>] [--note <text>] [--json]
+  papyrus tasks heartbeat-lease <id> --owner <owner> --token <token> [--ttl-ms <ms>] [--json]
+  papyrus tasks release-lease <id> --owner <owner> --token <token> [--json]
+  papyrus tasks lease <id> [--json]
+  papyrus tasks reap-stale-leases [--json]
+  papyrus tasks event-feed [--cursor <n>] [--limit <n>] [--event-types-json <json>] [--json]
   papyrus tasks history <id> [--json]
   papyrus tasks scope [project|all|graph <root-id>] [--json]
   papyrus tasks assign-project <id> [project-root] [--json]
@@ -182,6 +188,7 @@ function usage(): never {
 type TaskCliClient = Pick<PapyrusClient, "call">;
 type MigrationResult = { from: number; to: number; applied: string[] };
 type CliArtifact = { id: string; title: string; status: string; body?: string };
+type CliTaskLease = { taskId: string; owner: string; token: string; claimedAt: string; leaseExpiresAt: string; heartbeatAt?: string; note?: string };
 type CliCompletion = Omit<TaskCompletion, "artifact" | "blocked"> & {
 	artifact: CliArtifact;
 	blocked: Array<Omit<TaskBlockage, "artifact"> & { artifact: CliArtifact }>;
@@ -1320,6 +1327,12 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 	let limit: number | undefined;
 	let listScope: "project" | "graph" | "all" | undefined;
 	let rootTaskId: string | undefined;
+	let owner: string | undefined;
+	let token: string | undefined;
+	let ttlMs: number | undefined;
+	let note: string | undefined;
+	let cursor: number | undefined;
+	let eventTypes: string[] | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
@@ -1375,6 +1388,22 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			continue;
 		}
 		if (argument === "--root-task-id") { rootTaskId = args[++index]; if (!rootTaskId) throw new Error("--root-task-id requires a value"); continue; }
+		if (argument === "--owner") { owner = args[++index]; if (!owner) throw new Error("--owner requires a value"); continue; }
+		if (argument === "--token") { token = args[++index]; if (!token) throw new Error("--token requires a value"); continue; }
+		if (argument === "--note") { note = args[++index]; if (note === undefined) throw new Error("--note requires a value"); continue; }
+		if (argument === "--ttl-ms") {
+			const value = args[++index];
+			if (!value || Number.isNaN(Number(value))) throw new Error("--ttl-ms requires a numeric value");
+			ttlMs = Number(value);
+			continue;
+		}
+		if (argument === "--cursor") {
+			const value = args[++index];
+			if (!value || Number.isNaN(Number(value))) throw new Error("--cursor requires a numeric value");
+			cursor = Number(value);
+			continue;
+		}
+		if (argument === "--event-types-json") { eventTypes = parseJsonStringArrayFlag(args[++index]!, "--event-types-json"); continue; }
 		if (argument.startsWith("--")) throw new Error(`unknown tasks option ${argument}`);
 		positional.push(argument);
 	}
@@ -1424,6 +1453,53 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			const reaped = await client.call<Record<string, unknown>, { removed: number }>("tasks.reap_stale_focus", {});
 			result = reaped;
 			human = `Reaped ${reaped.removed} stale Focus scope(s).`;
+			break;
+		}
+		case "claim": {
+			if (!id || dependencyId) throw new Error("tasks claim requires exactly one task id");
+			if (!owner) throw new Error("tasks claim requires --owner");
+			const lease = await client.call<Record<string, unknown>, CliTaskLease>("tasks.claim", { id, owner, ttl_ms: ttlMs, note });
+			result = lease;
+			human = `Claimed by "${lease.owner}" until ${lease.leaseExpiresAt} (token ${lease.token}).`;
+			break;
+		}
+		case "heartbeat-lease": {
+			if (!id || dependencyId) throw new Error("tasks heartbeat-lease requires exactly one task id");
+			if (!owner || !token) throw new Error("tasks heartbeat-lease requires --owner and --token");
+			const lease = await client.call<Record<string, unknown>, CliTaskLease>("tasks.heartbeat_lease", { id, owner, token, ttl_ms: ttlMs });
+			result = lease;
+			human = `Renewed until ${lease.leaseExpiresAt}.`;
+			break;
+		}
+		case "release-lease": {
+			if (!id || dependencyId) throw new Error("tasks release-lease requires exactly one task id");
+			if (!owner || !token) throw new Error("tasks release-lease requires --owner and --token");
+			const released = await client.call<Record<string, unknown>, { released: boolean }>("tasks.release_lease", { id, owner, token });
+			result = released;
+			human = released.released ? "Lease released." : "No live lease to release.";
+			break;
+		}
+		case "lease": {
+			if (!id || dependencyId) throw new Error("tasks lease requires exactly one task id");
+			const lease = await client.call<Record<string, unknown>, CliTaskLease | null>("tasks.lease", { id });
+			result = lease;
+			human = lease ? `Leased by "${lease.owner}" until ${lease.leaseExpiresAt}.` : "No live lease.";
+			break;
+		}
+		case "reap-stale-leases": {
+			if (id) throw new Error("tasks reap-stale-leases accepts no positional arguments");
+			const reaped = await client.call<Record<string, unknown>, { removed: number }>("tasks.reap_stale_leases", {});
+			result = reaped;
+			human = `Reaped ${reaped.removed} expired lease(s).`;
+			break;
+		}
+		case "event-feed": {
+			if (id) throw new Error("tasks event-feed accepts no positional arguments");
+			const page = await client.call<Record<string, unknown>, import("./domain/task-event.ts").TaskEventFeedPage>("tasks.event_feed", { cursor, limit, event_types: eventTypes });
+			result = page;
+			human = page.events.length === 0
+				? "No events."
+				: page.events.map((event) => `${event.id} ${event.occurredAt} ${event.taskId} ${event.type}`).join("\n");
 			break;
 		}
 		case "create": {

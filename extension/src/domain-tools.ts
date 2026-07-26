@@ -1,6 +1,7 @@
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Artifact } from "../../src/domain/artifact.ts";
+import type { TaskLease } from "../../src/domain/task-lease.ts";
 import { PROOF_TYPES } from "../../src/domain/checklist.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import type { TaskExecutionPlan } from "../../src/task-execution.ts";
@@ -237,7 +238,7 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, undepend, contain, uncontain, remove, restore. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. update can recover a Task accidentally created terminal by setting status=todo with a reason, but cannot rewrite legitimate lifecycle history. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. undepend/uncontain are idempotent for an already-absent relationship and never start, complete, or focus work merely because an edge disappeared; uncontain removes both contains and part_of edges atomically. remove moves a Task to a time-gated trash (restorable via restore until the purge deadline; refuses if it is the live Task Focus). PREFER addressing a task by `name` (its exact title) over `id` for every action -- id is a backend implementation detail, resolved from name automatically, and only needs to appear explicitly when a name is genuinely ambiguous (two tasks share a title; the error will say so and list the real ids to disambiguate with). Task results likewise show name and status, not id, unless two shown tasks share a title. `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` are the name-based equivalents of `dependency_id`/`parent_id`/`child_id`/`root_task_id`/`depends_on`. Prefer this over low-level papyrus_* tools for task work.",
+		description: "Task domain tool. ACTIONS: create, update, list, show, history, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, run_gates, set_checklist, depend, undepend, contain, uncontain, remove, restore, claim, heartbeat_lease, release_lease, lease, event_feed. Lifecycle is todo → in-progress → review → done, with review failure → rejected and retry → in-progress; canceled is terminal. update can recover a Task accidentally created terminal by setting status=todo with a reason, but cannot rewrite legitimate lifecycle history. Active focus is independent and identifies the one task auto-drive continues. Completion runs gates and checklist-proof review, then focuses one deterministic ready successor without claiming effort. Dependency cycles are rejected. undepend/uncontain are idempotent for an already-absent relationship and never start, complete, or focus work merely because an edge disappeared; uncontain removes both contains and part_of edges atomically. remove moves a Task to a time-gated trash (restorable via restore until the purge deadline; refuses if it is the live Task Focus). claim/heartbeat_lease/release_lease/lease manage a bounded work-reservation lease -- independent of both lifecycle status and Focus, so multiple sessions can Focus the same task while only one owner holds its lease at a time; claim throws if a DIFFERENT owner already holds a live lease, release/heartbeat require the exact token claim returned. `owner` defaults to this session's own id when omitted. PREFER addressing a task by `name` (its exact title) over `id` for every action -- id is a backend implementation detail, resolved from name automatically, and only needs to appear explicitly when a name is genuinely ambiguous (two tasks share a title; the error will say so and list the real ids to disambiguate with). Task results likewise show name and status, not id, unless two shown tasks share a title. `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` are the name-based equivalents of `dependency_id`/`parent_id`/`child_id`/`root_task_id`/`depends_on`. Prefer this over low-level papyrus_* tools for task work.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -268,6 +269,11 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 			scope: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("graph"), Type.Literal("all")])),
 			root_task_id: Type.Optional(Type.String()),
 			root_task_name: Type.Optional(Type.String()),
+			owner: Type.Optional(Type.String()),
+			token: Type.Optional(Type.String()),
+			ttl_ms: Type.Optional(Type.Number()),
+			note: Type.Optional(Type.String()),
+			event_types: Type.Optional(Type.Array(Type.String())),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Tasks", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
@@ -412,6 +418,23 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 							passed: gate.passed, type: gate.gate.type, target: gate.gate.target, output: gate.output,
 						}))),
 					);
+				}
+				if (action === "event_feed") {
+					const page = await callService<Record<string, unknown>, { events: Array<{ id: number; occurredAt: string; taskId: string; type: string }>; nextCursor?: number }>("tasks.event_feed", { cursor: params.cursor, limit: params.limit, event_types: params.event_types });
+					const output = page.events.length === 0 ? "No events." : page.events.map((event) => `${event.id} ${event.occurredAt} ${event.taskId} ${event.type}`).join("\n");
+					return text(page.nextCursor !== undefined ? `${output}\n\n(more available -- resume with cursor: ${page.nextCursor})` : output, createPreviewDetails("tasks.event_feed", "Task event feed", output));
+				}
+				if (action === "claim" || action === "heartbeat_lease" || action === "release_lease" || action === "lease") {
+					const leaseRequest = { ...request, owner: (params.owner as string | undefined) ?? resolvedSessionId };
+					if (action === "release_lease") {
+						const released = await callService<Record<string, unknown>, { released: boolean }>("tasks.release_lease", leaseRequest);
+						const output = released.released ? "Lease released." : "No live lease to release.";
+						return text(output, createPreviewDetails("tasks.release_lease", "Task lease", output));
+					}
+					const operation = action === "claim" ? "tasks.claim" : action === "heartbeat_lease" ? "tasks.heartbeat_lease" : "tasks.lease";
+					const lease = await callService<Record<string, unknown>, TaskLease | null>(operation, leaseRequest);
+					const output = lease ? `Leased by "${lease.owner}" until ${lease.leaseExpiresAt} (token ${lease.token}).` : "No live lease.";
+					return text(output, createPreviewDetails(operation, "Task lease", output));
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;

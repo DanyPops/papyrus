@@ -3,6 +3,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
+import { SQLiteTaskLeaseStore } from "../src/adapters/sqlite-task-lease-store.ts";
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
 import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-identity-store.ts";
 import { openDb } from "../src/db.ts";
@@ -17,7 +18,7 @@ function fixture() {
 	const db = openDb(":memory:");
 	const artifacts = new SQLiteArtifactStore(db);
 	const gates = new SQLiteGateRunner(db);
-	const tasks = new Tasks(artifacts, gates, new SQLiteTaskFocusStore(db), new SQLiteTaskEventStore(db), new SQLiteTaskScopeStore(db));
+	const tasks = new Tasks(artifacts, gates, new SQLiteTaskFocusStore(db), new SQLiteTaskEventStore(db), new SQLiteTaskScopeStore(db), new SQLiteTaskLeaseStore(db));
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const registry = new OperationRegistry();
 	registry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
@@ -84,6 +85,48 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 		const { registry } = fixture();
 		const result = registry.get("tasks.reap_stale_focus")!.execute({}) as { removed: number };
 		expect(result).toEqual({ removed: 0 });
+	});
+
+	describe("lease operations", () => {
+		it("claims, heartbeats, releases, and reads a lease through the real operation handlers", async () => {
+			const { registry, tasks } = fixture();
+			const task = tasks.create({ title: "Ready work", projectRoot: PROJECT_ROOT });
+			const claimed = await registry.get("tasks.claim")!.execute({ id: task.id, owner: "worker-a", ttl_ms: 60_000 }) as { owner: string; token: string };
+			expect(claimed.owner).toBe("worker-a");
+
+			const renewed = await registry.get("tasks.heartbeat_lease")!.execute({ id: task.id, owner: "worker-a", token: claimed.token, ttl_ms: 120_000 }) as { token: string };
+			expect(renewed.token).toBe(claimed.token);
+
+			const read = await registry.get("tasks.lease")!.execute({ id: task.id }) as { owner: string } | null;
+			expect(read?.owner).toBe("worker-a");
+
+			const released = await registry.get("tasks.release_lease")!.execute({ id: task.id, owner: "worker-a", token: claimed.token }) as { released: boolean };
+			expect(released).toEqual({ released: true });
+			expect(await registry.get("tasks.lease")!.execute({ id: task.id })).toBeNull();
+		});
+
+		it("tasks.reap_stale_leases delegates to Tasks.reapStaleLeases and reports how many rows were removed", () => {
+			const { registry } = fixture();
+			const result = registry.get("tasks.reap_stale_leases")!.execute({}) as { removed: number };
+			expect(result).toEqual({ removed: 0 });
+		});
+
+		it("rejects a claim missing owner, matching every other required-field validation", () => {
+			const { registry, tasks } = fixture();
+			const task = tasks.create({ title: "Ready work", projectRoot: PROJECT_ROOT });
+			expect(() => registry.get("tasks.claim")!.execute({ id: task.id })).toThrow("owner is required");
+		});
+	});
+
+	describe("tasks.event_feed", () => {
+		it("replays events globally, filterable by type, through the real operation handler", async () => {
+			const { registry, tasks } = fixture();
+			const root = tasks.create({ title: "Root", status: "review", projectRoot: PROJECT_ROOT });
+			tasks.create({ title: "Successor", dependsOn: [root.id], projectRoot: PROJECT_ROOT });
+			tasks.complete(root.id);
+			const page = await registry.get("tasks.event_feed")!.execute({ event_types: ["became_ready"] }) as { events: Array<{ type: string }> };
+			expect(page.events.map((event) => event.type)).toEqual(["became_ready"]);
+		});
 	});
 
 	describe("session-identity enforcement on Focus-mutating operations", () => {

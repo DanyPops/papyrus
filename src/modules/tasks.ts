@@ -19,7 +19,7 @@
  * including the composition root's own helpers.
  */
 import type { Checklist } from "../domain/checklist.ts";
-import type { TaskEventContext, TaskEventDirection } from "../domain/task-event.ts";
+import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../domain/task-event.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -92,6 +92,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.pause", "tasks.unpause", "tasks.clear_focus", "tasks.start", "tasks.submit", "tasks.complete",
 	"tasks.run_gates", "tasks.set_checklist", "tasks.set_gates", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel",
 	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain", "tasks.reap_stale_focus",
+	"tasks.claim", "tasks.heartbeat_lease", "tasks.release_lease", "tasks.lease", "tasks.reap_stale_leases", "tasks.event_feed",
 ] as const;
 
 export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionIdentity: SessionIdentity): OperationDefinition[] {
@@ -171,5 +172,15 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		define("tasks.undepend", (input: OperationInput) => tasks.undepend(string(input, "id"), string(input, "dependency_id"), eventContext(input))),
 		define("tasks.contain", (input: OperationInput) => tasks.contain(string(input, "parent_id"), string(input, "child_id"), eventContext(input))),
 		define("tasks.uncontain", (input: OperationInput) => tasks.uncontain(string(input, "parent_id"), string(input, "child_id"), eventContext(input))),
+		define("tasks.claim", (input: OperationInput) => tasks.claimLease(string(input, "id"), string(input, "owner"), optionalNumber(input, "ttl_ms"), optionalString(input, "note"))),
+		define("tasks.heartbeat_lease", (input: OperationInput) => tasks.heartbeatLease(string(input, "id"), string(input, "owner"), string(input, "token"), optionalNumber(input, "ttl_ms"))),
+		define("tasks.release_lease", (input: OperationInput) => tasks.releaseLease(string(input, "id"), string(input, "owner"), string(input, "token"))),
+		define("tasks.lease", (input: OperationInput) => tasks.getLease(string(input, "id")) ?? null),
+		define("tasks.reap_stale_leases", () => ({ removed: tasks.reapStaleLeases() })),
+		define("tasks.event_feed", (input: OperationInput) => tasks.eventFeed({
+			cursor: optionalNumber(input, "cursor"),
+			limit: optionalNumber(input, "limit"),
+			eventTypes: optionalStringArray(input, "event_types") as TaskEventFeedQuery["eventTypes"],
+		})),
 	];
 }

@@ -1,11 +1,14 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import {
+	normalizeTaskEventFeedQuery,
 	normalizeTaskHistoryQuery,
 	validateTaskEvent,
 	type AppendTaskEvent,
 	type TaskEvent,
 	type TaskEventEvidence,
+	type TaskEventFeedPage,
+	type TaskEventFeedQuery,
 	type TaskEventType,
 	type TaskHistoryPage,
 	type TaskHistoryQuery,
@@ -85,6 +88,24 @@ export class SQLiteTaskEventStore implements TaskEventStore {
 			ORDER BY occurred_at ${order}, id ${order}
 			LIMIT ?
 		`).all(...(cursor === undefined ? [taskId, limit + 1] : [taskId, cursor, limit + 1])) as TaskEventRow[];
+		const hasMore = rows.length > limit;
+		const events = rows.slice(0, limit).map(mapRow);
+		return { events, ...(hasMore ? { nextCursor: events.at(-1)!.id } : {}) };
+	}
+
+	feed(query: TaskEventFeedQuery = {}): TaskEventFeedPage {
+		const { limit, cursor, eventTypes } = normalizeTaskEventFeedQuery(query);
+		const typeFilter = eventTypes ? `AND event_type IN (${eventTypes.map(() => "?").join(", ")})` : "";
+		const params: unknown[] = [];
+		if (cursor !== undefined) params.push(cursor);
+		if (eventTypes) params.push(...eventTypes);
+		params.push(limit + 1);
+		const rows = this.db.prepare(`
+			SELECT * FROM task_events
+			WHERE 1=1 ${cursor === undefined ? "" : "AND id > ?"} ${typeFilter}
+			ORDER BY id ASC
+			LIMIT ?
+		`).all(...params) as TaskEventRow[];
 		const hasMore = rows.length > limit;
 		const events = rows.slice(0, limit).map(mapRow);
 		return { events, ...(hasMore ? { nextCursor: events.at(-1)!.id } : {}) };

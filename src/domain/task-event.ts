@@ -1,5 +1,7 @@
 import {
 	TASK_EVENT_ACTOR_MAX_LENGTH,
+	TASK_EVENT_FEED_DEFAULT_LIMIT,
+	TASK_EVENT_FEED_MAX_LIMIT,
 	TASK_EVENT_MAX_EVIDENCE_BYTES,
 	TASK_EVENT_REASON_MAX_LENGTH,
 	TASK_HISTORY_DEFAULT_LIMIT,
@@ -28,6 +30,7 @@ export const TASK_EVENT_TYPES = [
 	"dependency_removed",
 	"containment_added",
 	"containment_removed",
+	"became_ready",
 ] as const;
 
 export type TaskEventType = typeof TASK_EVENT_TYPES[number];
@@ -84,6 +87,39 @@ export interface TaskHistoryQuery {
 export interface TaskHistoryPage {
 	events: TaskEvent[];
 	nextCursor?: number;
+}
+
+/**
+ * A bounded, sequenced, cross-task replay feed -- distinct from TaskHistoryQuery, which is
+ * scoped to one task. A consumer resumes exactly where it left off via nextCursor rather than
+ * re-scanning the whole graph; always ascending (a subscription only ever replays forward).
+ */
+export interface TaskEventFeedQuery {
+	cursor?: number;
+	limit?: number;
+	eventTypes?: TaskEventType[];
+}
+
+export interface TaskEventFeedPage {
+	events: TaskEvent[];
+	nextCursor?: number;
+}
+
+export function normalizeTaskEventFeedQuery(query: TaskEventFeedQuery = {}): Required<Pick<TaskEventFeedQuery, "limit">> & Pick<TaskEventFeedQuery, "cursor" | "eventTypes"> {
+	const limit = query.limit ?? TASK_EVENT_FEED_DEFAULT_LIMIT;
+	if (!Number.isInteger(limit) || limit < 1 || limit > TASK_EVENT_FEED_MAX_LIMIT) {
+		throw new Error(`task event feed limit must be between 1 and ${TASK_EVENT_FEED_MAX_LIMIT}`);
+	}
+	if (query.cursor !== undefined && (!Number.isInteger(query.cursor) || query.cursor < 0)) {
+		throw new Error("task event feed cursor must be a non-negative integer");
+	}
+	if (query.eventTypes !== undefined) {
+		if (query.eventTypes.length === 0) throw new Error("task event feed eventTypes, if provided, must be non-empty");
+		for (const type of query.eventTypes) {
+			if (!TASK_EVENT_TYPES.includes(type)) throw new Error(`unknown task event type "${type}"`);
+		}
+	}
+	return { limit, cursor: query.cursor, eventTypes: query.eventTypes };
 }
 
 export function normalizeTaskHistoryQuery(query: TaskHistoryQuery = {}): Required<Pick<TaskHistoryQuery, "limit" | "direction">> & Pick<TaskHistoryQuery, "cursor"> {

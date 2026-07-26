@@ -13,12 +13,14 @@ import type { Artifact } from "./domain/artifact.ts";
 import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
 import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
 import { validateGates, type Gate, type GateResult } from "./domain/gate.ts";
-import type { AppendTaskEvent, TaskEventContext, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
+import type { AppendTaskEvent, TaskEventContext, TaskEventFeedPage, TaskEventFeedQuery, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
 import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-store.ts";
+import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "./ports/task-lease-store.ts";
+import type { TaskLease } from "./domain/task-lease.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "./ports/task-scope-store.ts";
 import { assertDependencyEdgeAllowed } from "./task-execution.ts";
 
@@ -126,6 +128,7 @@ export class Tasks {
 		private readonly focusStore: TaskFocusStore = new InMemoryTaskFocusStore(),
 		private readonly events: TaskEventStore = new InMemoryTaskEventStore(),
 		private readonly scopes: TaskScopeStore = new InMemoryTaskScopeStore(),
+		private readonly leases: TaskLeaseStore = new InMemoryTaskLeaseStore(),
 	) {}
 
 	private require(id: string): Artifact {
@@ -403,6 +406,32 @@ export class Tasks {
 		return this.focusStore.reapStale(cutoff);
 	}
 
+	/** A lease is orthogonal to lifecycle and Focus: claiming a task does not start it, and does not require it to be Focused. */
+	claimLease(id: string, owner: string, ttlMs?: number, note?: string): TaskLease {
+		this.require(id);
+		return this.leases.claim(id, owner, ttlMs, note);
+	}
+
+	heartbeatLease(id: string, owner: string, token: string, ttlMs?: number): TaskLease {
+		this.require(id);
+		return this.leases.heartbeat(id, owner, token, ttlMs);
+	}
+
+	/** Idempotent for an already-absent or already-expired lease, matching undepend/uncontain's precedent -- never throws merely because there was nothing left to release. */
+	releaseLease(id: string, owner: string, token: string): { released: boolean } {
+		this.require(id);
+		return this.leases.release(id, owner, token);
+	}
+
+	getLease(id: string): TaskLease | undefined {
+		this.require(id);
+		return this.leases.get(id);
+	}
+
+	reapStaleLeases(now: () => string = () => new Date().toISOString()): number {
+		return this.leases.reapExpired(now());
+	}
+
 	transition(id: string, action: TaskTransition, context: TaskEventContext = {}): Artifact {
 		return this.events.atomic(() => {
 			const task = this.require(id);
@@ -459,6 +488,11 @@ export class Tasks {
 		return this.events.history(id, query);
 	}
 
+	/** Bounded, sequenced, cross-task replay feed -- see TaskEventFeedQuery. Not scoped to any one task, unlike history(). */
+	eventFeed(query: TaskEventFeedQuery = {}): TaskEventFeedPage {
+		return this.events.feed(query);
+	}
+
 	setChecklist(id: string, checklist: Checklist): Artifact {
 		const task = this.require(id);
 		return this.artifacts.setExtra(id, { ...task.extra, checklist: validateChecklist(checklist) })!;
@@ -498,10 +532,16 @@ export class Tasks {
 	/** Idempotent: undepending an already-absent dependency is a no-op. Never starts, completes, or focuses work — only removes the edge. */
 	undepend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
 		return this.events.atomic(() => {
-			this.require(id);
-			this.require(dependencyId);
+			const task = this.require(id);
+			const dependency = this.require(dependencyId);
 			const removed = this.artifacts.unlink({ from: id, relation: "depends_on", to: dependencyId }, context);
 			if (removed) this.appendEvent({ taskId: id, type: "dependency_removed", reason: context.reason }, context);
+			// Only meaningful if the removed edge was itself unmet -- removing an already-satisfied
+			// dependency, or removing one from a task that was already unblocked, changes nothing.
+			if (removed && task.status === "todo" && dependency.status !== "done") {
+				const stillBlocking = this.dependencyIds(id).filter((remainingId) => this.require(remainingId).status !== "done");
+				if (stillBlocking.length === 0) this.appendEvent({ taskId: id, type: "became_ready" }, context);
+			}
 			return this.show(id);
 		});
 	}
@@ -676,6 +716,9 @@ export class Tasks {
 				blocked.push({ artifact: successor, dependencyIds });
 				continue;
 			}
+			// Every successor whose last unmet dependency was this completion, not only the one
+			// auto-focused below -- readiness is a real state change for all of them.
+			this.appendEvent({ taskId: successor.id, type: "became_ready" }, context);
 			if (options.focusSuccessor !== false && !focused) {
 				this.focusStore.set(successor.id, context.sessionId);
 				focused = successor;

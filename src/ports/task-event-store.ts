@@ -1,9 +1,21 @@
-import { normalizeTaskHistoryQuery, validateTaskEvent, type AppendTaskEvent, type TaskEvent, type TaskHistoryPage, type TaskHistoryQuery } from "../domain/task-event.ts";
+import {
+	normalizeTaskEventFeedQuery,
+	normalizeTaskHistoryQuery,
+	validateTaskEvent,
+	type AppendTaskEvent,
+	type TaskEvent,
+	type TaskEventFeedPage,
+	type TaskEventFeedQuery,
+	type TaskHistoryPage,
+	type TaskHistoryQuery,
+} from "../domain/task-event.ts";
 
 export interface TaskEventStore {
 	atomic<T>(operation: () => T): T;
 	append(event: AppendTaskEvent): TaskEvent;
 	history(taskId: string, query?: TaskHistoryQuery): TaskHistoryPage;
+	/** Bounded, sequenced, cross-task replay feed -- see TaskEventFeedQuery. */
+	feed(query?: TaskEventFeedQuery): TaskEventFeedPage;
 }
 
 export class InMemoryTaskEventStore implements TaskEventStore {
@@ -37,6 +49,16 @@ export class InMemoryTaskEventStore implements TaskEventStore {
 		const ordered = this.events
 			.filter((event) => event.taskId === taskId && (cursor === undefined || (direction === "desc" ? event.id < cursor : event.id > cursor)))
 			.sort((left, right) => direction === "desc" ? right.id - left.id : left.id - right.id);
+		const events = ordered.slice(0, limit);
+		return { events, ...(ordered.length > limit ? { nextCursor: events.at(-1)!.id } : {}) };
+	}
+
+	feed(query: TaskEventFeedQuery = {}): TaskEventFeedPage {
+		const { limit, cursor, eventTypes } = normalizeTaskEventFeedQuery(query);
+		const types = eventTypes ? new Set(eventTypes) : undefined;
+		const ordered = this.events
+			.filter((event) => (cursor === undefined || event.id > cursor) && (types === undefined || types.has(event.type)))
+			.sort((left, right) => left.id - right.id);
 		const events = ordered.slice(0, limit);
 		return { events, ...(ordered.length > limit ? { nextCursor: events.at(-1)!.id } : {}) };
 	}

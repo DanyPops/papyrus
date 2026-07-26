@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 19;
+export const SQLITE_SCHEMA_VERSION = 20;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -134,6 +134,15 @@ export const TASK_HISTORY_MAX_LIMIT = 100;
 export const TASK_EVENT_MAX_EVIDENCE_BYTES = 65_536;
 export const TASK_EVENT_ACTOR_MAX_LENGTH = 128;
 export const TASK_EVENT_REASON_MAX_LENGTH = 2_000;
+/** Task lease claims: bounded work reservation, orthogonal to Task lifecycle and Focus. */
+export const TASK_LEASE_DEFAULT_TTL_MS = 10 * 60 * 1000;
+export const TASK_LEASE_MIN_TTL_MS = 1_000;
+export const TASK_LEASE_MAX_TTL_MS = 4 * 60 * 60 * 1000;
+export const TASK_LEASE_OWNER_MAX_LENGTH = 128;
+export const TASK_LEASE_NOTE_MAX_LENGTH = 500;
+/** Global, cross-task sequenced Task event feed (readiness/lifecycle subscriptions), distinct from tasks.history's per-task cursor. */
+export const TASK_EVENT_FEED_DEFAULT_LIMIT = 50;
+export const TASK_EVENT_FEED_MAX_LIMIT = 200;
 /** Deferred human Note payload, inbox, and provenance bounds. */
 export const NOTE_BODY_MAX_CHARACTERS = 10_000;
 export const NOTE_TITLE_MAX_CHARACTERS = 80;

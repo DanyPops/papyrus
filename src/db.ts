@@ -256,6 +256,16 @@ BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS discussion_rounds_no_delete BEFORE DELETE ON discussion_rounds
 WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.discussion_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 BEGIN SELECT RAISE(ABORT, 'discussion_rounds are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
+CREATE TABLE IF NOT EXISTS task_leases (
+	task_id           TEXT PRIMARY KEY REFERENCES artifacts(id),
+	owner             TEXT NOT NULL,
+	token             TEXT NOT NULL,
+	claimed_at        TEXT NOT NULL,
+	lease_expires_at  TEXT NOT NULL,
+	heartbeat_at      TEXT,
+	note              TEXT
+);
+CREATE INDEX IF NOT EXISTS task_leases_expiry_idx ON task_leases(lease_expires_at);
 `;
 
 const SEED_SQL = `
@@ -543,6 +553,27 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 		up: (db) => {
 			const existing = new Set((db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name));
 			if (!existing.has("option_descriptions")) db.exec("ALTER TABLE discussion_rounds ADD COLUMN option_descriptions TEXT");
+		},
+	},
+	{
+		version: 20,
+		name: "task-leases",
+		// See domain/task-lease.ts. One row per task (a task has at most one live lease at a time),
+		// same PRIMARY KEY-per-task shape as task_focus -- but a lease is deliberately orthogonal to
+		// Focus (multiple sessions can focus the same task; only one owner can hold its lease).
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS task_leases (
+					task_id           TEXT PRIMARY KEY REFERENCES artifacts(id),
+					owner             TEXT NOT NULL,
+					token             TEXT NOT NULL,
+					claimed_at        TEXT NOT NULL,
+					lease_expires_at  TEXT NOT NULL,
+					heartbeat_at      TEXT,
+					note              TEXT
+				);
+				CREATE INDEX IF NOT EXISTS task_leases_expiry_idx ON task_leases(lease_expires_at);
+			`);
 		},
 	},
 ];

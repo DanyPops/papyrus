@@ -294,6 +294,34 @@ describe("Tasks port behavior", () => {
 		expect(tasks.show(right.id).status).toBe("todo");
 		expect(tasks.active()?.id).toBe(left.id);
 		expect(gates.calls).toEqual([root.id]);
+		// Readiness fires for EVERY newly-unblocked successor, not just the one auto-focused.
+		expect(tasks.history(left.id).events.map((event) => event.type)).toContain("became_ready");
+		expect(tasks.history(right.id).events.map((event) => event.type)).toContain("became_ready");
+	});
+
+	it("emits became_ready when removing a blocking dependency edge leaves zero unmet dependencies", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const prerequisite = tasks.create({ title: "Prerequisite" });
+		const dependent = tasks.create({ title: "Dependent", dependsOn: [prerequisite.id] });
+
+		tasks.undepend(dependent.id, prerequisite.id);
+
+		expect(tasks.history(dependent.id).events.map((event) => event.type)).toContain("became_ready");
+	});
+
+	it("does NOT emit became_ready when removing an already-satisfied dependency, or one that leaves other dependencies unmet", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const done = tasks.create({ title: "Already done", status: "done" });
+		const stillPending = tasks.create({ title: "Still pending" });
+		const dependent = tasks.create({ title: "Dependent", dependsOn: [done.id, stillPending.id] });
+
+		// Removing the satisfied one changes nothing -- the task was never blocked by it.
+		tasks.undepend(dependent.id, done.id);
+		expect(tasks.history(dependent.id).events.map((event) => event.type)).not.toContain("became_ready");
+
+		// Removing the still-unmet one now leaves zero dependencies -- this one DOES fire.
+		tasks.undepend(dependent.id, stillPending.id);
+		expect(tasks.history(dependent.id).events.map((event) => event.type)).toContain("became_ready");
 	});
 
 	it("refuses completion while an active Discussion blocks the task, naming both by title not id", () => {
@@ -496,6 +524,61 @@ describe("Tasks port behavior", () => {
 
 			const graph = tasks.graph({ labels: ["urgent"] });
 			expect(graph.nodes.map((node) => node.task.title)).toEqual(["Urgent"]);
+		});
+	});
+
+	describe("lease claims: concurrent work reservation, orthogonal to lifecycle and Focus", () => {
+		it("claims, heartbeats, and releases a lease -- none of it starts the task or touches Focus", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			const task = tasks.create({ title: "Ready work" });
+			const claimed = tasks.claimLease(task.id, "worker-a", 60_000, "picking this up");
+			expect(claimed.owner).toBe("worker-a");
+			expect(tasks.show(task.id).status).toBe("todo");
+			expect(tasks.active()).toBeNull();
+
+			const renewed = tasks.heartbeatLease(task.id, "worker-a", claimed.token, 120_000);
+			expect(renewed.token).toBe(claimed.token);
+			expect(new Date(renewed.leaseExpiresAt).getTime()).toBeGreaterThan(new Date(claimed.leaseExpiresAt).getTime());
+
+			expect(tasks.releaseLease(task.id, "worker-a", claimed.token)).toEqual({ released: true });
+			expect(tasks.getLease(task.id)).toBeUndefined();
+		});
+
+		it("refuses to claim a task already leased by a different owner, and refuses to release/heartbeat someone else's lease", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			const task = tasks.create({ title: "Contended work" });
+			const claimed = tasks.claimLease(task.id, "worker-a", 60_000);
+			expect(() => tasks.claimLease(task.id, "worker-b", 60_000)).toThrow(/already leased by "worker-a"/);
+			expect(() => tasks.heartbeatLease(task.id, "worker-b", claimed.token)).toThrow(/different owner\/token/);
+			expect(() => tasks.releaseLease(task.id, "worker-b", claimed.token)).toThrow(/different owner\/token/);
+		});
+
+		it("multiple sessions can each Focus the same task while only one holds its lease -- lease and Focus are independent axes", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			const task = tasks.create({ title: "Shared visibility" });
+			tasks.focus(task.id, { sessionId: "session-a" });
+			tasks.focus(task.id, { sessionId: "session-b" });
+			const claimed = tasks.claimLease(task.id, "worker-a", 60_000);
+			expect(tasks.active({ sessionId: "session-a" })?.id).toBe(task.id);
+			expect(tasks.active({ sessionId: "session-b" })?.id).toBe(task.id);
+			expect(tasks.getLease(task.id)?.owner).toBe(claimed.owner);
+		});
+
+		it("releasing and getting a lease refuse an unknown task id, matching every other Tasks method's require() guard", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			expect(() => tasks.claimLease("missing", "worker-a")).toThrow('task artifact "missing" not found');
+			expect(() => tasks.getLease("missing")).toThrow('task artifact "missing" not found');
+		});
+
+		it("reapStaleLeases removes only leases past their own expiry, independent of TASK_FOCUS_STALE_AFTER_MS", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			const expiring = tasks.create({ title: "Short lease" });
+			const longLived = tasks.create({ title: "Long lease" });
+			tasks.claimLease(expiring.id, "worker-a", 1_000);
+			tasks.claimLease(longLived.id, "worker-b", 60_000);
+			const removed = tasks.reapStaleLeases(() => new Date(Date.now() + 2_000).toISOString());
+			expect(removed).toBe(1);
+			expect(tasks.getLease(longLived.id)).toBeDefined();
 		});
 	});
 });

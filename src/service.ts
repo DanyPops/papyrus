@@ -6,6 +6,7 @@ import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
+import { SQLiteTaskLeaseStore } from "./adapters/sqlite-task-lease-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import { SQLiteSessionIdentityStore } from "./adapters/sqlite-session-identity-store.ts";
@@ -339,6 +340,12 @@ function handlers(
 		"tasks.undepend": forwardToModule("tasks.undepend"),
 		"tasks.contain": forwardToModule("tasks.contain"),
 		"tasks.uncontain": forwardToModule("tasks.uncontain"),
+		"tasks.claim": forwardToModule("tasks.claim"),
+		"tasks.heartbeat_lease": forwardToModule("tasks.heartbeat_lease"),
+		"tasks.release_lease": forwardToModule("tasks.release_lease"),
+		"tasks.lease": forwardToModule("tasks.lease"),
+		"tasks.reap_stale_leases": forwardToModule("tasks.reap_stale_leases"),
+		"tasks.event_feed": forwardToModule("tasks.event_feed"),
 		"tasks.reap_stale_focus": forwardToModule("tasks.reap_stale_focus"),
 		"docs.create": forwardToModule("docs.create"),
 		"docs.list": forwardToModule("docs.list"),
@@ -426,7 +433,8 @@ export function createPapyrusService(path: string): PapyrusService {
 	const focus = new SQLiteTaskFocusStore(db);
 	const events = new SQLiteTaskEventStore(db);
 	const scopes = new SQLiteTaskScopeStore(db);
-	const tasks = new Tasks(artifacts, gates, focus, events, scopes);
+	const leases = new SQLiteTaskLeaseStore(db);
+	const tasks = new Tasks(artifacts, gates, focus, events, scopes, leases);
 	const notes = new Notes(artifacts);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);

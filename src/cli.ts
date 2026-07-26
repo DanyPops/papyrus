@@ -1441,7 +1441,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "list": {
 			if (id) throw new Error("tasks list accepts no positional arguments");
 			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("tasks.list", {
-				status, text, limit, project_root: projectRoot, scope: listScope, root_task_id: rootTaskId, ...sessionScope,
+				status, text, limit, labels, project_root: projectRoot, scope: listScope, root_task_id: rootTaskId, ...sessionScope,
 			});
 			result = rows;
 			human = rows.length === 0 ? "No tasks found." : rows.map((row) => artifactLabel(row)).join("\n");
@@ -1571,7 +1571,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			const graph = await client.call<Record<string, unknown>, {
 				nodes: Array<{ dependencyIds: string[]; childIds: string[] }>;
 				rootIds: string[];
-			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1, project_root: projectRoot, ...sessionScope });
+			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1, labels, project_root: projectRoot, scope: listScope, root_task_id: rootTaskId, ...sessionScope });
 			result = graph;
 			const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 			const children = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);

@@ -53,6 +53,7 @@ class FakeArtifactStore implements ArtifactStore {
 		return [...this.artifacts.values()]
 			.filter((artifact) => !filter.kind || artifact.kind === filter.kind)
 			.filter((artifact) => !filter.status || artifact.status === filter.status)
+			.filter((artifact) => (filter.labels ?? []).every((label) => artifact.labels.includes(label)))
 			.slice(0, filter.limit ?? this.artifacts.size)
 			.map((artifact) => structuredClone(artifact));
 	}
@@ -462,5 +463,39 @@ describe("Tasks port behavior", () => {
 			reason: "typed proof reference required",
 		}]);
 		expect(gates.calls).toEqual([task.id]);
+	});
+
+	describe("list/graph: filtering by label", () => {
+		it("'all' scope: filters to tasks carrying every requested label (AND semantics)", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			tasks.create({ title: "Urgent and blocked", labels: ["urgent", "blocked"] });
+			tasks.create({ title: "Urgent only", labels: ["urgent"] });
+			tasks.create({ title: "Unlabeled" });
+
+			const urgent = tasks.list({ labels: ["urgent"] });
+			expect(urgent.map((task) => task.title).sort()).toEqual(["Urgent and blocked", "Urgent only"]);
+
+			const both = tasks.list({ labels: ["urgent", "blocked"] });
+			expect(both.map((task) => task.title)).toEqual(["Urgent and blocked"]);
+		});
+
+		it("project scope: label filtering composes with the existing project boundary", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			tasks.create({ title: "In-project urgent", labels: ["urgent"], projectRoot: "/workspace/proj" });
+			tasks.create({ title: "In-project other", labels: ["other"], projectRoot: "/workspace/proj" });
+			tasks.create({ title: "Different project urgent", labels: ["urgent"], projectRoot: "/workspace/other" });
+
+			const found = tasks.list({ scope: "project", projectRoot: "/workspace/proj", labels: ["urgent"] });
+			expect(found.map((task) => task.title)).toEqual(["In-project urgent"]);
+		});
+
+		it("graph(): also respects a label filter, not just list()", () => {
+			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+			tasks.create({ title: "Urgent", labels: ["urgent"] });
+			tasks.create({ title: "Not urgent" });
+
+			const graph = tasks.graph({ labels: ["urgent"] });
+			expect(graph.nodes.map((node) => node.task.title)).toEqual(["Urgent"]);
+		});
 	});
 });

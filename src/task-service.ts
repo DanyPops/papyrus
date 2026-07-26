@@ -38,6 +38,8 @@ export interface TaskFilter {
 	rootTaskId?: string;
 	/** Requesting agent session id — scopes Task Focus reads so concurrent agents see only their own Focus. Defaults to a shared "global" scope when omitted. */
 	sessionId?: string;
+	/** AND semantics: a task must carry every requested label, matching ArtifactStore.query's own labels filter. */
+	labels?: string[];
 }
 
 export type TaskStatus = TaskLifecycleStatus;
@@ -225,17 +227,19 @@ export class Tasks {
 			throw new Error(`task list limit must be between 1 and ${TASK_SCOPE_MAX_TASKS + 1}`);
 		}
 		if (selection.mode === "all") {
-			return this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, status: filter.status, text: filter.text, limit });
+			return this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, status: filter.status, text: filter.text, labels: filter.labels, limit });
 		}
 		const ids = this.scopes.taskIds(selection.projectRoot, TASK_SCOPE_MAX_TASKS + 1);
 		if (ids.length > TASK_SCOPE_MAX_TASKS) throw new Error(`task project scope exceeds ${TASK_SCOPE_MAX_TASKS} tasks`);
 		const selectedIds = selection.mode === "graph" ? this.descendantIds(selection.rootTaskId!, ids) : new Set(ids);
 		const text = filter.text?.toLowerCase();
+		const labels = filter.labels ?? [];
 		return [...selectedIds]
 			.map((id) => this.artifacts.get(id))
 			.filter((task): task is Artifact => task?.kind === "task" && !isDiscussionArtifact(task))
 			.filter((task) => filter.status === undefined || task.status === filter.status)
 			.filter((task) => text === undefined || task.title.toLowerCase().includes(text) || task.body.toLowerCase().includes(text))
+			.filter((task) => labels.every((label) => task.labels.includes(label)))
 			.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))
 			.slice(0, limit);
 	}

@@ -126,4 +126,16 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 			expect(registry.get("tasks.focus")!.execute({ id: taskA.id, session_id: "session-a", session_secret: a.secret })).toBeTruthy();
 		});
 	});
+
+	it("tasks.list and tasks.graph filter by label through the real operation handler, not just the Tasks service directly", async () => {
+		const { registry } = fixture();
+		await registry.get("tasks.create")!.execute({ title: "Urgent", project_root: PROJECT_ROOT, labels: ["urgent"] });
+		await registry.get("tasks.create")!.execute({ title: "Not urgent", project_root: PROJECT_ROOT });
+
+		const listed = await registry.get("tasks.list")!.execute({ project_root: PROJECT_ROOT, labels: ["urgent"] }) as Array<{ title: string }>;
+		expect(listed.map((task) => task.title)).toEqual(["Urgent"]);
+
+		const graph = await registry.get("tasks.graph")!.execute({ project_root: PROJECT_ROOT, labels: ["urgent"] }) as { nodes: Array<{ task: { title: string } }> };
+		expect(graph.nodes.map((node) => node.task.title)).toEqual(["Urgent"]);
+	});
 });

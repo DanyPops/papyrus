@@ -74,6 +74,7 @@ const taskFilter = (input: OperationInput) => ({
 	scope: optionalString(input, "scope") as TaskViewMode | undefined,
 	rootTaskId: optionalString(input, "root_task_id"),
 	sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
+	labels: optionalStringArray(input, "labels"),
 });
 
 /**

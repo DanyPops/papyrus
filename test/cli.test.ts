@@ -433,6 +433,22 @@ describe("Papyrus task CLI", () => {
 		expect(await runTaskCli(["list"], emptyClient)).toBe("No tasks found.");
 	});
 
+	it("filters tasks and the execution graph by label through the daemon client", async () => {
+		const listClient = new FakeClient([]);
+		await runTaskCli(["list", "--labels-json", '["urgent","blocked"]'], listClient);
+		expect(listClient.calls).toEqual([{
+			operation: "tasks.list",
+			input: { labels: ["urgent", "blocked"], project_root: PROJECT_ROOT },
+		}]);
+
+		const graphClient = new FakeClient({ nodes: [], rootIds: [] });
+		await runTaskCli(["graph", "--labels-json", '["urgent"]', "--scope", "project"], graphClient);
+		expect(graphClient.calls).toEqual([{
+			operation: "tasks.graph",
+			input: { limit: 1001, labels: ["urgent"], project_root: PROJECT_ROOT, scope: "project" },
+		}]);
+	});
+
 	it("shows one task through the daemon client", async () => {
 		const client = new FakeClient({ id: "task", title: "Task", status: "todo", body: "Details" });
 		const output = await runTaskCli(["show", "task"], client);

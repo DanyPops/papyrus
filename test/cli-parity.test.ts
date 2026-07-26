@@ -182,8 +182,14 @@ describe("Papyrus CLI \u2014 structural operation parity", () => {
 	}
 });
 
-describe("playbooks create --arguments-json", () => {
-	it("parses declared Playbook arguments and threads them into playbooks.create -- previously missing entirely, only reachable via the native tool", async () => {
+/**
+ * --arguments-json is genuinely polymorphic (an array of declared parameters on create, a
+ * {name: value} map of supplied values on invoke) -- both actions were previously missing the flag
+ * entirely, reachable only through the native tool. The CLI parses JSON without asserting a shape;
+ * the service validates the shape appropriate to whichever operation actually receives it.
+ */
+describe("playbooks --arguments-json (create: declares parameters, invoke: supplies values)", () => {
+	it("threads a declared-arguments array into playbooks.create", async () => {
 		const client = new FakeClient(artifact);
 		await runPlaybooksCli(
 			["create", "--title", "T", "--arguments-json", '[{"name":"project_root","required":true}]', "--json"],
@@ -192,8 +198,15 @@ describe("playbooks create --arguments-json", () => {
 		expect(client.calls[0]?.input["arguments"]).toEqual([{ name: "project_root", required: true }]);
 	});
 
-	it("rejects a non-array payload instead of forwarding malformed input", async () => {
-		const client = new FakeClient(artifact);
-		await expect(runPlaybooksCli(["create", "--title", "T", "--arguments-json", '{"name":"x"}', "--json"], client)).rejects.toThrow("--arguments-json must be a JSON array");
+	it("threads a supplied-values map into playbooks.invoke", async () => {
+		const client = new FakeClient("invocation text");
+		await runPlaybooksCli(["invoke", "a1", "--arguments-json", '{"project_root":"/tmp/proj"}', "--json"], client);
+		expect(client.calls[0]?.input["arguments"]).toEqual({ project_root: "/tmp/proj" });
+	});
+
+	it("invoke without --arguments-json still works, passing arguments through as undefined", async () => {
+		const client = new FakeClient("invocation text");
+		await runPlaybooksCli(["invoke", "a1", "--json"], client);
+		expect(client.calls[0]?.input["arguments"]).toBeUndefined();
 	});
 });

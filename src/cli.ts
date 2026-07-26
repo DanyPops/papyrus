@@ -112,7 +112,8 @@ const USAGE = `Usage:
   papyrus skills instantiate <template-id> [--title <title>] [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--json]
   papyrus skills assign-project <id> [project-root] [--json]
   papyrus skills update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
-  papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--arguments-json <json>] [--project-root <path>] [--json]
+  papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--arguments-json <json array>] [--project-root <path>] [--json]
+  papyrus playbooks invoke <id> [--arguments-json <json object>] [--json]
   papyrus playbooks list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus playbooks show <id> [--json]
   papyrus playbooks invoke <id> [--json]
@@ -201,12 +202,15 @@ function parseJsonStringArrayFlag(value: string | undefined, flag: string): stri
 	return parsed as string[];
 }
 
-/** Top-level shape only -- element shape (e.g. {name, description?, required?}) is validated server-side. */
-function parseJsonArrayFlag(value: string | undefined, flag: string): unknown[] {
+/**
+ * No shape assertion here -- unlike every other JSON flag, playbooks --arguments-json is genuinely
+ * polymorphic (an array on create, a {name: value} map on invoke), and the two actions share one
+ * flag-parsing pass in runPlaybooksCli. The service validates the shape for whichever operation
+ * actually receives it.
+ */
+function parseJsonAnyFlag(value: string | undefined, flag: string): unknown {
 	if (value === undefined) throw new Error(`${flag} requires a value`);
-	const parsed = JSON.parse(value) as unknown;
-	if (!Array.isArray(parsed)) throw new Error(`${flag} must be a JSON array`);
-	return parsed;
+	return JSON.parse(value) as unknown;
 }
 
 function artifactLabel(artifact: CliArtifact): string {
@@ -794,7 +798,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 	let tools: string[] | undefined;
 	let labels: string[] | undefined;
 	let extra: Record<string, unknown> | undefined;
-	let playbookArguments: unknown[] | undefined;
+	let playbookArguments: unknown;
 	let status: string | undefined;
 	let text: string | undefined;
 	let limit: number | undefined;
@@ -809,7 +813,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		if (argument === "--tools-json") { tools = parseJsonStringArrayFlag(args[++index], "--tools-json"); continue; }
 		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
 		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
-		if (argument === "--arguments-json") { playbookArguments = parseJsonArrayFlag(args[++index], "--arguments-json"); continue; }
+		if (argument === "--arguments-json") { playbookArguments = parseJsonAnyFlag(args[++index], "--arguments-json"); continue; }
 		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
 		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
 		if (argument === "--project-root") { playbookProjectRoot = args[++index]; if (!playbookProjectRoot) throw new Error("--project-root requires a value"); continue; }
@@ -850,7 +854,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		}
 		case "invoke": {
 			if (!id || second) throw new Error("playbooks invoke requires exactly one playbook id");
-			const invocation = await client.call<Record<string, unknown>, string>("playbooks.invoke", { id });
+			const invocation = await client.call<Record<string, unknown>, string>("playbooks.invoke", { id, arguments: playbookArguments });
 			result = invocation;
 			human = invocation;
 			break;

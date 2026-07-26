@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { askQuestion, isLiveAskPending } from "../extension/src/discuss-ask-view.ts";
+import { askQuestion, hasEditorCourtesyDraft, isLiveAskPending, waitForEditorCourtesy } from "../extension/src/discuss-ask-view.ts";
 
 const originalEnv = { ...process.env };
+// Disabled by default: most tests here use a static getEditorText() stub that never clears, which
+// would otherwise stall every one of them on the typing-courtesy wait. The dedicated "typing
+// courtesy" describe block below re-enables it explicitly per test.
+beforeEach(() => { process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "0"; });
 afterEach(() => {
 	for (const key of Object.keys(process.env)) if (!(key in originalEnv)) delete process.env[key];
 	Object.assign(process.env, originalEnv);
@@ -296,6 +300,76 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 				} as any,
 			} as ExtensionContext;
 			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], displayMode: "editor" });
+			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
+		});
+	});
+
+	/**
+	 * Politeness: a live ask must not pop over a human's in-progress editor draft.
+	 * hasEditorCourtesyDraft is a plain synchronous check so the common (no draft) case never adds
+	 * an await -- an unconditional await, even one that resolves immediately, still yields a
+	 * microtask, which is enough for a signal aborted synchronously right after invoking
+	 * askQuestion to race past the deeper abort listener and get missed (caught live in this file's
+	 * own "signal DOES cancel" test above once this feature was added unconditionally).
+	 */
+	describe("typing courtesy: waits for an in-progress editor draft before asking", () => {
+		it("hasEditorCourtesyDraft: false when the editor is empty or unavailable, true only for real non-empty text", () => {
+			expect(hasEditorCourtesyDraft({ ui: {} as any } as ExtensionContext)).toBe(false);
+			expect(hasEditorCourtesyDraft({ ui: { getEditorText: () => "" } as any } as ExtensionContext)).toBe(false);
+			expect(hasEditorCourtesyDraft({ ui: { getEditorText: () => "still typing" } as any } as ExtensionContext)).toBe(true);
+		});
+
+		it("waits while the draft is non-empty, then proceeds the moment it clears", async () => {
+			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "5000";
+			let draft = "still typing";
+			setTimeout(() => { draft = ""; }, 20);
+			const ctx = { ui: { getEditorText: () => draft } as any } as ExtensionContext;
+			let waitedMessage: string | undefined;
+			await waitForEditorCourtesy(ctx, { onUpdate: (update: any) => { waitedMessage = update.content?.[0]?.text; } });
+			expect(draft).toBe("");
+			expect(waitedMessage).toContain("finish typing");
+		});
+
+		it("is bounded by PAPYRUS_DISCUSS_TYPING_COURTESY_MS -- a draft left sitting unattended does not withhold the question indefinitely", async () => {
+			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "10";
+			const ctx = { ui: { getEditorText: () => "a draft nobody is actively finishing" } as any } as ExtensionContext;
+			const start = Date.now();
+			await waitForEditorCourtesy(ctx, {});
+			expect(Date.now() - start).toBeLessThan(1000);
+		});
+
+		it("stops immediately when the tool call's own signal aborts mid-wait, instead of riding out the full bound", async () => {
+			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "5000";
+			const controller = new AbortController();
+			setTimeout(() => controller.abort(), 20);
+			const ctx = { ui: { getEditorText: () => "still typing" } as any } as ExtensionContext;
+			const start = Date.now();
+			await waitForEditorCourtesy(ctx, { signal: controller.signal });
+			expect(Date.now() - start).toBeLessThan(500);
+		});
+
+		it("end-to-end through askQuestion: the picker does not open until the draft clears", async () => {
+			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "5000";
+			let draft = "human is mid-sentence";
+			setTimeout(() => { draft = ""; }, 20);
+			const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+			let customCalledAt = 0;
+			const start = Date.now();
+			const ctx = {
+				cwd: "/tmp", hasUI: true,
+				ui: {
+					select: async () => { throw new Error("should not fall back to dialogs"); },
+					input: async () => { throw new Error("should not fall back to dialogs"); },
+					notify: () => {}, getEditorText: () => draft,
+					custom: async (factory: any) => new Promise((resolve) => {
+						customCalledAt = Date.now() - start;
+						const component = factory(tui, theme, keybindings, resolve);
+						component.handleInput(ENTER);
+					}),
+				} as any,
+			} as ExtensionContext;
+			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
+			expect(customCalledAt).toBeGreaterThanOrEqual(15);
 			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
 		});
 	});

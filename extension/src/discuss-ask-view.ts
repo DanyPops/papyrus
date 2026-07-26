@@ -1126,6 +1126,53 @@ export function isLiveAskPending(): boolean {
 	return livePendingCount > 0;
 }
 
+const DISCUSS_TYPING_COURTESY_POLL_MS = 400;
+const DISCUSS_TYPING_COURTESY_DEFAULT_MAX_WAIT_MS = 15_000;
+
+function resolveTypingCourtesyMaxWaitMs(): number {
+	const raw = process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"];
+	if (raw === undefined) return DISCUSS_TYPING_COURTESY_DEFAULT_MAX_WAIT_MS;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DISCUSS_TYPING_COURTESY_DEFAULT_MAX_WAIT_MS;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal?.aborted) { resolve(); return; }
+		const timer = setTimeout(resolve, ms);
+		signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+	});
+}
+
+/**
+ * Whether there is a genuine editor draft to wait out right now -- a plain synchronous check so
+ * the common case (no draft) never forces the caller through an extra microtask. Deliberately not
+ * folded into waitForEditorCourtesy itself: an unconditional `await` there -- even one that
+ * resolves immediately -- still yields once, which is enough to let a signal aborted synchronously
+ * right after invoking askQuestion race past the abort listener registered deeper in
+ * askQuestionBlocking and get missed entirely.
+ */
+export function hasEditorCourtesyDraft(ctx: ExtensionContext): boolean {
+	return typeof ctx.ui.getEditorText === "function" && ctx.ui.getEditorText().length > 0;
+}
+
+/**
+ * Waits for a non-empty editor draft to clear before popping the live ask over it. Bounded
+ * (PAPYRUS_DISCUSS_TYPING_COURTESY_MS, default 15s, 0 disables): a draft left sitting unattended
+ * must not withhold the question indefinitely, only a genuinely in-progress reply gets the
+ * courtesy. Only call when hasEditorCourtesyDraft(ctx) is already true.
+ */
+export async function waitForEditorCourtesy(ctx: ExtensionContext, params: Pick<AskQuestionParams, "onUpdate" | "signal">): Promise<void> {
+	const maxWaitMs = resolveTypingCourtesyMaxWaitMs();
+	if (maxWaitMs <= 0) return;
+	const deadline = Date.now() + maxWaitMs;
+	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for you to finish typing before asking..." }], details: undefined });
+	while (Date.now() < deadline && !params.signal?.aborted) {
+		await sleep(DISCUSS_TYPING_COURTESY_POLL_MS, params.signal);
+		if (typeof ctx.ui.getEditorText !== "function" || ctx.ui.getEditorText().length === 0) return;
+	}
+}
+
 /**
  * Discuss's live:true synchronous ask -- interactive AskComponent when a real TUI is available,
  * dialog fallback (ctx.ui.select/input) in RPC/headless mode, no-op undefined without any
@@ -1147,9 +1194,12 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
 
-	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
 	livePendingCount += 1;
 	try {
+		// Only actually awaits (yielding a microtask) when there's a real draft to wait out --
+		// see hasEditorCourtesyDraft's own comment for why the common case must stay synchronous.
+		if (hasEditorCourtesyDraft(ctx)) await waitForEditorCourtesy(ctx, params);
+		params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
 		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, displayMode, normalizedContext);
 	} finally {
 		livePendingCount -= 1;

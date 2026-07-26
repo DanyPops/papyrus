@@ -164,6 +164,7 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 			artifacts,
 			tasks.active(taskFilter(input))?.id,
 			new Set(tasks.list(taskFilter(input)).map((task) => task.id)),
+			optionalString(input, "verbosity") === "summary" ? "summary" : "full",
 		)),
 		define("tasks.reject", (input: OperationInput) => tasks.transition(string(input, "id"), "reject", eventContext(input))),
 		define("tasks.retry", (input: OperationInput) => tasks.transition(string(input, "id"), "retry", eventContext(input))),

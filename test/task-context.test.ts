@@ -48,6 +48,45 @@ describe("task context reconciliation", () => {
 		db.close();
 	});
 
+	it("summary verbosity: the current task gets a lean pointer, not the full Desired/Verify prose -- unconditional injection just needs to say the option exists", () => {
+		const { db, artifacts } = fixture();
+		const active = artifacts.create({
+			kind: "task",
+			title: "Ship task frontend",
+			body: "Users can manage tasks interactively.",
+			extra: { gates: [{ type: "command", target: "bun test", expect: "0 fail" }] },
+		});
+		artifacts.setStatus(active.id, "in-progress");
+
+		const context = taskContext(artifacts, undefined, undefined, "summary")!;
+		expect(context).toContain("Current: Ship task frontend [in-progress]");
+		expect(context).not.toContain("Desired: Users can manage tasks interactively.");
+		expect(context).not.toContain("Verify: command: bun test");
+		expect(context).toMatch(/tasks\(action="context"\)/);
+		// The reconciliation instruction is cheap and behavior-shaping regardless of verbosity -- stays.
+		expect(context).toContain("Did we accomplish this task?");
+		db.close();
+	});
+
+	it("full verbosity (the default, and what tasks(action=\"context\") returns on demand) is unchanged", () => {
+		const { db, artifacts } = fixture();
+		const active = artifacts.create({
+			kind: "task",
+			title: "Ship task frontend",
+			body: "Users can manage tasks interactively.",
+			extra: { gates: [{ type: "command", target: "bun test", expect: "0 fail" }] },
+		});
+		artifacts.setStatus(active.id, "in-progress");
+
+		const defaulted = taskContext(artifacts)!;
+		const explicitFull = taskContext(artifacts, undefined, undefined, "full")!;
+		for (const context of [defaulted, explicitFull]) {
+			expect(context).toContain("Desired: Users can manage tasks interactively.");
+			expect(context).toContain("Verify: command: bun test = 0 fail");
+		}
+		db.close();
+	});
+
 	it("calls out rejected tasks as review failures", () => {
 		const { db, artifacts } = fixture();
 		const rejected = artifacts.create({ kind: "task", title: "Repair release" });

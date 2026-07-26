@@ -145,4 +145,17 @@ describe("model-facing artifact references are name-first", () => {
 		const targetLookup = calls.find((call) => call.operation === "tasks.list" && call.input.text === "Decide middleware fate");
 		expect(targetLookup?.input).toMatchObject({ project_root: "/workspace/alef", scope: "graph", root_task_id: ROOT_ID });
 	});
+
+	it("tasks(action=\"context\") calls through with verbosity=full -- an explicit on-demand call always gets the complete plan, unlike the unconditional injection", async () => {
+		const tools = await registeredTools();
+		const calls = mockService((operation) => {
+			if (operation === "tasks.context") return "Current: Decide middleware fate [in-progress]";
+			throw new Error(`unexpected operation ${operation}`);
+		});
+
+		await tools.get("tasks")!("t", { action: "context", project_root: "/workspace/alef" }, undefined, undefined, context());
+
+		const call = calls.find((entry) => entry.operation === "tasks.context");
+		expect(call?.input).toMatchObject({ verbosity: "full" });
+	});
 });

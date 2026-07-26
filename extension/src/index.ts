@@ -607,7 +607,7 @@ export default async function (pi: ExtensionAPI) {
 			const [rules, playbooks, summary] = await Promise.all([
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", { status: "active", limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS }),
-				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId }),
+				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId, verbosity: "summary" }),
 			]);
 			const injection = buildContextInjection({
 				basePrompt: event.systemPrompt ?? "",

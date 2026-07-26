@@ -35,6 +35,11 @@ function renderCurrent(task: Artifact): string[] {
 	];
 }
 
+/** The unconditional-injection form: enough to know the current task and that fuller detail exists, without repeating its full Desired/Verify prose every turn. */
+function renderCurrentSummary(task: Artifact): string[] {
+	return [`Current: ${task.title} [${task.status}] -- call tasks(action="context") for the full current/desired/verify plan`];
+}
+
 /** Same scoping rule taskContext already applies to ordinary tasks, plus the focused task even if scope excludes it. */
 function inScope(taskId: string, activeTaskId: string | undefined, taskIds: Set<string> | undefined): boolean {
 	return taskIds === undefined || taskIds.has(taskId) || taskId === activeTaskId;
@@ -62,7 +67,16 @@ function deferredBlockingDiscussions(artifacts: ArtifactStore, activeTaskId: str
 	return lines;
 }
 
-export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, taskIds?: Set<string>): string | null {
+export type TaskContextVerbosity = "summary" | "full";
+
+/**
+ * verbosity="full" (the default, matching tasks(action="context") called on demand) renders the
+ * current task's complete Desired/Verify plan. verbosity="summary" (used for the unconditional
+ * system-prompt injection every turn) renders only enough for the agent to know a current task
+ * exists and that the full plan is one explicit call away -- avoiding repeating the same
+ * unchanged prose every single turn for a task that can persist across dozens of turns.
+ */
+export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, taskIds?: Set<string>, verbosity: TaskContextVerbosity = "full"): string | null {
 	const tasks = artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE })
 		.filter((task) => taskIds === undefined || taskIds.has(task.id))
 		.sort((left, right) => left.updated_at.localeCompare(right.updated_at));
@@ -76,7 +90,8 @@ export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, tas
 	const next = open.find((task) => task.status === "todo");
 	const rejected = open.filter((task) => task.status === "rejected").slice(0, TASK_CONTEXT_REJECTED_LIMIT);
 	const lines = tasks.length > 0 ? [`Progress: ${done}/${tasks.length} done`] : [];
-	for (const task of current) lines.push(...renderCurrent(task));
+	const renderTask = verbosity === "summary" ? renderCurrentSummary : renderCurrent;
+	for (const task of current) lines.push(...renderTask(task));
 	if (next) lines.push(`Next: ${next.title}`);
 	if (rejected.length > 0) lines.push(`Rejected: ${rejected.map((task) => task.title).join(", ")}`);
 	if (deferredDiscussions.length > 0) {

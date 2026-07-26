@@ -63,6 +63,17 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 		expect(summary).toContain("Context task");
 	});
 
+	it("tasks.context verbosity=summary renders a lean pointer for the current task; anything else (including omitted) renders the full plan", async () => {
+		const { registry } = fixture();
+		const task = await registry.get("tasks.create")!.execute({ title: "Context task", body: "Full desired state prose", project_root: PROJECT_ROOT }) as { id: string };
+		await registry.get("tasks.start")!.execute({ id: task.id });
+		const summary = await registry.get("tasks.context")!.execute({ project_root: PROJECT_ROOT, verbosity: "summary" }) as string;
+		expect(summary).toContain("Current: Context task [in-progress]");
+		expect(summary).not.toContain("Full desired state prose");
+		const full = await registry.get("tasks.context")!.execute({ project_root: PROJECT_ROOT }) as string;
+		expect(full).toContain("Desired: Full desired state prose");
+	});
+
 	it("dependency and containment operations still enforce Task-domain invariants unchanged", async () => {
 		const { registry } = fixture();
 		const a = await registry.get("tasks.create")!.execute({ title: "A", project_root: PROJECT_ROOT }) as { id: string };

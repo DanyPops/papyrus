@@ -191,7 +191,7 @@ export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
 }
 
 export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	const document = requireMutableDocument(requireDocument(artifacts, id), authority);
+	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority));
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
 	return artifacts.setStatus(id, transition.to, context)!;
@@ -215,10 +215,10 @@ export function updateDocument(artifacts: ArtifactStore, id: string, input: Upda
 }
 
 export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	requireMutableDocument(requireDocument(artifacts, id), authority);
+	requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority));
 	const target = artifacts.get(targetId);
 	if (!target) throw new Error(`target artifact "${targetId}" not found`);
-	requireMutableDocument(target, authority);
+	requireLocallyOwnedContent(requireMutableDocument(target, authority));
 	artifacts.link({ from: id, relation, to: targetId }, context);
 	return showDocument(artifacts, id);
 }
@@ -308,7 +308,7 @@ export function previewRule(artifacts: ArtifactStore, id: string): string {
 }
 
 export function transitionRule(artifacts: ArtifactStore, id: string, action: RuleTransition, context?: ArtifactEventContext): Artifact {
-	const rule = requireKind(artifacts, id, "rule");
+	const rule = requireLocallyOwnedContent(requireKind(artifacts, id, "rule"));
 	const expected = action === "enable" ? "deprecated" : "active";
 	const target = action === "enable" ? "active" : "deprecated";
 	if (rule.status !== expected) throw new Error(`cannot ${action} rule from ${rule.status}`);
@@ -334,7 +334,7 @@ export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRu
 }
 
 export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskId: string, context?: ArtifactEventContext): Artifact {
-	requireKind(artifacts, ruleId, "rule");
+	requireLocallyOwnedContent(requireKind(artifacts, ruleId, "rule"));
 	requireKind(artifacts, taskId, "task");
 	artifacts.link({ from: ruleId, relation: "gates", to: taskId }, context);
 	return showRule(artifacts, ruleId);
@@ -512,7 +512,7 @@ export function skillInvocation(artifacts: ArtifactStore, id: string, visited: S
 }
 
 export function transitionSkill(artifacts: ArtifactStore, id: string, action: SkillTransition, context?: ArtifactEventContext): Artifact {
-	const skill = requireKind(artifacts, id, "skill");
+	const skill = requireLocallyOwnedContent(requireKind(artifacts, id, "skill"));
 	const expected = action === "enable" ? "deprecated" : "active";
 	const target = action === "enable" ? "active" : "deprecated";
 	if (skill.status !== expected) throw new Error(`cannot ${action} skill from ${skill.status}`);
@@ -619,7 +619,7 @@ export function updatePlaybook(artifacts: ArtifactStore, id: string, input: Upda
 }
 
 export function transitionPlaybook(artifacts: ArtifactStore, id: string, action: PlaybookTransition, context?: ArtifactEventContext): Artifact {
-	const playbook = requireKind(artifacts, id, "playbook");
+	const playbook = requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
 	const expected = action === "enable" ? "deprecated" : "active";
 	const target = action === "enable" ? "active" : "deprecated";
 	if (playbook.status !== expected) throw new Error(`cannot ${action} playbook from ${playbook.status}`);

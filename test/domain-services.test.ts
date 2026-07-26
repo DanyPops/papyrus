@@ -13,6 +13,7 @@ import {
 	createDocument,
 	listDocuments,
 	transitionDocument,
+	linkDocument,
 	assignDocumentProject,
 	updateDocument,
 	createRule,
@@ -149,6 +150,15 @@ describe("rules domain service", () => {
 		expect(() => updateRule(artifacts, rule.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
 		db.close();
 	});
+
+	it("refuses to change lifecycle or gate a Task with a Rule that is a read-only projection -- update is not the only way to mutate one", () => {
+		const { db, artifacts, scopes, tasks } = fixture();
+		const rule = createRule(artifacts, scopes, { title: "Imported policy", labels: ["source:some-external-system"] });
+		expect(() => transitionRule(artifacts, rule.id, "disable")).toThrow(/read-only projection from some-external-system/);
+		const task = tasks.create({ title: "Gated task" });
+		expect(() => gateTaskWithRule(artifacts, rule.id, task.id)).toThrow(/read-only projection from some-external-system/);
+		db.close();
+	});
 });
 
 describe("skills domain service", () => {
@@ -172,6 +182,13 @@ describe("skills domain service", () => {
 
 		const projected = createSkill(artifacts, scopes, { title: "Imported workflow", labels: ["source:some-external-system"] }, authority);
 		expect(() => updateSkill(artifacts, projected.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
+		db.close();
+	});
+
+	it("refuses to change lifecycle on a Skill that is a read-only projection -- update is not the only way to mutate one", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const projected = createSkill(artifacts, scopes, { title: "Imported workflow", labels: ["source:some-external-system"] }, authority);
+		expect(() => transitionSkill(artifacts, projected.id, "disable")).toThrow(/read-only projection from some-external-system/);
 		db.close();
 	});
 
@@ -311,6 +328,13 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		db.close();
 	});
 
+	it("refuses to change lifecycle on a Playbook that is a read-only projection -- update is not the only way to mutate one", () => {
+		const { db, artifacts, scopes } = fixture();
+		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
+		expect(() => transitionPlaybook(artifacts, projected.id, "disable")).toThrow(/read-only projection from some-external-system/);
+		db.close();
+	});
+
 	it("rejects playbook actions against another artifact kind, including a real Skill", () => {
 		const { db, artifacts, scopes, authority } = fixture();
 		const skill = createSkill(artifacts, scopes, { title: "Not a playbook", trigger: "x", steps: [] }, authority);
@@ -354,6 +378,25 @@ describe("documents domain service", () => {
 		const { db, artifacts, scopes, authority } = fixture();
 		const document = createDocument(artifacts, scopes, { title: "Ingested page", labels: ["source:web-spider", "domain:example.com"] }, authority);
 		expect(() => updateDocument(artifacts, document.id, { title: "Edited locally" }, authority)).toThrow(/read-only projection from web-spider/);
+		db.close();
+	});
+
+	it("refuses to change lifecycle or link a Doc that is a read-only projection -- update is not the only way to mutate one", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const ingested = createDocument(artifacts, scopes, { title: "Ingested page", labels: ["source:web-spider"] }, authority);
+		expect(() => transitionDocument(artifacts, ingested.id, "archive", authority)).toThrow(/read-only projection from web-spider/);
+		const other = createDocument(artifacts, scopes, { title: "Native note" }, authority);
+		expect(() => linkDocument(artifacts, ingested.id, "references", other.id, authority)).toThrow(/read-only projection from web-spider/);
+		expect(() => linkDocument(artifacts, other.id, "references", ingested.id, authority)).toThrow(/read-only projection from web-spider/);
+		db.close();
+	});
+
+	it("links two locally-owned Docs", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const from = createDocument(artifacts, scopes, { title: "Overview" }, authority);
+		const to = createDocument(artifacts, scopes, { title: "Detail" }, authority);
+		const linked = linkDocument(artifacts, from.id, "references", to.id, authority);
+		expect(linked.edges).toContainEqual({ from: from.id, relation: "references", to: to.id });
 		db.close();
 	});
 

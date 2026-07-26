@@ -21,7 +21,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { callService } from "./service-client.ts";
 
-const PLAYBOOK_BRIDGE_MAX_PLAYBOOKS = 100;
+export const PLAYBOOK_BRIDGE_MAX_PLAYBOOKS = 100;
 
 function slugify(title: string): string {
 	const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
@@ -35,6 +35,17 @@ async function activePlaybooks(): Promise<Artifact[]> {
 /** Exported for direct testing without a real ExtensionAPI. */
 export function playbookCommandName(title: string): string {
 	return `playbook:${slugify(title)}`;
+}
+
+/**
+ * One line per active Playbook for context injection -- the passive, every-turn surfacing that
+ * gives the model the same "this exists and might match my task" awareness Pi's own Skill catalog
+ * gives real Skills, without a file-based bridge. See buildContextInjection (rules and open tasks
+ * already work this way).
+ */
+export function playbookInjectionPreview(playbook: Pick<Artifact, "title" | "extra">): string {
+	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
+	return `• ${playbook.title} (when: ${trigger})`;
 }
 
 /** Exported for direct testing without a real ExtensionAPI: what would be registered right now. */

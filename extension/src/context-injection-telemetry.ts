@@ -5,6 +5,7 @@ import {
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import { ruleInjectionPreview } from "./rules.ts";
+import { playbookInjectionPreview } from "./playbook-bridge.ts";
 
 export interface ContextPayloadSize {
 	characters: number;
@@ -18,6 +19,7 @@ export interface PapyrusContextInjectionObservation {
 	producerId: string;
 	before: ContextPayloadSize;
 	rules: ContextPayloadSize & { count: number };
+	playbooks: ContextPayloadSize & { count: number };
 	tasks: ContextPayloadSize;
 	injected: ContextPayloadSize;
 	after: ContextPayloadSize;
@@ -30,6 +32,7 @@ export interface PapyrusContextInjectionObservation {
 export interface BuildContextInjectionInput {
 	basePrompt: string;
 	rules: Array<Pick<Artifact, "title" | "body" | "extra">>;
+	playbooks: Array<Pick<Artifact, "title" | "extra">>;
 	taskSummary: string | null;
 	observedAt: number;
 	sequence: number;
@@ -46,13 +49,16 @@ function size(value: string): ContextPayloadSize {
 export function buildContextInjection(input: BuildContextInjectionInput): {
 	prompt: string;
 	ruleBlock: string;
+	playbookBlock: string;
 	taskBlock: string;
 	observation: PapyrusContextInjectionObservation;
 } {
 	const ruleContent = input.rules.map(ruleInjectionPreview).join("\n");
 	const ruleBlock = ruleContent ? `\n\n## Active rules (Papyrus)\n\n${ruleContent}\n` : "";
+	const playbookContent = input.playbooks.map(playbookInjectionPreview).join("\n");
+	const playbookBlock = playbookContent ? `\n\n## Available playbooks (Papyrus)\n\n${playbookContent}\n` : "";
 	const taskBlock = input.taskSummary ? `\n\n## Open tasks (Papyrus)\n\n${input.taskSummary}\n` : "";
-	const injected = `${ruleBlock}${taskBlock}`;
+	const injected = `${ruleBlock}${playbookBlock}${taskBlock}`;
 	const prompt = `${input.basePrompt}${injected}`;
 	const fingerprint = createHash("sha256").update(injected).digest("hex");
 	const injectedSize = size(injected);
@@ -60,6 +66,7 @@ export function buildContextInjection(input: BuildContextInjectionInput): {
 	return {
 		prompt,
 		ruleBlock,
+		playbookBlock,
 		taskBlock,
 		observation: {
 			schema: PAPYRUS_CONTEXT_INJECTION_SCHEMA,
@@ -68,6 +75,7 @@ export function buildContextInjection(input: BuildContextInjectionInput): {
 			producerId: input.producerId,
 			before: size(input.basePrompt),
 			rules: { ...size(ruleBlock), count: input.rules.length },
+			playbooks: { ...size(playbookBlock), count: input.playbooks.length },
 			tasks: size(taskBlock),
 			injected: injectedSize,
 			after: afterSize,

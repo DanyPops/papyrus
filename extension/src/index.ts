@@ -23,7 +23,7 @@ import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
 import { isLiveAskPending } from "./discuss-ask-view.ts";
-import { registerPlaybookBridge } from "./playbook-bridge.ts";
+import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
@@ -626,13 +626,15 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const [rules, summary] = await Promise.all([
+			const [rules, playbooks, summary] = await Promise.all([
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
+				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", { status: "active", limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS }),
 				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId }),
 			]);
 			const injection = buildContextInjection({
 				basePrompt: event.systemPrompt ?? "",
 				rules,
+				playbooks,
 				taskSummary: summary,
 				observedAt: Date.now(),
 				sequence: ++contextInjectionSequence,

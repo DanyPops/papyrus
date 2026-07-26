@@ -8,9 +8,11 @@ import type {
 	RelationshipQuery,
 	UpdateArtifactInput,
 } from "../domain/artifact.ts";
-import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "../domain/artifact-event.ts";
-import type { ArtifactTrashRecord } from "../domain/artifact-trash.ts";
+import type { ArtifactEventContext } from "../domain/artifact-event.ts";
 
+/** Core CRUD/graph operations every domain-service module needs. Trash lifecycle and event-log
+ * reading are separate ports (ArtifactTrashStore, ArtifactEventReader) -- only the composition
+ * root (daemon.ts, service.ts) needs those, not every consumer of this store. */
 export interface ArtifactStore {
 	create(input: CreateArtifactInput, context?: ArtifactEventContext): Artifact;
 	get(id: string, options?: ArtifactGraphOptions): Artifact | null;
@@ -22,14 +24,4 @@ export interface ArtifactStore {
 	setExtra(id: string, extra: Record<string, unknown>, context?: ArtifactEventContext): Artifact | null;
 	updateContent(id: string, input: UpdateArtifactInput, context?: ArtifactEventContext): Artifact | null;
 	relationships(filter?: RelationshipQuery): ArtifactEdge[];
-	/** Bounded query over the generic mutation event log shared by every kind. */
-	events(query: ArtifactEventQuery): ArtifactEventPage;
-	/** See domain/artifact-trash.ts. Moves an artifact to the trash; throws if it does not exist or is the live Task Focus in any scope. */
-	trash(id: string, options?: { reason?: string; context?: ArtifactEventContext }): ArtifactTrashRecord;
-	/** Idempotent: restoring an artifact that is not currently trashed is a real no-op. */
-	restore(id: string, context?: ArtifactEventContext): { restored: boolean };
-	trashStatus(id: string): ArtifactTrashRecord | null;
-	listTrash(): ArtifactTrashRecord[];
-	/** Real, cascading, irreversible deletion of every artifact past its purge deadline; returns how many were purged. */
-	purgeDueTrash(): number;
 }

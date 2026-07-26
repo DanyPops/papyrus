@@ -1,6 +1,8 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import type { AtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
+import type { ArtifactEventReader } from "../ports/artifact-event-reader.ts";
+import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
 import type {
 	Artifact,
 	ArtifactEdge,
@@ -30,7 +32,7 @@ import {
 	updateStatus,
 } from "../ops.ts";
 
-export class SQLiteArtifactStore implements AtomicArtifactStore {
+export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashStore, ArtifactEventReader {
 	constructor(private readonly db: Db) {}
 
 	atomic<T>(operation: () => T): T {

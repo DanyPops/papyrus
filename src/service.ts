@@ -14,6 +14,8 @@ import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
+import type { ArtifactEventReader } from "./ports/artifact-event-reader.ts";
+import type { ArtifactTrashStore } from "./ports/artifact-trash-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
@@ -187,7 +189,10 @@ export interface PapyrusService {
 }
 
 function handlers(
-	artifacts: ArtifactStore,
+	// The composition root's own handler table -- the one place that genuinely needs trash
+	// lifecycle and event-log reading alongside core CRUD/graph, unlike every domain-service
+	// module (which only ever depends on the narrower ArtifactStore).
+	artifacts: ArtifactStore & ArtifactTrashStore & ArtifactEventReader,
 	gates: GateRunner,
 	tasks: Tasks,
 	notes: Notes,

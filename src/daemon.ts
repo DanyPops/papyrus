@@ -52,7 +52,11 @@ export function serveMain(): void {
 		clearInterval(purgeTrashTimer);
 		clearDaemonPort(stateDir);
 		service.close();
-		void server.stop(true).finally(() => process.exit(0));
+		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare
+		// unhandled-rejection warning into a real, queryable shutdown-failure log line.
+		void server.stop(true)
+			.catch((error) => logEvent("error", "server_stop_failed", { message: error instanceof Error ? error.message : String(error) }))
+			.finally(() => process.exit(0));
 	};
 	process.on("SIGINT", shutdown);
 	process.on("SIGTERM", shutdown);

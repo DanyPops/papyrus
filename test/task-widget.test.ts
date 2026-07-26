@@ -1,4 +1,7 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { TaskOverlay } from "../extension/src/index.ts";
+import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 import { buildTaskWidgetProjection } from "../extension/src/task-widget.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
 import type { TaskGraph, TaskNode } from "../src/task-service.ts";
@@ -80,5 +83,40 @@ describe("task widget projection", () => {
 		expect(projection.rows).toEqual([]);
 		expect(projection.openTotal).toBe(0);
 		expect(projection.total).toBe(2);
+	});
+});
+
+/**
+ * Regression: TaskOverlay.refresh() is called from several pi.on(...) handlers
+ * (session_compact, session_tree, tool_execution_end) that don't wrap it in their own
+ * try/catch -- Pi's event emitter does not guarantee catching a handler's rejection, so a
+ * throw here would become an unhandled rejection instead of a stability issue contained to
+ * this best-effort status widget.
+ */
+describe("TaskOverlay.refresh(): never throws, even if rendering itself fails", () => {
+	afterEach(resetPapyrusClientForTests);
+
+	it("swallows a render() failure after a successful snapshot fetch", async () => {
+		setPapyrusClientConnectorForTests(async () => ({
+			async call() { return { nodes: [], rootIds: [] } satisfies TaskGraph; },
+		}) as any);
+		const overlay = new TaskOverlay();
+		overlay.setUI({} as ExtensionUIContext);
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+		(overlay as unknown as { render: () => void }).render = () => { throw new Error("boom"); };
+
+		await expect(overlay.refresh()).resolves.toBeUndefined();
+	});
+
+	it("swallows a render() failure even when the snapshot fetch itself failed", async () => {
+		setPapyrusClientConnectorForTests(async () => ({
+			async call() { throw new Error("daemon unavailable"); },
+		}) as any);
+		const overlay = new TaskOverlay();
+		overlay.setUI({} as ExtensionUIContext);
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+		(overlay as unknown as { render: () => void }).render = () => { throw new Error("boom"); };
+
+		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
 });

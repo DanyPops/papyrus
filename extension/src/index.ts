@@ -95,7 +95,7 @@ export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjec
 	return lines;
 }
 
-class TaskOverlay {
+export class TaskOverlay {
 	private uiCtx: ExtensionUIContext | undefined;
 	private registered = false;
 	private tui: any | undefined;
@@ -116,6 +116,12 @@ class TaskOverlay {
 	// concurrent agent's focused task never shows as active in this session's widget.
 	setSessionId(sessionId: string): void { this.sessionId = sessionId; }
 
+	/**
+	 * Never throws: called from several pi.on(...) handlers, some of which (session_compact,
+	 * session_tree, tool_execution_end) don't wrap it themselves -- Pi's event emitter does not
+	 * guarantee catching a handler's rejection, so an unguarded throw here would become an
+	 * unhandled rejection at the call site instead of a stability issue contained to this widget.
+	 */
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
 		try {
@@ -123,7 +129,11 @@ class TaskOverlay {
 		} catch {
 			this.snapshot = { nodes: [], rootIds: [] };
 		}
-		this.render();
+		try {
+			this.render();
+		} catch {
+			// A rendering bug must not crash the extension host over a best-effort status widget.
+		}
 	}
 
 	private render(): void {

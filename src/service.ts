@@ -164,9 +164,31 @@ const tasksAuthorityClaim: AuthorityClaim = {
 	denyMessage: () => "task lifecycle changes require a tasks.* operation so history and review invariants are preserved",
 };
 
+/**
+ * The same status-bypass protection Tasks and Notes already have, extended to every other kind
+ * with its own validated transition set (Doc's draft/active/archived, Rule/Skill/Playbook's
+ * active/deprecated) -- graph.status previously let a caller jump straight to any status string,
+ * skipping e.g. Doc's draft-must-go-through-active-before-archived rule entirely.
+ */
+function lifecycleAuthorityClaim(owner: "docs" | "rules" | "skills" | "playbooks", kind: string): AuthorityClaim {
+	return {
+		owner,
+		matchesArtifact: (candidateKind, subtype) => candidateKind === kind && !(kind === "doc" && subtype === NOTE_SUBTYPE),
+		appliesToAction: (action) => action === "status",
+		denyMessage: () => `${kind} lifecycle changes require a ${owner}.* operation so transition validation is preserved`,
+	};
+}
+
 function createAuthorityRegistry(): AuthorityRegistry {
 	const authority = new AuthorityRegistry();
-	authority.claimAll([notesAuthorityClaim, tasksAuthorityClaim]);
+	authority.claimAll([
+		notesAuthorityClaim,
+		tasksAuthorityClaim,
+		lifecycleAuthorityClaim("docs", "doc"),
+		lifecycleAuthorityClaim("rules", "rule"),
+		lifecycleAuthorityClaim("skills", "skill"),
+		lifecycleAuthorityClaim("playbooks", "playbook"),
+	]);
 	return authority;
 }
 

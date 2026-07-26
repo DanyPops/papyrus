@@ -344,11 +344,12 @@ export default async function (pi: ExtensionAPI) {
 		name: "papyrus_graph",
 		label: "Papyrus Graph",
 		description:
-			"Link artifacts with typed edges (any kind → any kind), view subgraph, update status, or read the mutation event log. " +
+			"Link artifacts with typed edges (any kind → any kind), view subgraph, or read the mutation event log. " +
 			"RELATIONS: references, implements, follows, depends_on, documents, blocks, supersedes, relates_to, gates, triggers, contains, part_of. " +
 			"ACTIONS: link (from+relation+to), unlink (from+relation+to — idempotent, no error if already absent; for Task depends_on/contains prefer the tasks tool's undepend/uncontain), " +
-			"tree (id → bounded BFS subgraph), status (id+status → lifecycle), " +
-			"history (who did what, when — requires id, actor, or session_id).",
+			"tree (id → bounded BFS subgraph), " +
+			"history (who did what, when — requires id, actor, or session_id). " +
+			"status (id+status) exists at the protocol level but is refused for every kind with its own lifecycle (Doc/Rule/Skill/Playbook/Task/Note all reject it) -- use that kind's own domain tool for status changes (docs.activate, rules.enable, tasks.start, etc), never this.",
 		parameters: Type.Object({
 			action: Type.String({ description: "link | unlink | tree | status | history" }),
 			from: Type.Optional(Type.String()),

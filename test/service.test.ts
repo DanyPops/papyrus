@@ -275,3 +275,42 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 });
+
+describe("graph.status refuses to bypass a kind's own validated lifecycle transitions, matching Tasks' existing protection", () => {
+	it("refuses on a Doc: draft cannot jump straight to archived via the raw graph action", async () => {
+		const { service } = fixture();
+		const doc = await service.execute("docs.create", { title: "Doc", actor: "agent" }) as { id: string; status: string };
+		expect(doc.status).toBe("draft");
+		await expect(service.execute("graph.status", { id: doc.id, status: "archived" })).rejects.toThrow("docs.* operation");
+		expect((await service.execute("docs.show", { id: doc.id }) as { status: string }).status).toBe("draft");
+	});
+
+	it("refuses on a Rule", async () => {
+		const { service } = fixture();
+		const rule = await service.execute("rules.create", { title: "Rule", actor: "agent" }) as { id: string; status: string };
+		expect(rule.status).toBe("active");
+		await expect(service.execute("graph.status", { id: rule.id, status: "deprecated" })).rejects.toThrow("rules.* operation");
+	});
+
+	it("refuses on a Skill", async () => {
+		const { service } = fixture();
+		const skill = await service.execute("skills.create", { title: "Skill", actor: "agent" }) as { id: string; status: string };
+		expect(skill.status).toBe("active");
+		await expect(service.execute("graph.status", { id: skill.id, status: "deprecated" })).rejects.toThrow("skills.* operation");
+	});
+
+	it("refuses on a Playbook", async () => {
+		const { service } = fixture();
+		const playbook = await service.execute("playbooks.create", { title: "Playbook", actor: "agent" }) as { id: string; status: string };
+		expect(playbook.status).toBe("active");
+		await expect(service.execute("graph.status", { id: playbook.id, status: "deprecated" })).rejects.toThrow("playbooks.* operation");
+	});
+
+	it("still refuses on a Task, and on a Note -- the two kinds already protected before this fix", async () => {
+		const { service } = fixture();
+		const task = await service.execute("tasks.create", { title: "Task", project_root: PROJECT_ROOT, actor: "agent" }) as { id: string };
+		await expect(service.execute("graph.status", { id: task.id, status: "done" })).rejects.toThrow("tasks.* operation");
+		const note = await service.execute("notes.capture", { body: "Remember this", project_root: PROJECT_ROOT, actor: "agent" }) as { id: string };
+		await expect(service.execute("graph.status", { id: note.id, status: "active" })).rejects.toThrow("notes.* operation");
+	});
+});

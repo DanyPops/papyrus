@@ -12,13 +12,23 @@ import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
-const backend = IS_BUN
-	? (require_("bun:sqlite") as typeof import("bun:sqlite"))
-	: (require_("node:sqlite") as unknown as typeof import("bun:sqlite"));
 
-const DatabaseCtor = (
-	"DatabaseSync" in backend ? (backend as { DatabaseSync: unknown }).DatabaseSync : backend.Database
-) as new (path: string, opts?: { create?: boolean }) => Db;
+/** Bun's bun:sqlite exports Database; Node's node:sqlite exports DatabaseSync -- neither module is
+ * actually the other, but both satisfy this shape at the methods Papyrus calls through Db/DbStatement. */
+interface SqliteBackendModule {
+	Database?: new (path: string, opts?: { create?: boolean }) => Db;
+	DatabaseSync?: new (path: string, opts?: { create?: boolean }) => Db;
+}
+
+const backend = require_(IS_BUN ? "bun:sqlite" : "node:sqlite") as SqliteBackendModule;
+// IIFE + explicit return type, not a bare `const DatabaseCtor = backend.DatabaseSync ?? backend.Database`
+// with a following throw-guard: that guard's narrowing wouldn't propagate into openDb() below, a
+// separate function closing over this module-level binding.
+const DatabaseCtor: new (path: string, opts?: { create?: boolean }) => Db = (() => {
+	const ctor = backend.DatabaseSync ?? backend.Database;
+	if (!ctor) throw new Error("no compatible sqlite backend found (expected bun:sqlite's Database or node:sqlite's DatabaseSync)");
+	return ctor;
+})();
 
 export interface DbStatement {
 	/** changes: number of rows the statement affected. Both bun:sqlite and node:sqlite's real run() return this at runtime; declared here so callers (e.g. reapStale) can rely on it without an unsafe cast. */

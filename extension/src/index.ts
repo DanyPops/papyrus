@@ -529,7 +529,7 @@ export default async function (pi: ExtensionAPI) {
 				const usage = ctx.getContextUsage?.();
 				// Real tree (not just the linear current-branch path): surfaces content sitting in an
 				// abandoned /tree branch, which cost real tokens to generate but isn't in context now.
-				const tree = ctx.sessionManager.getTree() as unknown as SessionTreeNodeLike[];
+				const tree = ctx.sessionManager.getTree() as SessionTreeNodeLike[];
 				// buildContextEntries(), NOT getBranch(): getBranch() returns every raw entry on the
 				// current path including everything a real compaction has already summarized away.
 				// A session with 3 real compactions confirmed this made "active" message-history
@@ -538,8 +538,8 @@ export default async function (pi: ExtensionAPI) {
 				// LLM"); buildContextEntries() is the compaction-aware entry list matching what the
 				// LLM actually sees (the latest compaction entry itself, plus kept entries from its
 				// firstKeptEntryId onward, plus everything after -- older summarized entries omitted).
-				const activeEntryIds = new Set((ctx.sessionManager.buildContextEntries() as unknown as SessionEntryLike[]).map((entry) => entry.id));
-				const branchEntryIds = new Set((ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]).map((entry) => entry.id));
+				const activeEntryIds = new Set((ctx.sessionManager.buildContextEntries() as SessionEntryLike[]).map((entry) => entry.id));
+				const branchEntryIds = new Set((ctx.sessionManager.getBranch() as SessionEntryLike[]).map((entry) => entry.id));
 				const messageHistory = buildMessageHistoryTree(tree, activeEntryIds, branchEntryIds);
 				const breakdown = buildContextBreakdown({
 					totalTokens: usage?.tokens ?? null,

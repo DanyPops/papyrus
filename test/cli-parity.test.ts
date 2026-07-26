@@ -181,3 +181,19 @@ describe("Papyrus CLI \u2014 structural operation parity", () => {
 		});
 	}
 });
+
+describe("playbooks create --arguments-json", () => {
+	it("parses declared Playbook arguments and threads them into playbooks.create -- previously missing entirely, only reachable via the native tool", async () => {
+		const client = new FakeClient(artifact);
+		await runPlaybooksCli(
+			["create", "--title", "T", "--arguments-json", '[{"name":"project_root","required":true}]', "--json"],
+			client,
+		);
+		expect(client.calls[0]?.input["arguments"]).toEqual([{ name: "project_root", required: true }]);
+	});
+
+	it("rejects a non-array payload instead of forwarding malformed input", async () => {
+		const client = new FakeClient(artifact);
+		await expect(runPlaybooksCli(["create", "--title", "T", "--arguments-json", '{"name":"x"}', "--json"], client)).rejects.toThrow("--arguments-json must be a JSON array");
+	});
+});

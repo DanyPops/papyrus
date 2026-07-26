@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
-import { artifactLine as domainToolsArtifactLine, artifactLines, matchArtifactByName } from "../extension/src/domain-tools.ts";
+import { artifactLine as domainToolsArtifactLine, artifactLines, matchArtifactByName, normalizeJsonEncodedField } from "../extension/src/domain-tools.ts";
 import { discussionRowMeta } from "../extension/src/discuss.ts";
 import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
@@ -300,5 +300,37 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 		]) {
 			expect(tools).toContain(operation);
 		}
+	});
+});
+
+/**
+ * Regression: Playbook `arguments` is genuinely untyped in the playbooks tool's schema (an array
+ * on create, a {name: value} map on invoke) -- unlike every other JSON-shaped field, which has a
+ * concrete array/record schema. A live tool call arrived with `arguments` as JSON-encoded text
+ * instead of a parsed array, failing playbooks.create's "must be an array" check. This is the fix.
+ */
+describe("normalizeJsonEncodedField: tolerates a JSON-encoded string for a genuinely untyped tool field", () => {
+	it("parses a JSON-encoded string in place", () => {
+		const params: Record<string, unknown> = { arguments: '[{"name":"project_root","required":true}]' };
+		normalizeJsonEncodedField(params, "arguments");
+		expect(params.arguments).toEqual([{ name: "project_root", required: true }]);
+	});
+
+	it("leaves an already-parsed value untouched", () => {
+		const already = [{ name: "project_root", required: true }];
+		const params: Record<string, unknown> = { arguments: already };
+		normalizeJsonEncodedField(params, "arguments");
+		expect(params.arguments).toBe(already);
+	});
+
+	it("leaves a missing field untouched", () => {
+		const params: Record<string, unknown> = {};
+		normalizeJsonEncodedField(params, "arguments");
+		expect(params.arguments).toBeUndefined();
+	});
+
+	it("throws a clear error on genuinely invalid JSON, instead of a generic parse crash", () => {
+		const params: Record<string, unknown> = { arguments: "{not json" };
+		expect(() => normalizeJsonEncodedField(params, "arguments")).toThrow("arguments must be valid JSON");
 	});
 });

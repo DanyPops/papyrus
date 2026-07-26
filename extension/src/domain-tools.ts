@@ -150,6 +150,23 @@ async function resolveArtifactIdByName(listOperation: OperationName, baseRequest
 	return matchArtifactByName(candidates, name);
 }
 
+/**
+ * Playbook `arguments` is intentionally untyped in this tool's schema (an array on create, a
+ * {name: value} map on invoke) -- unlike every other JSON-shaped field here, which has a concrete
+ * array/record schema the calling layer can serialize correctly. A genuinely schema-less field can
+ * arrive pre-serialized as JSON text instead of a parsed value; parse it back in place before it
+ * reaches the service, the same tolerance the CLI's own --arguments-json/--*-json flags already give.
+ */
+export function normalizeJsonEncodedField(params: Record<string, unknown>, key: string): void {
+	const value = params[key];
+	if (typeof value !== "string") return;
+	try {
+		params[key] = JSON.parse(value);
+	} catch {
+		throw new Error(`${key} must be valid JSON`);
+	}
+}
+
 /** Resolves every {nameKey -> idKey} pair present and not already satisfied by an explicit id, in place. */
 async function resolveNameFields(
 	params: Record<string, unknown>,
@@ -610,6 +627,7 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 				await resolveNameFields(params, [
 					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: { project_root: params.project_root } },
 				]);
+				if (action === "create" || action === "invoke") normalizeJsonEncodedField(params, "arguments");
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("playbooks.create", params);
 					return text(`Created playbook ${artifactLine(artifact)}`, createArtifactDetails("playbooks.create", artifact));

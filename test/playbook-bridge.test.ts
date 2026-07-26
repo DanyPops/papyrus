@@ -1,81 +1,116 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { materializePlaybookSkillPaths } from "../extension/src/playbook-bridge.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { planPlaybookCommandRegistrations, playbookCommandName, registerPlaybookBridge } from "../extension/src/playbook-bridge.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
-const originalCacheHome = process.env["XDG_CACHE_HOME"];
-let scratchDir: string | undefined;
+afterEach(resetPapyrusClientForTests);
 
-afterEach(() => {
-	resetPapyrusClientForTests();
-	if (originalCacheHome === undefined) delete process.env["XDG_CACHE_HOME"];
-	else process.env["XDG_CACHE_HOME"] = originalCacheHome;
-	if (scratchDir) { rmSync(scratchDir, { recursive: true, force: true }); scratchDir = undefined; }
-});
-
-function useScratchCacheHome(): string {
-	scratchDir = mkdtempSync(join(tmpdir(), "papyrus-playbook-bridge-"));
-	process.env["XDG_CACHE_HOME"] = scratchDir;
-	return join(scratchDir, "papyrus", "playbooks");
-}
-
-function mockPlaybooksList(playbooks: unknown[]): void {
+function mockPlaybooksList(playbooks: unknown[], invocationText = "Apply the playbook."): void {
 	setPapyrusClientConnectorForTests(async () => ({
 		async call(operation: string, input: any) {
-			if (operation !== "playbooks.list") throw new Error(`unexpected operation ${operation}`);
-			expect(input).toMatchObject({ status: "active" });
-			return playbooks;
+			if (operation === "playbooks.list") {
+				expect(input).toMatchObject({ status: "active" });
+				return playbooks;
+			}
+			if (operation === "playbooks.invoke") return invocationText;
+			throw new Error(`unexpected operation ${operation}`);
 		},
 	}) as any);
 }
 
 const PLAYBOOK = { id: "p1", kind: "playbook", subtype: "", title: "New Project", status: "active", body: "", labels: [], extra: { trigger: "starting from scratch", steps: ["Frame the problem", "State the goal"], tools: ["discuss"] }, created_at: "x", updated_at: "x" };
 
-describe("playbook-bridge: materializes active Playbooks as real SKILL.md files for Pi's native catalog", () => {
-	it("writes one SKILL.md per active playbook, with frontmatter and steps rendered", async () => {
-		const dir = useScratchCacheHome();
-		mockPlaybooksList([PLAYBOOK]);
-		const paths = await materializePlaybookSkillPaths();
-		expect(paths).toHaveLength(1);
-		expect(paths[0]).toBe(join(dir, "new-project", "SKILL.md"));
-		const content = readFileSync(paths[0]!, "utf8");
-		expect(content).toContain("name: new-project");
-		expect(content).toContain("description: starting from scratch");
-		expect(content).toContain("1. Frame the problem");
-		expect(content).toContain("2. State the goal");
-		expect(content).toContain("Tools: discuss");
+interface RegisteredCommand { description?: string; handler: (args: string, ctx: any) => Promise<void> | void; }
+
+function fakePi(): { pi: ExtensionAPI; commands: Map<string, RegisteredCommand> } {
+	const commands = new Map<string, RegisteredCommand>();
+	const handlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
+	const pi = {
+		registerCommand: (name: string, options: RegisteredCommand) => { commands.set(name, options); },
+		on: (event: string, handler: (...args: unknown[]) => unknown) => {
+			const list = handlers.get(event) ?? [];
+			list.push(handler);
+			handlers.set(event, list);
+		},
+		async fireResourcesDiscover() {
+			for (const handler of handlers.get("resources_discover") ?? []) await handler();
+		},
+	} as unknown as ExtensionAPI & { fireResourcesDiscover: () => Promise<void> };
+	return { pi, commands };
+}
+
+describe("playbook-bridge: materializes active Playbooks as their own /playbook:name commands", () => {
+	it("names a command playbook:<slugified-title>", () => {
+		expect(playbookCommandName("New Project")).toBe("playbook:new-project");
+		expect(playbookCommandName("Weird !!! Title")).toBe("playbook:weird-title");
 	});
 
-	it("disambiguates a real title collision by suffixing the id, rather than overwriting one playbook with another", async () => {
-		useScratchCacheHome();
+	it("plans one registration per active playbook, with the trigger as the description", async () => {
+		mockPlaybooksList([PLAYBOOK]);
+		const plan = await planPlaybookCommandRegistrations();
+		expect(plan).toEqual([{ name: "playbook:new-project", id: "p1", title: "New Project", trigger: "starting from scratch" }]);
+	});
+
+	it("disambiguates a real title collision by suffixing the id, rather than one playbook shadowing another", async () => {
 		mockPlaybooksList([
 			{ ...PLAYBOOK, id: "p1", title: "Same Title" },
 			{ ...PLAYBOOK, id: "p2", title: "Same Title" },
 		]);
-		const paths = await materializePlaybookSkillPaths();
-		expect(paths).toHaveLength(2);
-		expect(new Set(paths).size).toBe(2);
+		const plan = await planPlaybookCommandRegistrations();
+		expect(plan.map((entry) => entry.name)).toEqual(["playbook:same-title", "playbook:same-title-p2"]);
 	});
 
-	it("wipes stale materialized files from a previous run -- a disabled/removed playbook is never left behind", async () => {
-		const dir = useScratchCacheHome();
+	it("registers a real /playbook:<slug> command via pi.registerCommand on resources_discover (session start and /reload)", async () => {
 		mockPlaybooksList([PLAYBOOK]);
-		await materializePlaybookSkillPaths();
-		expect(existsSync(join(dir, "new-project", "SKILL.md"))).toBe(true);
-
-		mockPlaybooksList([]); // the playbook got disabled/removed since the last discovery
-		const paths = await materializePlaybookSkillPaths();
-		expect(paths).toEqual([]);
-		expect(existsSync(join(dir, "new-project"))).toBe(false);
+		const { pi, commands } = fakePi();
+		registerPlaybookBridge(pi);
+		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
+		expect(commands.has("playbook:new-project")).toBe(true);
+		expect(commands.get("playbook:new-project")?.description).toBe("starting from scratch");
 	});
 
-	it("returns no paths, and leaves no directory, when there are no active playbooks", async () => {
-		const dir = useScratchCacheHome();
+	it("the command's handler re-fetches the live playbook by id at invocation time and places the invocation in the editor", async () => {
+		mockPlaybooksList([PLAYBOOK], "Apply Papyrus playbook \"New Project\".");
+		const { pi, commands } = fakePi();
+		registerPlaybookBridge(pi);
+		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
+		const notifications: Array<{ message: string; type?: string }> = [];
+		const setTexts: string[] = [];
+		const ctx = { ui: { setEditorText: (text: string) => setTexts.push(text), notify: (message: string, type?: string) => notifications.push({ message, type }) } };
+		await commands.get("playbook:new-project")!.handler("", ctx);
+		expect(setTexts).toEqual(['Apply Papyrus playbook "New Project".']);
+		expect(notifications).toEqual([{ message: '"New Project" invocation placed in the editor', type: "info" }]);
+	});
+
+	it("a lingering stale command (renamed/disabled since registration, since registerCommand can't be unregistered) fails cleanly instead of running deleted content", async () => {
+		const { pi, commands } = fakePi();
+		mockPlaybooksList([PLAYBOOK]);
+		registerPlaybookBridge(pi);
+		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
+
+		// The playbook is gone by the time the (still-registered) command is actually invoked.
+		setPapyrusClientConnectorForTests(async () => ({
+			async call(operation: string) {
+				if (operation === "playbooks.invoke") throw new Error('artifact "p1" not found');
+				throw new Error(`unexpected operation ${operation}`);
+			},
+		}) as any);
+		const notifications: Array<{ message: string; type?: string }> = [];
+		const ctx = { ui: { setEditorText: () => {}, notify: (message: string, type?: string) => notifications.push({ message, type }) } };
+		await commands.get("playbook:new-project")!.handler("", ctx);
+		expect(notifications).toEqual([{ message: 'artifact "p1" not found', type: "error" }]);
+	});
+
+	it("a Papyrus daemon hiccup during refresh degrades to no new/updated commands, never throws", async () => {
+		setPapyrusClientConnectorForTests(async () => ({ async call() { throw new Error("daemon unreachable"); } }) as any);
+		const { pi, commands } = fakePi();
+		registerPlaybookBridge(pi);
+		await expect((pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover()).resolves.toBeUndefined();
+		expect(commands.size).toBe(0);
+	});
+
+	it("returns no registrations when there are no active playbooks", async () => {
 		mockPlaybooksList([]);
-		const paths = await materializePlaybookSkillPaths();
-		expect(paths).toEqual([]);
-		expect(existsSync(dir)).toBe(false);
+		expect(await planPlaybookCommandRegistrations()).toEqual([]);
 	});
 });

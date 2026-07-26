@@ -3,7 +3,20 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
-import { artifactLine as domainToolsArtifactLine, artifactLines, matchArtifactByName, normalizeJsonEncodedField } from "../extension/src/domain-tools.ts";
+import {
+	artifactLine as domainToolsArtifactLine,
+	artifactLines,
+	matchArtifactByName,
+	normalizeJsonEncodedField,
+	registerDiscussTool,
+	registerDocsTool,
+	registerDomainTools,
+	registerNotesTool,
+	registerPlaybooksTool,
+	registerRulesTool,
+	registerSkillsTool,
+	registerTasksTool,
+} from "../extension/src/domain-tools.ts";
 import { discussionRowMeta } from "../extension/src/discuss.ts";
 import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
@@ -300,6 +313,33 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 		]) {
 			expect(tools).toContain(operation);
 		}
+	});
+});
+
+/**
+ * Each domain's tool registers independently -- the actual point of splitting registerDomainTools
+ * into one function per domain: no domain's tool depends on another's having been registered
+ * first, and registerDomainTools itself is just a thin orchestrator calling all 7.
+ */
+describe("registerXTool: each domain tool is independently registrable, not just reachable via the orchestrator", () => {
+	function registeredToolNames(register: (pi: any) => void): string[] {
+		const names: string[] = [];
+		register({ registerTool: (tool: { name: string }) => names.push(tool.name) } as any);
+		return names;
+	}
+
+	it("registers exactly its own tool, nothing from any other domain", () => {
+		expect(registeredToolNames(registerTasksTool)).toEqual(["tasks"]);
+		expect(registeredToolNames(registerNotesTool)).toEqual(["notes"]);
+		expect(registeredToolNames(registerDocsTool)).toEqual(["docs"]);
+		expect(registeredToolNames(registerRulesTool)).toEqual(["rules"]);
+		expect(registeredToolNames(registerPlaybooksTool)).toEqual(["playbooks"]);
+		expect(registeredToolNames(registerSkillsTool)).toEqual(["skills"]);
+		expect(registeredToolNames(registerDiscussTool)).toEqual(["discuss"]);
+	});
+
+	it("registerDomainTools registers all 7, in the same shape as calling each individually", () => {
+		expect(registeredToolNames(registerDomainTools)).toEqual(["tasks", "notes", "docs", "rules", "playbooks", "skills", "discuss"]);
 	});
 });
 

@@ -238,7 +238,7 @@ const checklistCriterionSchema = Type.Object({
 	proof: Type.Array(proofReferenceSchema, { minItems: 1 }),
 });
 
-export function registerDomainTools(pi: ExtensionAPI): void {
+export function registerTasksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
@@ -445,7 +445,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
 
+export function registerNotesTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "notes",
 		label: "Notes",
@@ -496,7 +498,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
 
+export function registerDocsTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "docs",
 		label: "Documents",
@@ -556,7 +560,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
 
+export function registerRulesTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "rules",
 		label: "Rules",
@@ -604,7 +610,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
 
+export function registerPlaybooksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "playbooks",
 		label: "Playbooks",
@@ -652,7 +660,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
 
+export function registerSkillsTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "skills",
 		label: "Skills",
@@ -729,7 +739,9 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
 
+export function registerDiscussTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
@@ -826,4 +838,15 @@ export function registerDomainTools(pi: ExtensionAPI): void {
 			}
 		},
 	});
+}
+
+/** Thin orchestrator: each domain's tool is independently navigable/testable via its own registerXTool function. */
+export function registerDomainTools(pi: ExtensionAPI): void {
+	registerTasksTool(pi);
+	registerNotesTool(pi);
+	registerDocsTool(pi);
+	registerRulesTool(pi);
+	registerPlaybooksTool(pi);
+	registerSkillsTool(pi);
+	registerDiscussTool(pi);
 }

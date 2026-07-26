@@ -507,53 +507,38 @@ function readBoundedGateFile(path: string): string {
 	return readFileSync(path, "utf-8") as string;
 }
 
+/** Shared by the sync and async process-gate runners so "test" is never a second, independently
+ * maintained copy of "command"'s own command-template/timeout selection. */
+function processGateCommand(gate: Gate): { command: string; timeout: number } {
+	if (gate.type === "test") return { command: `npx vitest run ${gate.target} --reporter=dot`, timeout: GATE_TEST_TIMEOUT_MS };
+	return { command: gate.target, timeout: GATE_COMMAND_TIMEOUT_MS };
+}
+
+/**
+ * spawnSync + manual stdout/stderr concatenation, not execSync: execSync's return value is stdout
+ * only. Many real commands (bun test's own per-test lines and its pass/fail summary among them, and
+ * vitest's own "test" gate output) write their actual output to stderr, so an execSync-based match
+ * against gate.expect saw only the first line of a banner and never the result -- every such gate
+ * failed regardless of whether the command actually passed. This one function now serves both
+ * "command" and "test" gates; previously "test" was a second, separately-maintained execSync path
+ * that never checked gate.expect at all.
+ */
+function runProcessGateSync(gate: Gate, cwd?: string): GateResult {
+	const { spawnSync } = require_("node:child_process");
+	const { command, timeout } = processGateCommand(gate);
+	const result = spawnSync(command, { shell: true, encoding: "utf-8", timeout, ...(cwd ? { cwd } : {}) });
+	if (result.error) return { gate, passed: false, output: result.error.message.slice(0, GATE_OUTPUT_LIMIT) };
+	const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+	const passed = result.status === 0 && (gate.expect ? combined.includes(gate.expect) : true);
+	return { gate, passed, output: combined.slice(0, GATE_OUTPUT_LIMIT) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`) };
+}
+
 export function runGates(db: Db, artifactId: string, options: GateRunOptions = {}): GateResult[] {
 	const art = getArtifact(db, artifactId);
 	if (!art) throw new Error("artifact not found");
 	const gates = (art.extra["gates"] as Gate[]) ?? [];
 	const cwd = options.cwd;
-	return gates.map((gate) => {
-		switch (gate.type) {
-			case "file-exists": {
-				const { existsSync } = require_("node:fs");
-				const exists = existsSync(gate.target);
-				return { gate, passed: exists, output: exists ? "exists" : "not found" };
-			}
-			case "contains": {
-				try {
-					const content = readBoundedGateFile(gate.target);
-					const found = gate.expect ? content.includes(gate.expect) : content.length > 0;
-					return { gate, passed: found, output: found ? "found" : `"${gate.expect ?? ""}" not found` };
-				} catch {
-					return { gate, passed: false, output: "file not readable" };
-				}
-			}
-			case "command": {
-				// spawnSync + manual stdout/stderr concatenation, not execSync: execSync's return value is
-				// stdout only. Many real commands (bun test's own per-test lines and its pass/fail summary
-				// among them) write their actual output to stderr, so an execSync-based match against
-				// gate.expect saw only the first line of a banner and never the result -- every such gate
-				// failed regardless of whether the command actually passed.
-				const { spawnSync } = require_("node:child_process");
-				const result = spawnSync(gate.target, { shell: true, encoding: "utf-8", timeout: GATE_COMMAND_TIMEOUT_MS, ...(cwd ? { cwd } : {}) });
-				if (result.error) return { gate, passed: false, output: result.error.message.slice(0, GATE_OUTPUT_LIMIT) };
-				const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-				const passed = result.status === 0 && (gate.expect ? combined.includes(gate.expect) : true);
-				return { gate, passed, output: combined.slice(0, GATE_OUTPUT_LIMIT) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`) };
-			}
-			case "test": {
-				const { execSync } = require_("node:child_process");
-				try {
-					execSync(`npx vitest run ${gate.target} --reporter=dot`, { encoding: "utf-8", timeout: GATE_TEST_TIMEOUT_MS, stdio: ["pipe", "pipe", "pipe"], ...(cwd ? { cwd } : {}) });
-					return { gate, passed: true, output: "tests passed" };
-				} catch (e) {
-					return { gate, passed: false, output: e instanceof Error ? e.message.slice(0, GATE_OUTPUT_LIMIT) : "tests failed" };
-				}
-			}
-			default:
-				return { gate, passed: false, output: `unknown gate type: ${String(gate.type)}` };
-		}
-	});
+	return gates.map((gate) => (gate.type === "command" || gate.type === "test") ? runProcessGateSync(gate, cwd) : runNonProcessGate(gate));
 }
 
 /**
@@ -652,8 +637,7 @@ export async function runGatesAsync(db: Db, artifactId: string, options: GateRun
 			continue;
 		}
 		if (gate.type === "command" || gate.type === "test") {
-			const command = gate.type === "test" ? `npx vitest run ${gate.target} --reporter=dot` : gate.target;
-			const configuredTimeout = gate.type === "test" ? GATE_TEST_TIMEOUT_MS : GATE_COMMAND_TIMEOUT_MS;
+			const { command, timeout: configuredTimeout } = processGateCommand(gate);
 			const timeout = remainingMs === undefined ? configuredTimeout : Math.max(1, Math.min(configuredTimeout, remainingMs));
 			const executed = await executeGateCommand(command, timeout, options.cwd);
 			results.push({

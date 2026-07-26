@@ -217,6 +217,46 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	/**
+	 * Real bug: runGates (sync)'s "test" case never checked gate.expect at all -- passed:true on any
+	 * zero-exit test run, full stop -- while runGatesAsync's unified command+test branch does check
+	 * it. Same expect string, same target, must agree between sync and async.
+	 */
+	describe("test-type gate: sync and async must agree on gate.expect, not just exit code", () => {
+		function writeVitestFile(dir: string, body: string): string {
+			const path = join(dir, "gate.test.ts");
+			writeFileSync(path, `import { it, expect } from "vitest";\n${body}\n`);
+			return path;
+		}
+
+		it("runGates (sync): fails when the test passes but gate.expect does not appear in the output", () => {
+			const { db, dir } = tmpDb();
+			const target = writeVitestFile(dir, `it("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
+			const task = createArtifact(db, { kind: "task", title: "test gate", extra: { gates: [{ type: "test", target, expect: "this string never appears" }] } });
+			const results = runGates(db, task.id!, { cwd: dir });
+			expect(results[0]?.passed).toBe(false);
+			db.close();
+		}, 30_000);
+
+		it("runGatesAsync: fails when the test passes but gate.expect does not appear in the output (same target as the sync case)", async () => {
+			const { db, dir } = tmpDb();
+			const target = writeVitestFile(dir, `it("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
+			const task = createArtifact(db, { kind: "task", title: "test gate async", extra: { gates: [{ type: "test", target, expect: "this string never appears" }] } });
+			const results = await runGatesAsync(db, task.id!, { cwd: dir });
+			expect(results[0]?.passed).toBe(false);
+			db.close();
+		}, 30_000);
+
+		it("runGates (sync): passes when the test passes and gate.expect does appear in the output", () => {
+			const { db, dir } = tmpDb();
+			const target = writeVitestFile(dir, `it("passes", () => { console.log("a marker string"); expect(1).toBe(1); });`);
+			const task = createArtifact(db, { kind: "task", title: "test gate ok", extra: { gates: [{ type: "test", target, expect: "a marker string" }] } });
+			const results = runGates(db, task.id!, { cwd: dir });
+			expect(results[0]?.passed).toBe(true);
+			db.close();
+		}, 30_000);
+	});
+
 	// Real bug: runGatesAsync matched gate.expect against output already truncated to
 	// GATE_OUTPUT_LIMIT (200 chars) for display, so an expect string appearing only near the end of
 	// a long, real command's output (exactly where a test runner's pass/fail summary lives) never

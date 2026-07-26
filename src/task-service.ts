@@ -286,10 +286,11 @@ export class Tasks {
 		const byId = new Map(tasks.map((task) => [task.id, task]));
 		const focus = this.focusStore.get(filter.sessionId);
 		const focusedId = focus?.taskId;
+		const focusStatus = focus?.status;
 		const nodes = new Map(tasks.map((task) => [task.id, {
 			task,
 			active: task.id === focusedId,
-			...(task.id === focusedId ? { focusStatus: focus!.status } : {}),
+			...(task.id === focusedId ? { focusStatus } : {}),
 			parentIds: [] as string[],
 			childIds: [] as string[],
 			dependencyIds: [] as string[],

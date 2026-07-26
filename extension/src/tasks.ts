@@ -120,7 +120,8 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
 		if (action.type !== "action" || !action.row) continue;
 
-		const node = graph.nodes.find((entry) => entry.task.id === action.row!.id);
+		const rowId = action.row.id;
+		const node = graph.nodes.find((entry) => entry.task.id === rowId);
 		const active = node?.active === true;
 		const focusStatus = node?.focusStatus;
 		const choices = [
@@ -136,8 +137,8 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		const choice = await ctx.ui.select(action.row.title, choices);
 		if (!choice) continue;
 
-		if (choice === "Remove dependency" || choice === "Remove from parent") {
-			const relatedIds = choice === "Remove dependency" ? node!.dependencyIds : node!.parentIds;
+		if ((choice === "Remove dependency" || choice === "Remove from parent") && node) {
+			const relatedIds = choice === "Remove dependency" ? node.dependencyIds : node.parentIds;
 			const relatedTasks = relatedIds.map((relatedId) => graph.nodes.find((entry) => entry.task.id === relatedId)?.task).filter((task): task is Artifact => task !== undefined);
 			const relatedTitles = taskChoiceLabels(relatedTasks);
 			const selected = await ctx.ui.select(choice === "Remove dependency" ? "Remove which dependency?" : "Remove from which parent?", relatedTitles);

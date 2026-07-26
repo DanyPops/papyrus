@@ -22,7 +22,7 @@ import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools } from "./domain-tools.ts";
-import { isLiveAskPending } from "./discuss-ask-view.ts";
+import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
 import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
@@ -566,6 +566,10 @@ export default async function (pi: ExtensionAPI) {
 			// intentionally silent -- see comment above
 		}
 		if (!ctx.hasUI) return;
+		// Attached from session start, not lazily on first ask -- a per-ask listener would only see
+		// keystrokes from the moment that tool call happens to begin, missing typing already in
+		// progress when it started (the exact case Discuss's typing-courtesy wait protects against).
+		ensureTypingCourtesyTracking(ctx.ui);
 		overlay ??= new TaskOverlay();
 		overlay.setUI(ctx.ui);
 		overlay.setProjectRoot(ctx.cwd);

@@ -1,13 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { askQuestion, hasEditorCourtesyDraft, isLiveAskPending, waitForEditorCourtesy } from "../extension/src/discuss-ask-view.ts";
+import {
+	askQuestion,
+	ensureTypingCourtesyTracking,
+	isLiveAskPending,
+	isRecentlyTyping,
+	resetTypingCourtesyTrackingForTests,
+	setTypingCourtesyTimingForTests,
+	waitForTypingCourtesy,
+} from "../extension/src/discuss-ask-view.ts";
 
 const originalEnv = { ...process.env };
-// Disabled by default: most tests here use a static getEditorText() stub that never clears, which
-// would otherwise stall every one of them on the typing-courtesy wait. The dedicated "typing
-// courtesy" describe block below re-enables it explicitly per test.
-beforeEach(() => { process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "0"; });
+// The ambient keystroke clock is module-level state (deliberately -- see ensureTypingCourtesyTracking's
+// own comment) shared across every test in this file; reset it so one test's simulated typing can't
+// bleed into another's. None of the tests outside the dedicated "typing courtesy" block below ever
+// simulate a keystroke, so isRecentlyTyping() stays false for them without any extra setup.
+beforeEach(() => {
+	resetTypingCourtesyTrackingForTests();
+	setTypingCourtesyTimingForTests();
+});
 afterEach(() => {
 	for (const key of Object.keys(process.env)) if (!(key in originalEnv)) delete process.env[key];
 	Object.assign(process.env, originalEnv);
@@ -305,54 +317,107 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 	});
 
 	/**
-	 * Politeness: a live ask must not pop over a human's in-progress editor draft.
-	 * hasEditorCourtesyDraft is a plain synchronous check so the common (no draft) case never adds
-	 * an await -- an unconditional await, even one that resolves immediately, still yields a
-	 * microtask, which is enough for a signal aborted synchronously right after invoking
-	 * askQuestion to race past the deeper abort listener and get missed (caught live in this file's
-	 * own "signal DOES cancel" test above once this feature was added unconditionally).
+	 * Politeness: a live ask must not pop over the human actively typing. Real keystrokes via
+	 * ctx.ui.onTerminalInput, not editor text content -- content can't distinguish "actively typing"
+	 * from "a stale draft sitting there", and misses a mid-thought erase-and-resume. isRecentlyTyping
+	 * is a plain synchronous check so the common (nobody typing) case never adds an await -- an
+	 * unconditional await, even one that resolves immediately, still yields a microtask, which is
+	 * enough for a signal aborted synchronously right after invoking askQuestion to race past the
+	 * deeper abort listener and get missed (caught live in this file's own "signal DOES cancel" test
+	 * above once an unconditional wait was first added).
 	 */
-	describe("typing courtesy: waits for an in-progress editor draft before asking", () => {
-		it("hasEditorCourtesyDraft: false when the editor is empty or unavailable, true only for real non-empty text", () => {
-			expect(hasEditorCourtesyDraft({ ui: {} as any } as ExtensionContext)).toBe(false);
-			expect(hasEditorCourtesyDraft({ ui: { getEditorText: () => "" } as any } as ExtensionContext)).toBe(false);
-			expect(hasEditorCourtesyDraft({ ui: { getEditorText: () => "still typing" } as any } as ExtensionContext)).toBe(true);
+	describe("typing courtesy: waits out real keystroke activity before asking", () => {
+		function fakeTypingUi(): { ui: any; keystroke: () => void } {
+			let handler: ((data: string) => unknown) | undefined;
+			const ui = { onTerminalInput: (h: (data: string) => unknown) => { handler = h; return () => {}; } };
+			return { ui, keystroke: () => handler?.("x") };
+		}
+
+		it("isRecentlyTyping: false at rest, and false when onTerminalInput isn't available in this UI mode", () => {
+			expect(isRecentlyTyping()).toBe(false);
+			ensureTypingCourtesyTracking({} as any);
+			expect(isRecentlyTyping()).toBe(false);
 		});
 
-		it("waits while the draft is non-empty, then proceeds the moment it clears", async () => {
-			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "5000";
-			let draft = "still typing";
-			setTimeout(() => { draft = ""; }, 20);
-			const ctx = { ui: { getEditorText: () => draft } as any } as ExtensionContext;
+		it("isRecentlyTyping: true immediately after a real keystroke arrives through the tracked ui", () => {
+			const { ui, keystroke } = fakeTypingUi();
+			ensureTypingCourtesyTracking(ui);
+			expect(isRecentlyTyping()).toBe(false);
+			keystroke();
+			expect(isRecentlyTyping()).toBe(true);
+		});
+
+		it("tracking is ambient, not per-ask: a keystroke observed before an ask starts still counts", () => {
+			// The exact case this feature protects: typing already in progress when the tool call
+			// begins, not just typing that starts after. ensureTypingCourtesyTracking is idempotent per
+			// distinct ui instance, matching how it's actually attached once from session_start.
+			const { ui, keystroke } = fakeTypingUi();
+			ensureTypingCourtesyTracking(ui);
+			keystroke();
+			ensureTypingCourtesyTracking(ui); // a later ask's call site re-invoking it must not reset anything
+			expect(isRecentlyTyping()).toBe(true);
+		});
+
+		it("waitForTypingCourtesy resolves once the required quiet gap has elapsed since the last keystroke", async () => {
+			setTypingCourtesyTimingForTests({ pollMs: 5, initialQuietMs: 40, floorMs: 40, decayHorizonMs: 1000 });
+			const { ui, keystroke } = fakeTypingUi();
+			ensureTypingCourtesyTracking(ui);
+			keystroke();
 			let waitedMessage: string | undefined;
-			await waitForEditorCourtesy(ctx, { onUpdate: (update: any) => { waitedMessage = update.content?.[0]?.text; } });
-			expect(draft).toBe("");
+			const start = Date.now();
+			await waitForTypingCourtesy({ onUpdate: (update: any) => { waitedMessage = update.content?.[0]?.text; } });
+			expect(Date.now() - start).toBeGreaterThanOrEqual(35);
 			expect(waitedMessage).toContain("finish typing");
 		});
 
-		it("is bounded by PAPYRUS_DISCUSS_TYPING_COURTESY_MS -- a draft left sitting unattended does not withhold the question indefinitely", async () => {
-			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "10";
-			const ctx = { ui: { getEditorText: () => "a draft nobody is actively finishing" } as any } as ExtensionContext;
+		it("a fresh keystroke mid-wait pushes the resolution out further -- true debounce, not a fixed timer from the first keystroke", async () => {
+			setTypingCourtesyTimingForTests({ pollMs: 5, initialQuietMs: 60, floorMs: 60, decayHorizonMs: 10_000 });
+			const { ui, keystroke } = fakeTypingUi();
+			ensureTypingCourtesyTracking(ui);
+			keystroke();
 			const start = Date.now();
-			await waitForEditorCourtesy(ctx, {});
+			setTimeout(() => keystroke(), 30); // resets the quiet gap before the first one would have elapsed
+			await waitForTypingCourtesy({});
+			expect(Date.now() - start).toBeGreaterThanOrEqual(85);
+		});
+
+		it("decays: the required quiet gap shrinks the longer someone types continuously, converging on the floor", async () => {
+			// A steady 20ms drip of keystrokes: under the wide initial quiet gap (200ms) this would never
+			// settle, but once decayed to the 5ms floor (well below the drip interval) a natural gap
+			// between two keystrokes clears it -- proves the required gap actually shrinks over time,
+			// not just that it eventually gives up. clearInterval is in a finally: this loop must never
+			// leak into later tests by continuing to touch the shared keystroke clock past this test.
+			setTypingCourtesyTimingForTests({ pollMs: 5, initialQuietMs: 200, floorMs: 5, decayHorizonMs: 150 });
+			const { ui, keystroke } = fakeTypingUi();
+			ensureTypingCourtesyTracking(ui);
+			keystroke();
+			const interval = setInterval(() => keystroke(), 20);
+			const start = Date.now();
+			try {
+				await waitForTypingCourtesy({});
+			} finally {
+				clearInterval(interval);
+			}
+			expect(Date.now() - start).toBeGreaterThanOrEqual(90);
 			expect(Date.now() - start).toBeLessThan(1000);
 		});
 
-		it("stops immediately when the tool call's own signal aborts mid-wait, instead of riding out the full bound", async () => {
-			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "5000";
+		it("stops immediately when the tool call's own signal aborts mid-wait", async () => {
+			setTypingCourtesyTimingForTests({ pollMs: 5, initialQuietMs: 5000, floorMs: 5000, decayHorizonMs: 10_000 });
+			const { ui, keystroke } = fakeTypingUi();
+			ensureTypingCourtesyTracking(ui);
+			keystroke();
 			const controller = new AbortController();
 			setTimeout(() => controller.abort(), 20);
-			const ctx = { ui: { getEditorText: () => "still typing" } as any } as ExtensionContext;
 			const start = Date.now();
-			await waitForEditorCourtesy(ctx, { signal: controller.signal });
+			await waitForTypingCourtesy({ signal: controller.signal });
 			expect(Date.now() - start).toBeLessThan(500);
 		});
 
-		it("end-to-end through askQuestion: the picker does not open until the draft clears", async () => {
-			process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"] = "5000";
-			let draft = "human is mid-sentence";
-			setTimeout(() => { draft = ""; }, 20);
+		it("end-to-end through askQuestion: the picker does not open while real keystrokes are still arriving", async () => {
+			setTypingCourtesyTimingForTests({ pollMs: 5, initialQuietMs: 40, floorMs: 40, decayHorizonMs: 1000 });
 			const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+			let handler: ((data: string) => unknown) | undefined;
 			let customCalledAt = 0;
 			const start = Date.now();
 			const ctx = {
@@ -360,7 +425,8 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 				ui: {
 					select: async () => { throw new Error("should not fall back to dialogs"); },
 					input: async () => { throw new Error("should not fall back to dialogs"); },
-					notify: () => {}, getEditorText: () => draft,
+					notify: () => {},
+					onTerminalInput: (h: (data: string) => unknown) => { handler = h; return () => {}; },
 					custom: async (factory: any) => new Promise((resolve) => {
 						customCalledAt = Date.now() - start;
 						const component = factory(tui, theme, keybindings, resolve);
@@ -368,8 +434,10 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 					}),
 				} as any,
 			} as ExtensionContext;
+			ensureTypingCourtesyTracking(ctx.ui);
+			handler?.("x"); // simulates typing already in progress when the ask begins
 			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
-			expect(customCalledAt).toBeGreaterThanOrEqual(15);
+			expect(customCalledAt).toBeGreaterThanOrEqual(35);
 			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
 		});
 	});

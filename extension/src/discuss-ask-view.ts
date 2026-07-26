@@ -1126,14 +1126,26 @@ export function isLiveAskPending(): boolean {
 	return livePendingCount > 0;
 }
 
-const DISCUSS_TYPING_COURTESY_POLL_MS = 400;
-const DISCUSS_TYPING_COURTESY_DEFAULT_MAX_WAIT_MS = 15_000;
+const DISCUSS_TYPING_COURTESY_DEFAULT_POLL_MS = 100;
+const DISCUSS_TYPING_COURTESY_DEFAULT_INITIAL_QUIET_MS = 1_500;
+const DISCUSS_TYPING_COURTESY_DEFAULT_QUIET_FLOOR_MS = 300;
+const DISCUSS_TYPING_COURTESY_DEFAULT_DECAY_HORIZON_MS = 10_000;
 
-function resolveTypingCourtesyMaxWaitMs(): number {
-	const raw = process.env["PAPYRUS_DISCUSS_TYPING_COURTESY_MS"];
-	if (raw === undefined) return DISCUSS_TYPING_COURTESY_DEFAULT_MAX_WAIT_MS;
-	const parsed = Number(raw);
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DISCUSS_TYPING_COURTESY_DEFAULT_MAX_WAIT_MS;
+let typingCourtesyPollMs = DISCUSS_TYPING_COURTESY_DEFAULT_POLL_MS;
+let typingCourtesyInitialQuietMs = DISCUSS_TYPING_COURTESY_DEFAULT_INITIAL_QUIET_MS;
+let typingCourtesyQuietFloorMs = DISCUSS_TYPING_COURTESY_DEFAULT_QUIET_FLOOR_MS;
+let typingCourtesyDecayHorizonMs = DISCUSS_TYPING_COURTESY_DEFAULT_DECAY_HORIZON_MS;
+
+/** Test-only: the real decay curve runs over seconds, too slow to exercise at its real scale in a unit test. */
+export function setTypingCourtesyTimingForTests(overrides?: { pollMs?: number; initialQuietMs?: number; floorMs?: number; decayHorizonMs?: number }): void {
+	typingCourtesyPollMs = overrides?.pollMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_POLL_MS;
+	typingCourtesyInitialQuietMs = overrides?.initialQuietMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_INITIAL_QUIET_MS;
+	typingCourtesyQuietFloorMs = overrides?.floorMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_QUIET_FLOOR_MS;
+	typingCourtesyDecayHorizonMs = overrides?.decayHorizonMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_DECAY_HORIZON_MS;
+}
+
+function isTypingCourtesyEnabled(): boolean {
+	return parseBooleanPreference(process.env["PAPYRUS_DISCUSS_TYPING_COURTESY"]) ?? true;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -1145,31 +1157,65 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Whether there is a genuine editor draft to wait out right now -- a plain synchronous check so
- * the common case (no draft) never forces the caller through an extra microtask. Deliberately not
- * folded into waitForEditorCourtesy itself: an unconditional `await` there -- even one that
- * resolves immediately -- still yields once, which is enough to let a signal aborted synchronously
- * right after invoking askQuestion race past the abort listener registered deeper in
- * askQuestionBlocking and get missed entirely.
+ * Required quiet gap (no keystroke) before a live ask may open, as a function of how long we've
+ * already been waiting. Starts wide (a natural inter-word pause shouldn't count as "done typing")
+ * and decays toward a floor -- someone typing continuously gets pickier treatment over time
+ * rather than never being asked. No outer cap: someone typing with sub-floor gaps forever waits
+ * forever, same as the picker itself already waits indefinitely for a real human answer once open.
  */
-export function hasEditorCourtesyDraft(ctx: ExtensionContext): boolean {
-	return typeof ctx.ui.getEditorText === "function" && ctx.ui.getEditorText().length > 0;
+function requiredQuietMsAt(elapsedMs: number): number {
+	const t = Math.min(1, Math.max(0, elapsedMs / typingCourtesyDecayHorizonMs));
+	return typingCourtesyInitialQuietMs - t * (typingCourtesyInitialQuietMs - typingCourtesyQuietFloorMs);
 }
 
 /**
- * Waits for a non-empty editor draft to clear before popping the live ask over it. Bounded
- * (PAPYRUS_DISCUSS_TYPING_COURTESY_MS, default 15s, 0 disables): a draft left sitting unattended
- * must not withhold the question indefinitely, only a genuinely in-progress reply gets the
- * courtesy. Only call when hasEditorCourtesyDraft(ctx) is already true.
+ * Ambient, session-lifetime keystroke clock -- deliberately NOT scoped per-ask. A per-ask listener
+ * would only see keystrokes from the moment the tool call happens to start, missing typing already
+ * in progress when it began (the exact case this feature exists to protect). Attached once per
+ * distinct ui instance (reference equality; a session's real ui object is stable for its lifetime)
+ * and left attached -- there is no unregister, matching onTerminalInput's own listener-return-value
+ * contract elsewhere in this file.
  */
-export async function waitForEditorCourtesy(ctx: ExtensionContext, params: Pick<AskQuestionParams, "onUpdate" | "signal">): Promise<void> {
-	const maxWaitMs = resolveTypingCourtesyMaxWaitMs();
-	if (maxWaitMs <= 0) return;
-	const deadline = Date.now() + maxWaitMs;
-	params.onUpdate?.({ content: [{ type: "text", text: "Waiting for you to finish typing before asking..." }], details: undefined });
-	while (Date.now() < deadline && !params.signal?.aborted) {
-		await sleep(DISCUSS_TYPING_COURTESY_POLL_MS, params.signal);
-		if (typeof ctx.ui.getEditorText !== "function" || ctx.ui.getEditorText().length === 0) return;
+let lastKeystrokeAt = 0;
+let trackedUi: ExtensionContext["ui"] | undefined;
+
+export function ensureTypingCourtesyTracking(ui: ExtensionContext["ui"]): void {
+	if (typeof ui.onTerminalInput !== "function" || trackedUi === ui) return;
+	trackedUi = ui;
+	ui.onTerminalInput(() => { lastKeystrokeAt = Date.now(); return undefined; });
+}
+
+/** Test-only: clears the ambient keystroke clock so one test's simulated typing can't bleed into another's. */
+export function resetTypingCourtesyTrackingForTests(): void {
+	lastKeystrokeAt = 0;
+	trackedUi = undefined;
+}
+
+/**
+ * Whether there is real, recent typing activity to wait out right now -- a plain synchronous read
+ * of the ambient keystroke clock so the common case (nobody typing) never forces the caller
+ * through an extra microtask. Deliberately not folded into waitForTypingCourtesy itself: an
+ * unconditional `await` there -- even one that resolves immediately -- still yields once, which is
+ * enough to let a signal aborted synchronously right after invoking askQuestion race past the
+ * abort listener registered deeper in askQuestionBlocking and get missed entirely.
+ */
+export function isRecentlyTyping(): boolean {
+	return lastKeystrokeAt > 0 && Date.now() - lastKeystrokeAt < typingCourtesyInitialQuietMs;
+}
+
+/**
+ * Waits out real keystroke activity (not editor text content -- that can't distinguish "actively
+ * typing" from "a stale draft sitting there", and misses a mid-thought erase-and-resume) before
+ * popping the live ask over it. Only call when isRecentlyTyping() is already true.
+ */
+export async function waitForTypingCourtesy(params: Pick<AskQuestionParams, "onUpdate" | "signal">): Promise<void> {
+	const startedAt = Date.now();
+	let announced = false;
+	while (lastKeystrokeAt > 0 && !params.signal?.aborted) {
+		const elapsed = Date.now() - startedAt;
+		if (Date.now() - lastKeystrokeAt >= requiredQuietMsAt(elapsed)) return;
+		if (!announced) { announced = true; params.onUpdate?.({ content: [{ type: "text", text: "Waiting for you to finish typing before asking..." }], details: undefined }); }
+		await sleep(typingCourtesyPollMs, params.signal);
 	}
 }
 
@@ -1194,11 +1240,12 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
 
+	if (isTypingCourtesyEnabled()) ensureTypingCourtesyTracking(ctx.ui);
 	livePendingCount += 1;
 	try {
-		// Only actually awaits (yielding a microtask) when there's a real draft to wait out --
-		// see hasEditorCourtesyDraft's own comment for why the common case must stay synchronous.
-		if (hasEditorCourtesyDraft(ctx)) await waitForEditorCourtesy(ctx, params);
+		// Only actually awaits (yielding a microtask) when there's real typing activity to wait out --
+		// see isRecentlyTyping's own comment for why the common case must stay synchronous.
+		if (isTypingCourtesyEnabled() && isRecentlyTyping()) await waitForTypingCourtesy(params);
 		params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
 		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, displayMode, normalizedContext);
 	} finally {

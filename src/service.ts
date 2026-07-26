@@ -189,9 +189,8 @@ export interface PapyrusService {
 }
 
 function handlers(
-	// The composition root's own handler table -- the one place that genuinely needs trash
-	// lifecycle and event-log reading alongside core CRUD/graph, unlike every domain-service
-	// module (which only ever depends on the narrower ArtifactStore).
+	// The composition root's own handler table needs trash lifecycle and event-log reading
+	// alongside core CRUD/graph.
 	artifacts: ArtifactStore & ArtifactTrashStore & ArtifactEventReader,
 	gates: GateRunner,
 	tasks: Tasks,

@@ -1,9 +1,9 @@
 /**
  * discuss-ask-view.ts — Discuss's own live:true synchronous ask UI: searchable single-select
  * with a split-pane description preview, a checkbox multi-select, an integrated freeform
- * editor, an optional post-selection comment, overlay/inline display modes, toggle shortcuts,
- * and an auto-dismiss timeout. Owned end-to-end by Papyrus/Discuss -- no runtime dependency on
- * or delegation to another package's registered tool.
+ * editor, an optional post-selection comment, docked in the real input editor (never a floating
+ * overlay), and an auto-dismiss timeout. Owned end-to-end by Papyrus/Discuss -- no runtime
+ * dependency on or delegation to another package's registered tool.
  *
  * Substantially adapted from pi-ask-user's index.ts (MIT, Copyright (c) 2026 Enzo Lucchesi --
  * full notice in THIRD_PARTY_LICENSES.md), with the standalone-tool plumbing (schema, tool
@@ -27,8 +27,6 @@ import {
 	Markdown,
 	type MarkdownTheme,
 	matchesKey,
-	type OverlayHandle,
-	type OverlayOptions,
 	Spacer,
 	Text,
 	type TUI,
@@ -52,8 +50,6 @@ function safeMarkdownTheme(): MarkdownTheme | undefined {
 	}
 }
 
-export type AskDisplayMode = "overlay" | "inline" | "editor";
-
 export interface AskQuestionParams {
 	question: string;
 	context?: string;
@@ -64,7 +60,6 @@ export interface AskQuestionParams {
 	allowMultiple?: boolean;
 	allowFreeform?: boolean;
 	allowComment?: boolean;
-	displayMode?: AskDisplayMode;
 	timeout?: number;
 	/**
 	 * Streamed once before blocking on the human, matching pi-ask-user's own original code (the
@@ -232,17 +227,17 @@ function resolveShortcut(paramValue: string | null | undefined, envValue: string
 
 type AskMode = "select" | "freeform" | "comment";
 
-const OVERLAY_MAX_HEIGHT_RATIO = 0.85;
-const OVERLAY_MIN_RENDER_LINES = 8;
-const OVERLAY_WIDTH = "92%";
-const OVERLAY_MIN_WIDTH = 40;
+// Docked in the input area: growing past this ceiling pushes the conversation transcript above
+// it out of view, so the scroll keys below do real work on a long question instead of the picker
+// consuming the terminal outright.
+const ASK_MAX_HEIGHT_RATIO = 0.5;
+const ASK_MIN_RENDER_LINES = 8;
 const SPLIT_PANE_MIN_WIDTH = 84;
 const SPLIT_PANE_LEFT_MIN_WIDTH = 32;
 const SPLIT_PANE_RIGHT_MIN_WIDTH = 28;
 const SPLIT_PANE_SEPARATOR = " │ ";
 const FREEFORM_SENTINEL = "\u270f\ufe0f Type a custom answer...";
 const COMMENT_TOGGLE_LABEL = "Add extra context after selection";
-const DEFAULT_OVERLAY_TOGGLE_KEY = "alt+o";
 const DEFAULT_COMMENT_TOGGLE_KEY = "ctrl+g";
 
 const VIM_SELECT_UP_KEY = Key.ctrl("k");
@@ -254,11 +249,11 @@ const PROMPT_SCROLL_END_KEY = Key.end;
 const PROMPT_SCROLL_HALF_PAGE_UP_KEY = Key.ctrl("u");
 const PROMPT_SCROLL_HALF_PAGE_DOWN_KEY = Key.ctrl("d");
 
-function getOverlayMaxRenderLinesForRows(rows: number): number {
+function getAskMaxRenderLinesForRows(rows: number): number {
 	const normalizedRows = Number.isFinite(rows) ? Math.max(1, Math.floor(rows)) : 24;
 	const availableRows = Math.max(1, normalizedRows - 2);
-	const ratioRows = Math.max(1, Math.floor(normalizedRows * OVERLAY_MAX_HEIGHT_RATIO));
-	const minimumRows = Math.min(OVERLAY_MIN_RENDER_LINES, availableRows);
+	const ratioRows = Math.max(1, Math.floor(normalizedRows * ASK_MAX_HEIGHT_RATIO));
+	const minimumRows = Math.min(ASK_MIN_RENDER_LINES, availableRows);
 	return Math.min(availableRows, Math.max(minimumRows, ratioRows));
 }
 
@@ -268,15 +263,6 @@ function matchesSelectUp(data: string, keybindings: KeybindingsManager): boolean
 
 function matchesSelectDown(data: string, keybindings: KeybindingsManager): boolean {
 	return keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.tab) || matchesKey(data, VIM_SELECT_DOWN_KEY);
-}
-
-function buildCustomUIOptions(displayMode: AskDisplayMode, onHandle?: (handle: OverlayHandle) => void): { overlay?: boolean; overlayOptions?: OverlayOptions; onHandle?: (handle: OverlayHandle) => void } | undefined {
-	if (displayMode === "inline") return undefined;
-	return {
-		overlay: true,
-		overlayOptions: { anchor: "center" as const, width: OVERLAY_WIDTH, minWidth: OVERLAY_MIN_WIDTH, maxHeight: "85%", margin: 1 },
-		...(onHandle ? { onHandle } : {}),
-	};
 }
 
 class MultiSelectList implements Component {
@@ -591,7 +577,6 @@ class WrappedSingleSelectList implements Component {
 }
 
 interface ResolvedAskShortcuts {
-	overlayToggle: ResolvedShortcut;
 	commentToggle: ResolvedShortcut;
 }
 
@@ -630,7 +615,6 @@ class AskComponent extends Container {
 		private allowMultiple: boolean,
 		private allowFreeform: boolean,
 		private allowComment: boolean,
-		private displayMode: AskDisplayMode,
 		private tui: TUI,
 		private theme: Theme,
 		private keybindings: KeybindingsManager,
@@ -673,25 +657,23 @@ class AskComponent extends Container {
 
 	override render(width: number): string[] {
 		const innerWidth = Math.max(1, width - BOX_BORDER_OVERHEAD);
-		if (this.displayMode === "overlay") return this.renderOverlayLayout(width, innerWidth);
-		if (this.mode === "select" && !this.allowMultiple) this.ensureSingleSelectList().setMaxVisibleRows(12);
-		return this.frameRawLines(super.render(innerWidth), width, innerWidth);
+		return this.renderBudgetedLayout(width, innerWidth);
 	}
 
-	private getOverlayMaxRenderLines(): number {
+	private getAskMaxRenderLines(): number {
 		const rows = Number.isFinite(this.tui.terminal.rows) ? Math.floor(this.tui.terminal.rows) : 24;
-		return getOverlayMaxRenderLinesForRows(rows);
+		return getAskMaxRenderLinesForRows(rows);
 	}
 
-	private renderOverlayLayout(width: number, innerWidth: number): string[] {
-		const maxLines = this.getOverlayMaxRenderLines();
+	private renderBudgetedLayout(width: number, innerWidth: number): string[] {
+		const maxLines = this.getAskMaxRenderLines();
 		if (maxLines <= 1) return [this.renderTopBorder(width)];
 		if (maxLines === 2) return [this.renderTopBorder(width), this.renderBottomBorder(width)];
 
 		const bodyCapacity = Math.max(0, maxLines - 2);
 		const promptLines = this.buildPromptLines(innerWidth);
 		const helpFullLines = this.helpText.render(innerWidth);
-		const helpBudget = this.getOverlayHelpBudget(bodyCapacity, helpFullLines.length);
+		const helpBudget = this.getHelpBudget(bodyCapacity, helpFullLines.length);
 		const contentRows = Math.max(0, bodyCapacity - helpBudget);
 
 		let promptBudget = 0;
@@ -741,7 +723,7 @@ class AskComponent extends Container {
 		return [...this.titleText.render(width), ...this.questionText.render(width), ...(this.contextComponent ? ["", ...this.contextComponent.render(width)] : [])];
 	}
 
-	private getOverlayHelpBudget(bodyCapacity: number, renderedHelpRows: number): number {
+	private getHelpBudget(bodyCapacity: number, renderedHelpRows: number): number {
 		if (renderedHelpRows <= 0 || bodyCapacity <= 0) return 0;
 		return bodyCapacity >= 12 ? Math.min(2, renderedHelpRows) : 1;
 	}
@@ -787,7 +769,7 @@ class AskComponent extends Container {
 			];
 		}
 		// Only meaningful when reached by escaping OUT of a real select list -- see showFreeformMode's
-		// identical guard for the non-overlay layout.
+		// identical guard.
 		if (this.options.length === 0) return [];
 		return [...new Text(this.theme.fg("accent", this.theme.bold("Custom answer")), 1, 0).render(width), ""];
 	}
@@ -861,15 +843,6 @@ class AskComponent extends Container {
 		];
 	}
 
-	private frameRawLines(rawLines: string[], width: number, innerWidth: number): string[] {
-		const borderColor = (s: string) => this.theme.fg("accent", s);
-		return rawLines.map((line, index) => {
-			if (index === 0) return this.renderTopBorder(width);
-			if (index === rawLines.length - 1) return this.renderBottomBorder(width);
-			return `${borderColor(BOX_BORDER_LEFT)}${truncateToWidth(line, innerWidth, "", true)}${borderColor(BOX_BORDER_RIGHT)}`;
-		});
-	}
-
 	private updateStaticText(): void {
 		const theme = this.theme;
 		// Reuses the same slot for two different purposes: a plain "which discussion is this" subtitle
@@ -886,8 +859,7 @@ class AskComponent extends Container {
 
 	private updateHelpText(): void {
 		const theme = this.theme;
-		const overlayHint = this.displayMode === "overlay" && !this.shortcuts.overlayToggle.disabled ? literalHint(theme, this.shortcuts.overlayToggle.spec, "hide") : null;
-		const promptScrollHint = this.displayMode === "overlay" ? literalHint(theme, "PgUp/PgDn", "prompt") : null;
+		const promptScrollHint = literalHint(theme, "PgUp/PgDn", "prompt");
 		const commentHint = this.allowComment && !this.shortcuts.commentToggle.disabled ? literalHint(theme, this.shortcuts.commentToggle.spec, "toggle context") : null;
 
 		if (this.mode === "freeform" || this.mode === "comment") {
@@ -897,7 +869,6 @@ class AskComponent extends Container {
 				keybindingHint(theme, this.keybindings, "tui.input.submit", this.mode === "comment" ? "submit/skip" : "submit"),
 				keybindingHint(theme, this.keybindings, "tui.input.newLine", "newline"),
 				literalHint(theme, "esc", canGoBack ? "back" : "cancel"),
-				overlayHint,
 				canGoBack && alternateCancelKeys.length > 0 ? literalHint(theme, formatKeyList(alternateCancelKeys), "cancel") : null,
 			].filter((hint): hint is string => !!hint).join(" • ");
 			this.helpText.setText(theme.fg("dim", hints));
@@ -906,7 +877,7 @@ class AskComponent extends Container {
 
 		if (this.allowMultiple) {
 			const hints = [
-				literalHint(theme, "↑↓", "navigate"), literalHint(theme, "space", "toggle"), commentHint, promptScrollHint, overlayHint,
+				literalHint(theme, "↑↓", "navigate"), literalHint(theme, "space", "toggle"), commentHint, promptScrollHint,
 				keybindingHint(theme, this.keybindings, "tui.select.confirm", "submit"),
 				keybindingHint(theme, this.keybindings, "tui.select.cancel", "cancel"),
 			].filter((hint): hint is string => !!hint).join(" • ");
@@ -916,7 +887,7 @@ class AskComponent extends Container {
 			const hints = [
 				literalHint(theme, "type", "filter"), commentHint, promptScrollHint,
 				keybindingHint(theme, this.keybindings, "tui.editor.deleteCharBackward", "erase"),
-				literalHint(theme, "↑↓", "navigate"), overlayHint,
+				literalHint(theme, "↑↓", "navigate"),
 				keybindingHint(theme, this.keybindings, "tui.select.confirm", "select"),
 				literalHint(theme, "esc", "clear/cancel"),
 				alternateCancelKeys.length > 0 ? literalHint(theme, formatKeyList(alternateCancelKeys), "cancel") : null,
@@ -1028,7 +999,7 @@ class AskComponent extends Container {
 	}
 
 	private setPromptScrollOffset(nextOffset: number): boolean {
-		if (this.displayMode !== "overlay" || this.promptMaxScrollOffset <= 0) return false;
+		if (this.promptMaxScrollOffset <= 0) return false;
 		const clamped = Math.max(0, Math.min(Math.floor(nextOffset), this.promptMaxScrollOffset));
 		const changed = clamped !== this.promptScrollOffset;
 		this.promptScrollOffset = clamped;
@@ -1036,7 +1007,7 @@ class AskComponent extends Container {
 	}
 
 	private handlePromptScrollInput(data: string): boolean {
-		if (this.displayMode !== "overlay" || this.promptMaxScrollOffset <= 0) return false;
+		if (this.promptMaxScrollOffset <= 0) return false;
 		if (this.mode !== "select") return false;
 		const pageRows = Math.max(1, this.promptViewportRows - 1);
 		const halfPageRows = Math.max(1, Math.floor(this.promptViewportRows / 2));
@@ -1065,7 +1036,7 @@ class AskComponent extends Container {
 	}
 }
 
-/** RPC/headless fallback: ctx.ui.custom() returns undefined outside a real TUI, so degrade to dialog methods (select/input). */
+/** Plain dialog fallback (select/input) for a UI mode without setEditorComponent support. */
 async function askViaDialogs(
 	ui: { select: Function; input: Function },
 	question: string,
@@ -1235,9 +1206,6 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const allowMultiple = params.allowMultiple ?? false;
 	const allowFreeform = params.allowFreeform ?? true;
 	const allowComment = params.allowComment ?? parseBooleanPreference(process.env["PAPYRUS_DISCUSS_ALLOW_COMMENT"]) ?? false;
-	const envMode = process.env["PAPYRUS_DISCUSS_DISPLAY_MODE"]?.trim().toLowerCase();
-	const envDisplayMode: AskDisplayMode | undefined = envMode === "overlay" || envMode === "inline" || envMode === "editor" ? envMode : undefined;
-	const displayMode: AskDisplayMode = params.displayMode ?? envDisplayMode ?? "overlay";
 	const normalizedContext = params.context?.trim() || undefined;
 
 	if (isTypingCourtesyEnabled()) ensureTypingCourtesyTracking(ctx.ui);
@@ -1247,7 +1215,7 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 		// see isRecentlyTyping's own comment for why the common case must stay synchronous.
 		if (isTypingCourtesyEnabled() && isRecentlyTyping()) await waitForTypingCourtesy(params);
 		params.onUpdate?.({ content: [{ type: "text", text: "Waiting for human input..." }], details: undefined });
-		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, displayMode, normalizedContext);
+		return await askQuestionBlocking(ctx, params, options, allowMultiple, allowFreeform, allowComment, normalizedContext);
 	} finally {
 		livePendingCount -= 1;
 	}
@@ -1255,12 +1223,12 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 
 /**
  * Hosts an AskComponent in place of the real input editor (ctx.ui.setEditorComponent), the same
- * mechanism Pi's own slash-command menu ecosystem uses to render attached to the prompt rather
- * than as a floating overlay. getText() always returns the human's real in-progress draft,
- * captured once before swapping in -- setEditorComponent's own swap logic reads getText() off
- * the OUTGOING editor to carry a draft forward when restoring the previous one afterward; if
- * this returned anything else, restoring would silently overwrite a real draft with an empty
- * string. Implements EditorComponent directly rather than extending CustomEditor: CustomEditor's
+ * mechanism Pi's own slash-command menu ecosystem uses. getText() always returns the human's
+ * real in-progress draft, captured once before swapping in -- setEditorComponent's own swap
+ * logic reads getText() off the OUTGOING editor to carry a draft forward when restoring the
+ * previous one afterward; if this returned anything else, restoring would silently overwrite a
+ * real draft with an empty string. Implements EditorComponent directly rather than extending
+ * CustomEditor: CustomEditor's
  * duck-typed actionHandlers Map would otherwise get every app-level action (model switching,
  * clear, suspend) copied onto it by Pi's own editor-swap code, none of which this host uses or
  * forwards -- avoiding the inheritance sidesteps that dead weight entirely.
@@ -1304,7 +1272,7 @@ async function askViaEditorSwap(
 		if (params.signal) params.signal.addEventListener("abort", () => finish(null), { once: true });
 		if (params.timeout && params.timeout > 0) setTimeout(() => finish(null), params.timeout);
 		ctx.ui.setEditorComponent((tui: TUI, _editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
-			const ask = new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, "inline", tui, theme, keybindings, shortcuts, finish);
+			const ask = new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, tui, theme, keybindings, shortcuts, finish);
 			return new DiscussEditorHost(ask, preservedText);
 		});
 	});
@@ -1317,53 +1285,17 @@ async function askQuestionBlocking(
 	allowMultiple: boolean,
 	allowFreeform: boolean,
 	allowComment: boolean,
-	displayMode: AskDisplayMode,
 	normalizedContext: string | undefined,
 ): Promise<AskAnswer | undefined> {
-	// A freeform-only ask (no options) still goes through the same rich AskComponent/ctx.ui.custom()
-	// path below, not a bare ctx.ui.input() -- otherwise it renders as a plain, contextless single
-	// line while every options-bearing ask gets the full bordered box, title, and markdown context.
 	const shortcuts: ResolvedAskShortcuts = {
-		overlayToggle: resolveShortcut(undefined, process.env["PAPYRUS_DISCUSS_OVERLAY_TOGGLE_KEY"], DEFAULT_OVERLAY_TOGGLE_KEY),
 		commentToggle: resolveShortcut(undefined, process.env["PAPYRUS_DISCUSS_COMMENT_TOGGLE_KEY"], DEFAULT_COMMENT_TOGGLE_KEY),
 	};
 
-	// "editor" hosts the picker in place of the real input editor (Pi's own slash-command menu's
-	// mechanism) instead of a floating overlay -- degrades to "inline" if setEditorComponent isn't
-	// available in this UI mode (interactive-only, like onTerminalInput below).
-	if (displayMode === "editor" && typeof ctx.ui.setEditorComponent === "function" && typeof ctx.ui.getEditorComponent === "function" && typeof ctx.ui.getEditorText === "function") {
+	// Falls to the plain dialog fallback if setEditorComponent isn't available in this UI mode.
+	if (typeof ctx.ui.setEditorComponent === "function" && typeof ctx.ui.getEditorComponent === "function" && typeof ctx.ui.getEditorText === "function") {
 		const response = await askViaEditorSwap(ctx, params, options, allowMultiple, allowFreeform, allowComment, normalizedContext, shortcuts);
 		return response ? toAskAnswer(response) : undefined;
 	}
-	const effectiveDisplayMode: AskDisplayMode = displayMode === "editor" ? "inline" : displayMode;
-
-	let overlayHandle: OverlayHandle | undefined;
-	let removeOverlayInputListener: (() => void) | undefined;
-	let hasAnnouncedHide = false;
-	let response: AskResponse | null;
-	try {
-		const factory = (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (result: AskResponse | null) => void) => {
-			if (params.signal) params.signal.addEventListener("abort", () => done(null), { once: true });
-			if (params.timeout && params.timeout > 0) setTimeout(() => done(null), params.timeout);
-			return new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, effectiveDisplayMode, tui, theme, keybindings, shortcuts, done);
-		};
-
-		const overlayToggle = shortcuts.overlayToggle;
-		if (displayMode === "overlay" && !overlayToggle.disabled && typeof ctx.ui.onTerminalInput === "function") {
-			removeOverlayInputListener = ctx.ui.onTerminalInput((data) => {
-				if (!overlayToggle.matches(data) || !overlayHandle) return undefined;
-				const nextHidden = !overlayHandle.isHidden();
-				overlayHandle.setHidden(nextHidden);
-				if (nextHidden && !hasAnnouncedHide) { hasAnnouncedHide = true; ctx.ui.notify?.(`Question hidden — press ${overlayToggle.spec} to reopen`, "info"); }
-				return { consume: true };
-			});
-		}
-
-		const customResult = await ctx.ui.custom<AskResponse | null>(factory, buildCustomUIOptions(effectiveDisplayMode, (handle) => { overlayHandle = handle; }));
-		response = customResult !== undefined ? customResult : await askViaDialogs(ctx.ui, params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, params.timeout);
-	} finally {
-		removeOverlayInputListener?.();
-	}
-
+	const response = await askViaDialogs(ctx.ui, params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, params.timeout);
 	return response ? toAskAnswer(response) : undefined;
 }

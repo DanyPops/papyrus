@@ -21,9 +21,8 @@ interface SqliteBackendModule {
 }
 
 const backend = require_(IS_BUN ? "bun:sqlite" : "node:sqlite") as SqliteBackendModule;
-// IIFE + explicit return type, not a bare `const DatabaseCtor = backend.DatabaseSync ?? backend.Database`
-// with a following throw-guard: that guard's narrowing wouldn't propagate into openDb() below, a
-// separate function closing over this module-level binding.
+// Explicit return type + IIFE: TS narrowing from a plain guard here wouldn't propagate into
+// openDb() below, a separate function closing over this module-level binding.
 const DatabaseCtor: new (path: string, opts?: { create?: boolean }) => Db = (() => {
 	const ctor = backend.DatabaseSync ?? backend.Database;
 	if (!ctor) throw new Error("no compatible sqlite backend found (expected bun:sqlite's Database or node:sqlite's DatabaseSync)");

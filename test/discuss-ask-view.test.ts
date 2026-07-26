@@ -31,23 +31,29 @@ const ENTER = "\r";
 const ESCAPE = "\x1b";
 
 /**
- * ctx.ui.custom() as the real interactive TUI would run it: invokes the real factory with a
- * real KeybindingsManager and a minimal tui stub, then feeds it real terminal key sequences.
- * This exercises the genuine AskComponent/WrappedSingleSelectList/MultiSelectList code owned by
- * discuss-ask-view.ts, not a hand-built substitute for it.
+ * setEditorComponent as the real interactive TUI would run it, exercising the genuine
+ * AskComponent/WrappedSingleSelectList/MultiSelectList code the same way a real session would.
+ * Ignores the SECOND setEditorComponent call (restoring the previous factory once answered)
+ * rather than treating it as a new ask.
  */
 function interactiveCtx(keySequence: string[]): ExtensionContext {
 	const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+	let installed = false;
 	return {
 		cwd: "/tmp", hasUI: true,
 		ui: {
 			select: async () => { throw new Error("should not fall back to dialog select in interactive mode"); },
 			input: async () => { throw new Error("should not fall back to dialog input in interactive mode"); },
 			notify: () => {},
-			custom: async (factory: any) => new Promise((resolve) => {
-				const component = factory(tui, theme, keybindings, resolve);
-				for (const key of keySequence) component.handleInput(key);
-			}),
+			theme,
+			getEditorText: () => "",
+			getEditorComponent: () => undefined,
+			setEditorComponent: (factory: any) => {
+				if (installed || !factory) { installed = false; return; }
+				installed = true;
+				const host = factory(tui, { borderColor: (s: string) => s, selectList: {} }, keybindings);
+				for (const key of keySequence) host.handleInput(key);
+			},
 		} as any,
 	} as ExtensionContext;
 }
@@ -73,8 +79,8 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			ui: {
 				select: async () => { throw new Error("should not fall back to dialog select in interactive mode"); },
 				input: async () => { throw new Error("should not fall back to dialog input in interactive mode"); },
-				notify: () => {},
-				custom: async (factory: any) => new Promise((resolve) => { component = factory(tui, theme, keybindings, resolve); }),
+				notify: () => {}, theme, getEditorText: () => "", getEditorComponent: () => undefined,
+				setEditorComponent: (factory: any) => { if (factory) component = factory(tui, { borderColor: (s: string) => s, selectList: {} }, keybindings); },
 			} as any,
 		} as ExtensionContext;
 		const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }] });
@@ -98,7 +104,8 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			cwd: "/tmp", hasUI: true,
 			ui: {
 				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
-				custom: async (factory: any) => new Promise((resolve) => { factory(tui, theme, keybindings, resolve); }),
+				theme, getEditorText: () => "", getEditorComponent: () => undefined,
+				setEditorComponent: (factory: any) => { if (factory) factory(tui, { borderColor: (s: string) => s, selectList: {} }, keybindings); },
 			} as any,
 		} as ExtensionContext;
 		const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], signal: toolCallController.signal });
@@ -142,12 +149,13 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 	// discussion title is a plain dim subtitle, not a labeled section.
 	it("renders the subtitle as plain dim text, never a generic 'Question' header, and never a redundant 'Custom answer' label when there are no options", async () => {
 		const tui = { terminal: { rows: 40 }, requestRender: () => {} };
-		let component: { render: (w: number) => string[] } | undefined;
+		let component: { render: (w: number) => string[]; handleInput: (data: string) => void } | undefined;
 		const ctx = {
 			cwd: "/tmp", hasUI: true,
 			ui: {
 				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
-				custom: (factory: any) => new Promise((resolve) => { component = factory(tui, theme, keybindings, resolve); }),
+				theme, getEditorText: () => "", getEditorComponent: () => undefined,
+				setEditorComponent: (factory: any) => { if (factory) component = factory(tui, { borderColor: (s: string) => s, selectList: {} }, keybindings); },
 			} as any,
 		} as ExtensionContext;
 		const pending = askQuestion(ctx, { question: "Should we ship Friday?", subtitle: "Ship or not?" });
@@ -156,7 +164,7 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 		expect(rendered).toContain("Ship or not?"); // subtitle present
 		expect(rendered).not.toContain("Question"); // no generic header
 		expect(rendered).not.toContain("Custom answer"); // no options to contrast against
-		(component as unknown as { handleInput: (data: string) => void }).handleInput(ESCAPE);
+		component!.handleInput(ESCAPE);
 		await pending; // let isLiveAskPending's guard clear before the next test observes it
 	});
 
@@ -174,20 +182,20 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 
 	it("a freeform-only question still degrades to ctx.ui.input via the dialog fallback in RPC/headless mode", async () => {
 		const prompts: string[] = [];
-		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async (title: string) => { prompts.push(title); return "42"; }, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
+		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async (title: string) => { prompts.push(title); return "42"; }, notify: () => {} } } as unknown as ExtensionContext;
 		const answer = await askQuestion(ctx, { question: "How many replicas?" });
 		expect(prompts).toEqual(["How many replicas?"]);
 		expect(answer).toEqual({ content: "42" });
 	});
 
 	it("freeform-only cancel (empty answer) resolves to undefined, not an empty content string", async () => {
-		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
+		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async () => undefined, notify: () => {} } } as unknown as ExtensionContext;
 		expect(await askQuestion(ctx, { question: "How many replicas?" })).toBeUndefined();
 	});
 
-	it("degrades to the dialog fallback (ctx.ui.select) when ctx.ui.custom() returns undefined -- RPC/headless mode", async () => {
+	it("degrades to the dialog fallback (ctx.ui.select) when setEditorComponent isn't available -- RPC/headless mode", async () => {
 		const selectCalls: Array<{ title: string; options: string[] }> = [];
-		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async (title: string, options: string[]) => { selectCalls.push({ title, options }); return "Ship Friday"; }, input: async () => undefined, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
+		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async (title: string, options: string[]) => { selectCalls.push({ title, options }); return "Ship Friday"; }, input: async () => undefined, notify: () => {} } } as unknown as ExtensionContext;
 		const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }] });
 		expect(selectCalls).toEqual([{ title: "Ship or not?", options: ["Ship Friday", "Slip to Monday", "\u270f\ufe0f Type a custom answer..."] }]);
 		expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
@@ -215,7 +223,7 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			ui: {
 				select: async () => undefined,
 				input: async () => { observedDuringAsk = isLiveAskPending(); return "42"; },
-				notify: () => {}, custom: async () => undefined,
+				notify: () => {},
 			},
 		} as unknown as ExtensionContext;
 		const answer = await askQuestion(ctx, { question: "How many replicas?" });
@@ -225,36 +233,13 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 	});
 
 	it("isLiveAskPending() still clears on cancel, so a rejected/cancelled ask never leaves the guard stuck open", async () => {
-		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async () => undefined } } as unknown as ExtensionContext;
+		const ctx = { cwd: "/tmp", hasUI: true, ui: { select: async () => undefined, input: async () => undefined, notify: () => {} } } as unknown as ExtensionContext;
 		await askQuestion(ctx, { question: "How many replicas?" });
 		expect(isLiveAskPending()).toBe(false);
 	});
 
-	it("honors PAPYRUS_DISCUSS_DISPLAY_MODE=inline instead of the default overlay -- render never throws in inline layout", async () => {
-		process.env["PAPYRUS_DISCUSS_DISPLAY_MODE"] = "inline";
-		const tui = { terminal: { rows: 40 }, requestRender: () => {} };
-		let rendered: string[] = [];
-		const ctx = {
-			cwd: "/tmp", hasUI: true,
-			ui: {
-				select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
-				custom: async (factory: any) => new Promise((resolve) => {
-					const component = factory(tui, theme, keybindings, resolve);
-					rendered = component.render(80);
-					component.handleInput(ENTER);
-				}),
-			} as any,
-		} as ExtensionContext;
-		const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
-		expect(rendered.length).toBeGreaterThan(0);
-		expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
-	});
-
-	/**
-	 * displayMode: "editor" hosts the picker via ctx.ui.setEditorComponent -- Pi's own
-	 * slash-command menu mechanism -- instead of a floating ctx.ui.custom() overlay.
-	 */
-	describe("displayMode: \"editor\" -- hosted in the real input editor, not a floating overlay", () => {
+	/** The picker is always hosted via ctx.ui.setEditorComponent, Pi's own slash-command menu mechanism. */
+	describe("hosted in the real input editor via setEditorComponent -- the only interactive path", () => {
 		function editorCtx() {
 			const setCalls: Array<((...args: unknown[]) => unknown) | undefined> = [];
 			const previousFactory = () => "previous-editor-sentinel";
@@ -264,7 +249,6 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 					select: async () => { throw new Error("should not fall back to dialogs"); },
 					input: async () => { throw new Error("should not fall back to dialogs"); },
 					notify: () => {},
-					custom: async () => { throw new Error("editor mode must not use ctx.ui.custom()"); },
 					theme,
 					getEditorText: () => "human's in-progress draft",
 					getEditorComponent: () => previousFactory,
@@ -274,9 +258,9 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			return { ctx, setCalls, previousFactory };
 		}
 
-		it("never touches ctx.ui.custom() -- hosts the AskComponent via setEditorComponent instead", async () => {
+		it("hosts the AskComponent via setEditorComponent", async () => {
 			const { ctx, setCalls } = editorCtx();
-			const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }], displayMode: "editor" });
+			const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }, { title: "Slip to Monday" }] });
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			expect(setCalls).toHaveLength(1);
 			const host = (setCalls[0] as any)({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, keybindings);
@@ -287,7 +271,7 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 
 		it("restores the exact previous editor factory once answered, and the host's getText() always returns the preserved draft verbatim", async () => {
 			const { ctx, setCalls, previousFactory } = editorCtx();
-			const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], displayMode: "editor" });
+			const promise = askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
 			await new Promise((resolve) => setTimeout(resolve, 0));
 			const host = (setCalls[0] as any)({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, keybindings);
 			// setEditorComponent's own swap logic reads getText() off the outgoing editor to carry a
@@ -302,16 +286,17 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			expect(setCalls[1]).toBe(previousFactory);
 		});
 
-		it("degrades to inline (ctx.ui.custom(), not setEditorComponent) when setEditorComponent isn't available in this UI mode", async () => {
-			const tui = { terminal: { rows: 40 }, requestRender: () => {} };
+		it("degrades to the plain dialog fallback, never a floating overlay, when setEditorComponent isn't available in this UI mode", async () => {
+			const selectCalls: Array<{ title: string; options: string[] }> = [];
 			const ctx = {
 				cwd: "/tmp", hasUI: true,
 				ui: {
-					select: async () => { throw new Error("unexpected"); }, input: async () => { throw new Error("unexpected"); }, notify: () => {},
-					custom: async (factory: any) => new Promise((resolve) => { const component = factory(tui, theme, keybindings, resolve); component.handleInput(ENTER); }),
+					select: async (title: string, options: string[]) => { selectCalls.push({ title, options }); return "Ship Friday"; },
+					input: async () => { throw new Error("unexpected"); }, notify: () => {},
 				} as any,
 			} as ExtensionContext;
-			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }], displayMode: "editor" });
+			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
+			expect(selectCalls).toHaveLength(1);
 			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
 		});
 	});
@@ -418,26 +403,27 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			setTypingCourtesyTimingForTests({ pollMs: 5, initialQuietMs: 40, floorMs: 40, decayHorizonMs: 1000 });
 			const tui = { terminal: { rows: 40 }, requestRender: () => {} };
 			let handler: ((data: string) => unknown) | undefined;
-			let customCalledAt = 0;
+			let hostedAt = 0;
 			const start = Date.now();
 			const ctx = {
 				cwd: "/tmp", hasUI: true,
 				ui: {
 					select: async () => { throw new Error("should not fall back to dialogs"); },
 					input: async () => { throw new Error("should not fall back to dialogs"); },
-					notify: () => {},
+					notify: () => {}, theme, getEditorText: () => "", getEditorComponent: () => undefined,
 					onTerminalInput: (h: (data: string) => unknown) => { handler = h; return () => {}; },
-					custom: async (factory: any) => new Promise((resolve) => {
-						customCalledAt = Date.now() - start;
-						const component = factory(tui, theme, keybindings, resolve);
-						component.handleInput(ENTER);
-					}),
+					setEditorComponent: (factory: any) => {
+						if (!factory) return;
+						hostedAt = Date.now() - start;
+						const host = factory(tui, { borderColor: (s: string) => s, selectList: {} }, keybindings);
+						host.handleInput(ENTER);
+					},
 				} as any,
 			} as ExtensionContext;
 			ensureTypingCourtesyTracking(ctx.ui);
 			handler?.("x"); // simulates typing already in progress when the ask begins
 			const answer = await askQuestion(ctx, { question: "Ship or not?", options: [{ title: "Ship Friday" }] });
-			expect(customCalledAt).toBeGreaterThanOrEqual(35);
+			expect(hostedAt).toBeGreaterThanOrEqual(35);
 			expect(answer).toEqual({ content: "Ship Friday", selected: ["Ship Friday"] });
 		});
 	});

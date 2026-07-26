@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { registerDomainTools } from "../extension/src/domain-tools.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
@@ -158,32 +159,34 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		expect(openCall?.input).not.toHaveProperty("option_descriptions");
 	});
 
-	it("live:true renders pending option descriptions in the picker via ctx.ui.select's dialog fallback", async () => {
+	it("live:true renders pending option descriptions in the picker", async () => {
 		const execute = discussExecute();
 		const withPending = { ...OPENED_DISCUSSION, extra: { discussion: { state: "active", roundCount: 1, pendingOptions: ["Ship Friday", "Slip to Monday"], pendingOptionsMode: "single", pendingOptionDescriptions: ["Fast, riskier", "Slower, safer"] } } };
 		mockCalls({
 			"discuss.open": () => ({ discussion: withPending, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x", options: ["Ship Friday", "Slip to Monday"], optionsMode: "single", optionDescriptions: ["Fast, riskier", "Slower, safer"] }] }),
 			"discuss.reply": (input: any) => ({ discussion: withPending, rounds: [{ id: 2, discussionId: "d1", roundNumber: 2, actor: "human", content: input.content, occurredAt: "x", selected: input.selected }] }),
 		});
-		let askedOptions: unknown;
+		let rendered = "";
 		const ctx = fakeCtx({
 			ui: {
-				select: async () => undefined, input: async () => undefined, notify: () => {},
-				// custom() receives the real AskComponent factory -- inspect the options it was built
-				// with directly rather than trying to parse rendered ANSI text.
-				custom: async (factory: any) => { askedOptions = (factory as unknown as (...args: unknown[]) => { options: unknown })(
-					{ terminal: { rows: 40 }, requestRender: () => {} },
-					{ bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t },
-					{ matches: () => false, getKeys: () => [] },
-					() => {},
-				).options; return undefined; },
+				select: async () => { throw new Error("must not fall back to dialogs"); },
+				input: async () => { throw new Error("must not fall back to dialogs"); },
+				notify: () => {},
+				theme: { bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t },
+				getEditorText: () => "", getEditorComponent: () => undefined,
+				setEditorComponent: (factory: any) => {
+					if (!factory) return;
+					const host = factory({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, new KeybindingsManager(TUI_KEYBINDINGS));
+					rendered = host.render(100).join("\n"); // wide enough for the split-pane description preview
+					host.handleInput("\r"); // enter confirms the highlighted (first) option
+				},
 			} as any,
 		});
 		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", options: ["Ship Friday", "Slip to Monday"], options_mode: "single", live: true }, undefined, undefined, ctx);
-		expect(askedOptions).toEqual([{ title: "Ship Friday", description: "Fast, riskier" }, { title: "Slip to Monday", description: "Slower, safer" }]);
+		expect(rendered).toContain("Fast, riskier");
 	});
 
-	it("threads display_mode through to askQuestion, so a caller can request the editor-hosted picker per call", async () => {
+	it("live:true always hosts via the editor-docked picker when setEditorComponent is available -- the only interactive mode", async () => {
 		const execute = discussExecute();
 		mockCalls({
 			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
@@ -191,32 +194,20 @@ describe("discuss tool: live:true synchronous ask, on top of the normal async ro
 		const setCalls: unknown[] = [];
 		const ctx = fakeCtx({
 			ui: {
-				select: async () => { throw new Error("editor mode must not fall back to dialogs"); },
-				input: async () => { throw new Error("editor mode must not fall back to dialogs"); },
+				select: async () => { throw new Error("must not fall back to dialogs"); },
+				input: async () => { throw new Error("must not fall back to dialogs"); },
 				notify: () => {},
-				custom: async () => { throw new Error("editor mode must not use ctx.ui.custom()"); },
 				theme: { bold: (t: string) => t, italic: (t: string) => t, underline: (t: string) => t, strikethrough: (t: string) => t, fg: (_c: string, t: string) => t },
 				getEditorText: () => "", getEditorComponent: () => undefined,
 				setEditorComponent: (factory: any) => { setCalls.push(factory); },
 			} as any,
 		});
-		const promise = execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", live: true, display_mode: "editor" }, undefined, undefined, ctx);
+		const promise = execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", live: true }, undefined, undefined, ctx);
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(setCalls).toHaveLength(1); // hosted via setEditorComponent, not a dialog or ctx.ui.custom()
+		expect(setCalls).toHaveLength(1); // hosted via setEditorComponent, not a dialog
 		const host = (setCalls[0] as any)({ terminal: { rows: 40 }, requestRender: () => {} }, { borderColor: (s: string) => s, selectList: {} }, { matches: () => false, getKeys: () => [] });
 		host.handleInput("\x1b"); // escape cancels -- resolves without needing a real answer
 		await promise;
 		expect(setCalls).toHaveLength(2); // restored the prior (undefined) factory afterward
-	});
-
-	it("an unrecognized display_mode is ignored, falling back to the default (overlay)", async () => {
-		const execute = discussExecute();
-		mockCalls({
-			"discuss.open": () => ({ discussion: OPENED_DISCUSSION, rounds: [{ id: 1, discussionId: "d1", roundNumber: 1, actor: "assistant", content: "q", occurredAt: "x" }] }),
-		});
-		let customCalled = false;
-		const ctx = fakeCtx({ ui: { select: async () => undefined, input: async () => undefined, notify: () => {}, custom: async () => { customCalled = true; return undefined; } } as any });
-		await execute("id1", { action: "open", title: "Ship or not?", actor: "assistant", content: "q", live: true, display_mode: "nonsense" }, undefined, undefined, ctx);
-		expect(customCalled).toBe(true); // went through ctx.ui.custom(), not the editor-hosting path
 	});
 });

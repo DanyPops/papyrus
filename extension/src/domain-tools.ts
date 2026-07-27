@@ -164,7 +164,7 @@ export function normalizeJsonEncodedField(params: Record<string, unknown>, key: 
 }
 
 /** Resolves every {nameKey -> idKey} pair present and not already satisfied by an explicit id, in place. */
-async function resolveNameFields(
+export async function resolveNameFields(
 	params: Record<string, unknown>,
 	fields: ReadonlyArray<{ nameKey: string; idKey: string; listOperation: OperationName; baseRequest: Record<string, unknown> }>,
 ): Promise<void> {
@@ -474,7 +474,7 @@ export function registerNotesTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "notes",
 		label: "Notes",
-		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id. Archive requires an explicit disposition. PREFER `name` (the note's exact title) over `id` for show/consume/promote/archive -- id is a backend implementation detail, resolved from name automatically.",
+		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id (or target_name). Archive requires an explicit disposition. PREFER `name` (the note's exact title) over `id` for show/consume/promote/archive, and `target_name` over `target_id` for promote -- all are backend implementation details, resolved from name automatically (target_name searches across every kind, since a promotion target can be a task, doc, rule, or skill).",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -485,6 +485,7 @@ export function registerNotesTool(pi: ExtensionAPI): void {
 			text: Type.Optional(Type.String()),
 			limit: Type.Optional(Type.Number()),
 			target_id: Type.Optional(Type.String()),
+			target_name: Type.Optional(Type.String()),
 			disposition: Type.Optional(Type.Union(NOTE_DISPOSITIONS.map((value) => Type.Literal(value)))),
 			reason: Type.Optional(Type.String()),
 			session_id: Type.Optional(Type.String()),
@@ -497,7 +498,11 @@ export function registerNotesTool(pi: ExtensionAPI): void {
 				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
 				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "notes-tool" };
-				await resolveNameFields(params, [{ nameKey: "name", idKey: "id", listOperation: "notes.list", baseRequest }]);
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "notes.list", baseRequest },
+					// Kind-agnostic: a promotion target can be a task, doc, rule, or skill, so this searches every kind rather than only notes.
+					{ nameKey: "target_name", idKey: "target_id", listOperation: "artifact.query", baseRequest },
+				]);
 				const request = { ...params, ...baseRequest };
 				if (action === "capture") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("notes.capture", request);

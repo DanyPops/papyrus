@@ -158,4 +158,61 @@ describe("model-facing artifact references are name-first", () => {
 		const call = calls.find((entry) => entry.operation === "tasks.context");
 		expect(call?.input).toMatchObject({ verbosity: "full" });
 	});
+
+	it("papyrus_graph link/unlink resolve from_name/to_name to real ids, exactly as docs.link's target_name already does", async () => {
+		const tools = await registeredTools();
+		const rows = [artifact(), artifact({ id: OTHER_ID, kind: "doc", title: "Trust model", status: "draft" })];
+		const calls = mockService((operation, input) => {
+			if (operation === "artifact.query" && input.text === "Decide middleware fate") return [rows[0]];
+			if (operation === "artifact.query" && input.text === "Trust model") return [rows[1]];
+			if (operation === "graph.link") return { linked: true };
+			if (operation === "graph.unlink") return { removed: true };
+			if (operation === "artifact.show") return rows.find((row) => row.id === input.id) ?? null;
+			throw new Error(`unexpected operation ${operation}`);
+		});
+
+		const linkResult = await tools.get("papyrus_graph")!("g", { action: "link", from_name: "Decide middleware fate", relation: "references", to_name: "Trust model" }, undefined, undefined, context());
+		const unlinkResult = await tools.get("papyrus_graph")!("g", { action: "unlink", from_name: "Decide middleware fate", relation: "references", to_name: "Trust model" }, undefined, undefined, context());
+
+		const linkCall = calls.find((entry) => entry.operation === "graph.link");
+		expect(linkCall?.input).toMatchObject({ from: TASK_ID, to: OTHER_ID, relation: "references" });
+		const unlinkCall = calls.find((entry) => entry.operation === "graph.unlink");
+		expect(unlinkCall?.input).toMatchObject({ from: TASK_ID, to: OTHER_ID, relation: "references" });
+		expect(modelText(linkResult)).toContain("Decide middleware fate");
+		expect(modelText(linkResult)).toContain("Trust model");
+		expect(modelText(unlinkResult)).toContain("Decide middleware fate");
+	});
+
+	it("papyrus_graph link/unlink still work with explicit from/to ids, unaffected by from_name/to_name being optional", async () => {
+		const tools = await registeredTools();
+		const rows = [artifact(), artifact({ id: OTHER_ID, kind: "doc", title: "Trust model", status: "draft" })];
+		const calls = mockService((operation, input) => {
+			if (operation === "graph.link") return { linked: true };
+			if (operation === "artifact.show") return rows.find((row) => row.id === input.id) ?? null;
+			throw new Error(`unexpected operation ${operation}`);
+		});
+
+		await tools.get("papyrus_graph")!("g", { action: "link", from: TASK_ID, relation: "references", to: OTHER_ID }, undefined, undefined, context());
+
+		const linkCall = calls.find((entry) => entry.operation === "graph.link");
+		expect(linkCall?.input).toMatchObject({ from: TASK_ID, to: OTHER_ID });
+		expect(calls.some((entry) => entry.operation === "artifact.query")).toBe(false);
+	});
+
+	it("notes.promote resolves target_name to a real target_id, exactly as docs.link's target_name already does", async () => {
+		const tools = await registeredTools();
+		const note = artifact({ kind: "note", title: "Follow up on gate drift", status: "active" });
+		const target = artifact({ id: OTHER_ID, kind: "task", title: "Fix gate dispatch drift", status: "todo" });
+		const calls = mockService((operation, input) => {
+			if (operation === "notes.list" && input.text === "Follow up on gate drift") return [note];
+			if (operation === "artifact.query" && input.text === "Fix gate dispatch drift") return [target];
+			if (operation === "notes.promote") return note;
+			throw new Error(`unexpected operation ${operation}`);
+		});
+
+		await tools.get("notes")!("n", { action: "promote", name: "Follow up on gate drift", target_name: "Fix gate dispatch drift" }, undefined, undefined, context());
+
+		const promoteCall = calls.find((entry) => entry.operation === "notes.promote");
+		expect(promoteCall?.input).toMatchObject({ id: note.id, target_id: OTHER_ID });
+	});
 });

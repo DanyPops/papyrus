@@ -265,6 +265,13 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 			expect(tools).toContain(field);
 		}
 	});
+
+	it("registers from_name/to_name on papyrus_graph, matching every other link-target name-resolution field", () => {
+		const index = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
+		for (const field of ["from_name:", "to_name:"]) {
+			expect(index).toContain(field);
+		}
+	});
 });
 
 describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared doc status glyph", () => {

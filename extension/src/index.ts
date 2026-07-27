@@ -22,7 +22,7 @@ import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
-import { registerDomainTools } from "./domain-tools.ts";
+import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
@@ -331,12 +331,15 @@ export default async function (pi: ExtensionAPI) {
 			"ACTIONS: link (from+relation+to), unlink (from+relation+to — idempotent, no error if already absent; for Task depends_on/contains prefer the tasks tool's undepend/uncontain), " +
 			"tree (id → bounded BFS subgraph), " +
 			"history (who did what, when — requires id, actor, or session_id). " +
-			"status (id+status) exists at the protocol level but is refused for every kind with its own lifecycle (Doc/Rule/Skill/Playbook/Task/Note all reject it) -- use that kind's own domain tool for status changes (docs.activate, rules.enable, tasks.start, etc), never this.",
+			"status (id+status) exists at the protocol level but is refused for every kind with its own lifecycle (Doc/Rule/Skill/Playbook/Task/Note all reject it) -- use that kind's own domain tool for status changes (docs.activate, rules.enable, tasks.start, etc), never this. " +
+			"PREFER `from_name`/`to_name` over `from`/`to` for link/unlink -- both are backend implementation details, resolved from name automatically, searching across every kind since either end of an edge can be any artifact.",
 		parameters: Type.Object({
 			action: Type.String({ description: "link | unlink | tree | status | history" }),
 			from: Type.Optional(Type.String()),
+			from_name: Type.Optional(Type.String()),
 			relation: Type.Optional(Type.String()),
 			to: Type.Optional(Type.String()),
+			to_name: Type.Optional(Type.String()),
 			id: Type.Optional(Type.String()),
 			status: Type.Optional(Type.String()),
 			depth: Type.Optional(Type.Number({ description: "tree traversal depth; bounded by a hard ceiling" })),
@@ -348,18 +351,26 @@ export default async function (pi: ExtensionAPI) {
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Artifact graph", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, params, _signal, _onUpdate, _ctx) {
+		async execute(_id, rawParams, _signal, _onUpdate, _ctx) {
 			try {
+				const params: Record<string, unknown> = { ...rawParams };
+				if (params.action === "link" || params.action === "unlink") {
+					// Kind-agnostic: either end of an edge can be a task, doc, rule, skill, or playbook.
+					await resolveNameFields(params, [
+						{ nameKey: "from_name", idKey: "from", listOperation: "artifact.query", baseRequest: {} },
+						{ nameKey: "to_name", idKey: "to", listOperation: "artifact.query", baseRequest: {} },
+					]);
+				}
 				if (params.action === "link") {
-					await callService("graph.link", { from: params.from!, relation: params.relation!, to: params.to! });
-					const names = await artifactNamesById([params.from!, params.to!]);
-					const output = `Linked "${names.get(params.from!) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to!) ?? "unknown artifact"}"`;
+					await callService("graph.link", { from: params.from as string, relation: params.relation as string, to: params.to as string });
+					const names = await artifactNamesById([params.from as string, params.to as string]);
+					const output = `Linked "${names.get(params.from as string) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to as string) ?? "unknown artifact"}"`;
 					return text(output, createPreviewDetails("graph.link", "Artifact relationship", output));
 				}
 				if (params.action === "unlink") {
-					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: params.from!, relation: params.relation!, to: params.to! });
-					const names = await artifactNamesById([params.from!, params.to!]);
-					const relationship = `"${names.get(params.from!) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to!) ?? "unknown artifact"}"`;
+					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: params.from as string, relation: params.relation as string, to: params.to as string });
+					const names = await artifactNamesById([params.from as string, params.to as string]);
+					const relationship = `"${names.get(params.from as string) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to as string) ?? "unknown artifact"}"`;
 					const output = result.removed ? `Unlinked ${relationship}` : `No such relationship: ${relationship}`;
 					return text(output, createPreviewDetails("graph.unlink", "Artifact relationship", output));
 				}

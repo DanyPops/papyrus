@@ -1,0 +1,39 @@
+{
+  "name": "@danypops/papyrus",
+  "version": "0.35.0",
+  "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "papyrus": "src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "cli": "bun src/cli.ts",
+    "serve": "bun src/cli.ts serve",
+    "service:install": "bun src/cli.ts service install"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanyPops/papyrus.git",
+    "directory": "packages/papyrus"
+  },
+  "homepage": "https://github.com/DanyPops/papyrus#readme",
+  "bugs": {
+    "url": "https://github.com/DanyPops/papyrus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["src", "README.md"],
+  "dependencies": {
+    "@danypops/daemon-kit": "^0.10.0"
+  }
+}

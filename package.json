@@ -1,47 +1,22 @@
 {
-  "name": "@danypops/papyrus",
-  "version": "0.34.3",
-  "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
+  "name": "papyrus-workspace",
+  "private": true,
   "type": "module",
-  "keywords": ["pi-package"],
-  "bin": {
-    "papyrus": "src/cli.ts"
-  },
+  "workspaces": ["packages/*"],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "cli": "bun src/cli.ts",
-    "serve": "bun src/cli.ts serve",
-    "service:install": "bun src/cli.ts service install",
+    "typecheck": "bun run --filter '*' typecheck",
     "guard:install": "git config core.hooksPath .githooks"
   },
   "pi": {
-    "extensions": ["extension/src/index.ts"]
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
-  },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.80.10",
-    "bun-types": "latest",
-    "typescript": "^5.7.3"
+    "extensions": ["packages/pi-papyrus/extension/src/index.ts"]
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DanyPops/papyrus.git"
   },
-  "homepage": "https://github.com/DanyPops/papyrus#readme",
-  "bugs": {
-    "url": "https://github.com/DanyPops/papyrus/issues"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "files": ["src", "extension", "README.md"],
-  "dependencies": {
-    "beautiful-mermaid": "1.1.3",
-    "@danypops/daemon-kit": "^0.4.0"
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.7.3"
   }
 }

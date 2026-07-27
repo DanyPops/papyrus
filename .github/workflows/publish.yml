@@ -1,9 +1,10 @@
-name: Publish Package
+name: Publish packages
 
 on:
   push:
     tags:
-      - "v*"
+      - "papyrus-v*"
+      - "pi-papyrus-v*"
 
 permissions:
   id-token: write
@@ -12,14 +13,61 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+
+      - id: package
+        name: Match tag to package version
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            papyrus-v*)
+              package_dir="packages/papyrus"
+              tag_version="${GITHUB_REF_NAME#papyrus-v}"
+              ;;
+            pi-papyrus-v*)
+              package_dir="packages/pi-papyrus"
+              tag_version="${GITHUB_REF_NAME#pi-papyrus-v}"
+              ;;
+            *)
+              echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
+              exit 1
+              ;;
+          esac
+          package_version="$(node -p "require('./$package_dir/package.json').version")"
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "Tag version $tag_version does not match $package_dir version $package_version" >&2
+            exit 1
+          fi
+          echo "dir=$package_dir" >> "$GITHUB_OUTPUT"
+
       - uses: oven-sh/setup-bun@v2
-      - run: bun install
-      - run: bun test
+
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter '*' typecheck
+      - run: bun run --filter '*' test
+
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
+          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
-      - run: npm install -g npm@latest
-      - run: npm publish --access public
+
+      - run: npm install -g npm@latest && npm --version
+
+      - id: registry
+        working-directory: ${{ steps.package.outputs.dir }}
+        shell: bash
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.registry.outputs.published != 'true'
+        working-directory: ${{ steps.package.outputs.dir }}
+        run: npm publish --access public --provenance

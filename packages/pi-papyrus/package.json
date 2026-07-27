@@ -1,0 +1,43 @@
+{
+  "name": "@danypops/pi-papyrus",
+  "version": "0.35.0",
+  "description": "Pi host extension for Papyrus: native tools, TUI panels, and context injection over the daemon-backed graph store",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["extension/src/index.ts"]
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "dependencies": {
+    "@danypops/daemon-kit": "^0.10.0",
+    "@danypops/papyrus": "^0.35.0",
+    "beautiful-mermaid": "1.1.3"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "bun-types": "latest",
+    "typebox": "^1.3.6",
+    "typescript": "^5.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanyPops/papyrus.git",
+    "directory": "packages/pi-papyrus"
+  },
+  "homepage": "https://github.com/DanyPops/papyrus#readme",
+  "bugs": {
+    "url": "https://github.com/DanyPops/papyrus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["extension", "README.md", "THIRD_PARTY_LICENSES.md"]
+}

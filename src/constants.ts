@@ -65,6 +65,12 @@ export const TASK_CONTEXT_CURRENT_LIMIT = 3;
 export const TASK_CONTEXT_REJECTED_LIMIT = 3;
 export const TASK_WIDGET_OPEN_LIMIT = 3;
 export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
+/**
+ * Event-triggered refresh (tool_execution_end, session_compact/tree) can't see a Task
+ * mutation from outside this Pi session -- another concurrent session, or the CLI run
+ * directly from a shell. This bounded poll is the fallback for exactly that gap.
+ */
+export const TASK_WIDGET_POLL_INTERVAL_MS = 20_000;
 export const TASK_DETAIL_MAX_VISIBLE_LINES = 24;
 export const TASK_DETAIL_RESERVED_ROWS = 8;
 export const TASK_DETAIL_HORIZONTAL_PAN_COLUMNS = 4;

@@ -120,3 +120,66 @@ describe("TaskOverlay.refresh(): never throws, even if rendering itself fails", 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
 });
+
+/**
+ * Regression: event-triggered refresh (tool_execution_end, session_compact/tree) can only see
+ * a Task mutation this session's own tool calls made. A mutation from the CLI run directly in
+ * a shell, or from a second concurrent Pi session against the same daemon, announces nothing
+ * -- the widget needs a bounded polling fallback independent of any event.
+ */
+describe("TaskOverlay polling: catches a Task mutation no event announces", () => {
+	afterEach(resetPapyrusClientForTests);
+
+	it("startPolling refreshes repeatedly on its own, without any tool_execution_end or session event", async () => {
+		let calls = 0;
+		setPapyrusClientConnectorForTests(async () => ({
+			async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
+		}) as any);
+		const overlay = new TaskOverlay();
+		overlay.setUI({} as ExtensionUIContext);
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+
+		overlay.startPolling(10);
+		await new Promise((resolve) => setTimeout(resolve, 55));
+		overlay.stopPolling();
+
+		expect(calls).toBeGreaterThanOrEqual(3);
+	});
+
+	it("is idempotent -- calling startPolling twice does not run two overlapping timers", async () => {
+		let calls = 0;
+		setPapyrusClientConnectorForTests(async () => ({
+			async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
+		}) as any);
+		const overlay = new TaskOverlay();
+		overlay.setUI({} as ExtensionUIContext);
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+
+		overlay.startPolling(10);
+		overlay.startPolling(10);
+		await new Promise((resolve) => setTimeout(resolve, 55));
+		const callsWithOneTimer = calls;
+		overlay.stopPolling();
+
+		// ~5 ticks expected from one 10ms timer over 55ms; two overlapping timers would roughly double it.
+		expect(callsWithOneTimer).toBeLessThan(9);
+	});
+
+	it("stopPolling (and dispose()) stop further refreshes", async () => {
+		let calls = 0;
+		setPapyrusClientConnectorForTests(async () => ({
+			async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
+		}) as any);
+		const overlay = new TaskOverlay();
+		overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+
+		overlay.startPolling(10);
+		await new Promise((resolve) => setTimeout(resolve, 35));
+		overlay.dispose();
+		const callsAtDispose = calls;
+		await new Promise((resolve) => setTimeout(resolve, 35));
+
+		expect(calls).toBe(callsAtDispose);
+	});
+});

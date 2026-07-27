@@ -16,6 +16,7 @@ import {
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
 	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
 	CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN,
+	TASK_WIDGET_POLL_INTERVAL_MS,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
@@ -102,6 +103,7 @@ export class TaskOverlay {
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 	private projectRoot: string | undefined;
 	private sessionId: string | undefined;
+	private pollTimer: ReturnType<typeof setInterval> | undefined;
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -175,7 +177,24 @@ export class TaskOverlay {
 		return renderTaskWidgetLines(theme, buildTaskWidgetProjection(this.snapshot), width);
 	}
 
+	/**
+	 * Fallback for a Task mutation no event announces -- the CLI run directly from a shell, or
+	 * a second concurrent Pi session against the same daemon. Idempotent: a second call is a
+	 * no-op rather than starting a competing timer.
+	 */
+	startPolling(intervalMs: number = TASK_WIDGET_POLL_INTERVAL_MS): void {
+		if (this.pollTimer) return;
+		this.pollTimer = setInterval(() => { void this.refresh(); }, intervalMs);
+	}
+
+	stopPolling(): void {
+		if (!this.pollTimer) return;
+		clearInterval(this.pollTimer);
+		this.pollTimer = undefined;
+	}
+
 	dispose(): void {
+		this.stopPolling();
 		this.uiCtx?.setWidget(WIDGET_KEY, undefined);
 		this.registered = false;
 		this.tui = undefined;
@@ -549,6 +568,7 @@ export default async function (pi: ExtensionAPI) {
 		overlay.setProjectRoot(ctx.cwd);
 		overlay.setSessionId(ctx.sessionManager.getSessionId());
 		await overlay.refresh();
+		overlay.startPolling(TASK_WIDGET_POLL_INTERVAL_MS);
 	});
 
 	pi.on("session_before_compact", () => { taskContinuation.onCompaction(); });

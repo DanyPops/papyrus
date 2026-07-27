@@ -8,6 +8,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteDiscussionRoundStore } from "../src/adapters/sqlite-discussion-round-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { openDb } from "../src/db.ts";
+import { DISCUSSION_ROUNDS_DEFAULT_LIMIT } from "../src/constants.ts";
 import { Discussions, DiscussionError } from "../src/discussion-service.ts";
 import { Tasks } from "../src/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
@@ -41,6 +42,19 @@ describe("Discussions.open", () => {
 		const shown = discussions.show(discussion.id);
 		expect(shown.discussion.id).toBe(discussion.id);
 		// blocking is proven properly via the Task-side test below (relationships isn't re-tested here)
+	});
+
+	it("show() returns every round of a genuinely long deliberation, including a human reply past the default page-size limit -- never a silently truncated transcript", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({ title: "Long negotiation", actor: "alice", content: "Round 1" });
+		for (let round = 2; round <= DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5; round++) {
+			discussions.reply(discussion.id, { actor: round === DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5 ? "human" : "alice", content: `Round ${round}` });
+		}
+		const shown = discussions.show(discussion.id);
+		expect(shown.rounds).toHaveLength(DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5);
+		const lastRound = shown.rounds.at(-1)!;
+		expect(lastRound.actor).toBe("human");
+		expect(lastRound.roundNumber).toBe(DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5);
 	});
 
 	it("rejects blocking a non-task artifact", () => {

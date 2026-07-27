@@ -192,7 +192,10 @@ export class Discussions {
 
 	show(discussionId: string): DiscussionAndRounds {
 		const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
-		return { discussion, rounds: this.rounds.list({ discussionId }) };
+		// DISCUSSION_MAX_ROUNDS is the hard cap enforced at reply() time, so fetching exactly that
+		// many always returns the complete transcript -- never the round store's own smaller
+		// default page size, which would silently drop the tail of a long deliberation.
+		return { discussion, rounds: this.rounds.list({ discussionId, limit: DISCUSSION_MAX_ROUNDS }) };
 	}
 
 	listRounds(discussionId: string, afterRound?: number, limit?: number): DiscussionRound[] {

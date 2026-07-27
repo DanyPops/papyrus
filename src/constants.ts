@@ -71,6 +71,8 @@ export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
  * directly from a shell. This bounded poll is the fallback for exactly that gap.
  */
 export const TASK_WIDGET_POLL_INTERVAL_MS = 20_000;
+/** Same fallback purpose as TASK_WIDGET_POLL_INTERVAL_MS, for the Notes widget's own count. */
+export const NOTE_WIDGET_POLL_INTERVAL_MS = 20_000;
 export const TASK_DETAIL_MAX_VISIBLE_LINES = 24;
 export const TASK_DETAIL_RESERVED_ROWS = 8;
 export const TASK_DETAIL_HORIZONTAL_PAN_COLUMNS = 4;

@@ -17,12 +17,16 @@ import {
 	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
 	CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN,
 	TASK_WIDGET_POLL_INTERVAL_MS,
+	NOTE_WIDGET_POLL_INTERVAL_MS,
+	NOTE_LIST_MAX_LIMIT,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService } from "./service-client.ts";
 import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
+import { BoundedPoll } from "./bounded-poll.ts";
+import { renderNoteWidgetLines } from "./note-widget.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
 import type { TaskGraph, TaskStatus } from "../../src/task-service.ts";
@@ -103,7 +107,7 @@ export class TaskOverlay {
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 	private projectRoot: string | undefined;
 	private sessionId: string | undefined;
-	private pollTimer: ReturnType<typeof setInterval> | undefined;
+	private readonly poll = new BoundedPoll();
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -179,18 +183,14 @@ export class TaskOverlay {
 
 	/**
 	 * Fallback for a Task mutation no event announces -- the CLI run directly from a shell, or
-	 * a second concurrent Pi session against the same daemon. Idempotent: a second call is a
-	 * no-op rather than starting a competing timer.
+	 * a second concurrent Pi session against the same daemon.
 	 */
 	startPolling(intervalMs: number = TASK_WIDGET_POLL_INTERVAL_MS): void {
-		if (this.pollTimer) return;
-		this.pollTimer = setInterval(() => { void this.refresh(); }, intervalMs);
+		this.poll.start(intervalMs, () => { void this.refresh(); });
 	}
 
 	stopPolling(): void {
-		if (!this.pollTimer) return;
-		clearInterval(this.pollTimer);
-		this.pollTimer = undefined;
+		this.poll.stop();
 	}
 
 	dispose(): void {
@@ -201,6 +201,98 @@ export class TaskOverlay {
 		this.uiCtx = undefined;
 		this.projectRoot = undefined;
 		this.sessionId = undefined;
+	}
+}
+
+const NOTE_WIDGET_KEY = "pi-papyrus-notes";
+
+/**
+ * Deliberately simple, unlike TaskOverlay's tree: just an open-note count for this session's own
+ * CWD -- notes.list already scopes to project_root exactly (a note's projectRoot is fixed at
+ * capture time), so passing this overlay's projectRoot is what makes the count CWD-aware by
+ * default.
+ */
+export class NoteOverlay {
+	private uiCtx: ExtensionUIContext | undefined;
+	private registered = false;
+	private tui: any | undefined;
+	private openCount = 0;
+	private projectRoot: string | undefined;
+	private readonly poll = new BoundedPoll();
+
+	setUI(ctx: ExtensionUIContext): void {
+		if (ctx !== this.uiCtx) {
+			this.uiCtx = ctx;
+			this.registered = false;
+			this.tui = undefined;
+		}
+	}
+
+	setProjectRoot(projectRoot: string): void { this.projectRoot = projectRoot; }
+
+	async refresh(): Promise<void> {
+		if (!this.projectRoot) return;
+		try {
+			const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", { project_root: this.projectRoot, limit: NOTE_LIST_MAX_LIMIT });
+			this.openCount = rows.length;
+		} catch {
+			this.openCount = 0;
+		}
+		try {
+			this.render();
+		} catch {
+			// A rendering bug must not crash the extension host over a best-effort status widget.
+		}
+	}
+
+	private render(): void {
+		if (!this.uiCtx) return;
+
+		if (this.openCount === 0) {
+			if (this.registered) {
+				this.uiCtx.setWidget(NOTE_WIDGET_KEY, undefined);
+				this.registered = false;
+				this.tui = undefined;
+			}
+			return;
+		}
+
+		if (!this.registered) {
+			this.uiCtx.setWidget(
+				NOTE_WIDGET_KEY,
+				(tui: any, theme: Theme) => {
+					this.tui = tui;
+					return {
+						render: (width: number) => renderNoteWidgetLines(theme, this.openCount, width),
+						invalidate: () => {
+							this.registered = false;
+							this.tui = undefined;
+						},
+					};
+				},
+				{ placement: "aboveEditor" },
+			);
+			this.registered = true;
+		} else {
+			this.tui?.requestRender?.();
+		}
+	}
+
+	startPolling(intervalMs: number = NOTE_WIDGET_POLL_INTERVAL_MS): void {
+		this.poll.start(intervalMs, () => { void this.refresh(); });
+	}
+
+	stopPolling(): void {
+		this.poll.stop();
+	}
+
+	dispose(): void {
+		this.stopPolling();
+		this.uiCtx?.setWidget(NOTE_WIDGET_KEY, undefined);
+		this.registered = false;
+		this.tui = undefined;
+		this.uiCtx = undefined;
+		this.projectRoot = undefined;
 	}
 }
 
@@ -466,6 +558,7 @@ export default async function (pi: ExtensionAPI) {
 		import("./discuss.ts"),
 	]);
 	let overlay: TaskOverlay | undefined;
+	let noteOverlay: NoteOverlay | undefined;
 
 	pi.registerCommand("tasks", {
 		description: "Browse and manage Papyrus tasks (interactive)",
@@ -482,11 +575,18 @@ export default async function (pi: ExtensionAPI) {
 	});
 	pi.registerCommand("note", {
 		description: "Capture a deferred request directly in Papyrus",
-		handler: async (args, ctx) => { await notesModule.captureNote(args, ctx); },
+		handler: async (args, ctx) => {
+			await notesModule.captureNote(args, ctx);
+			await noteOverlay?.refresh();
+		},
 	});
 	pi.registerCommand("notes", {
 		description: "Browse and triage the project Notes inbox",
-		handler: async (_args, ctx) => { await notesModule.showNotes(ctx); },
+		handler: async (_args, ctx) => {
+			noteOverlay?.setProjectRoot(ctx.cwd);
+			await notesModule.showNotes(ctx);
+			await noteOverlay?.refresh();
+		},
 	});
 	pi.registerCommand("rules", {
 		description: "Browse, preview, and toggle Papyrus rules (interactive)",
@@ -580,14 +680,22 @@ export default async function (pi: ExtensionAPI) {
 		overlay.setSessionId(ctx.sessionManager.getSessionId());
 		await overlay.refresh();
 		overlay.startPolling(TASK_WIDGET_POLL_INTERVAL_MS);
+
+		noteOverlay ??= new NoteOverlay();
+		noteOverlay.setUI(ctx.ui);
+		noteOverlay.setProjectRoot(ctx.cwd);
+		await noteOverlay.refresh();
+		noteOverlay.startPolling(NOTE_WIDGET_POLL_INTERVAL_MS);
 	});
 
 	pi.on("session_before_compact", () => { taskContinuation.onCompaction(); });
-	pi.on("session_compact", async () => { await overlay?.refresh(); });
-	pi.on("session_tree", async () => { await overlay?.refresh(); });
+	pi.on("session_compact", async () => { await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]); });
+	pi.on("session_tree", async () => { await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]); });
 	pi.on("session_shutdown", async (_event, ctx) => {
 		overlay?.dispose();
 		overlay = undefined;
+		noteOverlay?.dispose();
+		noteOverlay = undefined;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
 			await callService("session.release", { session_id: sessionId, ...sessionSecretField(sessionId) });
@@ -597,10 +705,13 @@ export default async function (pi: ExtensionAPI) {
 		}
 	});
 
-	// Update widget after any papyrus tool call
+	// Update widgets after any papyrus tool call
 	pi.on("tool_execution_end", async (event) => {
 		if (event.toolName.startsWith("papyrus_") || event.toolName === "tasks") {
 			await overlay?.refresh();
+		}
+		if (event.toolName === "notes") {
+			await noteOverlay?.refresh();
 		}
 	});
 

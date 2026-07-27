@@ -8,6 +8,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
+import { createAuthorityRegistry } from "../src/service.ts";
 import { Tasks } from "../src/task-service.ts";
 import {
 	createDocument,
@@ -397,6 +398,34 @@ describe("documents domain service", () => {
 		const to = createDocument(artifacts, scopes, { title: "Detail" }, authority);
 		const linked = linkDocument(artifacts, from.id, "references", to.id, authority);
 		expect(linked.edges).toContainEqual({ from: from.id, relation: "references", to: to.id });
+		db.close();
+	});
+
+	it("links a Doc to a Task -- a plain reference edge does not mutate the Task's lifecycle, so it must not trip the tasks.* status guard", () => {
+		const { db, artifacts, scopes, tasks } = fixture();
+		// The bare empty-claims fixture() authority above can't reproduce this -- the real
+		// production registry (tasksAuthorityClaim etc.) is what the bug actually lives in.
+		const authority = createAuthorityRegistry();
+		const document = createDocument(artifacts, scopes, { title: "Design notes" }, authority);
+		const task = tasks.create({ title: "Ship the feature" });
+
+		const linked = linkDocument(artifacts, document.id, "references", task.id, authority);
+		expect(linked.edges).toContainEqual({ from: document.id, relation: "references", to: task.id });
+
+		const reverse = linkDocument(artifacts, document.id, "documents", task.id, authority);
+		expect(reverse.edges).toContainEqual({ from: document.id, relation: "documents", to: task.id });
+
+		// The guard must still exist for its real purpose: an actual status change through the wrong tool.
+		expect(() => transitionDocument(artifacts, task.id, "archive", authority)).toThrow("is not a doc");
+		db.close();
+	});
+
+	it("still refuses linking a Doc to a Note through docs.link -- Notes keep their own link-scoped guard, unaffected by the Task fix", () => {
+		const { db, artifacts, scopes } = fixture();
+		const authority = createAuthorityRegistry();
+		const document = createDocument(artifacts, scopes, { title: "Design notes" }, authority);
+		const note = artifacts.create({ kind: "doc", subtype: "note", title: "A note", status: "active" });
+		expect(() => linkDocument(artifacts, document.id, "references", note.id, authority)).toThrow("note relationships require a notes.* operation");
 		db.close();
 	});
 

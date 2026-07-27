@@ -121,7 +121,10 @@ function templateSubtype(artifacts: ArtifactStore, templateId: string | undefine
 	return typeof subtype === "string" ? subtype : undefined;
 }
 
-function requireMutableDocument(document: Artifact, authority: AuthorityRegistry, action: ArtifactAction = "status"): Artifact {
+// No default action: linkDocument's own bug (both target and source checks silently defaulting to
+// "status" here) was exactly what let a plain reference edge to a Task trip the tasks.* lifecycle
+// guard, which is scoped to actual status changes only. Every call site now names its real action.
+function requireMutableDocument(document: Artifact, authority: AuthorityRegistry, action: ArtifactAction): Artifact {
 	authority.requireArtifactAllowed(document.kind, document.subtype, action, "docs");
 	return document;
 }
@@ -191,7 +194,7 @@ export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
 }
 
 export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority));
+	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "status"));
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
 	return artifacts.setStatus(id, transition.to, context)!;
@@ -215,10 +218,10 @@ export function updateDocument(artifacts: ArtifactStore, id: string, input: Upda
 }
 
 export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority));
+	requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "link"));
 	const target = artifacts.get(targetId);
 	if (!target) throw new Error(`target artifact "${targetId}" not found`);
-	requireLocallyOwnedContent(requireMutableDocument(target, authority));
+	requireLocallyOwnedContent(requireMutableDocument(target, authority, "link"));
 	artifacts.link({ from: id, relation, to: targetId }, context);
 	return showDocument(artifacts, id);
 }

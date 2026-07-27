@@ -179,7 +179,7 @@ function lifecycleAuthorityClaim(owner: "docs" | "rules" | "skills" | "playbooks
 	};
 }
 
-function createAuthorityRegistry(): AuthorityRegistry {
+export function createAuthorityRegistry(): AuthorityRegistry {
 	const authority = new AuthorityRegistry();
 	authority.claimAll([
 		notesAuthorityClaim,

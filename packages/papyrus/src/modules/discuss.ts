@@ -12,9 +12,14 @@ type OperationInput = Record<string, unknown>;
 
 function string(input: OperationInput, key: string): string {
 	const value = input[key];
-	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
+	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required${REQUIRED_FIELD_HINTS[key] ? ` (${REQUIRED_FIELD_HINTS[key]})` : ""}`);
 	return value;
 }
+
+/** Fields whose name alone doesn't say what a valid value looks like -- everything else (title, content, id, settlement) is self-explanatory. */
+const REQUIRED_FIELD_HINTS: Record<string, string> = {
+	actor: 'a display name for who is posting, e.g. "alice" or "agent"',
+};
 
 function optionalString(input: OperationInput, key: string): string | undefined {
 	const value = input[key];

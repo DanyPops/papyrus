@@ -31,6 +31,11 @@ describe("modules/discuss — registered operations", () => {
 		expect(result.discussion.id).toBeTruthy();
 	});
 
+	it("the actor error names what a valid value looks like, since \"actor\" alone isn't self-explanatory unlike title/content/id", () => {
+		const { registry } = fixture();
+		expect(() => registry.get("discuss.open")!.execute({ title: "T" })).toThrow(/a display name for who is posting/);
+	});
+
 	it("discuss.open accepts blocks_task_ids (snake_case) for blocking a real task", () => {
 		const { registry } = fixture();
 		// Use a doc, not a task, and confirm the module surfaces the domain error (real task

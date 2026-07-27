@@ -827,6 +827,10 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 				await resolveNameArrayField(params, "blocks_task_names", "blocks_task_ids", "tasks.list", taskScope);
 				if (action === "open" || action === "reply") {
 					normalizeDiscussOptions(params);
+					// Matches the tasks/notes tools' own convention: an agent-driven mutation with no
+					// explicit human actor still needs a real, non-generic label for the audit trail,
+					// not a bare daemon rejection.
+					if (typeof params.actor !== "string" || params.actor.length === 0) params.actor = "agent";
 					const operation = action === "open" ? "discuss.open" : "discuss.reply";
 					const result = await callService<Record<string, unknown>, DiscussionAndRounds>(operation, params);
 					const fallback = action === "open"

@@ -7,6 +7,7 @@ import {
 	buildContextBreakdown,
 	buildMessageHistoryTree,
 	buildTaskItemTree,
+	buildToolDefinitionItems,
 	computeContextBudget,
 	computeRuleBudget,
 	DEFAULT_RESERVE_TOKENS,
@@ -244,6 +245,32 @@ describe("buildTaskItemTree", () => {
 	});
 });
 
+describe("buildToolDefinitionItems", () => {
+	function tool(name: string, source: string, description = "does a thing", parameters: unknown = { type: "object" }) {
+		return { name, description, parameters, sourceInfo: { source } };
+	}
+
+	it("sizes each tool from name + description + JSON.stringify(parameters), grouped by source", () => {
+		const items = buildToolDefinitionItems([tool("papyrus_query", "papyrus", "desc", { a: 1 })]);
+		const expectedCharacters = "papyrus_query".length + "desc".length + JSON.stringify({ a: 1 }).length;
+		expect(items).toEqual([{ label: "papyrus (1 tool)", estimatedTokens: Math.ceil(expectedCharacters / 4), children: [{ label: "papyrus_query", estimatedTokens: Math.ceil(expectedCharacters / 4) }] }]);
+	});
+
+	it("groups multiple tools under the same source into one parent item, biggest source first", () => {
+		const items = buildToolDefinitionItems([
+			tool("small", "lector", "x"),
+			tool("tasks", "papyrus", "y".repeat(400)),
+			tool("docs", "papyrus", "z".repeat(400)),
+		]);
+		expect(items.map((item) => item.label)).toEqual(["papyrus (2 tools)", "lector (1 tool)"]);
+		expect(items[0]!.children).toHaveLength(2);
+	});
+
+	it("returns an empty list for no active tools rather than throwing", () => {
+		expect(buildToolDefinitionItems([])).toEqual([]);
+	});
+});
+
 describe("buildContextBreakdown", () => {
 	const ruleBudget = { entries: [{ id: "r1", title: "Big rule", characters: 400, estimatedTokens: 100 }], totalCharacters: 400, totalEstimatedTokens: 100 };
 	const skills = { entries: [{ name: "commit", description: "x", location: "/x", characters: 200, estimatedTokens: 50 }], totalCharacters: 200, totalEstimatedTokens: 50, scannedDirectories: ["/home/user/.claude/skills"] };
@@ -331,5 +358,32 @@ describe("buildContextBreakdown", () => {
 		expect(unobserved.segments.find((segment) => segment.key === "basePrompt")!.label).toContain("not observed yet");
 		const observed = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: 200, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
 		expect(observed.segments.find((segment) => segment.key === "basePrompt")!.label).not.toContain("not observed yet");
+	});
+
+	it("measures active tool definitions as their own segment instead of folding them into the unaccounted remainder", () => {
+		const toolDefinitionItems = [{ label: "papyrus (2 tools)", estimatedTokens: 300, children: [{ label: "tasks", estimatedTokens: 200 }, { label: "docs", estimatedTokens: 100 }] }];
+		const breakdown = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, toolDefinitionItems, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
+		const toolDefinitions = breakdown.segments.find((segment) => segment.key === "toolDefinitions")!;
+		expect(toolDefinitions.estimatedTokens).toBe(300);
+		expect(toolDefinitions.label).toContain("2 tools");
+		expect(toolDefinitions.items).toEqual(toolDefinitionItems);
+		// correctly absorbed into "known" tokens, shrinking the unaccounted remainder by exactly its size
+		const withTools = breakdown.segments.find((segment) => segment.key === "other")!.estimatedTokens;
+		const withoutTools = buildContextBreakdown({ totalTokens: 10_000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 }).segments.find((segment) => segment.key === "other")!.estimatedTokens;
+		expect(withoutTools - withTools).toBe(300);
+	});
+
+	it("omitting toolDefinitionItems entirely still works, defaulting to zero rather than throwing", () => {
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget: { entries: [], totalCharacters: 0, totalEstimatedTokens: 0 }, taskItems: noTasks, skills: { entries: [], totalCharacters: 0, totalEstimatedTokens: 0, scannedDirectories: [] }, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
+		const toolDefinitions = breakdown.segments.find((segment) => segment.key === "toolDefinitions")!;
+		expect(toolDefinitions.estimatedTokens).toBe(0);
+		expect(toolDefinitions.items).toBeUndefined();
+	});
+
+	it("the unaccounted label no longer claims tool definitions are unmeasured -- narrowed to genuine wire-protocol overhead", () => {
+		const breakdown = buildContextBreakdown({ totalTokens: 1000, contextWindow: null, ruleBudget, taskItems: noTasks, skills, basePromptEstimatedTokens: null, messageHistoryItems: noHistory, messageHistoryActiveTokens: 0 });
+		const other = breakdown.segments.find((segment) => segment.key === "other")!;
+		expect(other.label).not.toContain("tool definitions");
+		expect(other.label).toContain("Unaccounted");
 	});
 });

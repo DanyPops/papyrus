@@ -77,7 +77,7 @@ export interface ContextSegmentItem {
 }
 
 export interface ContextSegment {
-	key: "rules" | "tasks" | "skills" | "basePrompt" | "messageHistory" | "other";
+	key: "rules" | "tasks" | "skills" | "basePrompt" | "messageHistory" | "toolDefinitions" | "other";
 	label: string;
 	estimatedTokens: number;
 	/** Drill-down items, when this segment can be broken down further. Absent for "other" -- an opaque remainder, not a real category. */
@@ -273,15 +273,15 @@ export interface ContextBreakdown {
 	/** contextWindow - reserveTokens, mirroring Pi's own compaction-trigger formula. Null when contextWindow is unknown. */
 	effectiveBudget: number | null;
 	/**
-	 * How much the known/estimated segments (rules+tasks+skills+basePrompt+messageHistory)
-	 * exceed the real total, when they do. Zero means no overshoot. This must stay visible
-	 * rather than only being absorbed into "unaccounted" clamping to zero -- a clamped-to-zero
-	 * unaccounted segment does NOT mean tool definitions and framework overhead are actually
-	 * free; it means this estimate's other segments already consumed the entire real budget on
-	 * paper. Hiding that distinction would make a genuinely nonzero cost look like zero.
+	 * How much the known/estimated segments (rules+tasks+skills+basePrompt+messageHistory+
+	 * toolDefinitions) exceed the real total, when they do. Zero means no overshoot. This must
+	 * stay visible rather than only being absorbed into "unaccounted" clamping to zero -- a
+	 * clamped-to-zero unaccounted segment does NOT mean wire-protocol overhead is actually free;
+	 * it means this estimate's other segments already consumed the entire real budget on paper.
+	 * Hiding that distinction would make a genuinely nonzero cost look like zero.
 	 */
 	overshootTokens: number;
-	/** rules, tasks, skills, basePrompt, messageHistory, then "other" absorbing whatever real usage the rest don't account for. */
+	/** rules, tasks, skills, basePrompt, messageHistory, toolDefinitions, then "other" absorbing whatever real usage the rest don't account for. */
 	segments: ContextSegment[];
 }
 
@@ -301,11 +301,53 @@ export interface BuildContextBreakdownInput {
 	messageHistoryItems: ContextSegmentItem[];
 	/** buildMessageHistoryTree()'s activeTokens -- only entries on the current active path count toward the segment total; an abandoned /tree branch still appears in messageHistoryItems but contributes zero here. */
 	messageHistoryActiveTokens: number;
+	/** From buildToolDefinitionItems() against pi.getAllTools() filtered to pi.getActiveTools(). Defaults to empty when omitted. */
+	toolDefinitionItems?: ContextSegmentItem[];
 }
 
 /** Sums a possibly-nested item tree's tokens recursively -- every node's own contribution, not just top-level items. */
 function sumItemTree(items: ContextSegmentItem[]): number {
 	return items.reduce((sum, item) => sum + item.estimatedTokens + sumItemTree(item.children ?? []), 0);
+}
+
+/** The subset of pi.getAllTools()'s ToolInfo this estimate actually reads -- kept minimal so this stays testable with plain object literals instead of importing Pi's own extension types. */
+export interface ActiveToolDefinitionLike {
+	name: string;
+	description: string;
+	parameters: unknown;
+	sourceInfo: { source: string };
+}
+
+/**
+ * Tool definitions (name + description + JSON schema) are actually measurable, unlike genuine
+ * wire-protocol framework overhead (message envelope/role wrapping, cache-control markers) which
+ * really is invisible to any extension -- this is what lets "other" stop absorbing them as an
+ * unmeasured guess. Grouped by extension/package source with each tool as a drill-down child
+ * (mirrors the Tasks segment's own parent/child shape) rather than one flat list, since a real
+ * session can have dozens of active tools spread across many extensions.
+ */
+export function buildToolDefinitionItems(tools: ReadonlyArray<ActiveToolDefinitionLike>): ContextSegmentItem[] {
+	const bySource = new Map<string, ActiveToolDefinitionLike[]>();
+	for (const tool of tools) {
+		const list = bySource.get(tool.sourceInfo.source) ?? [];
+		list.push(tool);
+		bySource.set(tool.sourceInfo.source, list);
+	}
+	const items: ContextSegmentItem[] = [];
+	for (const [source, toolsForSource] of bySource) {
+		const children = toolsForSource
+			.map((tool) => {
+				const characters = tool.name.length + tool.description.length + JSON.stringify(tool.parameters ?? {}).length;
+				return { label: tool.name, estimatedTokens: Math.ceil(characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN) };
+			})
+			.sort((a, b) => b.estimatedTokens - a.estimatedTokens);
+		items.push({
+			label: `${source} (${toolsForSource.length} tool${toolsForSource.length === 1 ? "" : "s"})`,
+			estimatedTokens: children.reduce((sum, child) => sum + child.estimatedTokens, 0),
+			children,
+		});
+	}
+	return items.sort((a, b) => b.estimatedTokens - a.estimatedTokens);
 }
 
 /**
@@ -382,9 +424,10 @@ export function buildTaskItemTree(graph: TaskGraph): ContextSegmentItem[] {
 
 /**
  * Composes every segment Papyrus can actually measure or estimate (rules, tasks, skills
- * catalog, cached base-prompt size, and the live session's own message history) against the
- * real total Pi reports, deriving "unaccounted" (tool definitions and framework overhead --
- * genuinely invisible to any extension) as the remainder. The remainder is clamped to zero
+ * catalog, cached base-prompt size, active tool definitions, and the live session's own
+ * message history) against the real total Pi reports, deriving "unaccounted" (genuine
+ * wire-protocol overhead -- message envelope/role wrapping, cache-control markers -- which
+ * really is invisible to any extension) as the remainder. The remainder is clamped to zero
  * rather than shown negative -- char/4 token estimation is approximate, and a small overshoot
  * in the known segments must not display as a nonsensical negative bucket -- but the clamp
  * amount itself is preserved as overshootTokens rather than silently discarded, so a
@@ -426,13 +469,26 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		estimatedTokens: input.messageHistoryActiveTokens,
 		items: input.messageHistoryItems,
 	};
-	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens + basePrompt.estimatedTokens + messageHistory.estimatedTokens;
+	const toolDefinitionItems = input.toolDefinitionItems ?? [];
+	const toolCount = toolDefinitionItems.reduce((sum, item) => sum + (item.children?.length ?? 1), 0);
+	const toolDefinitions: ContextSegment = {
+		key: "toolDefinitions",
+		label: `Active tool definitions (${toolCount} tool${toolCount === 1 ? "" : "s"})`,
+		// Top-level sum only, NOT sumItemTree: unlike Tasks/message-history, whose parent nodes
+		// carry their own independent content genuinely additive with their children, a
+		// buildToolDefinitionItems() group node's own estimatedTokens IS the sum of its children
+		// (by construction, for a meaningful collapsed-row total) -- summing the tree here would
+		// double-count every tool once as itself and once inside its group's total.
+		estimatedTokens: toolDefinitionItems.reduce((sum, item) => sum + item.estimatedTokens, 0),
+		...(toolDefinitionItems.length > 0 ? { items: toolDefinitionItems } : {}),
+	};
+	const knownTokens = rules.estimatedTokens + tasks.estimatedTokens + skills.estimatedTokens + basePrompt.estimatedTokens + messageHistory.estimatedTokens + toolDefinitions.estimatedTokens;
 	const overshootTokens = input.totalTokens === null ? 0 : Math.max(0, knownTokens - input.totalTokens);
 	const other: ContextSegment = {
 		key: "other",
 		label: overshootTokens > 0
-			? `Unaccounted (tool definitions, framework overhead) -- estimate overshoot: other segments' estimates already exceed the real total by ~${overshootTokens} tokens, so this is a floor, not a real zero`
-			: "Unaccounted (tool definitions, framework overhead)",
+			? `Unaccounted (message envelope, cache-control markers, and other wire-protocol overhead) -- estimate overshoot: other segments' estimates already exceed the real total by ~${overshootTokens} tokens, so this is a floor, not a real zero`
+			: "Unaccounted (message envelope, cache-control markers, and other wire-protocol overhead)",
 		estimatedTokens: input.totalTokens === null ? 0 : Math.max(0, input.totalTokens - knownTokens),
 	};
 	return {
@@ -440,7 +496,7 @@ export function buildContextBreakdown(input: BuildContextBreakdownInput): Contex
 		contextWindow: input.contextWindow,
 		effectiveBudget: input.contextWindow === null ? null : Math.max(0, input.contextWindow - reserveTokens),
 		overshootTokens,
-		segments: [rules, tasks, skills, basePrompt, messageHistory, other],
+		segments: [rules, tasks, skills, basePrompt, messageHistory, toolDefinitions, other],
 	};
 }
 

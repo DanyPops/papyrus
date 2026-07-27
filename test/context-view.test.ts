@@ -184,7 +184,7 @@ describe("showContextView", () => {
 
 		expect(notifications).toHaveLength(1);
 		expect(notifications[0]).toContain("Real usage: 5000 tokens");
-		expect(notifications[0]).toContain("Unaccounted (tool definitions, framework overhead)");
+		expect(notifications[0]).toContain("Unaccounted (message envelope, cache-control markers, and other wire-protocol overhead)");
 		// basePrompt stays visible even at 0 tok because it's genuinely unknown (not yet observed),
 		// but a real, measured zero (Tasks and message history here) is correctly hidden as noise.
 		expect(notifications[0]).toContain("Base system prompt (not observed yet)");

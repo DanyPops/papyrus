@@ -10,6 +10,7 @@ const SEGMENT_COLORS: Record<ContextSegment["key"], ThemeColor> = {
 	skills: "mdLink",
 	basePrompt: "warning",
 	messageHistory: "syntaxFunction",
+	toolDefinitions: "syntaxKeyword",
 	other: "muted",
 };
 

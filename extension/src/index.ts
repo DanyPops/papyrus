@@ -34,7 +34,7 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, type ContextSegmentItem, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
+import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, buildToolDefinitionItems, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, type ContextSegmentItem, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
 import { buildBasePromptItems } from "./base-prompt-breakdown.ts";
 import { showContextView } from "./context-view.ts";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
@@ -635,6 +635,8 @@ export default async function (pi: ExtensionAPI) {
 				const activeEntryIds = new Set((ctx.sessionManager.buildContextEntries() as SessionEntryLike[]).map((entry) => entry.id));
 				const branchEntryIds = new Set((ctx.sessionManager.getBranch() as SessionEntryLike[]).map((entry) => entry.id));
 				const messageHistory = buildMessageHistoryTree(tree, activeEntryIds, branchEntryIds);
+				const activeToolNames = new Set(pi.getActiveTools());
+				const toolDefinitionItems = buildToolDefinitionItems(pi.getAllTools().filter((tool) => activeToolNames.has(tool.name)));
 				const breakdown = buildContextBreakdown({
 					totalTokens: usage?.tokens ?? null,
 					contextWindow: ctx.model?.contextWindow ?? null,
@@ -643,6 +645,7 @@ export default async function (pi: ExtensionAPI) {
 					skills,
 					basePromptEstimatedTokens: lastObservedBasePromptTokens,
 					basePromptItems: lastObservedBasePromptItems,
+					toolDefinitionItems,
 					messageHistoryItems: messageHistory.items,
 					messageHistoryActiveTokens: messageHistory.activeTokens,
 				});

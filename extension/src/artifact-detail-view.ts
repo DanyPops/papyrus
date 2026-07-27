@@ -7,7 +7,10 @@ import {
 	ARTIFACT_DETAIL_RESERVED_ROWS,
 } from "../../src/constants.ts";
 import type { Artifact } from "../../src/domain/artifact.ts";
+import type { GraphRenderer } from "../../src/ports/graph-renderer.ts";
 import { artifactDetailContent, artifactDetailsText, type ArtifactDetailContent } from "./artifact-detail-format.ts";
+import { buildArtifactRelationshipLines } from "./artifact-relationship-lines.ts";
+import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
 import { renderMarkdownBody, type ActiveTheme } from "./markdown.ts";
 
 interface ArtifactDetailLine {
@@ -27,13 +30,14 @@ class ArtifactDetailViewport {
 		private readonly tui: TUI,
 		private readonly activeTheme: ActiveTheme,
 		artifact: Artifact,
+		relationshipLines: string[],
 		private readonly close: () => void,
 	) {
 		this.visibleLines = Math.max(
 			ARTIFACT_DETAIL_MIN_VISIBLE_LINES,
 			Math.min(ARTIFACT_DETAIL_MAX_VISIBLE_LINES, tui.terminal.rows - ARTIFACT_DETAIL_RESERVED_ROWS),
 		);
-		this.content = artifactDetailContent(artifact);
+		this.content = artifactDetailContent(artifact, relationshipLines);
 	}
 
 	invalidate(): void { this.renderedWidth = 0; }
@@ -104,9 +108,14 @@ class ArtifactDetailViewport {
 	}
 }
 
-export async function showArtifactDetailView(ctx: ExtensionCommandContext, artifact: Artifact): Promise<void> {
-	const output = artifactDetailsText(artifact);
+export async function showArtifactDetailView(
+	ctx: ExtensionCommandContext,
+	artifact: Artifact,
+	renderer: GraphRenderer = new BeautifulMermaidRenderer(),
+): Promise<void> {
+	const relationshipLines = buildArtifactRelationshipLines(artifact, renderer);
+	const output = artifactDetailsText(artifact, relationshipLines);
 	if (ctx.mode !== "tui") { ctx.ui.notify(output, "info"); return; }
 	await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-		new ArtifactDetailViewport(tui, () => ctx.ui.theme ?? theme, artifact, done));
+		new ArtifactDetailViewport(tui, () => ctx.ui.theme ?? theme, artifact, relationshipLines, done));
 }

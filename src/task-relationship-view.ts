@@ -9,7 +9,8 @@ function normalizeEdge(edge: ArtifactEdge): DisplayGraphEdge {
 	return { from: edge.from, to: edge.to, label: edge.relation };
 }
 
-function fallbackLabel(id: string): string {
+/** Best-effort readable label from a bare id when no real title is known -- shared with artifact-relationship-view.ts's generic version of this same problem. */
+export function fallbackLabel(id: string): string {
 	return id.replace(/-[a-z0-9]{4}$/i, "").replaceAll("-", " ");
 }
 

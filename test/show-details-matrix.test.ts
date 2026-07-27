@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { artifactDetailsText, showArtifactDetails } from "../extension/src/artifact-browser.ts";
+import { buildArtifactRelationshipLines } from "../extension/src/artifact-relationship-lines.ts";
+import { BeautifulMermaidRenderer } from "../extension/src/beautiful-mermaid-renderer.ts";
 import { showTaskDetails } from "../extension/src/tasks.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
 import type { OperationName } from "../src/service.ts";
@@ -107,11 +109,16 @@ describe("Show details coverage matrix", () => {
 	});
 
 	it("renders stable detail text for body, metadata, and edges", () => {
-		const output = artifactDetailsText(artifact());
+		const relationshipLines = buildArtifactRelationshipLines(artifact(), new BeautifulMermaidRenderer());
+		const output = artifactDetailsText(artifact(), relationshipLines);
 		expect(output).toContain("Detailed artifact\nartifact-1 [doc|active] · research");
 		expect(output).toContain("Labels: details, matrix");
 		expect(output).toContain("Metadata:\n  owner: Daniel");
-		expect(output).toContain("Relationships:\n  artifact-1 --relates_to--> a-very-long-related-artifact-identifier");
+		expect(output).toContain("Relationships:");
+		// Rendered as a real small graph (both real labels present), not the old raw-id flat arrow line.
+		expect(output).toContain("Detailed artifact");
+		expect(output).toContain("a-very-long-related-artifact-identifier".replace(/-[a-z0-9]{4}$/i, "").replaceAll("-", " "));
+		expect(output).not.toContain("artifact-1 --relates_to--> a-very-long-related-artifact-identifier");
 	});
 
 	it("reports missing artifacts and service failures without opening a broken view", async () => {

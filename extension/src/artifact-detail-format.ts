@@ -10,19 +10,26 @@ export interface ArtifactDetailContent {
 	relationships: string[];
 }
 
-export function artifactDetailContent(artifact: Artifact): ArtifactDetailContent {
+export function artifactDetailContent(artifact: Artifact, relationshipLines: string[] = []): ArtifactDetailContent {
 	return {
 		title: artifact.title,
 		identity: `${artifact.id} [${artifact.kind}|${artifact.status}]${artifact.subtype ? ` · ${artifact.subtype}` : ""}`,
 		body: artifact.body || "(no body)",
 		labels: [...artifact.labels],
 		metadata: Object.keys(artifact.extra).length > 0 ? formatMetadata(artifact.extra) : [],
-		relationships: (artifact.edges ?? []).map((edge) => `${edge.from} --${edge.relation}--> ${edge.to}`),
+		relationships: relationshipLines,
 	};
 }
 
-export function artifactDetailsText(artifact: Artifact): string {
-	const content = artifactDetailContent(artifact);
+/**
+ * Deliberately plain, unlike ArtifactDetailViewport's TUI body (renderMarkdownBody): this path
+ * feeds ctx.ui.notify(), used outside interactive mode (RPC, piped/non-terminal callers) where
+ * ANSI escape codes are noise or corruption, not formatting. Raw Markdown source stays readable
+ * as plain text either way. relationshipLines is still upgraded (a real graph or a resolved
+ * arrow list, never raw ids) since that needs no color to read.
+ */
+export function artifactDetailsText(artifact: Artifact, relationshipLines: string[] = []): string {
+	const content = artifactDetailContent(artifact, relationshipLines);
 	let output = `${content.title}\n${content.identity}\n\n${content.body}`;
 	if (content.labels.length > 0) output += `\n\nLabels: ${content.labels.join(", ")}`;
 	if (content.metadata.length > 0) output += `\n\nMetadata:\n${content.metadata.map((line) => `  ${line}`).join("\n")}`;

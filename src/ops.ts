@@ -391,10 +391,10 @@ export function restoreArtifact(db: Db, id: string, context?: ArtifactEventConte
  * Deletes, in FK-safe order, every row across every table that can reference artifacts(id)
  * (see the grep-verified list in domain/artifact-trash.ts's design comment): edges (both
  * directions), task_focus, task_scopes, task_views (by root_task_id), graph_projection_
- * identities, artifact_scopes, then task_events and artifact_events -- the latter two
- * succeed only because the artifact_trash row placed here by trashArtifact still exists
- * with an elapsed purge_after, which is exactly what db.ts's task_events_no_delete /
- * artifact_events_no_delete trigger carve-outs check themselves. Only THEN artifact_trash's
+ * identities, artifact_scopes, then task_events, note_events, and artifact_events -- the
+ * latter three succeed only because the artifact_trash row placed here by trashArtifact
+ * still exists with an elapsed purge_after, which is exactly what db.ts's task_events_no_delete /
+ * note_events_no_delete / artifact_events_no_delete trigger carve-outs check themselves. Only THEN artifact_trash's
  * own row (it is itself a child of artifacts via a real FK, so it must go before artifacts,
  * but only after the event tables that depend on its continued presence), and artifacts
  * itself last of all. One artifact at a time in its own transaction, so one failure never
@@ -413,6 +413,7 @@ export function purgeDueArtifacts(db: Db, now: () => string = () => new Date().t
 			db.prepare("DELETE FROM graph_projection_identities WHERE artifact_id = ?").run(id);
 			db.prepare("DELETE FROM artifact_scopes WHERE artifact_id = ?").run(id);
 			db.prepare("DELETE FROM task_events WHERE task_id = ?").run(id);
+			db.prepare("DELETE FROM note_events WHERE note_id = ?").run(id);
 			db.prepare("DELETE FROM artifact_events WHERE artifact_id = ?").run(id);
 			db.prepare("DELETE FROM artifact_trash WHERE artifact_id = ?").run(id);
 			db.prepare("DELETE FROM artifacts WHERE id = ?").run(id);

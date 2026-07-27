@@ -1,6 +1,5 @@
 import {
 	NOTE_BODY_MAX_CHARACTERS,
-	NOTE_HISTORY_MAX_EVENTS,
 	NOTE_LIST_DEFAULT_LIMIT,
 	NOTE_LIST_MAX_LIMIT,
 	NOTE_PROVENANCE_MAX_LENGTH,
@@ -9,6 +8,8 @@ import {
 	TASK_PROJECT_ROOT_MAX_LENGTH,
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
+import type { AppendNoteEvent, NoteEventType, NoteHistoryPage, NoteHistoryQuery } from "./domain/note-event.ts";
+import { InMemoryNoteEventStore, type NoteEventStore } from "./ports/note-event-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 
@@ -41,17 +42,6 @@ export interface ArchiveNoteInput extends NoteProvenance {
 	disposition: NoteDisposition;
 }
 
-interface NoteHistoryEvent {
-	action: "captured" | "consumed" | "promoted" | "archived";
-	at: string;
-	actor: string;
-	source: string;
-	sessionId?: string;
-	reason?: string;
-	targetId?: string;
-	disposition?: NoteDisposition | "promoted";
-}
-
 function requiredBounded(value: string, field: string, maximum: number): string {
 	const normalized = value.trim();
 	if (!normalized) throw new Error(`${field} is required`);
@@ -70,7 +60,7 @@ function noteTitle(body: string, requested?: string): string {
 	return firstLine.slice(0, NOTE_TITLE_MAX_CHARACTERS) || "Deferred note";
 }
 
-function provenance(input: NoteProvenance, defaults: { actor: string; source: string }): Omit<NoteHistoryEvent, "action" | "at"> {
+function provenance(input: NoteProvenance, defaults: { actor: string; source: string }): Omit<AppendNoteEvent, "noteId" | "type" | "relatedId" | "disposition"> {
 	return {
 		actor: optionalBounded(input.actor, "note actor", NOTE_PROVENANCE_MAX_LENGTH) ?? defaults.actor,
 		source: optionalBounded(input.source, "note source", NOTE_PROVENANCE_MAX_LENGTH) ?? defaults.source,
@@ -79,44 +69,26 @@ function provenance(input: NoteProvenance, defaults: { actor: string; source: st
 	};
 }
 
-function history(artifact: Artifact): NoteHistoryEvent[] {
-	const value = artifact.extra["noteHistory"];
-	if (!Array.isArray(value)) return [];
-	return value.filter((entry): entry is NoteHistoryEvent => typeof entry === "object" && entry !== null && !Array.isArray(entry));
-}
-
-function appendHistory(artifact: Artifact, event: NoteHistoryEvent): Record<string, unknown> {
-	return {
-		...artifact.extra,
-		noteHistory: [...history(artifact), event].slice(-NOTE_HISTORY_MAX_EVENTS),
-	};
-}
-
-function event(action: NoteHistoryEvent["action"], input: NoteProvenance, extra: Partial<NoteHistoryEvent> = {}): NoteHistoryEvent {
-	return {
-		action,
-		at: new Date().toISOString(),
-		...provenance(input, { actor: action === "captured" ? "human" : "agent", source: "notes" }),
-		...extra,
-	};
-}
-
 export class Notes {
-	constructor(private readonly artifacts: ArtifactStore) {}
+	constructor(
+		private readonly artifacts: ArtifactStore,
+		private readonly events: NoteEventStore = new InMemoryNoteEventStore(),
+	) {}
 
 	capture(input: CaptureNoteInput): Artifact {
 		const projectRoot = requiredBounded(input.projectRoot, "project_root", TASK_PROJECT_ROOT_MAX_LENGTH);
 		const body = requiredBounded(input.body, "note body", NOTE_BODY_MAX_CHARACTERS);
-		const captured = event("captured", input);
-		return this.artifacts.create({
+		const created = this.artifacts.create({
 			kind: "doc",
 			subtype: NOTE_SUBTYPE,
 			status: "draft",
 			title: noteTitle(body, input.title),
 			body,
 			labels: ["note", "inbox"],
-			extra: { projectRoot, noteHistory: [captured] },
+			extra: { projectRoot },
 		});
+		this.appendEvent(created.id, "captured", input, { actor: "human", source: "notes" });
+		return created;
 	}
 
 	list(input: ListNotesInput): Artifact[] {
@@ -141,6 +113,13 @@ export class Notes {
 		return this.artifacts.get(id, { tree: true })!;
 	}
 
+	/** Real append-only event history for this note -- see domain/note-event.ts. */
+	history(id: string, projectRoot: string, query?: NoteHistoryQuery): NoteHistoryPage {
+		const note = this.requireNote(id);
+		this.requireProject(note, projectRoot);
+		return this.events.history(id, query);
+	}
+
 	consume(id: string, input: NoteProvenance & { projectRoot: string }): Artifact {
 		const atomic = requireAtomicArtifactStore(this.artifacts);
 		return atomic.atomic(() => {
@@ -148,7 +127,7 @@ export class Notes {
 			this.requireProject(note, input.projectRoot);
 			if (note.status === "archived") throw new Error("cannot consume an archived note");
 			if (note.status === "active") return this.artifacts.get(id, { tree: true })!;
-			this.artifacts.setExtra(id, appendHistory(note, event("consumed", input)));
+			this.appendEvent(id, "consumed", input, { actor: "agent", source: "notes" });
 			this.artifacts.setStatus(id, "active");
 			return this.artifacts.get(id, { tree: true })!;
 		});
@@ -162,12 +141,12 @@ export class Notes {
 			if (note.status === "archived") throw new Error("cannot promote an archived note");
 			if (targetId === id) throw new Error("a note cannot promote to itself");
 			if (!this.artifacts.get(targetId)) throw new Error(`promotion target "${targetId}" not found`);
-			const promoted = event("promoted", input, { disposition: "promoted", targetId });
-			const disposition = { kind: "promoted", targetId, ...(promoted.reason ? { reason: promoted.reason } : {}) };
+			const reason = optionalBounded(input.reason, "note reason", NOTE_REASON_MAX_CHARACTERS);
 			this.artifacts.link({ from: id, relation: "relates_to", to: targetId });
+			this.appendEvent(id, "promoted", input, { actor: "agent", source: "notes" }, { relatedId: targetId, disposition: "promoted" });
 			this.artifacts.setExtra(id, {
-				...appendHistory(note, promoted),
-				disposition,
+				...note.extra,
+				disposition: { kind: "promoted", targetId, ...(reason ? { reason } : {}) },
 			});
 			this.artifacts.setStatus(id, "archived");
 			return this.artifacts.get(id, { tree: true })!;
@@ -181,15 +160,25 @@ export class Notes {
 			const note = this.requireNote(id);
 			this.requireProject(note, input.projectRoot);
 			if (note.status === "archived") throw new Error("note is already archived");
-			const archived = event("archived", input, { disposition: input.disposition });
-			const details = { kind: input.disposition, ...(archived.reason ? { reason: archived.reason } : {}) };
+			const reason = optionalBounded(input.reason, "note reason", NOTE_REASON_MAX_CHARACTERS);
+			this.appendEvent(id, "archived", input, { actor: "agent", source: "notes" }, { disposition: input.disposition });
 			this.artifacts.setExtra(id, {
-				...appendHistory(note, archived),
-				disposition: details,
+				...note.extra,
+				disposition: { kind: input.disposition, ...(reason ? { reason } : {}) },
 			});
 			this.artifacts.setStatus(id, "archived");
 			return this.artifacts.get(id, { tree: true })!;
 		});
+	}
+
+	private appendEvent(
+		noteId: string,
+		type: NoteEventType,
+		input: NoteProvenance,
+		defaults: { actor: string; source: string },
+		extra: Partial<Pick<AppendNoteEvent, "relatedId" | "disposition">> = {},
+	): void {
+		this.events.append({ noteId, type, ...provenance(input, defaults), ...extra });
 	}
 
 	private requireNote(id: string): Artifact {

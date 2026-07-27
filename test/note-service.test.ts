@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { SQLiteNoteEventStore } from "../src/adapters/sqlite-note-event-store.ts";
 import { NOTE_BODY_MAX_CHARACTERS, NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { Notes } from "../src/note-service.ts";
@@ -14,7 +15,7 @@ function fixture() {
 	const directory = tempDir("papyrus-notes-");
 	const database = openDb(join(directory, "papyrus.db"));
 	const artifacts = new SQLiteArtifactStore(database);
-	return { database, artifacts, notes: new Notes(artifacts) };
+	return { database, artifacts, notes: new Notes(artifacts, new SQLiteNoteEventStore(database)) };
 }
 
 describe("Notes application service", () => {
@@ -36,10 +37,10 @@ describe("Notes application service", () => {
 			title: "Review the release provenance later",
 			body: "Review the release provenance later",
 		});
-		expect(captured.extra).toMatchObject({
-			projectRoot: PROJECT,
-			noteHistory: [expect.objectContaining({ action: "captured", actor: "human", source: "command", sessionId: "session-1" })],
-		});
+		expect(captured.extra).toEqual({ projectRoot: PROJECT });
+		expect(notes.history(captured.id, PROJECT).events).toEqual([
+			expect.objectContaining({ type: "captured", actor: "human", source: "command", sessionId: "session-1" }),
+		]);
 		expect(notes.list({ projectRoot: PROJECT })).toEqual([expect.objectContaining({ id: captured.id })]);
 		expect(notes.list({ projectRoot: OTHER_PROJECT })).toHaveLength(1);
 		expect(() => notes.capture({ body: "x".repeat(NOTE_BODY_MAX_CHARACTERS + 1), projectRoot: PROJECT })).toThrow("note body exceeds");
@@ -52,9 +53,9 @@ describe("Notes application service", () => {
 		const captured = notes.capture({ body: "Create a follow-up document", projectRoot: PROJECT });
 		const consumed = notes.consume(captured.id, { projectRoot: PROJECT, actor: "agent", source: "notes-tool", sessionId: "session-2" });
 		expect(consumed.status).toBe("active");
-		expect(consumed.extra.noteHistory).toEqual([
-			expect.objectContaining({ action: "captured" }),
-			expect.objectContaining({ action: "consumed", actor: "agent", sessionId: "session-2" }),
+		expect(notes.history(captured.id, PROJECT, { direction: "asc" }).events).toEqual([
+			expect.objectContaining({ type: "captured" }),
+			expect.objectContaining({ type: "consumed", actor: "agent", sessionId: "session-2" }),
 		]);
 
 		const target = artifacts.create({ kind: "doc", title: "Follow-up", subtype: "research" });
@@ -62,6 +63,11 @@ describe("Notes application service", () => {
 		expect(promoted.status).toBe("archived");
 		expect(promoted.extra).toMatchObject({ disposition: { kind: "promoted", targetId: target.id, reason: "Converted to durable research" } });
 		expect(promoted.edges).toContainEqual({ from: captured.id, relation: "relates_to", to: target.id });
+		expect(notes.history(captured.id, PROJECT, { direction: "asc" }).events).toEqual([
+			expect.objectContaining({ type: "captured" }),
+			expect.objectContaining({ type: "consumed" }),
+			expect.objectContaining({ type: "promoted", relatedId: target.id, disposition: "promoted", reason: "Converted to durable research" }),
+		]);
 		expect(notes.list({ projectRoot: PROJECT })).toEqual([]);
 		expect(notes.list({ projectRoot: PROJECT, status: "archived" })).toHaveLength(1);
 		database.close();
@@ -75,6 +81,27 @@ describe("Notes application service", () => {
 		const archived = notes.archive(captured.id, { projectRoot: PROJECT, disposition: "declined", reason: "No longer needed", actor: "human", source: "command" });
 		expect(archived.status).toBe("archived");
 		expect(archived.extra).toMatchObject({ disposition: { kind: "declined", reason: "No longer needed" } });
+		expect(notes.history(captured.id, PROJECT).events).toContainEqual(
+			expect.objectContaining({ type: "archived", disposition: "declined", reason: "No longer needed", actor: "human", source: "command" }),
+		);
+		database.close();
+	});
+
+	it("history is a real append-only record, not reconstructed from a mutable extra field -- confirmed by extra staying untouched by history itself", () => {
+		const { database, notes } = fixture();
+		const captured = notes.capture({ body: "Track this separately", projectRoot: PROJECT });
+		expect(captured.extra).toEqual({ projectRoot: PROJECT });
+		notes.consume(captured.id, { projectRoot: PROJECT });
+		const afterConsume = notes.show(captured.id, PROJECT);
+		expect(afterConsume.extra).toEqual({ projectRoot: PROJECT });
+		expect(notes.history(captured.id, PROJECT).events).toHaveLength(2);
+		database.close();
+	});
+
+	it("refuses history for a note outside the requested project, same as show", () => {
+		const { database, notes } = fixture();
+		const captured = notes.capture({ body: "Scoped", projectRoot: PROJECT });
+		expect(() => notes.history(captured.id, OTHER_PROJECT)).toThrow("outside project scope");
 		database.close();
 	});
 });

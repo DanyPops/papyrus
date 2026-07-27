@@ -13,6 +13,7 @@
  * module's infrastructure" constraint.
  */
 import type { OperationDefinition } from "../module-registry.ts";
+import type { NoteEventDirection } from "../domain/note-event.ts";
 import { Notes, type NoteDisposition } from "../note-service.ts";
 
 const MODULE_ID = "notes";
@@ -41,7 +42,7 @@ function optionalNumber(input: OperationInput, key: string): number | undefined 
 
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const NOTES_OPERATION_NAMES = [
-	"notes.capture", "notes.list", "notes.show", "notes.consume", "notes.promote", "notes.archive",
+	"notes.capture", "notes.list", "notes.show", "notes.history", "notes.consume", "notes.promote", "notes.archive",
 ] as const;
 
 /** Registers every notes.* operation against one Notes instance. Behavior is unchanged from the prior inline handlers in src/service.ts. */
@@ -59,6 +60,9 @@ export function notesOperations(notes: Notes): OperationDefinition[] {
 			text: optionalString(input, "text"), limit: optionalNumber(input, "limit"),
 		})),
 		define("notes.show", (input: OperationInput) => notes.show(string(input, "id"), string(input, "project_root"))),
+		define("notes.history", (input: OperationInput) => notes.history(string(input, "id"), string(input, "project_root"), {
+			limit: optionalNumber(input, "limit"), cursor: optionalNumber(input, "cursor"), direction: optionalString(input, "direction") as NoteEventDirection | undefined,
+		})),
 		define("notes.consume", (input: OperationInput) => notes.consume(string(input, "id"), {
 			projectRoot: string(input, "project_root"), actor: optionalString(input, "actor"), source: optionalString(input, "source"),
 			sessionId: optionalString(input, "session_id"), reason: optionalString(input, "reason"),

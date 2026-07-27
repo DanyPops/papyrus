@@ -91,6 +91,9 @@ describe("modules/notes — the first Papyrus-native registered module", () => {
 
 		const consumed = await registry.get("notes.consume")!.execute({ id: captured.id, project_root: PROJECT_ROOT }) as { status: string };
 		expect(consumed.status).toBe("active");
+
+		const history = await registry.get("notes.history")!.execute({ id: captured.id, project_root: PROJECT_ROOT, direction: "asc" }) as { events: Array<{ type: string }> };
+		expect(history.events.map((event) => event.type)).toEqual(["captured", "consumed"]);
 	});
 
 	it("rejects a request missing a required field, matching the prior inline handler's validation", () => {

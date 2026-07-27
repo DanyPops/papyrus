@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 20;
+export const SQLITE_SCHEMA_VERSION = 21;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -156,9 +156,10 @@ export const NOTE_BODY_MAX_CHARACTERS = 10_000;
 export const NOTE_TITLE_MAX_CHARACTERS = 80;
 export const NOTE_LIST_DEFAULT_LIMIT = 50;
 export const NOTE_LIST_MAX_LIMIT = 200;
-export const NOTE_HISTORY_MAX_EVENTS = 20;
 export const NOTE_PROVENANCE_MAX_LENGTH = 128;
 export const NOTE_REASON_MAX_CHARACTERS = 2_000;
+export const NOTE_HISTORY_DEFAULT_LIMIT = 25;
+export const NOTE_HISTORY_MAX_LIMIT = 100;
 /** Generic, kind-agnostic mutation event log bounds (doc/task/rule/skill share one log). */
 export const ARTIFACT_EVENT_ACTOR_MAX_LENGTH = 128;
 export const ARTIFACT_EVENT_HISTORY_DEFAULT_LIMIT = 25;

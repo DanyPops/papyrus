@@ -1274,7 +1274,7 @@ export async function runNoteCli(args: string[], client: TaskCliClient, projectR
 		positional.push(argument);
 	}
 	const [action, id, target] = positional;
-	let result: CliArtifact | CliArtifact[];
+	let result: CliArtifact | CliArtifact[] | import("./domain/note-event.ts").NoteHistoryPage;
 	let human: string;
 	if (action === "capture") {
 		if (!id || target) throw new Error("notes capture requires exactly one request argument");
@@ -1288,6 +1288,13 @@ export async function runNoteCli(args: string[], client: TaskCliClient, projectR
 		if (!id || target) throw new Error("notes show requires exactly one note id");
 		result = await client.call("notes.show", { id, project_root: projectRoot }) as CliArtifact;
 		human = `${artifactLabel(result)}\n\n${result.body ?? ""}`.trimEnd();
+	} else if (action === "history") {
+		if (!id || target) throw new Error("notes history requires exactly one note id");
+		const page = await client.call<Record<string, unknown>, import("./domain/note-event.ts").NoteHistoryPage>("notes.history", { id, project_root: projectRoot, direction: "desc", ...(limit === undefined ? {} : { limit }) });
+		result = page;
+		human = page.events.length === 0
+			? `No recorded history for ${id}.`
+			: [...page.events].reverse().map((event) => `${event.occurredAt} ${event.type} · ${event.actor}/${event.source}${event.relatedId ? ` · ${event.relatedId}` : ""}${event.disposition ? ` · ${event.disposition}` : ""}${event.reason ? ` · ${event.reason}` : ""}`).join("\n");
 	} else if (action === "consume") {
 		if (!id || target) throw new Error("notes consume requires exactly one note id");
 		result = await client.call("notes.consume", { id, project_root: projectRoot, actor: "agent", source: "cli", ...(reason ? { reason } : {}) }) as CliArtifact;
@@ -1301,7 +1308,7 @@ export async function runNoteCli(args: string[], client: TaskCliClient, projectR
 		result = await client.call("notes.archive", { id, disposition: target, project_root: projectRoot, actor: "human", source: "cli", ...(reason ? { reason } : {}) }) as CliArtifact;
 		human = `Archived: ${artifactLabel(result)} · ${target}`;
 	} else {
-		throw new Error("notes action must be capture, list, show, consume, promote, or archive");
+		throw new Error("notes action must be capture, list, show, history, consume, promote, or archive");
 	}
 	return json ? JSON.stringify(result) : human;
 }

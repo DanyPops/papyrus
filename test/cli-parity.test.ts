@@ -116,6 +116,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "notes.capture", result: artifact, invoke: (c) => runNoteCli(["capture", "a request", "--json"], c) },
 	{ operation: "notes.list", result: artifactList, invoke: (c) => runNoteCli(["list", "--json"], c) },
 	{ operation: "notes.show", result: artifact, invoke: (c) => runNoteCli(["show", "a1", "--json"], c) },
+	{ operation: "notes.history", result: { events: [] }, invoke: (c) => runNoteCli(["history", "a1", "--json"], c) },
 	{ operation: "notes.consume", result: artifact, invoke: (c) => runNoteCli(["consume", "a1", "--json"], c) },
 	{ operation: "notes.promote", result: artifact, invoke: (c) => runNoteCli(["promote", "a1", "t1", "--json"], c) },
 	{ operation: "notes.archive", result: artifact, invoke: (c) => runNoteCli(["archive", "a1", "completed", "--json"], c) },

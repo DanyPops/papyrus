@@ -266,6 +266,25 @@ CREATE TABLE IF NOT EXISTS task_leases (
 	note              TEXT
 );
 CREATE INDEX IF NOT EXISTS task_leases_expiry_idx ON task_leases(lease_expires_at);
+CREATE TABLE IF NOT EXISTS note_events (
+	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+	note_id              TEXT NOT NULL REFERENCES artifacts(id),
+	occurred_at          TEXT NOT NULL,
+	event_type           TEXT NOT NULL,
+	actor                TEXT NOT NULL,
+	source               TEXT NOT NULL,
+	session_id           TEXT,
+	reason               TEXT,
+	related_id           TEXT,
+	disposition          TEXT,
+	event_schema_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS note_events_history_idx ON note_events(note_id, occurred_at, id);
+CREATE TRIGGER IF NOT EXISTS note_events_no_update BEFORE UPDATE ON note_events
+BEGIN SELECT RAISE(ABORT, 'note_events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS note_events_no_delete BEFORE DELETE ON note_events
+WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.note_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+BEGIN SELECT RAISE(ABORT, 'note_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
 `;
 
 const SEED_SQL = `
@@ -574,6 +593,66 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				);
 				CREATE INDEX IF NOT EXISTS task_leases_expiry_idx ON task_leases(lease_expires_at);
 			`);
+		},
+	},
+	{
+		version: 21,
+		name: "note-events",
+		// See domain/note-event.ts. Retires extra.noteHistory (a bounded array inside a mutable
+		// JSON field, which a later setExtra from a concurrent operation could silently overwrite)
+		// in favor of a real append-only table, mirroring task_events' already-proven shape.
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS note_events (
+					id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+					note_id              TEXT NOT NULL REFERENCES artifacts(id),
+					occurred_at          TEXT NOT NULL,
+					event_type           TEXT NOT NULL,
+					actor                TEXT NOT NULL,
+					source               TEXT NOT NULL,
+					session_id           TEXT,
+					reason               TEXT,
+					related_id           TEXT,
+					disposition          TEXT,
+					event_schema_version INTEGER NOT NULL DEFAULT 1
+				);
+				CREATE INDEX IF NOT EXISTS note_events_history_idx ON note_events(note_id, occurred_at, id);
+				CREATE TRIGGER IF NOT EXISTS note_events_no_update BEFORE UPDATE ON note_events
+				BEGIN SELECT RAISE(ABORT, 'note_events are append-only'); END;
+				CREATE TRIGGER IF NOT EXISTS note_events_no_delete BEFORE DELETE ON note_events
+				WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.note_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+				BEGIN SELECT RAISE(ABORT, 'note_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
+			`);
+			const rows = db.prepare("SELECT id, extra FROM artifacts WHERE kind = 'doc' AND subtype = 'note'").all() as Array<{ id: string; extra: string }>;
+			const insert = db.prepare(`
+				INSERT INTO note_events (note_id, occurred_at, event_type, actor, source, session_id, reason, related_id, disposition, event_schema_version)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+			`);
+			const strip = db.prepare("UPDATE artifacts SET extra = ? WHERE id = ?");
+			for (const row of rows) {
+				const extra = JSON.parse(row.extra) as Record<string, unknown>;
+				const noteHistory = extra["noteHistory"];
+				if (Array.isArray(noteHistory)) {
+					for (const raw of noteHistory) {
+						const entry = raw as Record<string, unknown>;
+						insert.run(
+							row.id,
+							typeof entry["at"] === "string" ? entry["at"] : new Date().toISOString(),
+							typeof entry["action"] === "string" ? entry["action"] : "captured",
+							typeof entry["actor"] === "string" ? entry["actor"] : "system",
+							typeof entry["source"] === "string" ? entry["source"] : "unknown",
+							typeof entry["sessionId"] === "string" ? entry["sessionId"] : null,
+							typeof entry["reason"] === "string" ? entry["reason"] : null,
+							typeof entry["targetId"] === "string" ? entry["targetId"] : null,
+							typeof entry["disposition"] === "string" ? entry["disposition"] : null,
+						);
+					}
+				}
+				if ("noteHistory" in extra) {
+					const { noteHistory: _drop, ...rest } = extra;
+					strip.run(JSON.stringify(rest), row.id);
+				}
+			}
 		},
 	},
 ];

@@ -6,6 +6,7 @@ import { PROOF_TYPES } from "../../src/domain/checklist.ts";
 import type { GateResult } from "../../src/domain/gate.ts";
 import type { TaskExecutionPlan } from "../../src/task-execution.ts";
 import type { TaskHistoryPage } from "../../src/domain/task-event.ts";
+import type { NoteHistoryPage } from "../../src/domain/note-event.ts";
 import type { TaskCompletion, TaskGraph } from "../../src/task-service.ts";
 import type { SkillWorkflowRunResult } from "../../src/skill-execution.ts";
 import type { DiscussionAndRounds } from "../../src/discussion-service.ts";
@@ -474,7 +475,7 @@ export function registerNotesTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "notes",
 		label: "Notes",
-		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id (or target_name). Archive requires an explicit disposition. PREFER `name` (the note's exact title) over `id` for show/consume/promote/archive, and `target_name` over `target_id` for promote -- all are backend implementation details, resolved from name automatically (target_name searches across every kind, since a promotion target can be a task, doc, rule, or skill).",
+		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, history, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id (or target_name). Archive requires an explicit disposition. history returns this note's own real append-only event log (captured/consumed/promoted/archived), not the generic cross-kind graph.history. PREFER `name` (the note's exact title) over `id` for show/history/consume/promote/archive, and `target_name` over `target_id` for promote -- all are backend implementation details, resolved from name automatically (target_name searches across every kind, since a promotion target can be a task, doc, rule, or skill).",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -515,6 +516,12 @@ export function registerNotesTool(pi: ExtensionAPI): void {
 				if (action === "show") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("notes.show", request);
 					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("notes.show", artifact));
+				}
+				if (action === "history") {
+					const page = await callService<Record<string, unknown>, NoteHistoryPage>("notes.history", request);
+					const lines = page.events.map((event) => `${event.occurredAt} ${event.type} · ${event.actor}/${event.source}${event.relatedId ? ` · ${event.relatedId}` : ""}${event.disposition ? ` · ${event.disposition}` : ""}${event.reason ? ` · ${event.reason}` : ""}`);
+					const output = lines.join("\n") || "No recorded history for this note.";
+					return text(output, createPreviewDetails("notes.history", "Note history", output));
 				}
 				const operations = { consume: "notes.consume", promote: "notes.promote", archive: "notes.archive" } as const;
 				const operation = operations[action as keyof typeof operations];

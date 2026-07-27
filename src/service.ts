@@ -8,6 +8,7 @@ import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-s
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskLeaseStore } from "./adapters/sqlite-task-lease-store.ts";
 import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
+import { SQLiteNoteEventStore } from "./adapters/sqlite-note-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
 import { SQLiteSessionIdentityStore } from "./adapters/sqlite-session-identity-store.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
@@ -381,6 +382,7 @@ function handlers(
 		"notes.capture": forwardToModule("notes.capture"),
 		"notes.list": forwardToModule("notes.list"),
 		"notes.show": forwardToModule("notes.show"),
+		"notes.history": forwardToModule("notes.history"),
 		"notes.consume": forwardToModule("notes.consume"),
 		"notes.promote": forwardToModule("notes.promote"),
 		"notes.archive": forwardToModule("notes.archive"),
@@ -457,7 +459,8 @@ export function createPapyrusService(path: string): PapyrusService {
 	const scopes = new SQLiteTaskScopeStore(db);
 	const leases = new SQLiteTaskLeaseStore(db);
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes, leases);
-	const notes = new Notes(artifacts);
+	const noteEvents = new SQLiteNoteEventStore(db);
+	const notes = new Notes(artifacts, noteEvents);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));

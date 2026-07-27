@@ -290,6 +290,11 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 	const conditions: string[] = [];
 	const params: unknown[] = [];
 	if (!filter.includeTrashed) conditions.push("id NOT IN (SELECT artifact_id FROM artifact_trash)");
+	if (filter.ids) {
+		if (filter.ids.length === 0) return [];
+		conditions.push(`id IN (${filter.ids.map(() => "?").join(", ")})`);
+		params.push(...filter.ids);
+	}
 	if (filter.kind) { conditions.push("kind = ?"); params.push(filter.kind); }
 	if (filter.status) { conditions.push("status = ?"); params.push(filter.status); }
 	if (filter.statuses) {

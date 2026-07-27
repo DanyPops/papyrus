@@ -309,6 +309,17 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	it("ids filter restricts to exactly the given ids, and an empty array is a real match-nothing rather than unset", () => {
+		const { db } = tmpDb();
+		const a = createArtifact(db, { kind: "task", title: "A" });
+		const b = createArtifact(db, { kind: "task", title: "B" });
+		createArtifact(db, { kind: "task", title: "C" });
+
+		expect(queryArtifacts(db, { ids: [a.id, b.id] }).map((row) => row.id).sort()).toEqual([a.id, b.id].sort());
+		expect(queryArtifacts(db, { ids: [] })).toEqual([]);
+		db.close();
+	});
+
 	it("subgraph BFS from root", () => {
 		const { db } = tmpDb();
 		const root = createArtifact(db, { kind: "task", title: "Ship v1" });

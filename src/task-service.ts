@@ -237,9 +237,16 @@ export class Tasks {
 		const selectedIds = selection.mode === "graph" ? this.descendantIds(selection.rootTaskId!, ids) : new Set(ids);
 		const text = filter.text?.toLowerCase();
 		const labels = filter.labels ?? [];
+		// query(), unlike get(), excludes trash by default -- a trashed task's id stays in
+		// task_scopes until the retention window actually purges it, so building this candidate
+		// set from get() per id (deliberately trash-transparent, for show/restore) would otherwise
+		// leak a trashed task back into list results for the entire grace period. Scoped by ids
+		// rather than a bare kind query, so this stays bounded to exactly the already-bounded
+		// selectedIds set instead of scanning every task in the database.
+		const notTrashed = new Map(this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, ids: [...selectedIds] }).map((task) => [task.id, task]));
 		return [...selectedIds]
-			.map((id) => this.artifacts.get(id))
-			.filter((task): task is Artifact => task?.kind === "task" && !isDiscussionArtifact(task))
+			.map((id) => notTrashed.get(id))
+			.filter((task): task is Artifact => task !== undefined)
 			.filter((task) => filter.status === undefined || task.status === filter.status)
 			.filter((task) => text === undefined || task.title.toLowerCase().includes(text) || task.body.toLowerCase().includes(text))
 			.filter((task) => labels.every((label) => task.labels.includes(label)))

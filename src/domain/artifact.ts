@@ -48,6 +48,13 @@ export interface ArtifactQuery {
 	limit?: number;
 	/** Trashed artifacts (see artifact-trash.ts) are excluded from every query by default; set true to include them, e.g. for a trash-listing view. */
 	includeTrashed?: boolean;
+	/**
+	 * Restrict to exactly these ids, still subject to every other filter (kind, trash exclusion,
+	 * etc.) -- for a caller that already has a bounded candidate id set (e.g. Tasks.list's
+	 * project/graph scope) and needs query()'s own trash-exclusion without a full-kind scan.
+	 * Empty array is a real "match nothing", not "unset".
+	 */
+	ids?: string[];
 }
 
 export interface ArtifactGraphOptions {

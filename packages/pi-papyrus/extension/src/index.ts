@@ -25,7 +25,8 @@ import {
 	type TaskStatus,
 } from "@danypops/papyrus";
 import { formatMetadata } from "./artifact-format.ts";
-import { callService } from "./service-client.ts";
+import { callService, subscribeTaskPushChannel } from "./service-client.ts";
+import type { PushChannelClient } from "@danypops/daemon-kit/pi-client";
 import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
 import { renderNoteWidgetLines } from "./note-widget.ts";
@@ -109,6 +110,7 @@ export class TaskOverlay {
 	private projectRoot: string | undefined;
 	private sessionId: string | undefined;
 	private readonly poll = new BoundedPoll();
+	private pushChannel: PushChannelClient | undefined;
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -141,6 +143,19 @@ export class TaskOverlay {
 		} catch {
 			// A rendering bug must not crash the extension host over a best-effort status widget.
 		}
+		this.ensurePushChannel();
+	}
+
+	/**
+	 * Lazily (re)establishes the push subscription -- a no-op once already connected.
+	 * Retried on every poll-driven refresh() call rather than once at startup: the
+	 * daemon may not have been running yet when this session started (subscribeTaskPushChannel
+	 * returns undefined with no token/port on disk), and this piggybacks on the existing
+	 * poll cadence as the natural retry point instead of a second timer.
+	 */
+	private ensurePushChannel(): void {
+		if (this.pushChannel && this.pushChannel.state() !== "closed") return;
+		this.pushChannel = subscribeTaskPushChannel(() => { void this.refresh(); });
 	}
 
 	private render(): void {
@@ -196,6 +211,8 @@ export class TaskOverlay {
 
 	dispose(): void {
 		this.stopPolling();
+		this.pushChannel?.close();
+		this.pushChannel = undefined;
 		this.uiCtx?.setWidget(WIDGET_KEY, undefined);
 		this.registered = false;
 		this.tui = undefined;

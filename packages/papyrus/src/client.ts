@@ -57,3 +57,24 @@ export async function connectPapyrusClient(dir: string = daemonStateDir()): Prom
 		throw new Error("Papyrus daemon state is stale or unreachable; restart papyrus.service");
 	}
 }
+
+export interface PushChannelTarget {
+	/** ws:// URL for the daemon's push-invalidation channel (see push-channel.ts in daemon-kit). */
+	url: string;
+	token: string;
+}
+
+/**
+ * Narrow surface for a push-channel consumer -- exposes only what's needed to open
+ * the WebSocket (url derived from the same handle connectPapyrusClient reads, token),
+ * not daemon-state.ts's whole internal handle shape. Returns undefined rather than
+ * throwing when the daemon has never started (no token/port on disk yet); a caller
+ * wiring this into a UI widget already tolerates "daemon not running" for its own
+ * fetch-based refresh and should treat push-channel absence the same way -- fall
+ * back to polling rather than surfacing an error.
+ */
+export function resolvePushChannelTarget(dir: string = daemonStateDir()): PushChannelTarget | undefined {
+	const handle = readDaemonHandle(dir);
+	if (!handle) return undefined;
+	return { url: `${handle.baseUrl.replace(/^http/, "ws")}/push`, token: handle.token };
+}

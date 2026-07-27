@@ -1,18 +1,47 @@
+import { PushChannel } from "@danypops/daemon-kit/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS, dbPath } from "./constants.ts";
 import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
 import { createApp, createPapyrusService } from "./service.ts";
 import { logEvent } from "./log.ts";
+
+/**
+ * Operations that never change what a Task-graph reader (the pi-papyrus widget's
+ * push subscriber) would see -- excluded from the "tasks" publish so a read call
+ * doesn't trigger a pointless extra refresh. Defaults to publishing for anything
+ * not in this set, including future operations -- a missed push (stale widget for
+ * up to one poll interval, the existing fallback) is a far smaller cost than a
+ * silently-uncovered new mutation.
+ */
+const TASK_READ_ONLY_OPERATIONS = new Set([
+	"tasks.active", "tasks.context", "tasks.event_feed", "tasks.focused",
+	"tasks.graph", "tasks.history", "tasks.list", "tasks.plan", "tasks.scope", "tasks.show",
+]);
 
 /** Start the supervised, long-running Papyrus service. */
 export function serveMain(): void {
 	const stateDir = daemonStateDir();
 	const token = loadOrCreateToken(stateDir);
 	const service = createPapyrusService(dbPath());
-	const app = createApp({ service, token });
+	const pushChannel = new PushChannel({ token });
+	const app = createApp({
+		service,
+		token,
+		onOperationExecuted: (operation) => {
+			if (operation.startsWith("tasks.") && !TASK_READ_ONLY_OPERATIONS.has(operation)) {
+				pushChannel.publish("tasks", { operation });
+			}
+		},
+	});
 	const server = Bun.serve({
 		hostname: DAEMON_HOST,
 		port: 0,
-		fetch: (request) => app.fetch(request),
+		fetch: (request, bunServer) => {
+			if (new URL(request.url).pathname === "/push") return pushChannel.upgrade(request, bunServer) ?? undefined;
+			return app.fetch(request);
+		},
+		// A no-op fallback when pushChannel never calls server.upgrade() is safe: Bun only
+		// invokes these handlers for a connection that actually upgraded.
+		websocket: pushChannel.websocketHandlers(),
 	});
 	if (!server.port) {
 		service.close();

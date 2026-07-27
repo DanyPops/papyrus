@@ -19,7 +19,7 @@ export type { TaskViewSelection } from "./domain/task-scope.ts";
 export type { ArtifactStore } from "./ports/artifact-store.ts";
 export type { GraphRenderer } from "./ports/graph-renderer.ts";
 
-export { connectPapyrusClient, type PapyrusClient } from "./client.ts";
+export { connectPapyrusClient, resolvePushChannelTarget, type PapyrusClient, type PushChannelTarget } from "./client.ts";
 export type { DiscussionAndRounds } from "./discussion-service.ts";
 export { NOTE_DISPOSITIONS } from "./note-service.ts";
 export type { OperationName, SchemaState } from "./service.ts";

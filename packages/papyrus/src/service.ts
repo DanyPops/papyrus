@@ -534,7 +534,17 @@ async function readOperationBody(request: Request): Promise<{ op?: unknown; inpu
 	return JSON.parse(new TextDecoder().decode(bytes)) as { op?: unknown; input?: unknown };
 }
 
-export function createApp(deps: { service: PapyrusService; token: string }): { fetch(request: Request): Promise<Response> } {
+export function createApp(deps: {
+	service: PapyrusService;
+	token: string;
+	/**
+	 * Fired after an operation executes successfully -- decoupled from any specific
+	 * consumer (push-invalidation, audit logging, metrics) so this HTTP layer stays
+	 * agnostic of what a caller does with the notification. The composition root
+	 * (daemon.ts) wires this to a PushChannel; tests and other embedders can ignore it.
+	 */
+	onOperationExecuted?: (operation: string, input: OperationInput) => void;
+}): { fetch(request: Request): Promise<Response> } {
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (request.headers.get("authorization") !== `Bearer ${deps.token}`) {
@@ -555,7 +565,9 @@ export function createApp(deps: { service: PapyrusService; token: string }): { f
 					if (typeof input !== "object" || input === null || Array.isArray(input)) {
 						return json({ error: "input must be an object" }, { status: 400 });
 					}
-					return json({ result: await deps.service.execute(body.op, input as OperationInput) });
+					const result = await deps.service.execute(body.op, input as OperationInput);
+					deps.onOperationExecuted?.(body.op, input as OperationInput);
+					return json({ result });
 				} catch (error) {
 					const status = error instanceof PayloadTooLargeError ? 413 : error instanceof UnknownOperationError ? 404 : error instanceof InvalidSessionSecretError ? 403 : 400;
 					return json({ error: error instanceof Error ? error.message : String(error) }, { status });

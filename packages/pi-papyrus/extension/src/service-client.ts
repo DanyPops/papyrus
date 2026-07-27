@@ -1,5 +1,5 @@
-import { createRetryingClient, type RetryingClient } from "@danypops/daemon-kit/pi-client";
-import { connectPapyrusClient, type OperationName, type PapyrusClient } from "@danypops/papyrus";
+import { connectPushChannel, createRetryingClient, type PushChannelClient, type PushChannelState, type RetryingClient } from "@danypops/daemon-kit/pi-client";
+import { connectPapyrusClient, resolvePushChannelTarget, type OperationName, type PapyrusClient } from "@danypops/papyrus";
 
 type ClientConnector = () => Promise<PapyrusClient>;
 
@@ -25,4 +25,41 @@ export function setPapyrusClientConnectorForTests(value: ClientConnector): void 
 export function resetPapyrusClientForTests(): void {
 	connector = () => connectPapyrusClient();
 	client.reset();
+}
+
+let pushChannelTargetResolver: typeof resolvePushChannelTarget = resolvePushChannelTarget;
+
+export function setPushChannelTargetResolverForTests(value: typeof resolvePushChannelTarget): void {
+	pushChannelTargetResolver = value;
+}
+
+export function resetPushChannelTargetResolverForTests(): void {
+	pushChannelTargetResolver = resolvePushChannelTarget;
+}
+
+/**
+ * Subscribes to the daemon's "tasks" push topic so a widget can refresh the moment
+ * a mutation happens, instead of waiting for its next poll tick. Returns undefined
+ * (no-op) rather than throwing when the daemon has never started -- no token/port
+ * on disk yet -- matching how the widget's own fetch-based refresh() already
+ * tolerates "daemon not running" and falls back to its existing poll. A caller
+ * should retry this on a later poll tick once the daemon is confirmed reachable.
+ */
+export function subscribeTaskPushChannel(onMessage: () => void, onStateChange?: (state: PushChannelState) => void): PushChannelClient | undefined {
+	const target = pushChannelTargetResolver();
+	if (!target) return undefined;
+	return connectPushChannel({
+		url: () => {
+			// Re-resolved on every reconnect attempt: the daemon rebinds a new random
+			// port on every restart, exactly the problem connectWithPolicy solves for
+			// one-shot RPC by re-reading the handle file each time.
+			const resolved = pushChannelTargetResolver();
+			if (!resolved) throw new Error("Papyrus daemon is not running");
+			return resolved.url;
+		},
+		token: target.token,
+		topics: ["tasks"],
+		onMessage: (topic) => { if (topic === "tasks") onMessage(); },
+		onStateChange,
+	});
 }

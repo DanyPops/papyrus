@@ -1,9 +1,23 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { PushChannel } from "@danypops/daemon-kit/push-channel";
 import { TaskOverlay } from "../extension/src/index.ts";
-import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
+import {
+	resetPapyrusClientForTests,
+	resetPushChannelTargetResolverForTests,
+	setPapyrusClientConnectorForTests,
+	setPushChannelTargetResolverForTests,
+} from "../extension/src/service-client.ts";
 import { buildTaskWidgetProjection } from "../extension/src/task-widget.ts";
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
+
+// Every TaskOverlay.refresh() call now also attempts to establish a push-channel
+// subscription -- without this, these unit tests would fall through to the real
+// resolvePushChannelTarget() and could open a real WebSocket against whatever
+// Papyrus daemon happens to be running on this machine. Tests that actually
+// exercise push-channel behavior override this themselves.
+beforeEach(() => setPushChannelTargetResolverForTests(() => undefined));
+afterEach(resetPushChannelTargetResolverForTests);
 
 function task(id: string, title: string, status: string): Artifact {
 	return {
@@ -180,5 +194,62 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 		await new Promise((resolve) => setTimeout(resolve, 35));
 
 		expect(calls).toBe(callsAtDispose);
+	});
+});
+
+/**
+ * Real Bun.serve + real WebSocket, not a mocked subscribeTaskPushChannel -- the whole
+ * point is proving TaskOverlay actually reacts to a server-initiated push, not just
+ * that it calls some function. Mirrors the wiring pattern verified in daemon-push-channel.test.ts.
+ */
+describe("TaskOverlay push channel: refreshes immediately on a server-published mutation", () => {
+	afterEach(resetPapyrusClientForTests);
+
+	function startPushFixture(token: string) {
+		const pushChannel = new PushChannel({ token });
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: (request, bunServer) => pushChannel.upgrade(request, bunServer) ?? undefined,
+			websocket: pushChannel.websocketHandlers(),
+		});
+		return { pushChannel, server, port: server.port! };
+	}
+
+	it("a publish on the \"tasks\" topic triggers a real refresh() beyond the poll timer", async () => {
+		const token = "overlay-push-token";
+		const { pushChannel, server, port } = startPushFixture(token);
+		try {
+			setPushChannelTargetResolverForTests(() => ({ url: `ws://127.0.0.1:${port}/push`, token }));
+			let calls = 0;
+			setPapyrusClientConnectorForTests(async () => ({
+				async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
+			}) as any);
+
+			const overlay = new TaskOverlay();
+			overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+			overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+
+			// Establishes the push subscription as a side effect (ensurePushChannel()).
+			// No poll timer running -- if a second refresh happens, it can only be the push.
+			await overlay.refresh();
+			const callsAfterFirstRefresh = calls;
+
+			// Give the WebSocket a moment to finish its handshake and subscribe before publishing.
+			for (let attempt = 0; attempt < 50 && pushChannel.connectionCount === 0; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			expect(pushChannel.connectionCount).toBe(1);
+
+			pushChannel.publish("tasks", { operation: "tasks.complete" });
+			for (let attempt = 0; attempt < 50 && calls === callsAfterFirstRefresh; attempt++) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			expect(calls).toBeGreaterThan(callsAfterFirstRefresh);
+
+			overlay.dispose();
+		} finally {
+			await server.stop(true);
+		}
 	});
 });

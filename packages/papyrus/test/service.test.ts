@@ -274,6 +274,30 @@ describe("Papyrus operation service", () => {
 		expect((await client.operations()).length).toBe(EXPECTED_OPERATION_NAMES.length);
 		service.close();
 	});
+
+	it("fires onOperationExecuted only after a real success, carrying the exact operation name", async () => {
+		const dir = tempDir("papyrus-service-hook-");
+		const service = createPapyrusService(join(dir, "papyrus.db"));
+		const executed: string[] = [];
+		const app = createApp({ service, token: "test-token", onOperationExecuted: (operation) => executed.push(operation) });
+
+		const created = await request(app, "/api/v1/ops", {
+			method: "POST",
+			body: JSON.stringify({ op: "tasks.create", input: { title: "Hook task", project_root: PROJECT_ROOT } }),
+		});
+		expect(created.status).toBe(200);
+
+		// A failed operation (unknown op name) must not fire the hook -- a push consumer
+		// would otherwise trigger a refresh for something that never actually mutated state.
+		const failed = await request(app, "/api/v1/ops", {
+			method: "POST",
+			body: JSON.stringify({ op: "tasks.does_not_exist", input: {} }),
+		});
+		expect(failed.status).toBe(404);
+
+		expect(executed).toEqual(["tasks.create"]);
+		service.close();
+	});
 });
 
 describe("graph.status refuses to bypass a kind's own validated lifecycle transitions, matching Tasks' existing protection", () => {

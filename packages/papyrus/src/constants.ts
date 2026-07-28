@@ -108,6 +108,8 @@ export const SKILL_MAX_RENDERED_BYTES = 1_048_576;
 export const SKILL_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
 export const SKILL_INVOCATION_MAX_CALL_DEPTH = 4;
 export const PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
+/** Mirrors SKILL_INVOCATION_MAX_CALL_DEPTH: a playbook-calls-playbook edge chain is bounded the same way a skill-calls-skill chain is. */
+export const PLAYBOOK_INVOCATION_MAX_CALL_DEPTH = 4;
 export const PLAYBOOK_ARGUMENT_MAX_COUNT = 20;
 export const PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH = 64;
 export const PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH = 500;

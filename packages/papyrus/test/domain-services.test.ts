@@ -263,13 +263,41 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		expect(invocation).toContain("2. State the goal");
 		expect(invocation).toContain("Tools: discuss");
 		expect(invocation).toContain('references doc "Reference doc"');
-		// No skill-calls-skill-style nested composition exists for Playbooks.
+		// The only link here is to a Doc, not another Playbook, so no nested composition triggers.
 		expect(invocation).not.toContain("Also invoke linked");
 
 		expect(transitionPlaybook(artifacts, playbook.id, "disable").status).toBe("deprecated");
 		expect(transitionPlaybook(artifacts, playbook.id, "enable").status).toBe("active");
 		expect(listPlaybooks(artifacts, scopes, {})).toHaveLength(1);
 		expect(showPlaybook(artifacts, playbook.id).id).toBe(playbook.id);
+		db.close();
+	});
+
+	it("playbooks can call other playbooks: invoking the caller recursively composes the linked playbook's own invocation", () => {
+		const { db, artifacts, scopes } = fixture();
+		const inner = createPlaybook(artifacts, scopes, { title: "Inner playbook", trigger: "never directly", steps: ["Do the inner thing"] });
+		const outer = createPlaybook(artifacts, scopes, { title: "Outer playbook", trigger: "starting work", steps: ["Do the outer thing"] });
+		artifacts.link({ from: outer.id, relation: "depends_on", to: inner.id });
+
+		const invocation = playbookInvocation(artifacts, outer.id);
+		expect(invocation).toContain('Apply Papyrus playbook "Outer playbook"');
+		expect(invocation).toContain('Also invoke linked playbook (depends_on) "Inner playbook":');
+		expect(invocation).toContain('Apply Papyrus playbook "Inner playbook"');
+		expect(invocation).not.toContain(outer.id);
+		expect(invocation).not.toContain(inner.id);
+		expect(invocation).toContain("Do the inner thing");
+		db.close();
+	});
+
+	it("degrades a playbook-calls-playbook cycle to a marker instead of infinite-looping the invocation preview", () => {
+		const { db, artifacts, scopes } = fixture();
+		const a = createPlaybook(artifacts, scopes, { title: "A", trigger: "x", steps: [] });
+		const b = createPlaybook(artifacts, scopes, { title: "B", trigger: "x", steps: [] });
+		artifacts.link({ from: a.id, relation: "depends_on", to: b.id });
+		artifacts.link({ from: b.id, relation: "depends_on", to: a.id });
+
+		const invocation = playbookInvocation(artifacts, a.id); // must return, not hang or throw
+		expect(invocation).toContain("already invoked above in this chain, not repeated");
 		db.close();
 	});
 

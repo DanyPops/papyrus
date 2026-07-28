@@ -7,6 +7,7 @@ import {
 	PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH,
 	PLAYBOOK_ARGUMENT_MAX_COUNT,
 	PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH,
+	PLAYBOOK_INVOCATION_MAX_CALL_DEPTH,
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
 	SKILL_INVOCATION_MAX_CALL_DEPTH,
@@ -526,7 +527,9 @@ export function transitionSkill(artifacts: ArtifactStore, id: string, action: Sk
  * Playbooks: a trigger and an ordered list of steps an agent reads and follows -- a completely
  * different beast from Skills, not a subtype of one. A Skill (artifact-template or workflow) is
  * mechanically instantiated into other artifacts; a Playbook is never instantiated, it's read
- * and followed, and it never composes other Playbooks the way a Skill can call another Skill.
+ * and followed. A Playbook CAN compose other Playbooks, the same way a Skill can call another
+ * Skill: link one Playbook to another via a graph edge (any relation) and invoking the caller
+ * recursively composes the linked Playbook's own invocation. See playbookInvocation.
  */
 export interface PlaybookArgument {
 	name: string;
@@ -629,15 +632,8 @@ export function transitionPlaybook(artifacts: ArtifactStore, id: string, action:
 	return artifacts.setStatus(id, target, context)!;
 }
 
-/**
- * Renders trigger/steps/tools/arguments into readable guidance, plus any real linked artifacts.
- * No nested playbook-calls-playbook composition -- a Playbook is a flat procedure, not a
- * composable bundle. `provided` is the caller's already-known argument values (e.g. from the
- * conversation so far); any declared *required* argument missing from it is called out
- * explicitly, directing the agent to discuss (live:true) rather than guess or silently proceed.
- */
-export function playbookInvocation(artifacts: ArtifactStore, id: string, provided: Record<string, string> = {}): string {
-	const playbook = requireKind(artifacts, id, "playbook");
+/** Renders trigger/body/arguments/steps/tools into readable guidance -- the flat, non-recursive part of a Playbook's own invocation, shared by the top-level render and by a nested composed call. */
+function playbookInvocationBody(playbook: Artifact, provided: Record<string, string>): string {
 	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
 	const steps = Array.isArray(playbook.extra["steps"]) ? playbook.extra["steps"].filter((step): step is string => typeof step === "string") : [];
 	const tools = Array.isArray(playbook.extra["tools"]) ? playbook.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
@@ -649,7 +645,7 @@ export function playbookInvocation(artifacts: ArtifactStore, id: string, provide
 		return `- ${argument.name} (${qualifier}${argument.description ? `: ${argument.description}` : ""}) -- not yet provided`;
 	});
 	const missingRequired = declaredArguments.filter((argument) => argument.required && provided[argument.name] === undefined);
-	const sections = [[
+	return [
 		`Apply Papyrus playbook "${playbook.title}".`,
 		`Trigger: ${trigger}`,
 		...(playbook.body ? [`Context: ${playbook.body}`] : []),
@@ -659,11 +655,48 @@ export function playbookInvocation(artifacts: ArtifactStore, id: string, provide
 			: []),
 		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
 		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
-	].join("\n")];
+	].join("\n");
+}
+
+/**
+ * Renders trigger/steps/tools/arguments into readable guidance, plus any real linked artifacts.
+ * Playbooks are composable the same way Skills are: any outgoing graph edge (any relation)
+ * whose target is itself a Playbook recursively composes that Playbook's own invocation inline,
+ * instead of the flat one-line "Linked context" pointer a non-Playbook target gets. Bounded and
+ * cycle-safe -- a playbook-calls-playbook edge cycle degrades to a marker instead of
+ * infinite-looping, matching skillInvocation's own cycle-safety discipline.
+ * `provided` is the caller's already-known argument values (e.g. from the conversation so far);
+ * any declared *required* argument missing from it is called out explicitly, directing the agent
+ * to discuss (live:true) rather than guess or silently proceed. `visited` and `depth` are
+ * recursion-internal; callers should not pass them.
+ */
+export function playbookInvocation(artifacts: ArtifactStore, id: string, provided: Record<string, string> = {}, visited: Set<string> = new Set(), depth = 0): string {
+	const playbook = requireKind(artifacts, id, "playbook");
+	visited.add(id);
+	const sections = [playbookInvocationBody(playbook, provided)];
+
 	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
-	const linkedLines = edges
-		.map((edge) => { const target = artifacts.get(edge.to); return target ? `- ${edge.relation} ${target.kind} "${target.title}"` : undefined; })
-		.filter((line): line is string => line !== undefined);
-	if (linkedLines.length > 0) sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedLines].join("\n"));
+	const linkedArtifactLines: string[] = [];
+	const linkedPlaybookSections: string[] = [];
+	for (const edge of edges) {
+		const target = artifacts.get(edge.to);
+		if (!target) continue; // dangling edge -- defensive, should not happen
+		if (target.kind !== "playbook") {
+			linkedArtifactLines.push(`- ${edge.relation} ${target.kind} "${target.title}"`);
+			continue;
+		}
+		if (visited.has(target.id)) {
+			linkedPlaybookSections.push(`Also linked via ${edge.relation} to playbook "${target.title}" -- already invoked above in this chain, not repeated.`);
+		} else if (depth + 1 > PLAYBOOK_INVOCATION_MAX_CALL_DEPTH) {
+			linkedPlaybookSections.push(`Also linked via ${edge.relation} to playbook "${target.title}" -- call depth limit reached, invoke it separately.`);
+		} else {
+			const nested = playbookInvocation(artifacts, target.id, provided, visited, depth + 1);
+			linkedPlaybookSections.push(`Also invoke linked playbook (${edge.relation}) "${target.title}":\n${nested}`);
+		}
+	}
+	if (linkedArtifactLines.length > 0) {
+		sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedArtifactLines].join("\n"));
+	}
+	for (const section of linkedPlaybookSections) sections.push(section);
 	return sections.join("\n\n");
 }

@@ -656,7 +656,7 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "playbooks",
 		label: "Playbooks",
-		description: "Playbook domain tool -- a completely different beast from the skills tool, not a subtype of it. A Playbook is a trigger and an ordered list of steps an agent reads and follows; it is never mechanically instantiated the way a Skill's artifact-template or workflow blueprint is. A Playbook CAN compose other Playbooks: link one to another via papyrus_graph (any relation) and invoking the caller recursively inlines the linked Playbook's own steps, bounded and cycle-safe. ACTIONS: create, list, show, invoke, enable, disable, assign_project, update, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. On create, `arguments` declares named inputs the Playbook needs: [{name, description?, required?}] (required defaults true). On invoke, `arguments` supplies known values as {name: value}; invoke renders which declared REQUIRED arguments are still missing and directs you to ask the human for them via the discuss tool with live:true -- never guess or invent a value for a missing required argument. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id` -- id is a backend implementation detail, resolved from name automatically.",
+		description: "Playbook domain tool -- a completely different beast from the skills tool, not a subtype of it. A Playbook is a trigger and an ordered list of steps an agent reads and follows; it is never mechanically instantiated the way a Skill's artifact-template or workflow blueprint is. Like Tasks, a Playbook can be nested or chained with another Playbook: contain/uncontain nest a child Playbook inside a parent (invoking the parent recursively runs the child's steps as part of it); depend/undepend chain a prerequisite Playbook before another (invoking the dependent recursively runs the prerequisite's steps first). Both are bounded and cycle-safe -- a composition cycle degrades to a marker instead of infinite-looping, rather than being rejected up front the way a real Task dependency cycle is. ACTIONS: create, list, show, invoke, enable, disable, assign_project, update, contain, uncontain, depend, undepend, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. On create, `arguments` declares named inputs the Playbook needs: [{name, description?, required?}] (required defaults true). On invoke, `arguments` supplies known values as {name: value}; invoke renders which declared REQUIRED arguments are still missing and directs you to ask the human for them via the discuss tool with live:true -- never guess or invent a value for a missing required argument. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id`, and `parent_name`/`child_name`/`dependency_name` over `parent_id`/`child_id`/`dependency_id` for contain/uncontain/depend/undepend -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
@@ -664,6 +664,9 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 			arguments: Type.Optional(Type.Unknown()),
 			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
 			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()),
+			parent_id: Type.Optional(Type.String()), parent_name: Type.Optional(Type.String()),
+			child_id: Type.Optional(Type.String()), child_name: Type.Optional(Type.String()),
+			dependency_id: Type.Optional(Type.String()), dependency_name: Type.Optional(Type.String()),
 			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Playbooks", args, theme); },
@@ -672,8 +675,12 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
+				const resolutionRequest = { project_root: params.project_root };
 				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: { project_root: params.project_root } },
+					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+					{ nameKey: "child_name", idKey: "child_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
 				]);
 				if (action === "create" || action === "invoke") normalizeJsonEncodedField(params, "arguments");
 				if (action === "create") {
@@ -690,7 +697,10 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;
-				const operations = { show: "playbooks.show", enable: "playbooks.enable", disable: "playbooks.disable", assign_project: "playbooks.assign_project", update: "playbooks.update" } as const;
+				const operations = {
+					show: "playbooks.show", enable: "playbooks.enable", disable: "playbooks.disable", assign_project: "playbooks.assign_project", update: "playbooks.update",
+					contain: "playbooks.contain", uncontain: "playbooks.uncontain", depend: "playbooks.depend", undepend: "playbooks.undepend",
+				} as const;
 				const operation = operations[action as keyof typeof operations];
 				if (!operation) throw new Error(`unknown playbooks action: ${action}`);
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);

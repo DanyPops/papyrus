@@ -39,6 +39,10 @@ import {
 	assignPlaybookProject,
 	updatePlaybook,
 	playbookInvocation,
+	containPlaybook,
+	uncontainPlaybook,
+	dependPlaybook,
+	undependPlaybook,
 } from "../src/domain-services.ts";
 
 function fixture() {
@@ -273,28 +277,69 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		db.close();
 	});
 
-	it("playbooks can call other playbooks: invoking the caller recursively composes the linked playbook's own invocation", () => {
+	it("playbooks nest via contains: invoking the parent recursively runs the child's own steps as part of it", () => {
 		const { db, artifacts, scopes } = fixture();
-		const inner = createPlaybook(artifacts, scopes, { title: "Inner playbook", trigger: "never directly", steps: ["Do the inner thing"] });
-		const outer = createPlaybook(artifacts, scopes, { title: "Outer playbook", trigger: "starting work", steps: ["Do the outer thing"] });
-		artifacts.link({ from: outer.id, relation: "depends_on", to: inner.id });
+		const child = createPlaybook(artifacts, scopes, { title: "Child playbook", trigger: "never directly", steps: ["Do the child thing"] });
+		const parent = createPlaybook(artifacts, scopes, { title: "Parent playbook", trigger: "starting work", steps: ["Do the parent thing"] });
+		const contained = containPlaybook(artifacts, parent.id, child.id);
+		expect(contained.edges).toContainEqual({ from: parent.id, relation: "contains", to: child.id });
+		expect(contained.edges).toContainEqual({ from: child.id, relation: "part_of", to: parent.id });
 
-		const invocation = playbookInvocation(artifacts, outer.id);
-		expect(invocation).toContain('Apply Papyrus playbook "Outer playbook"');
-		expect(invocation).toContain('Also invoke linked playbook (depends_on) "Inner playbook":');
-		expect(invocation).toContain('Apply Papyrus playbook "Inner playbook"');
-		expect(invocation).not.toContain(outer.id);
-		expect(invocation).not.toContain(inner.id);
-		expect(invocation).toContain("Do the inner thing");
+		const invocation = playbookInvocation(artifacts, parent.id);
+		expect(invocation).toContain('Apply Papyrus playbook "Parent playbook"');
+		expect(invocation).toContain('Nested playbook (contains) "Child playbook" -- run as part of this one:');
+		expect(invocation).toContain('Apply Papyrus playbook "Child playbook"');
+		expect(invocation).not.toContain(parent.id);
+		expect(invocation).not.toContain(child.id);
+		expect(invocation).toContain("Do the child thing");
+		// Nesting renders AFTER the parent's own body -- it's additional detail, not a precondition.
+		expect(invocation.indexOf("Do the parent thing")).toBeLessThan(invocation.indexOf("Do the child thing"));
+
+		const uncontained = uncontainPlaybook(artifacts, parent.id, child.id);
+		expect(uncontained.edges ?? []).not.toContainEqual({ from: parent.id, relation: "contains", to: child.id });
+		expect(playbookInvocation(artifacts, parent.id)).not.toContain("Nested playbook");
 		db.close();
 	});
 
-	it("degrades a playbook-calls-playbook cycle to a marker instead of infinite-looping the invocation preview", () => {
+	it("playbooks chain via depends_on: invoking the dependent recursively runs the prerequisite's steps FIRST", () => {
+		const { db, artifacts, scopes } = fixture();
+		const prerequisite = createPlaybook(artifacts, scopes, { title: "Prerequisite playbook", trigger: "never directly", steps: ["Do the prerequisite thing"] });
+		const dependent = createPlaybook(artifacts, scopes, { title: "Dependent playbook", trigger: "starting work", steps: ["Do the dependent thing"] });
+		const depended = dependPlaybook(artifacts, dependent.id, prerequisite.id);
+		expect(depended.edges).toContainEqual({ from: dependent.id, relation: "depends_on", to: prerequisite.id });
+
+		const invocation = playbookInvocation(artifacts, dependent.id);
+		expect(invocation).toContain('Prerequisite playbook (depends_on) "Prerequisite playbook" -- complete this FIRST, before the steps below:');
+		expect(invocation).toContain('Apply Papyrus playbook "Prerequisite playbook"');
+		expect(invocation).toContain('Apply Papyrus playbook "Dependent playbook"');
+		// Chaining renders BEFORE the dependent's own body -- it must complete first.
+		expect(invocation.indexOf("Do the prerequisite thing")).toBeLessThan(invocation.indexOf("Do the dependent thing"));
+
+		const undepended = undependPlaybook(artifacts, dependent.id, prerequisite.id);
+		expect(undepended.edges ?? []).not.toContainEqual({ from: dependent.id, relation: "depends_on", to: prerequisite.id });
+		expect(playbookInvocation(artifacts, dependent.id)).not.toContain("Prerequisite playbook");
+		db.close();
+	});
+
+	it("rejects a playbook containing or depending on itself, and refuses composition on a read-only external projection", () => {
+		const { db, artifacts, scopes } = fixture();
+		const playbook = createPlaybook(artifacts, scopes, { title: "Self" });
+		expect(() => containPlaybook(artifacts, playbook.id, playbook.id)).toThrow("cannot contain itself");
+		expect(() => dependPlaybook(artifacts, playbook.id, playbook.id)).toThrow("cannot depend on itself");
+
+		const other = createPlaybook(artifacts, scopes, { title: "Other" });
+		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
+		expect(() => containPlaybook(artifacts, projected.id, other.id)).toThrow(/read-only projection from some-external-system/);
+		expect(() => dependPlaybook(artifacts, projected.id, other.id)).toThrow(/read-only projection from some-external-system/);
+		db.close();
+	});
+
+	it("degrades a playbook composition cycle (contains or depends_on) to a marker instead of infinite-looping the invocation preview", () => {
 		const { db, artifacts, scopes } = fixture();
 		const a = createPlaybook(artifacts, scopes, { title: "A", trigger: "x", steps: [] });
 		const b = createPlaybook(artifacts, scopes, { title: "B", trigger: "x", steps: [] });
-		artifacts.link({ from: a.id, relation: "depends_on", to: b.id });
-		artifacts.link({ from: b.id, relation: "depends_on", to: a.id });
+		containPlaybook(artifacts, a.id, b.id);
+		dependPlaybook(artifacts, b.id, a.id);
 
 		const invocation = playbookInvocation(artifacts, a.id); // must return, not hang or throw
 		expect(invocation).toContain("already invoked above in this chain, not repeated");

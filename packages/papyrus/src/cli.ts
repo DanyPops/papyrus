@@ -120,6 +120,10 @@ const USAGE = `Usage:
   papyrus playbooks enable|disable <id> [--json]
   papyrus playbooks assign-project <id> [project-root] [--json]
   papyrus playbooks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
+  papyrus playbooks contain <parent-id> <child-id> [--json]
+  papyrus playbooks uncontain <parent-id> <child-id> [--json]
+  papyrus playbooks depend <id> <dependency-id> [--json]
+  papyrus playbooks undepend <id> <dependency-id> [--json]
   papyrus notes capture <request> [--title <title>] [--json]
   papyrus notes list [--status <draft|active|archived>] [--text <query>] [--limit <count>] [--json]
   papyrus notes show <id> [--json]
@@ -889,8 +893,36 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 			human = `${artifactLabel(artifact)}`;
 			break;
 		}
+		case "contain": {
+			if (!id || !second || positional.length !== 3) throw new Error("playbooks contain requires a parent id and child id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.contain", { parent_id: id, child_id: second });
+			result = artifact;
+			human = `Nested: ${second} → ${artifactLabel(artifact)}`;
+			break;
+		}
+		case "uncontain": {
+			if (!id || !second || positional.length !== 3) throw new Error("playbooks uncontain requires a parent id and child id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.uncontain", { parent_id: id, child_id: second });
+			result = artifact;
+			human = `Removed ${second} from ${artifactLabel(artifact)}`;
+			break;
+		}
+		case "depend": {
+			if (!id || !second || positional.length !== 3) throw new Error("playbooks depend requires a playbook id and prerequisite id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.depend", { id, dependency_id: second });
+			result = artifact;
+			human = `Dependency added: ${artifactLabel(artifact)} waits for ${second}`;
+			break;
+		}
+		case "undepend": {
+			if (!id || !second || positional.length !== 3) throw new Error("playbooks undepend requires a playbook id and prerequisite id");
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.undepend", { id, dependency_id: second });
+			result = artifact;
+			human = `Dependency removed: ${artifactLabel(artifact)} no longer waits for ${second}`;
+			break;
+		}
 		default:
-			throw new Error("playbooks action must be create, list, show, invoke, enable, disable, assign-project, or update");
+			throw new Error("playbooks action must be create, list, show, invoke, enable, disable, assign-project, update, contain, uncontain, depend, or undepend");
 	}
 	return json ? JSON.stringify(result) : human;
 }

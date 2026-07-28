@@ -413,6 +413,10 @@ function handlers(
 		"playbooks.disable": forwardToModule("playbooks.disable"),
 		"playbooks.assign_project": forwardToModule("playbooks.assign_project"),
 		"playbooks.update": forwardToModule("playbooks.update"),
+		"playbooks.contain": forwardToModule("playbooks.contain"),
+		"playbooks.uncontain": forwardToModule("playbooks.uncontain"),
+		"playbooks.depend": forwardToModule("playbooks.depend"),
+		"playbooks.undepend": forwardToModule("playbooks.undepend"),
 		"skills.instantiate": (input) => {
 			const templateId = string(input, "template_id");
 			const template = artifacts.get(templateId);

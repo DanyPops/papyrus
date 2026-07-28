@@ -6,7 +6,7 @@
  * its own kind, not a subtype squeezed into "skill". See domain-services.ts's Playbook section
  * for the full rationale.
  */
-import { assignPlaybookProject, createPlaybook, listPlaybooks, playbookInvocation, showPlaybook, transitionPlaybook, updatePlaybook } from "../domain-services.ts";
+import { assignPlaybookProject, containPlaybook, createPlaybook, dependPlaybook, listPlaybooks, playbookInvocation, showPlaybook, transitionPlaybook, uncontainPlaybook, undependPlaybook, updatePlaybook } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -51,6 +51,7 @@ const artifactFilter = (input: OperationInput) => ({
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const PLAYBOOKS_OPERATION_NAMES = [
 	"playbooks.create", "playbooks.list", "playbooks.show", "playbooks.invoke", "playbooks.enable", "playbooks.disable", "playbooks.assign_project", "playbooks.update",
+	"playbooks.contain", "playbooks.uncontain", "playbooks.depend", "playbooks.undepend",
 ] as const;
 
 export function playbooksOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore): OperationDefinition[] {
@@ -74,5 +75,9 @@ export function playbooksOperations(artifacts: ArtifactStore, scopes: ArtifactSc
 		define("playbooks.update", (input: OperationInput) => updatePlaybook(artifacts, string(input, "id"), {
 			title: optionalString(input, "title"), body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
 		}, eventContext(input))),
+		define("playbooks.contain", (input: OperationInput) => containPlaybook(artifacts, string(input, "parent_id"), string(input, "child_id"), eventContext(input))),
+		define("playbooks.uncontain", (input: OperationInput) => uncontainPlaybook(artifacts, string(input, "parent_id"), string(input, "child_id"), eventContext(input))),
+		define("playbooks.depend", (input: OperationInput) => dependPlaybook(artifacts, string(input, "id"), string(input, "dependency_id"), eventContext(input))),
+		define("playbooks.undepend", (input: OperationInput) => undependPlaybook(artifacts, string(input, "id"), string(input, "dependency_id"), eventContext(input))),
 	];
 }

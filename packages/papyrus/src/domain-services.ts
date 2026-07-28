@@ -527,9 +527,15 @@ export function transitionSkill(artifacts: ArtifactStore, id: string, action: Sk
  * Playbooks: a trigger and an ordered list of steps an agent reads and follows -- a completely
  * different beast from Skills, not a subtype of one. A Skill (artifact-template or workflow) is
  * mechanically instantiated into other artifacts; a Playbook is never instantiated, it's read
- * and followed. A Playbook CAN compose other Playbooks, the same way a Skill can call another
- * Skill: link one Playbook to another via a graph edge (any relation) and invoking the caller
- * recursively composes the linked Playbook's own invocation. See playbookInvocation.
+ * and followed. Like Tasks, a Playbook can be nested or chained with another Playbook:
+ * `contains`/`part_of` (containPlaybook/uncontainPlaybook) nests a sub-playbook inside a parent
+ * -- invoking the parent recursively embeds the nested one's own steps, run as part of it.
+ * `depends_on` (dependPlaybook/undependPlaybook) chains one playbook before another -- invoking
+ * the dependent recursively renders the prerequisite's steps FIRST, to be completed before the
+ * dependent's own. Both are bounded and cycle-safe: a composition cycle degrades to a marker at
+ * render time (playbookInvocation) rather than being rejected at link time -- unlike Tasks' own
+ * depends_on, which does reject a real dependency cycle up front because Task dependencies gate
+ * actual lifecycle execution, not just text rendering.
  */
 export interface PlaybookArgument {
 	name: string;
@@ -632,6 +638,42 @@ export function transitionPlaybook(artifacts: ArtifactStore, id: string, action:
 	return artifacts.setStatus(id, target, context)!;
 }
 
+/** Idempotent (INSERT OR IGNORE at the storage layer): containing an already-nested child is a no-op, not an error. Both contains/part_of edges are written atomically -- matches tasks.contain's own shape. */
+export function containPlaybook(artifacts: ArtifactStore, parentId: string, childId: string, context?: ArtifactEventContext): Artifact {
+	requireLocallyOwnedContent(requireKind(artifacts, parentId, "playbook"));
+	requireLocallyOwnedContent(requireKind(artifacts, childId, "playbook"));
+	if (parentId === childId) throw new Error(`playbook "${parentId}" cannot contain itself`);
+	artifacts.link({ from: parentId, relation: "contains", to: childId }, context);
+	artifacts.link({ from: childId, relation: "part_of", to: parentId }, context);
+	return showPlaybook(artifacts, parentId);
+}
+
+/** Idempotent: uncontaining an already-absent nesting is a no-op. Both contains/part_of edges are removed atomically. */
+export function uncontainPlaybook(artifacts: ArtifactStore, parentId: string, childId: string, context?: ArtifactEventContext): Artifact {
+	requireLocallyOwnedContent(requireKind(artifacts, parentId, "playbook"));
+	requireLocallyOwnedContent(requireKind(artifacts, childId, "playbook"));
+	artifacts.unlink({ from: parentId, relation: "contains", to: childId }, context);
+	artifacts.unlink({ from: childId, relation: "part_of", to: parentId }, context);
+	return showPlaybook(artifacts, parentId);
+}
+
+/** Idempotent: depending on an already-declared prerequisite is a no-op, not an error. Unlike tasks.depend, this never rejects a cycle at write time -- playbookInvocation degrades a composition cycle to a marker at render time instead, the same posture already established for Skill-calls-Skill and Playbook-calls-Playbook via `contains`. */
+export function dependPlaybook(artifacts: ArtifactStore, id: string, dependencyId: string, context?: ArtifactEventContext): Artifact {
+	requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
+	requireLocallyOwnedContent(requireKind(artifacts, dependencyId, "playbook"));
+	if (id === dependencyId) throw new Error(`playbook "${id}" cannot depend on itself`);
+	artifacts.link({ from: id, relation: "depends_on", to: dependencyId }, context);
+	return showPlaybook(artifacts, id);
+}
+
+/** Idempotent: undepending an already-absent prerequisite is a no-op. */
+export function undependPlaybook(artifacts: ArtifactStore, id: string, dependencyId: string, context?: ArtifactEventContext): Artifact {
+	requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
+	requireLocallyOwnedContent(requireKind(artifacts, dependencyId, "playbook"));
+	artifacts.unlink({ from: id, relation: "depends_on", to: dependencyId }, context);
+	return showPlaybook(artifacts, id);
+}
+
 /** Renders trigger/body/arguments/steps/tools into readable guidance -- the flat, non-recursive part of a Playbook's own invocation, shared by the top-level render and by a nested composed call. */
 function playbookInvocationBody(playbook: Artifact, provided: Record<string, string>): string {
 	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
@@ -660,11 +702,13 @@ function playbookInvocationBody(playbook: Artifact, provided: Record<string, str
 
 /**
  * Renders trigger/steps/tools/arguments into readable guidance, plus any real linked artifacts.
- * Playbooks are composable the same way Skills are: any outgoing graph edge (any relation)
- * whose target is itself a Playbook recursively composes that Playbook's own invocation inline,
- * instead of the flat one-line "Linked context" pointer a non-Playbook target gets. Bounded and
- * cycle-safe -- a playbook-calls-playbook edge cycle degrades to a marker instead of
- * infinite-looping, matching skillInvocation's own cycle-safety discipline.
+ * Two relations compose recursively, each with distinct wording matching Tasks' own semantics:
+ * `contains` nests a child playbook -- its full steps render AFTER this playbook's own, as
+ * "run as part of this one". `depends_on` chains a prerequisite -- its full steps render BEFORE
+ * this playbook's own, as "complete this first". Every other relation (references, relates_to,
+ * etc.) still gets the flat one-line "Linked context" pointer, unchanged. Bounded and
+ * cycle-safe -- a composition cycle degrades to a marker instead of infinite-looping, matching
+ * skillInvocation's own cycle-safety discipline.
  * `provided` is the caller's already-known argument values (e.g. from the conversation so far);
  * any declared *required* argument missing from it is called out explicitly, directing the agent
  * to discuss (live:true) rather than guess or silently proceed. `visited` and `depth` are
@@ -673,30 +717,36 @@ function playbookInvocationBody(playbook: Artifact, provided: Record<string, str
 export function playbookInvocation(artifacts: ArtifactStore, id: string, provided: Record<string, string> = {}, visited: Set<string> = new Set(), depth = 0): string {
 	const playbook = requireKind(artifacts, id, "playbook");
 	visited.add(id);
-	const sections = [playbookInvocationBody(playbook, provided)];
 
 	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
 	const linkedArtifactLines: string[] = [];
-	const linkedPlaybookSections: string[] = [];
+	const nestedSections: string[] = []; // contains -- rendered after this playbook's own body
+	const prerequisiteSections: string[] = []; // depends_on -- rendered before this playbook's own body
 	for (const edge of edges) {
 		const target = artifacts.get(edge.to);
 		if (!target) continue; // dangling edge -- defensive, should not happen
-		if (target.kind !== "playbook") {
+		const isComposing = target.kind === "playbook" && (edge.relation === "contains" || edge.relation === "depends_on");
+		if (!isComposing) {
 			linkedArtifactLines.push(`- ${edge.relation} ${target.kind} "${target.title}"`);
 			continue;
 		}
+		const bucket = edge.relation === "contains" ? nestedSections : prerequisiteSections;
+		const role = edge.relation === "contains" ? "nested" : "prerequisite";
 		if (visited.has(target.id)) {
-			linkedPlaybookSections.push(`Also linked via ${edge.relation} to playbook "${target.title}" -- already invoked above in this chain, not repeated.`);
+			bucket.push(`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- already invoked above in this chain, not repeated.`);
 		} else if (depth + 1 > PLAYBOOK_INVOCATION_MAX_CALL_DEPTH) {
-			linkedPlaybookSections.push(`Also linked via ${edge.relation} to playbook "${target.title}" -- call depth limit reached, invoke it separately.`);
+			bucket.push(`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- call depth limit reached, invoke it separately.`);
 		} else {
 			const nested = playbookInvocation(artifacts, target.id, provided, visited, depth + 1);
-			linkedPlaybookSections.push(`Also invoke linked playbook (${edge.relation}) "${target.title}":\n${nested}`);
+			bucket.push(edge.relation === "contains"
+				? `Nested playbook (contains) "${target.title}" -- run as part of this one:\n${nested}`
+				: `Prerequisite playbook (depends_on) "${target.title}" -- complete this FIRST, before the steps below:\n${nested}`);
 		}
 	}
+
+	const sections = [...prerequisiteSections, playbookInvocationBody(playbook, provided), ...nestedSections];
 	if (linkedArtifactLines.length > 0) {
 		sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedArtifactLines].join("\n"));
 	}
-	for (const section of linkedPlaybookSections) sections.push(section);
 	return sections.join("\n\n");
 }

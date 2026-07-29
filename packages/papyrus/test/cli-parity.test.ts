@@ -52,6 +52,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "artifact.query", result: artifactList, invoke: (c) => runArtifactCli(["query", "--json"], c) },
 	{ operation: "artifact.show", result: artifact, invoke: (c) => runArtifactCli(["show", "a1", "--json"], c) },
 	{ operation: "artifact.remove", result: { artifactId: "a1", trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" }, invoke: (c) => runArtifactCli(["remove", "a1", "--json"], c) },
+	{ operation: "artifact.remove_subtree", result: { removed: ["a1"], skipped: [] }, invoke: (c) => runArtifactCli(["remove-subtree", "a1", "--json"], c) },
 	{ operation: "artifact.restore", result: { restored: true }, invoke: (c) => runArtifactCli(["restore", "a1", "--json"], c) },
 	{ operation: "artifact.trash_status", result: null, invoke: (c) => runArtifactCli(["trash-status", "a1", "--json"], c) },
 	{ operation: "artifact.trash_list", result: [], invoke: (c) => runArtifactCli(["trash-list", "--json"], c) },

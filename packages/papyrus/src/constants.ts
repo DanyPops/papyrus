@@ -123,6 +123,8 @@ export const PLAYBOOK_INVOCATION_MAX_CREATED_TASKS = 200;
 
 /** Tasks.cancelSubtree walks `contains` edges transitively (a whole materialized playbook run can be torn down in one call instead of enumerating every task id by hand) -- bounded the same way PLAYBOOK_INVOCATION_MAX_CREATED_TASKS bounds the forward direction. */
 export const TASK_CANCEL_SUBTREE_MAX_NODES = 500;
+/** artifact.remove_subtree walks `contains` transitively across any artifact kind (a task tree, or a playbook's own nested-playbook children) -- same bound rationale as TASK_CANCEL_SUBTREE_MAX_NODES, kept separate since the two traversals serve different operations. */
+export const ARTIFACT_REMOVE_SUBTREE_MAX_NODES = 500;
 
 /**
  * At the core, a workflow Skill creates Tasks and begins a pipeline -- an Ansible playbook or

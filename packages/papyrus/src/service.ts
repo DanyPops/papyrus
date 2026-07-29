@@ -1,6 +1,7 @@
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { VERSION } from "./version.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
+import { removeArtifactSubtree } from "./artifact-subtree.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
@@ -57,7 +58,7 @@ import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-s
  */
 const COMPOSITION_ROOT_OPERATION_NAMES = [
 	"system.migrate", "artifact.create", "artifact.query", "artifact.show",
-	"artifact.remove", "artifact.restore", "artifact.trash_status", "artifact.trash_list",
+	"artifact.remove", "artifact.remove_subtree", "artifact.restore", "artifact.trash_status", "artifact.trash_list",
 	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
 	"rules.injectable", "skills.instantiate",
 ] as const;
@@ -280,6 +281,7 @@ function handlers(
 			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 		}),
 		"artifact.remove": (input) => artifacts.trash(string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
+		"artifact.remove_subtree": (input) => removeArtifactSubtree(artifacts, string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
 		"artifact.restore": (input) => artifacts.restore(string(input, "id"), eventContext(input)),
 		"artifact.trash_status": (input) => artifacts.trashStatus(string(input, "id")),
 		"artifact.trash_list": () => artifacts.listTrash(),

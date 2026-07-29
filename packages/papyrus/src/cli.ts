@@ -83,6 +83,7 @@ const USAGE = `Usage:
   papyrus artifact query [--kind <kind>] [--status <status>] [--text <query>] [--limit <count>] [--json]
   papyrus artifact show <id> [--depth <n>] [--max-nodes <n>] [--json]
   papyrus artifact remove <id> [--reason <text>] [--json]
+  papyrus artifact remove-subtree <id> [--reason <text>] [--json]
   papyrus artifact restore <id> [--json]
   papyrus artifact trash-status <id> [--json]
   papyrus artifact trash-list [--json]
@@ -1023,6 +1024,13 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 			human = `Trashed ${record.artifactId}: eligible for purge at ${record.purgeAfter}`;
 			break;
 		}
+		case "remove-subtree": {
+			if (!id) throw new Error("artifact remove-subtree requires exactly one artifact id");
+			const outcome = await client.call<Record<string, unknown>, { removed: string[]; skipped: string[] }>("artifact.remove_subtree", { id, reason });
+			result = outcome;
+			human = `Trashed ${outcome.removed.length} artifact(s)${outcome.skipped.length > 0 ? `, skipped ${outcome.skipped.length} already-trashed` : ""}.`;
+			break;
+		}
 		case "restore": {
 			if (!id) throw new Error("artifact restore requires exactly one artifact id");
 			const outcome = await client.call<Record<string, unknown>, { restored: boolean }>("artifact.restore", { id });
@@ -1045,7 +1053,7 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 			break;
 		}
 		default:
-			throw new Error("artifact action must be create, query, show, remove, restore, trash-status, or trash-list");
+			throw new Error("artifact action must be create, query, show, remove, remove-subtree, restore, trash-status, or trash-list");
 	}
 	return json ? JSON.stringify(result) : human;
 }

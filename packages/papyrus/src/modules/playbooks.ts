@@ -1,15 +1,34 @@
 /**
  * modules/playbooks.ts — Playbooks as a Papyrus-native registered module.
  *
- * A Playbook (trigger + ordered steps an agent reads and follows) is a completely different
- * beast from a Skill (a mechanically instantiated artifact-template or workflow blueprint) --
- * its own kind, not a subtype squeezed into "skill". See domain-services.ts's Playbook section
- * for the full rationale.
+ * A Playbook (trigger + ordered steps, contains/depends_on composition, predefined
+ * rules/docs) is a completely different beast from a Skill (a mechanically instantiated
+ * artifact-template or workflow blueprint) at the AUTHORING level -- but playbooks.invoke
+ * recycles the exact same materialization engine workflow Skills use (playbook-execution.ts
+ * compiles a Playbook's composition tree into a SkillDefinition, then hands off to
+ * workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
+ * playbook-definition.ts for the full rationale.
  */
-import { assignPlaybookProject, containPlaybook, createPlaybook, dependPlaybook, listPlaybooks, playbookInvocation, showPlaybook, transitionPlaybook, uncontainPlaybook, undependPlaybook, updatePlaybook } from "../domain-services.ts";
+import {
+	assignPlaybookProject,
+	containPlaybook,
+	createPlaybook,
+	dependPlaybook,
+	listPlaybooks,
+	playbookInvocation,
+	showPlaybook,
+	transitionPlaybook,
+	uncontainPlaybook,
+	undependPlaybook,
+	updatePlaybook,
+} from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
+import type { TaskEventStore } from "../ports/task-event-store.ts";
+import type { TaskScopeStore } from "../ports/task-scope-store.ts";
+import { invokePlaybook } from "../playbook-execution.ts";
+import type { Tasks } from "../task-service.ts";
 
 const MODULE_ID = "playbooks";
 
@@ -41,6 +60,11 @@ const eventContext = (input: OperationInput) => ({
 	sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 });
 
+const eventContextFor = (input: OperationInput, source: string) => {
+	const context = eventContext(input);
+	return { ...context, source: context.source ?? source };
+};
+
 const artifactFilter = (input: OperationInput) => ({
 	status: optionalString(input, "status"),
 	text: optionalString(input, "text"),
@@ -50,28 +74,47 @@ const artifactFilter = (input: OperationInput) => ({
 
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const PLAYBOOKS_OPERATION_NAMES = [
-	"playbooks.create", "playbooks.list", "playbooks.show", "playbooks.invoke", "playbooks.enable", "playbooks.disable", "playbooks.assign_project", "playbooks.update",
+	"playbooks.create", "playbooks.list", "playbooks.show", "playbooks.invoke", "playbooks.preview", "playbooks.enable", "playbooks.disable", "playbooks.assign_project", "playbooks.update",
 	"playbooks.contain", "playbooks.uncontain", "playbooks.depend", "playbooks.undepend",
 ] as const;
 
-export function playbooksOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore): OperationDefinition[] {
+export interface PlaybooksModuleDeps {
+	artifacts: ArtifactStore;
+	events: TaskEventStore;
+	scopes: TaskScopeStore;
+	/** Docs/Rules/Skills/Playbooks project scoping (distinct from `scopes`, which is Task-run project scoping for playbooks.invoke's materialized tasks). */
+	artifactScopes: ArtifactScopeStore;
+	/** Used for exactly one thing: focusing the entry task after a successful invoke -- the one safety-checked Tasks operation this module needs, not bulk graph construction (that goes straight through artifacts/events/scopes in playbook-execution.ts, mirroring workflow-execution.ts). */
+	tasks: Tasks;
+}
+
+export function playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks }: PlaybooksModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,
 	});
 	return [
-		define("playbooks.create", (input: OperationInput) => createPlaybook(artifacts, scopes, {
+		define("playbooks.create", (input: OperationInput) => createPlaybook(artifacts, artifactScopes, {
 			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
 			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
 			arguments: input["arguments"],
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 			projectRoot: optionalString(input, "project_root"),
 		}, eventContext(input))),
-		define("playbooks.list", (input: OperationInput) => listPlaybooks(artifacts, scopes, artifactFilter(input))),
+		define("playbooks.list", (input: OperationInput) => listPlaybooks(artifacts, artifactScopes, artifactFilter(input))),
 		define("playbooks.show", (input: OperationInput) => showPlaybook(artifacts, string(input, "id"))),
-		define("playbooks.invoke", (input: OperationInput) => playbookInvocation(artifacts, string(input, "id"), input["arguments"] as Record<string, string> | undefined)),
+		define("playbooks.preview", (input: OperationInput) => playbookInvocation(artifacts, string(input, "id"), input["arguments"] as Record<string, string> | undefined)),
+		define("playbooks.invoke", (input: OperationInput) => {
+			const result = invokePlaybook(artifacts, string(input, "id"), {
+				runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
+				arguments: input["arguments"] as Record<string, unknown> | undefined,
+			}, { events, scopes, projectRoot: optionalString(input, "project_root"), context: eventContextFor(input, "playbook-run") });
+			if ("missingArguments" in result) return result;
+			tasks.focus(result.entryTaskId, eventContextFor(input, "playbook-run"));
+			return result;
+		}),
 		define("playbooks.enable", (input: OperationInput) => transitionPlaybook(artifacts, string(input, "id"), "enable", eventContext(input))),
 		define("playbooks.disable", (input: OperationInput) => transitionPlaybook(artifacts, string(input, "id"), "disable", eventContext(input))),
-		define("playbooks.assign_project", (input: OperationInput) => assignPlaybookProject(artifacts, scopes, string(input, "id"), optionalString(input, "project_root"))),
+		define("playbooks.assign_project", (input: OperationInput) => assignPlaybookProject(artifacts, artifactScopes, string(input, "id"), optionalString(input, "project_root"))),
 		define("playbooks.update", (input: OperationInput) => updatePlaybook(artifacts, string(input, "id"), {
 			title: optionalString(input, "title"), body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
 		}, eventContext(input))),

@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { Artifact, SkillWorkflowRunResult, TaskGraph } from "@danypops/papyrus";
+import type { Artifact, WorkflowRunResult, TaskGraph } from "@danypops/papyrus";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { SKILL_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
@@ -50,7 +50,7 @@ export function skillInvocationPrompt(skill: Artifact): string {
 	].join("\n");
 }
 
-export function skillRunTaskGraph(run: SkillWorkflowRunResult, taskArtifacts: Artifact[]): TaskGraph {
+export function skillRunTaskGraph(run: WorkflowRunResult, taskArtifacts: Artifact[]): TaskGraph {
 	const executionById = new Map(run.execution.nodes.map((node) => [node.id, node]));
 	return {
 		nodes: taskArtifacts.map((task) => ({
@@ -95,7 +95,7 @@ export async function showSkills(ctx: ExtensionCommandContext): Promise<void> {
 					if (typeof arguments_ !== "object" || arguments_ === null || Array.isArray(arguments_)) {
 						throw new Error("arguments must be a JSON object");
 					}
-					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", {
+					const run = await callService<Record<string, unknown>, WorkflowRunResult>("skills.run", {
 						id: skill.id,
 						arguments: arguments_ as Record<string, unknown>,
 						project_root: commandCtx.cwd,

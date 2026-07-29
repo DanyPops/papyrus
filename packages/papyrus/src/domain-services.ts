@@ -524,18 +524,22 @@ export function transitionSkill(artifacts: ArtifactStore, id: string, action: Sk
 }
 
 /**
- * Playbooks: a trigger and an ordered list of steps an agent reads and follows -- a completely
- * different beast from Skills, not a subtype of one. A Skill (artifact-template or workflow) is
- * mechanically instantiated into other artifacts; a Playbook is never instantiated, it's read
- * and followed. Like Tasks, a Playbook can be nested or chained with another Playbook:
- * `contains`/`part_of` (containPlaybook/uncontainPlaybook) nests a sub-playbook inside a parent
- * -- invoking the parent recursively embeds the nested one's own steps, run as part of it.
- * `depends_on` (dependPlaybook/undependPlaybook) chains one playbook before another -- invoking
- * the dependent recursively renders the prerequisite's steps FIRST, to be completed before the
- * dependent's own. Both are bounded and cycle-safe: a composition cycle degrades to a marker at
- * render time (playbookInvocation) rather than being rejected at link time -- unlike Tasks' own
- * depends_on, which does reject a real dependency cycle up front because Task dependencies gate
- * actual lifecycle execution, not just text rendering.
+ * Playbooks: a trigger and an ordered list of steps -- authored as prose, a completely
+ * different beast from Skills at that level. But playbooks.invoke (playbook-execution.ts)
+ * recycles the exact same materialization engine workflow Skills use: it compiles a Playbook
+ * into a SkillDefinition and mechanically instantiates real Tasks from it, same as a Skill's
+ * own artifact-template/workflow blueprint. `playbookInvocation` below is the OTHER, older
+ * path -- rendered text with no side effects, now exposed as the `preview` action for a human
+ * who wants to just read a playbook before invoking it, not the primary way of running one.
+ * Like Tasks, a Playbook can be nested or chained with another Playbook: `contains`/`part_of`
+ * (containPlaybook/uncontainPlaybook) nests a sub-playbook inside a parent -- both preview and
+ * invoke run the nested one's own steps as part of the parent, invoke as real dependsOn-chained
+ * Tasks, preview as embedded text. `depends_on` (dependPlaybook/undependPlaybook) chains one
+ * playbook before another -- the prerequisite's steps run first, either as real Tasks the
+ * dependent's first step depends_on (invoke) or as embedded text rendered first (preview).
+ * Composition is bounded in both paths; preview degrades a cycle to a text marker at render
+ * time, while invoke's compiler (playbook-definition.ts) treats a cycle as a hard error --
+ * real Tasks would otherwise be created in an infinite loop, unlike text rendering.
  */
 export interface PlaybookArgument {
 	name: string;

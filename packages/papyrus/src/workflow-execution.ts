@@ -26,9 +26,25 @@ const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 export interface InstantiateSkillWorkflowInput {
 	runId?: string;
 	arguments?: Record<string, unknown>;
+	/** When set, names one blueprint task ref whose resolved real task id is returned as `entryTaskId` -- e.g. the first-in-reading-order step of a compiled Playbook, so the caller can focus it without recomputing the ref-to-id mapping externally. */
+	focusRef?: string;
 }
 
-export interface SkillWorkflowRunResult {
+/**
+ * Identifies who owns a materialized run for tagging purposes: which artifact gets the
+ * `triggers` edges to its root tasks, which extra-bag key records run lineage on each created
+ * artifact, and which label prefix scopes them. Defaults used by instantiateSkillWorkflow
+ * (ownerId: the skill's own id, extraKey: "skillRun", labelPrefix: "skill-run") are unchanged
+ * from before this was made pluggable -- a Playbook-compiled run supplies its own (playbook id,
+ * "playbookRun", "playbook-run") instead, the only thing that actually differs between the two.
+ */
+export interface WorkflowLineage {
+	ownerId: string;
+	extraKey: string;
+	labelPrefix: string;
+}
+
+export interface WorkflowRunResult {
 	skillId: string;
 	runId: string;
 	arguments: Record<string, SkillArgumentValue>;
@@ -41,6 +57,8 @@ export interface SkillWorkflowRunResult {
 	};
 	/** Real starting points: for a nested skill-call root step, that nested run's own root tasks (recursively), not just "all its tasks". */
 	rootTaskIds: string[];
+	/** Resolved from input.focusRef when supplied -- the one real task id a caller (e.g. Playbook invocation) should focus, undefined when focusRef was not requested or names an unknown ref. */
+	entryTaskId?: string;
 	/** Scoped to this definition's own directly-created tasks only -- nested runs' tasks are real, graph-linked, and visible via /tasks graph, but not folded into this projection. */
 	execution: TaskExecutionPlan;
 }
@@ -98,15 +116,15 @@ function renderDefinition(definition: SkillDefinition, arguments_: Record<string
 	return validateSkillDefinition(rendered);
 }
 
-function withRunLabel(labels: string[] | undefined, runId: string): string[] {
-	return [...new Set([...(labels ?? []), `skill-run:${runId}`])];
+function withRunLabel(labels: string[] | undefined, labelPrefix: string, runId: string): string[] {
+	return [...new Set([...(labels ?? []), `${labelPrefix}:${runId}`])];
 }
 
-function executionGraph(tasks: Artifact[], definition: SkillDefinition, ids: Map<string, string>): TaskGraph {
+function executionGraph(tasks: Artifact[], definition: SkillDefinition, ids: Map<string, string>, extraKey: string): TaskGraph {
 	const byRef = new Map(definition.blueprints.tasks.map((task) => [task.ref, task]));
 	const nodes: TaskNode[] = tasks.map((task) => {
-		const ref = task.extra["skillRun"] && typeof task.extra["skillRun"] === "object"
-			? (task.extra["skillRun"] as Record<string, unknown>)["ref"] as string
+		const ref = task.extra[extraKey] && typeof task.extra[extraKey] === "object"
+			? (task.extra[extraKey] as Record<string, unknown>)["ref"] as string
 			: "";
 		const blueprint = byRef.get(ref)!;
 		return {
@@ -120,7 +138,8 @@ function executionGraph(tasks: Artifact[], definition: SkillDefinition, ids: Map
 	return { nodes, rootIds: nodes.filter((node) => node.parentIds.length === 0).map((node) => node.task.id) };
 }
 
-type SkillWorkflowHistory = { events: TaskEventStore; scopes: TaskScopeStore; projectRoot: string; context?: TaskEventContext };
+/** projectRoot is optional -- skills.run always supplies one (workflow Skill runs are always project-scoped today), while a Playbook invocation may legitimately be ad hoc/cross-project (e.g. a lab-deploy playbook not tied to any one repo), landing its tasks in the same "unscoped" bucket Tasks.create already supports for a caller that omits projectRoot entirely. */
+export type WorkflowRunHistory = { events: TaskEventStore; scopes: TaskScopeStore; projectRoot?: string; context?: TaskEventContext };
 
 /**
  * Public entry point: wraps one complete pipeline run (including every nested sub-pipeline
@@ -133,8 +152,8 @@ export function instantiateSkillWorkflow(
 	artifacts: ArtifactStore,
 	skillId: string,
 	input: InstantiateSkillWorkflowInput = {},
-	history?: SkillWorkflowHistory,
-): SkillWorkflowRunResult {
+	history?: WorkflowRunHistory,
+): WorkflowRunResult {
 	const run = () => runWorkflowSteps(artifacts, skillId, input, history, new Set(), 0);
 	if (history) return history.events.atomic(run);
 	return requireAtomicArtifactStore(artifacts).atomic(run);
@@ -154,19 +173,53 @@ function runWorkflowSteps(
 	artifacts: ArtifactStore,
 	skillId: string,
 	input: InstantiateSkillWorkflowInput,
-	history: SkillWorkflowHistory | undefined,
+	history: WorkflowRunHistory | undefined,
 	ancestorSkillIds: ReadonlySet<string>,
 	depth: number,
-): SkillWorkflowRunResult {
+): WorkflowRunResult {
 	if (ancestorSkillIds.has(skillId)) throw new Error(`skill workflow nesting cycle includes "${skillId}"`);
 	if (depth > SKILL_WORKFLOW_MAX_NESTING_DEPTH) throw new Error(`skill workflow nesting exceeds ${SKILL_WORKFLOW_MAX_NESTING_DEPTH} levels`);
 	const nextAncestors = new Set([...ancestorSkillIds, skillId]);
-
 	const { definition } = requireWorkflowSkill(artifacts, skillId);
-	const projectRoot = history ? normalizeProjectRoot(history.projectRoot) : undefined;
+	return materializeWorkflowDefinition(
+		artifacts,
+		{ ownerId: skillId, extraKey: "skillRun", labelPrefix: "skill-run" },
+		definition,
+		input,
+		history,
+		nextAncestors,
+		depth,
+	);
+}
+
+/**
+ * The definition-materialization core, shared by workflow Skills (instantiateSkillWorkflow,
+ * via runWorkflowSteps above) and Playbook invocation (playbook-execution.ts): given an
+ * ALREADY-RESOLVED SkillDefinition -- fetched from a persisted Skill artifact for the Skill
+ * path, compiled in-memory from a Playbook's steps/trigger/arguments and its contains/
+ * depends_on composition tree for the Playbook path -- creates every blueprint artifact,
+ * wires dependsOn/parent/links, recurses into nested skill-call pipeline steps (a no-op for a
+ * Playbook-compiled definition, which never populates blueprints.skills), and tags every
+ * created artifact and the run's containing labels via `lineage` rather than a hardcoded
+ * "skillRun"/"skill-run" shape -- the only thing that differs between the two callers.
+ * `ancestorSkillIds`/`depth` are the same cycle/nesting-depth tracking runWorkflowSteps already
+ * enforced before this was extracted; a Playbook caller with no nested skill-calls to recurse
+ * into passes an empty set and depth 0 and never revisits this function itself.
+ */
+export function materializeWorkflowDefinition(
+	artifacts: ArtifactStore,
+	lineage: WorkflowLineage,
+	definition: SkillDefinition,
+	input: InstantiateSkillWorkflowInput,
+	history: WorkflowRunHistory | undefined,
+	ancestorSkillIds: ReadonlySet<string>,
+	depth: number,
+): WorkflowRunResult {
+	const { ownerId, extraKey, labelPrefix } = lineage;
+	const projectRoot = history?.projectRoot !== undefined ? normalizeProjectRoot(history.projectRoot) : undefined;
 	const arguments_ = resolveSkillArguments(definition, input.arguments);
 	const rendered = renderDefinition(definition, arguments_);
-	const runId = normalizeRunId(skillId, input.runId);
+	const runId = normalizeRunId(ownerId, input.runId);
 	const refs = [
 		...rendered.blueprints.docs.map(({ ref }) => ref),
 		...rendered.blueprints.rules.map(({ ref }) => ref),
@@ -194,22 +247,22 @@ function runWorkflowSteps(
 		title: blueprint.title,
 		body: blueprint.body,
 		subtype: blueprint.subtype,
-		labels: withRunLabel(blueprint.labels, runId),
-		extra: { ...(blueprint.extra ?? {}), skillRun: { id: runId, skillId, ref: blueprint.ref } },
+		labels: withRunLabel(blueprint.labels, labelPrefix, runId),
+		extra: { ...(blueprint.extra ?? {}), [extraKey]: { id: runId, ownerId, ref: blueprint.ref } },
 	}));
 	const rules = rendered.blueprints.rules.map((blueprint) => artifacts.create({
 		id: ids.get(blueprint.ref),
 		kind: "rule",
 		title: blueprint.title,
 		body: blueprint.body,
-		labels: withRunLabel(blueprint.labels, runId),
+		labels: withRunLabel(blueprint.labels, labelPrefix, runId),
 		extra: {
 			...(blueprint.extra ?? {}),
 			...(blueprint.condition ? { condition: blueprint.condition } : {}),
 			...(blueprint.action ? { action: blueprint.action } : {}),
 			...(blueprint.severity ? { severity: blueprint.severity } : {}),
-			skillRun: { id: runId, skillId, ref: blueprint.ref },
-			scope: { type: "skill-run", runId, taskIds },
+			[extraKey]: { id: runId, ownerId, ref: blueprint.ref },
+			scope: { type: labelPrefix, runId, taskIds },
 		},
 	}));
 	const tasks = rendered.blueprints.tasks.map((blueprint) => {
@@ -218,16 +271,16 @@ function runWorkflowSteps(
 			kind: "task",
 			title: blueprint.title,
 			body: blueprint.body,
-			labels: withRunLabel(blueprint.labels, runId),
-			extra: { ...(blueprint.extra ?? {}), skillRun: { id: runId, skillId, ref: blueprint.ref } },
+			labels: withRunLabel(blueprint.labels, labelPrefix, runId),
+			extra: { ...(blueprint.extra ?? {}), [extraKey]: { id: runId, ownerId, ref: blueprint.ref } },
 		});
 		if (history) {
-			history.scopes.assign(task.id, projectRoot, "cwd");
+			history.scopes.assign(task.id, projectRoot, projectRoot ? "cwd" : "unscoped");
 			history.events.append({
 				taskId: task.id,
 				type: "created",
 				actor: history.context?.actor ?? "system",
-				source: history.context?.source ?? "skill-run",
+				source: history.context?.source ?? labelPrefix,
 				toStatus: task.status as TaskStatus,
 				...(history.context?.sessionId === undefined ? {} : { sessionId: history.context.sessionId }),
 				...(history.context?.reason === undefined ? {} : { reason: history.context.reason }),
@@ -240,7 +293,7 @@ function runWorkflowSteps(
 	// nested run actually produced. stepTaskIds/stepRootTaskIds map EVERY step ref (task or
 	// skill-call) to the task id(s) it resolves to, so dependsOn/parent wiring below treats
 	// both kinds of step uniformly.
-	const nestedRuns: SkillWorkflowRunResult[] = [];
+	const nestedRuns: WorkflowRunResult[] = [];
 	const stepTaskIds = new Map<string, string[]>(tasks.map((task, index) => [rendered.blueprints.tasks[index]!.ref, [task.id]]));
 	const stepRootTaskIds = new Map<string, string[]>(
 		tasks.map((task, index) => [rendered.blueprints.tasks[index]!.ref, (rendered.blueprints.tasks[index]!.dependsOn?.length ?? 0) === 0 ? [task.id] : []]),
@@ -251,7 +304,7 @@ function runWorkflowSteps(
 			call.skillId,
 			{ runId: `${runId}-${call.ref}`, arguments: call.arguments },
 			history,
-			nextAncestors,
+			ancestorSkillIds,
 			depth + 1,
 		);
 		nestedRuns.push(nested);
@@ -298,14 +351,14 @@ function runWorkflowSteps(
 			.flatMap((call) => stepRootTaskIds.get(call.ref) ?? []),
 	];
 	for (const task of rendered.blueprints.tasks) {
-		if ((task.dependsOn?.length ?? 0) === 0) artifacts.link({ from: skillId, relation: "triggers", to: ids.get(task.ref)! });
+		if ((task.dependsOn?.length ?? 0) === 0) artifacts.link({ from: ownerId, relation: "triggers", to: ids.get(task.ref)! });
 	}
 	for (const call of rendered.blueprints.skills as SkillCallBlueprint[]) {
-		if ((call.dependsOn?.length ?? 0) === 0) artifacts.link({ from: skillId, relation: "triggers", to: call.skillId });
+		if ((call.dependsOn?.length ?? 0) === 0) artifacts.link({ from: ownerId, relation: "triggers", to: call.skillId });
 	}
 
 	return {
-		skillId,
+		skillId: ownerId,
 		runId,
 		arguments: arguments_,
 		created: {
@@ -315,6 +368,7 @@ function runWorkflowSteps(
 			skillRuns: [...nestedRuns.map((run) => run.runId), ...nestedRuns.flatMap((run) => run.created.skillRuns)],
 		},
 		rootTaskIds,
-		execution: projectTaskExecution(executionGraph(tasks, rendered, ids)),
+		...(input.focusRef !== undefined && ids.has(input.focusRef) ? { entryTaskId: ids.get(input.focusRef)! } : {}),
+		execution: projectTaskExecution(executionGraph(tasks, rendered, ids, extraKey)),
 	};
 }

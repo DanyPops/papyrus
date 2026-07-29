@@ -5,14 +5,14 @@ import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from ".
 
 afterEach(resetPapyrusClientForTests);
 
-function mockPlaybooksList(playbooks: unknown[], invocationText = "Apply the playbook."): void {
+function mockPlaybooksList(playbooks: unknown[], invocationResult: unknown = { entryTaskId: "t1", created: { tasks: ["t1"] } }): void {
 	setPapyrusClientConnectorForTests(async () => ({
 		async call(operation: string, input: any) {
 			if (operation === "playbooks.list") {
 				expect(input).toMatchObject({ status: "active" });
 				return playbooks;
 			}
-			if (operation === "playbooks.invoke") return invocationText;
+			if (operation === "playbooks.invoke") return invocationResult;
 			throw new Error(`unexpected operation ${operation}`);
 		},
 	}) as any);
@@ -69,8 +69,8 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 		expect(commands.get("playbook:new-project")?.description).toBe("starting from scratch");
 	});
 
-	it("the command's handler re-fetches the live playbook by id at invocation time and places the invocation in the editor", async () => {
-		mockPlaybooksList([PLAYBOOK], "Apply Papyrus playbook \"New Project\".");
+	it("the command's handler re-fetches the live playbook by id at invocation time, invokes it (materializing real tasks), and reports the focused entry task", async () => {
+		mockPlaybooksList([PLAYBOOK], { entryTaskId: "t1", created: { tasks: ["t0", "t1"] } });
 		const { pi, commands } = fakePi();
 		registerPlaybookBridge(pi);
 		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
@@ -78,8 +78,8 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 		const setTexts: string[] = [];
 		const ctx = { ui: { setEditorText: (text: string) => setTexts.push(text), notify: (message: string, type?: string) => notifications.push({ message, type }) } };
 		await commands.get("playbook:new-project")!.handler("", ctx);
-		expect(setTexts).toEqual(['Apply Papyrus playbook "New Project".']);
-		expect(notifications).toEqual([{ message: '"New Project" invocation placed in the editor', type: "info" }]);
+		expect(setTexts).toEqual(['Run the "New Project" playbook -- work on the currently focused task.']);
+		expect(notifications).toEqual([{ message: '"New Project" invoked: entry task t1 focused', type: "info" }]);
 	});
 
 	it("a lingering stale command (renamed/disabled since registration, since registerCommand can't be unregistered) fails cleanly instead of running deleted content", async () => {

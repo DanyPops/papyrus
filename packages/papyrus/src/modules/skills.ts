@@ -12,7 +12,7 @@
  * skills.run depends on the Task-domain ports (TaskEventStore, TaskScopeStore) as
  * constructor parameters. These are shared port contracts every module may depend on,
  * the same way every module already depends on ArtifactStore — not "another module's
- * infrastructure" in the sense of a concrete class. skill-execution.ts already has this
+ * infrastructure" in the sense of a concrete class. workflow-execution.ts already has this
  * port dependency pre-existing; untangling it is a separate, larger concern than this
  * extraction.
  */
@@ -23,7 +23,7 @@ import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
-import { instantiateSkillWorkflow } from "../skill-execution.ts";
+import { instantiateSkillWorkflow } from "../workflow-execution.ts";
 
 const MODULE_ID = "skills";
 

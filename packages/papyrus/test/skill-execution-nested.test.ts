@@ -4,7 +4,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import { createSkill } from "../src/domain-services.ts";
-import { instantiateSkillWorkflow } from "../src/skill-execution.ts";
+import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
 import { SKILL_WORKFLOW_MAX_NESTING_DEPTH } from "../src/constants.ts";
 
 /** A leaf workflow: one task, no nesting. Used as the "downstream job" a pipeline step triggers. */

@@ -113,10 +113,10 @@ const USAGE = `Usage:
   papyrus skills assign-project <id> [project-root] [--json]
   papyrus skills update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--arguments-json <json array>] [--project-root <path>] [--json]
-  papyrus playbooks invoke <id> [--arguments-json <json object>] [--json]
+  papyrus playbooks invoke <id> [--arguments-json <json object>] [--project-root <path>] [--json]  # materializes real tasks (contains/depends_on-wired) and focuses the entry task
+  papyrus playbooks preview <id> [--arguments-json <json object>] [--json]  # renders text only, creates nothing
   papyrus playbooks list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus playbooks show <id> [--json]
-  papyrus playbooks invoke <id> [--json]
   papyrus playbooks enable|disable <id> [--json]
   papyrus playbooks assign-project <id> [project-root] [--json]
   papyrus playbooks update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
@@ -863,11 +863,20 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 			human = `${artifactLabel(artifact)}\n\n${artifact.body ?? ""}`;
 			break;
 		}
+		case "preview": {
+			if (!id || second) throw new Error("playbooks preview requires exactly one playbook id");
+			const rendered = await client.call<Record<string, unknown>, string>("playbooks.preview", { id, arguments: playbookArguments });
+			result = rendered;
+			human = rendered;
+			break;
+		}
 		case "invoke": {
 			if (!id || second) throw new Error("playbooks invoke requires exactly one playbook id");
-			const invocation = await client.call<Record<string, unknown>, string>("playbooks.invoke", { id, arguments: playbookArguments });
+			const invocation = await client.call<Record<string, unknown>, { entryTaskId: string; missingArguments?: string[] }>("playbooks.invoke", { id, arguments: playbookArguments, project_root: playbookProjectRoot });
 			result = invocation;
-			human = invocation;
+			human = invocation.missingArguments
+				? `Missing required argument(s): ${invocation.missingArguments.join(", ")}.`
+				: `Invoked: entry task ${invocation.entryTaskId} focused. Drive it forward with \`tasks start/submit/complete\` like any other task.`;
 			break;
 		}
 		case "enable":
@@ -922,7 +931,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 			break;
 		}
 		default:
-			throw new Error("playbooks action must be create, list, show, invoke, enable, disable, assign-project, update, contain, uncontain, depend, or undepend");
+			throw new Error("playbooks action must be create, list, show, invoke, preview, enable, disable, assign-project, update, contain, uncontain, depend, or undepend");
 	}
 	return json ? JSON.stringify(result) : human;
 }

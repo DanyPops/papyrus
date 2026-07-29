@@ -26,14 +26,28 @@ export async function playbookArgumentCompletions(argumentPrefix: string): Promi
 	}
 }
 
-/** `/playbook <name>` (no args opens the full browser instead): resolves by exact title, then places its invocation directly in the editor -- one step, not browse-then-select-then-invoke. */
+interface PlaybookInvocationResponse {
+	entryTaskId?: string;
+	missingArguments?: string[];
+}
+
+/** Shared by /playbook <name> and the browser's own "Invoke" action: materializes real Tasks and focuses the entry one, then reports it -- invoke no longer returns rendered text (that's playbooks.preview now). */
+async function invokeAndReport(id: string, label: string, ctx: ExtensionCommandContext): Promise<void> {
+	const invocation = await callService<Record<string, unknown>, PlaybookInvocationResponse>("playbooks.invoke", { id });
+	if (invocation.missingArguments) {
+		ctx.ui.notify(`"${label}" needs: ${invocation.missingArguments.join(", ")}`, "error");
+		return;
+	}
+	ctx.ui.setEditorText(`Run the "${label}" playbook -- work on the currently focused task.`);
+	ctx.ui.notify(`"${label}" invoked: entry task ${invocation.entryTaskId} focused`, "info");
+}
+
+/** `/playbook <name>` (no args opens the full browser instead): resolves by exact title, then invokes it directly -- one step, not browse-then-select-then-invoke. */
 export async function openPlaybookByName(name: string, ctx: ExtensionCommandContext): Promise<void> {
 	if (!name.trim()) { await showPlaybooks(ctx); return; }
 	try {
 		const id = matchArtifactByName(await activePlaybooks(), name);
-		const invocation = await callService<Record<string, unknown>, string>("playbooks.invoke", { id });
-		ctx.ui.setEditorText(invocation);
-		ctx.ui.notify(`"${name.trim()}" invocation placed in the editor`, "info");
+		await invokeAndReport(id, name.trim(), ctx);
 	} catch (error) {
 		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 	}
@@ -75,9 +89,7 @@ export async function showPlaybooks(ctx: ExtensionCommandContext): Promise<void>
 				return;
 			}
 			if (choice === "Invoke") {
-				const invocation = await callService<Record<string, unknown>, string>("playbooks.invoke", { id: playbook.id });
-				commandCtx.ui.setEditorText(invocation);
-				commandCtx.ui.notify("Invocation placed in the editor", "info");
+				await invokeAndReport(playbook.id, playbook.title, commandCtx);
 				return;
 			}
 			if (choice === "Link artifact") {

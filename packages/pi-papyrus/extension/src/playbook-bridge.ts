@@ -73,9 +73,17 @@ export function registerPlaybookBridge(pi: ExtensionAPI): void {
 							// Re-fetched live, not captured at registration time: a lingering stale
 							// command (renamed or disabled since, since registerCommand can't be
 							// unregistered) must fail cleanly, never run deleted/stale content.
-							const invocation = await callService<Record<string, unknown>, string>("playbooks.invoke", { id });
-							ctx.ui.setEditorText(invocation);
-							ctx.ui.notify(`"${title}" invocation placed in the editor`, "info");
+							// invoke materializes real Tasks and focuses the entry one -- it no longer
+							// returns rendered text to drop into the editor (that's playbooks.preview
+							// now). The editor gets a short kickoff prompt instead; the actual step
+							// content surfaces via the normal Task Focus system-prompt pointer.
+							const invocation = await callService<Record<string, unknown>, { entryTaskId?: string; missingArguments?: string[] }>("playbooks.invoke", { id });
+							if (invocation.missingArguments) {
+								ctx.ui.notify(`"${title}" needs: ${invocation.missingArguments.join(", ")}`, "error");
+								return;
+							}
+							ctx.ui.setEditorText(`Run the "${title}" playbook -- work on the currently focused task.`);
+							ctx.ui.notify(`"${title}" invoked: entry task ${invocation.entryTaskId} focused`, "info");
 						} catch (error) {
 							ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 						}

@@ -10,7 +10,7 @@ import {
 	type GateResult,
 	type NoteHistoryPage,
 	type OperationName,
-	type SkillWorkflowRunResult,
+	type WorkflowRunResult,
 	type TaskCompletion,
 	type TaskExecutionPlan,
 	type TaskGraph,
@@ -656,7 +656,7 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "playbooks",
 		label: "Playbooks",
-		description: "Playbook domain tool -- a completely different beast from the skills tool, not a subtype of it. A Playbook is a trigger and an ordered list of steps an agent reads and follows; it is never mechanically instantiated the way a Skill's artifact-template or workflow blueprint is. Like Tasks, a Playbook can be nested or chained with another Playbook: contain/uncontain nest a child Playbook inside a parent (invoking the parent recursively runs the child's steps as part of it); depend/undepend chain a prerequisite Playbook before another (invoking the dependent recursively runs the prerequisite's steps first). Both are bounded and cycle-safe -- a composition cycle degrades to a marker instead of infinite-looping, rather than being rejected up front the way a real Task dependency cycle is. ACTIONS: create, list, show, invoke, enable, disable, assign_project, update, contain, uncontain, depend, undepend, remove, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. On create, `arguments` declares named inputs the Playbook needs: [{name, description?, required?}] (required defaults true). On invoke, `arguments` supplies known values as {name: value}; invoke renders which declared REQUIRED arguments are still missing and directs you to ask the human for them via the discuss tool with live:true -- never guess or invent a value for a missing required argument. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id`, and `parent_name`/`child_name`/`dependency_name` over `parent_id`/`child_id`/`dependency_id` for contain/uncontain/depend/undepend -- all are backend implementation details, resolved from name automatically.",
+		description: "Playbook domain tool -- a completely different beast from the skills tool at the AUTHORING level (a Playbook is prose: a trigger and an ordered list of steps), but invoke recycles the exact same materialization engine workflow Skills use: it compiles the Playbook's steps and its contains/depends_on composition tree into real Tasks (one per step, plus one container task per playbook in the tree), wires them with dependsOn so completing one auto-focuses the next, and focuses the first one -- no text dump, one step (page) surfaces at a time as it becomes the focused task, exactly like any other Task. contain/uncontain nest a child Playbook inside a parent (its steps run AFTER the parent's own, as part of it); depend/undepend chain a prerequisite Playbook before another (it must fully complete FIRST). Both are bounded; a composition cycle is a hard invoke-time error (real Tasks would otherwise be created in a loop), unlike preview's degrade-to-a-marker. ACTIONS: create, list, show, invoke, preview, enable, disable, assign_project, update, contain, uncontain, depend, undepend, remove, restore. project_root is optional everywhere (omitted = unscoped). On create, `arguments` declares named inputs the Playbook needs: [{name, description?, required?}] (required defaults true) -- referenced in step text as `{{name}}`, substituted at invoke time. On invoke, `arguments` supplies known values as {name: value}; if any declared REQUIRED argument is still missing, invoke creates nothing and returns `missingArguments` -- ask the human for these (discuss tool, live:true) and invoke again, never guess or invent a value. A successful invoke returns `entryTaskId` (now focused) and `created.tasks` -- drive it forward with the tasks tool (start/submit/complete) like any other Task; contains/depends_on wiring auto-focuses each next step on completion. preview renders the whole tree as text with no side effects, for a human who just wants to read it first. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline. PREFER `name` (the playbook's exact title) over `id`, and `parent_name`/`child_name`/`dependency_name` over `parent_id`/`child_id`/`dependency_id` for contain/uncontain/depend/undepend -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
 			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
@@ -682,7 +682,7 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 					{ nameKey: "child_name", idKey: "child_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
 					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
 				]);
-				if (action === "create" || action === "invoke") normalizeJsonEncodedField(params, "arguments");
+				if (action === "create" || action === "invoke" || action === "preview") normalizeJsonEncodedField(params, "arguments");
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("playbooks.create", params);
 					return text(`Created playbook ${artifactLine(artifact)}`, createArtifactDetails("playbooks.create", artifact));
@@ -691,9 +691,18 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("playbooks.list", params);
 					return text(rows.length ? artifactLines(rows).join("\n") : "No playbooks found.", createArtifactListDetails("playbooks.list", rows));
 				}
+				if (action === "preview") {
+					const rendered = await callService<Record<string, unknown>, string>("playbooks.preview", params);
+					return text(rendered, createPreviewDetails("playbooks.preview", "Playbook preview", rendered));
+				}
 				if (action === "invoke") {
-					const invocation = await callService<Record<string, unknown>, string>("playbooks.invoke", params);
-					return text(invocation, createPreviewDetails("playbooks.invoke", "Playbook invocation", invocation));
+					const invocation = await callService<Record<string, unknown>, { entryTaskId?: string; rootTaskIds?: string[]; created?: { tasks: string[] }; missingArguments?: string[] }>("playbooks.invoke", params);
+					if (invocation.missingArguments) {
+						const message = `Missing required argument(s): ${invocation.missingArguments.join(", ")}. Nothing was created -- ask the human for these (discuss tool, live:true), then invoke again.`;
+						return text(message, createPreviewDetails("playbooks.invoke", "Playbook invocation", message));
+					}
+					const message = `Invoked: ${invocation.created?.tasks.length ?? 0} task(s) created, entry task ${invocation.entryTaskId} now focused. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`;
+					return text(message, createPreviewDetails("playbooks.invoke", "Playbook invocation", JSON.stringify(invocation, null, 2)));
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;
@@ -755,7 +764,7 @@ export function registerSkillsTool(pi: ExtensionAPI): void {
 					return text(invocation, createPreviewDetails("skills.invoke", "Skill invocation", invocation));
 				}
 				if (action === "run") {
-					const run = await callService<Record<string, unknown>, SkillWorkflowRunResult>("skills.run", request);
+					const run = await callService<Record<string, unknown>, WorkflowRunResult>("skills.run", request);
 					const runTitleCounts = new Map<string, number>();
 					for (const node of run.execution.nodes) runTitleCounts.set(node.title, (runTitleCounts.get(node.title) ?? 0) + 1);
 					const execution = run.execution.nodes.map((node) => (runTitleCounts.get(node.title) ?? 0) > 1

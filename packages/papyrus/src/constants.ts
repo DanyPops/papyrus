@@ -113,6 +113,13 @@ export const PLAYBOOK_INVOCATION_MAX_CALL_DEPTH = 4;
 export const PLAYBOOK_ARGUMENT_MAX_COUNT = 20;
 export const PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH = 64;
 export const PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH = 500;
+/**
+ * playbooks.invoke materializes a real Task per step (plus one container Task per playbook
+ * node in the contains/depends_on composition tree) instead of rendering text -- this bounds
+ * the total number of Tasks one invoke call can create, the same blast-radius concern
+ * SKILL_MAX_BLUEPRINTS already covers for workflow Skills.
+ */
+export const PLAYBOOK_INVOCATION_MAX_CREATED_TASKS = 200;
 
 /**
  * At the core, a workflow Skill creates Tasks and begins a pipeline -- an Ansible playbook or

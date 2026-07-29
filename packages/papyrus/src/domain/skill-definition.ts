@@ -49,7 +49,7 @@ export interface SkillTaskBlueprint {
 /**
  * A pipeline step that nests another workflow Skill's run inside this one -- the Jenkins
  * "trigger downstream job and wait" / Ansible "include_tasks" primitive. `skillId` is late-
- * bound: existence and workflow-subtype are checked at execution time (skill-execution.ts),
+ * bound: existence and workflow-subtype are checked at execution time (workflow-execution.ts),
  * not here, since this validator has no store access. `dependsOn`/`parent` place this step in
  * the SAME dependency graph as ordinary task blueprints -- a task can depend on a skill-call
  * ref (meaning: depend on every task the nested run creates), and a skill-call's own `parent`

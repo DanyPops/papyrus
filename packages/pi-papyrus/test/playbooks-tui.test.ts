@@ -9,7 +9,7 @@ function playbook(overrides: Partial<Artifact> & { id: string; title: string }):
 	return { kind: "playbook", status: "active", subtype: "", body: "", labels: [], extra: {}, created_at: "x", updated_at: "x", ...overrides };
 }
 
-function mockList(playbooks: Artifact[], invoke: (id: string) => string = () => "invocation text"): Array<{ operation: string; input: unknown }> {
+function mockList(playbooks: Artifact[], invoke: (id: string) => unknown = (id) => ({ entryTaskId: `entry-${id}`, created: { tasks: [`entry-${id}`] } })): Array<{ operation: string; input: unknown }> {
 	const calls: Array<{ operation: string; input: unknown }> = [];
 	setPapyrusClientConnectorForTests(async () => ({
 		async call(operation: string, input: any) {
@@ -54,14 +54,14 @@ describe("/playbook command: argument completions and open-by-name", () => {
 		expect(calls.some((call) => call.operation === "playbooks.invoke")).toBe(false);
 	});
 
-	it("resolves an exact name and places the real invocation text in the editor", async () => {
-		mockList([playbook({ id: "p1", title: "New Project" })], (id) => `invocation for ${id}`);
+	it("resolves an exact name, invokes it (materializing real tasks), and reports the focused entry task", async () => {
+		mockList([playbook({ id: "p1", title: "New Project" })], (id) => ({ entryTaskId: `entry-${id}`, created: { tasks: [`entry-${id}`] } }));
 		let editorText: string | undefined;
 		const notifications: string[] = [];
 		const ctx = { ui: { setEditorText: (text: string) => { editorText = text; }, notify: (message: string) => notifications.push(message) } } as any;
 		await openPlaybookByName("New Project", ctx);
-		expect(editorText).toBe("invocation for p1");
-		expect(notifications).toEqual(['"New Project" invocation placed in the editor']);
+		expect(editorText).toBe('Run the "New Project" playbook -- work on the currently focused task.');
+		expect(notifications).toEqual(['"New Project" invoked: entry task entry-p1 focused']);
 	});
 
 	it("notifies an error, never throws, when the name doesn't match exactly one playbook", async () => {

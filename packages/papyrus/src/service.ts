@@ -409,6 +409,7 @@ function handlers(
 		"playbooks.list": forwardToModule("playbooks.list"),
 		"playbooks.show": forwardToModule("playbooks.show"),
 		"playbooks.invoke": forwardToModule("playbooks.invoke"),
+		"playbooks.preview": forwardToModule("playbooks.preview"),
 		"playbooks.enable": forwardToModule("playbooks.enable"),
 		"playbooks.disable": forwardToModule("playbooks.disable"),
 		"playbooks.assign_project": forwardToModule("playbooks.assign_project"),
@@ -480,7 +481,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
 	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
-	moduleRegistry.registerAll(playbooksOperations(artifacts, artifactScopes));
+	moduleRegistry.registerAll(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {

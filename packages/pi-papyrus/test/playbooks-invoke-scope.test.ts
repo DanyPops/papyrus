@@ -62,6 +62,24 @@ describe("playbooks tool: invoke defaults project_root and session_id the same w
 		expect(calls[0]!.input["session_id"]).toBe("explicit-session");
 	});
 
+	it("resolves an unscoped playbook by name before applying the invoke-only project_root default -- the default must never narrow name resolution", async () => {
+		const tools = await registeredTools();
+		const playbook = { id: "pb1", kind: "playbook", title: "Defect Validation Playbook", status: "active", body: "", labels: [], extra: {} };
+		const calls = mockService((operation, input) => {
+			if (operation === "playbooks.list") {
+				// The unscoped playbook itself must still be found: resolution must not have
+				// inherited the invoke-only project_root default.
+				expect(input["project_root"]).toBeUndefined();
+				return [playbook];
+			}
+			return invocationResult;
+		});
+		await tools.get("playbooks")!("id", { action: "invoke", name: "Defect Validation Playbook" }, undefined, undefined, context());
+		const invoke = calls.find((call) => call.operation === "playbooks.invoke")!;
+		expect(invoke.input["id"]).toBe("pb1");
+		expect(invoke.input["project_root"]).toBe("/workspace/defect-validation");
+	});
+
 	it("does not inject project_root/session_id for other actions -- create/list keep their prior unscoped-by-default behavior", async () => {
 		const tools = await registeredTools();
 		const calls = mockService((operation) => (operation === "playbooks.list" ? [] : { id: "pb1", kind: "playbook", title: "x", status: "active", body: "", labels: [], extra: {} }));

@@ -675,6 +675,18 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
+				// Name resolution must search regardless of project scope -- a Playbook itself is
+				// commonly unscoped (e.g. a cross-repo lab-deploy playbook), so resolutionRequest
+				// uses the caller's ORIGINAL project_root (undefined unless explicitly given), never
+				// the invoke-specific default applied below -- that default is only for where the
+				// resulting TASKS land, not for finding the playbook artifact itself.
+				const resolutionRequest = { project_root: params.project_root };
+				await resolveNameFields(params, [
+					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+					{ nameKey: "child_name", idKey: "child_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
+				]);
 				// invoke ends by calling tasks.focus server-side -- that focus write must land in the
 				// SAME session scope the tasks tool reads from (ctx.sessionManager.getSessionId()),
 				// the same resolution the tasks tool itself always applies, or the entry task's focus
@@ -684,6 +696,7 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 				// task is invisible to tasks(action=focused) even with the right session -- confirmed
 				// live (the focus_set event existed with the correct sessionId, but Tasks.focused's own
 				// project-scope filter silently excluded the unscoped task from a cwd-scoped read).
+				// Applied AFTER name resolution: it must never affect finding the playbook itself.
 				if (action === "invoke") {
 					const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
 					Object.assign(params, {
@@ -692,13 +705,6 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 						...sessionSecretField(resolvedSessionId as string),
 					});
 				}
-				const resolutionRequest = { project_root: params.project_root };
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-					{ nameKey: "child_name", idKey: "child_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-				]);
 				if (action === "create" || action === "invoke" || action === "preview") normalizeJsonEncodedField(params, "arguments");
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("playbooks.create", params);

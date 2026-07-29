@@ -679,9 +679,18 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 				// SAME session scope the tasks tool reads from (ctx.sessionManager.getSessionId()),
 				// the same resolution the tasks tool itself always applies, or the entry task's focus
 				// is invisible to tasks(action=focused/active) despite invoke reporting it as focused.
+				// project_root defaults to ctx.cwd for the same reason: the tasks tool always scopes
+				// its OWN reads to ctx.cwd unless told otherwise, so an unscoped playbook-materialized
+				// task is invisible to tasks(action=focused) even with the right session -- confirmed
+				// live (the focus_set event existed with the correct sessionId, but Tasks.focused's own
+				// project-scope filter silently excluded the unscoped task from a cwd-scoped read).
 				if (action === "invoke") {
 					const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
-					Object.assign(params, { session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) });
+					Object.assign(params, {
+						project_root: params.project_root ?? ctx.cwd,
+						session_id: resolvedSessionId,
+						...sessionSecretField(resolvedSessionId as string),
+					});
 				}
 				const resolutionRequest = { project_root: params.project_root };
 				await resolveNameFields(params, [

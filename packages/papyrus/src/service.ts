@@ -359,6 +359,7 @@ function handlers(
 		"tasks.reject": forwardToModule("tasks.reject"),
 		"tasks.retry": forwardToModule("tasks.retry"),
 		"tasks.cancel": forwardToModule("tasks.cancel"),
+		"tasks.cancel_subtree": forwardToModule("tasks.cancel_subtree"),
 		"tasks.depend": forwardToModule("tasks.depend"),
 		"tasks.undepend": forwardToModule("tasks.undepend"),
 		"tasks.contain": forwardToModule("tasks.contain"),

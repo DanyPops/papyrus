@@ -90,7 +90,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.create", "tasks.update", "tasks.list", "tasks.graph", "tasks.plan", "tasks.show", "tasks.history",
 	"tasks.scope", "tasks.set_scope", "tasks.assign_project", "tasks.active", "tasks.focused", "tasks.focus",
 	"tasks.pause", "tasks.unpause", "tasks.clear_focus", "tasks.start", "tasks.submit", "tasks.complete",
-	"tasks.run_gates", "tasks.set_checklist", "tasks.set_gates", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel",
+	"tasks.run_gates", "tasks.set_checklist", "tasks.set_gates", "tasks.context", "tasks.reject", "tasks.retry", "tasks.cancel", "tasks.cancel_subtree",
 	"tasks.depend", "tasks.undepend", "tasks.contain", "tasks.uncontain", "tasks.reap_stale_focus",
 	"tasks.claim", "tasks.heartbeat_lease", "tasks.release_lease", "tasks.lease", "tasks.reap_stale_leases", "tasks.event_feed",
 ] as const;
@@ -169,6 +169,7 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		define("tasks.reject", (input: OperationInput) => tasks.transition(string(input, "id"), "reject", eventContext(input))),
 		define("tasks.retry", (input: OperationInput) => tasks.transition(string(input, "id"), "retry", eventContext(input))),
 		define("tasks.cancel", (input: OperationInput) => tasks.transition(string(input, "id"), "cancel", eventContext(input))),
+		define("tasks.cancel_subtree", (input: OperationInput) => tasks.cancelSubtree(string(input, "id"), eventContext(input))),
 		define("tasks.depend", (input: OperationInput) => tasks.depend(string(input, "id"), string(input, "dependency_id"), eventContext(input))),
 		define("tasks.undepend", (input: OperationInput) => tasks.undepend(string(input, "id"), string(input, "dependency_id"), eventContext(input))),
 		define("tasks.contain", (input: OperationInput) => tasks.contain(string(input, "parent_id"), string(input, "child_id"), eventContext(input))),

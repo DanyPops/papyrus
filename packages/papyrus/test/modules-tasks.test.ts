@@ -87,6 +87,20 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 		expect(graphAfter.nodes.find((n) => n.task.id === a.id)?.dependencyIds).toEqual([]);
 	});
 
+	it("tasks.cancel_subtree cancels a whole containment tree via the registered operation, not just the direct task", async () => {
+		const { registry } = fixture();
+		const root = await registry.get("tasks.create")!.execute({ title: "Root", project_root: PROJECT_ROOT }) as { id: string };
+		const child = await registry.get("tasks.create")!.execute({ title: "Child", project_root: PROJECT_ROOT }) as { id: string };
+		await registry.get("tasks.contain")!.execute({ parent_id: root.id, child_id: child.id });
+
+		const outcome = await registry.get("tasks.cancel_subtree")!.execute({ id: root.id }) as { canceled: string[]; skipped: string[] };
+		expect(outcome.canceled.sort()).toEqual([root.id, child.id].sort());
+		const rootShown = await registry.get("tasks.show")!.execute({ id: root.id }) as { status: string };
+		const childShown = await registry.get("tasks.show")!.execute({ id: child.id }) as { status: string };
+		expect(rootShown.status).toBe("canceled");
+		expect(childShown.status).toBe("canceled");
+	});
+
 	it("rejects a request missing a required field, matching the prior inline handler's validation", () => {
 		const { registry } = fixture();
 		expect(() => registry.get("tasks.create")!.execute({ project_root: PROJECT_ROOT })).toThrow("title is required");

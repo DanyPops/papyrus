@@ -121,6 +121,9 @@ export const PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH = 500;
  */
 export const PLAYBOOK_INVOCATION_MAX_CREATED_TASKS = 200;
 
+/** Tasks.cancelSubtree walks `contains` edges transitively (a whole materialized playbook run can be torn down in one call instead of enumerating every task id by hand) -- bounded the same way PLAYBOOK_INVOCATION_MAX_CREATED_TASKS bounds the forward direction. */
+export const TASK_CANCEL_SUBTREE_MAX_NODES = 500;
+
 /**
  * At the core, a workflow Skill creates Tasks and begins a pipeline -- an Ansible playbook or
  * a Jenkins job, not just a text prompt. A pipeline step can itself trigger another workflow

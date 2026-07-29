@@ -116,7 +116,10 @@ papyrus tasks complete <id> --json
 papyrus tasks reject <id> --json
 papyrus tasks retry <id> --json
 papyrus tasks cancel <id> --json
+papyrus tasks cancel-subtree <id> --json
 ```
+
+`cancel-subtree` cancels a Task and every Task in its containment (`contains`) subtree in one call -- for tearing down a whole materialized Playbook/Skill run at once instead of canceling each Task id by hand. A Task already `done`/`canceled` is skipped, not treated as an error.
 
 Task edits mutate the existing Papyrus-owned Task identity and append an `updated` event; title, body, and labels can be revised without canceling the Task or creating a replacement. Lifecycle, relationships, gates, checklist metadata, scope, and focus remain intact. The same `update` action provides a narrowly guarded recovery for Tasks accidentally created terminal by a legacy default: `status=todo` requires an audit reason, cannot be combined with content edits, only applies when `created` is the sole lifecycle event, and appends `creation_recovered` rather than rewriting history.
 

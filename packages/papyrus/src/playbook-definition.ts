@@ -42,10 +42,17 @@ export interface CompiledPlaybook {
 	externalLinks: PlaybookExternalLink[];
 }
 
+/** Trashed but not yet purged: artifacts.get() still returns it (trash is separate, orthogonal metadata -- "still directly showable"), so a stale composition edge left behind by remove/uncontain would otherwise resolve straight through and get compiled in. query() excludes trashed artifacts by default; use that instead of get() for every existence check a compiler makes. */
+function nonTrashedPlaybookIds(artifacts: ArtifactStore, ids: string[]): Set<string> {
+	if (ids.length === 0) return new Set();
+	return new Set(artifacts.query({ ids, kind: "playbook" }).map((artifact) => artifact.id));
+}
+
 function requirePlaybook(artifacts: ArtifactStore, id: string): Artifact {
 	const playbook = artifacts.get(id);
 	if (!playbook) throw new Error(`playbook artifact "${id}" not found`);
 	if (playbook.kind !== "playbook") throw new Error(`artifact "${id}" is not a playbook`);
+	if (!nonTrashedPlaybookIds(artifacts, [id]).has(id)) throw new Error(`playbook artifact "${id}" is trashed`);
 	return playbook;
 }
 
@@ -121,12 +128,13 @@ function compileNode(
 	if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS) throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
 
 	const edges = artifacts.relationships({ artifactIds: [playbookId] }).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
+	const composablePlaybookIds = nonTrashedPlaybookIds(artifacts, edges.filter((edge) => edge.from === playbookId).map((edge) => edge.to));
 	const prerequisiteIds = edges.filter((edge) => edge.from === playbookId && edge.relation === "depends_on").map((edge) => edge.to)
-		.filter((id) => artifacts.get(id)?.kind === "playbook");
+		.filter((id) => composablePlaybookIds.has(id));
 	const nestedIds = edges.filter((edge) => edge.from === playbookId && edge.relation === "contains").map((edge) => edge.to)
-		.filter((id) => artifacts.get(id)?.kind === "playbook");
+		.filter((id) => composablePlaybookIds.has(id));
 	for (const edge of edges) {
-		const isComposingFrom = edge.from === playbookId && (edge.relation === "contains" || edge.relation === "depends_on") && artifacts.get(edge.to)?.kind === "playbook";
+		const isComposingFrom = edge.from === playbookId && (edge.relation === "contains" || edge.relation === "depends_on") && composablePlaybookIds.has(edge.to);
 		if (isComposingFrom) continue;
 		if (edge.from === playbookId) ctx.externalLinks.push({ rootRef, relation: edge.relation, otherArtifactId: edge.to, ownerIsFrom: true });
 		else if (edge.to === playbookId) ctx.externalLinks.push({ rootRef, relation: edge.relation, otherArtifactId: edge.from, ownerIsFrom: false });

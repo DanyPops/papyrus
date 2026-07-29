@@ -94,6 +94,7 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.reject", result: artifact, invoke: (c) => runTaskCli(["reject", "a1", "--json"], c) },
 	{ operation: "tasks.retry", result: artifact, invoke: (c) => runTaskCli(["retry", "a1", "--json"], c) },
 	{ operation: "tasks.cancel", result: artifact, invoke: (c) => runTaskCli(["cancel", "a1", "--json"], c) },
+	{ operation: "tasks.cancel_subtree", result: { canceled: ["a1"], skipped: [] }, invoke: (c) => runTaskCli(["cancel-subtree", "a1", "--json"], c) },
 	{ operation: "tasks.depend", result: artifact, invoke: (c) => runTaskCli(["depend", "a1", "a2", "--json"], c) },
 	{ operation: "tasks.undepend", result: artifact, invoke: (c) => runTaskCli(["undepend", "a1", "a2", "--json"], c) },
 	{ operation: "tasks.contain", result: artifact, invoke: (c) => runTaskCli(["contain", "p1", "c1", "--json"], c) },

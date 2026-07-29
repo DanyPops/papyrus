@@ -169,6 +169,7 @@ const USAGE = `Usage:
   papyrus tasks reject <id> [--session-id <id>] [--json]
   papyrus tasks retry <id> [--session-id <id>] [--json]
   papyrus tasks cancel <id> [--session-id <id>] [--json]
+  papyrus tasks cancel-subtree <id> [--session-id <id>] [--json]
   papyrus tasks depend <id> <prerequisite-id> [--reason <reason>] [--session-id <id>] [--json]
   papyrus tasks undepend <id> <prerequisite-id> [--reason <reason>] [--session-id <id>] [--json]
   papyrus tasks contain <parent-id> <child-id> [--reason <reason>] [--session-id <id>] [--json]
@@ -1740,6 +1741,13 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
 			break;
 		}
+		case "cancel-subtree": {
+			if (!id || dependencyId) throw new Error("tasks cancel-subtree requires exactly one task id");
+			const outcome = await client.call<Record<string, unknown>, { canceled: string[]; skipped: string[] }>("tasks.cancel_subtree", { id, actor: "user", source: "cli", ...sessionScope });
+			result = outcome;
+			human = `Canceled ${outcome.canceled.length} task(s)${outcome.skipped.length > 0 ? `, skipped ${outcome.skipped.length} already-terminal` : ""}.`;
+			break;
+		}
 		case "depend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks depend requires a task id and prerequisite id");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.depend", {
@@ -1759,7 +1767,7 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			break;
 		}
 		default:
-			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, depend, undepend, contain, uncontain, run-gates, set-checklist, or set-gates");
+			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, cancel-subtree, depend, undepend, contain, uncontain, run-gates, set-checklist, or set-gates");
 	}
 	return json ? JSON.stringify(result) : human;
 }

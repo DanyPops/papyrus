@@ -1,5 +1,6 @@
 import {
 	TASK_BODY_MAX_LENGTH,
+	TASK_CANCEL_SUBTREE_MAX_NODES,
 	TASK_EXECUTION_MAX_DEGREE,
 	TASK_EXECUTION_MAX_EDGES,
 	TASK_EXECUTION_MAX_NODES,
@@ -457,6 +458,41 @@ export class Tasks {
 			if (action === "cancel") this.focusStore.clearEverywhere(id);
 			return updated;
 		});
+	}
+
+	/**
+	 * Cancels a task and every task in its containment subtree (`contains` edges, transitively) --
+	 * a whole materialized playbook/skill run can be torn down in one call instead of enumerating
+	 * every task id by hand. A task already in a terminal state (done/canceled) is skipped, not
+	 * treated as an error, matching how a mixed-status subtree is the normal case (some steps
+	 * genuinely finished before the rest needed to be abandoned). Does not follow `depends_on` --
+	 * only containment cascades, a prerequisite is a different unit of work.
+	 */
+	cancelSubtree(id: string, context: TaskEventContext = {}): { canceled: string[]; skipped: string[] } {
+		this.require(id);
+		const visited = new Set<string>();
+		const queue = [id];
+		const canceled: string[] = [];
+		const skipped: string[] = [];
+		while (queue.length > 0) {
+			const current = queue.shift()!;
+			if (visited.has(current)) continue;
+			visited.add(current);
+			if (visited.size > TASK_CANCEL_SUBTREE_MAX_NODES) throw new Error(`cancelSubtree exceeds ${TASK_CANCEL_SUBTREE_MAX_NODES} tasks`);
+			const task = this.artifacts.get(current);
+			if (!task || task.kind !== "task") continue;
+			const childIds = this.artifacts.relationships({ artifactIds: [current] })
+				.filter((edge) => edge.from === current && edge.relation === "contains")
+				.map((edge) => edge.to);
+			queue.push(...childIds);
+			if (task.status === "done" || task.status === "canceled") {
+				skipped.push(current);
+				continue;
+			}
+			this.transition(current, "cancel", context);
+			canceled.push(current);
+		}
+		return { canceled, skipped };
 	}
 
 	complete(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): TaskCompletion {

@@ -476,6 +476,40 @@ describe("Tasks port behavior", () => {
 		expect(() => tasks.transition(task.id, "start")).toThrow("cannot start task from canceled");
 	});
 
+	it("cancelSubtree cancels a whole containment tree in one call, skipping already-terminal tasks instead of erroring on them", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const root = tasks.create({ title: "Root" });
+		const childA = tasks.create({ title: "Child A" });
+		const childB = tasks.create({ title: "Child B" });
+		const grandchild = tasks.create({ title: "Grandchild" });
+		tasks.contain(root.id, childA.id);
+		tasks.contain(root.id, childB.id);
+		tasks.contain(childA.id, grandchild.id);
+		// Already finished before the rest needed abandoning -- must be skipped, not throw.
+		tasks.transition(childB.id, "start");
+		tasks.transition(childB.id, "submit");
+		tasks.transition(childB.id, "cancel");
+
+		const outcome = tasks.cancelSubtree(root.id);
+		expect(outcome.canceled.sort()).toEqual([root.id, childA.id, grandchild.id].sort());
+		expect(outcome.skipped).toEqual([childB.id]);
+		expect(tasks.show(root.id).status).toBe("canceled");
+		expect(tasks.show(childA.id).status).toBe("canceled");
+		expect(tasks.show(grandchild.id).status).toBe("canceled");
+		expect(tasks.show(childB.id).status).toBe("canceled"); // unchanged, was already terminal
+	});
+
+	it("cancelSubtree does not follow depends_on -- only containment cascades", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const dependent = tasks.create({ title: "Dependent" });
+		const prerequisite = tasks.create({ title: "Prerequisite" });
+		tasks.depend(dependent.id, prerequisite.id);
+
+		const outcome = tasks.cancelSubtree(dependent.id);
+		expect(outcome.canceled).toEqual([dependent.id]);
+		expect(tasks.show(prerequisite.id).status).toBe("todo"); // untouched
+	});
+
 	it("rejects legacy checklist entries without typed proof while still running gates", () => {
 		const gates = new FakeGateRunner();
 		const tasks = new Tasks(new FakeArtifactStore(), gates);

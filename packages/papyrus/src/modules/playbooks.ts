@@ -28,6 +28,7 @@ import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import { invokePlaybook } from "../playbook-execution.ts";
+import type { SessionIdentity } from "../session-identity-service.ts";
 import type { Tasks } from "../task-service.ts";
 
 const MODULE_ID = "playbooks";
@@ -86,9 +87,11 @@ export interface PlaybooksModuleDeps {
 	artifactScopes: ArtifactScopeStore;
 	/** Used for exactly one thing: focusing the entry task after a successful invoke -- the one safety-checked Tasks operation this module needs, not bulk graph construction (that goes straight through artifacts/events/scopes in playbook-execution.ts, mirroring workflow-execution.ts). */
 	tasks: Tasks;
+	/** Guards the same session_secret check tasks.focus's own operation enforces (guardFocusMutation in modules/tasks.ts) -- invoke's internal tasks.focus() call goes straight through the Tasks class, bypassing that operation wrapper entirely, so the check must be applied here instead of silently skipped. */
+	sessionIdentity: SessionIdentity;
 }
 
-export function playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks }: PlaybooksModuleDeps): OperationDefinition[] {
+export function playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }: PlaybooksModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name, moduleId: MODULE_ID, execute,
 	});
@@ -109,7 +112,9 @@ export function playbooksOperations({ artifacts, events, scopes, artifactScopes,
 				arguments: input["arguments"] as Record<string, unknown> | undefined,
 			}, { events, scopes, projectRoot: optionalString(input, "project_root"), context: eventContextFor(input, "playbook-run") });
 			if ("missingArguments" in result) return result;
-			tasks.focus(result.entryTaskId, eventContextFor(input, "playbook-run"));
+			const focusContext = eventContextFor(input, "playbook-run");
+			sessionIdentity.assertAuthorized(focusContext.sessionId, optionalString(input, "session_secret"));
+			tasks.focus(result.entryTaskId, focusContext);
 			return result;
 		}),
 		define("playbooks.enable", (input: OperationInput) => transitionPlaybook(artifacts, string(input, "id"), "enable", eventContext(input))),

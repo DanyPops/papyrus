@@ -481,7 +481,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
 	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
-	moduleRegistry.registerAll(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks }));
+	moduleRegistry.registerAll(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {

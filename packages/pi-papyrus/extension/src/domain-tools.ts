@@ -671,10 +671,18 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 		}),
 		renderCall(args, theme) { return renderPapyrusToolCall("Playbooks", args, theme); },
 		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams) {
+		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
 				const action = params.action;
+				// invoke ends by calling tasks.focus server-side -- that focus write must land in the
+				// SAME session scope the tasks tool reads from (ctx.sessionManager.getSessionId()),
+				// the same resolution the tasks tool itself always applies, or the entry task's focus
+				// is invisible to tasks(action=focused/active) despite invoke reporting it as focused.
+				if (action === "invoke") {
+					const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
+					Object.assign(params, { session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) });
+				}
 				const resolutionRequest = { project_root: params.project_root };
 				await resolveNameFields(params, [
 					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: resolutionRequest },

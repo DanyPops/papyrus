@@ -322,7 +322,6 @@ export class NoteOverlay {
 export default async function (pi: ExtensionAPI) {
 	setTaskFocusEventBus(pi);
 	registerDomainTools(pi);
-	await registerNotesVehicle(pi);
 	registerPlaybookBridge(pi);
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
@@ -679,6 +678,18 @@ export default async function (pi: ExtensionAPI) {
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
 
 	pi.on("session_start", async (_event, ctx) => {
+		// registerVehicleTools() (which registerNotesVehicle wraps) needs
+		// pi.getAllTools()/getActiveTools()/setActiveTools() -- Pi's extension
+		// runtime only finishes initializing after every extension's top-level
+		// factory (this one included) has resolved, so calling it directly from
+		// there throws "Extension runtime not initialized" (previously silently
+		// swallowed by registerNotesVehicle's own daemon-unreachable try/catch,
+		// making every projected notes.* tool invisible to the model with zero
+		// visible sign why -- confirmed live in the identical pi-tickets bug).
+		// session_start fires only after that initialization completes, and Pi
+		// awaits every session_start handler before the model's first turn, so
+		// registering here is both safe and still visible on turn one.
+		await registerNotesVehicle(pi);
 		// Registers this session's identity with the daemon as early as possible -- before any
 		// Focus-mutating call could plausibly happen -- shrinking (not eliminating; see
 		// domain/session-identity.ts) the first-touch race window. Best-effort: the daemon may be

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { resolve } from "node:path";
-import { verifyLoadableUnderPi } from "@danypops/daemon-kit/pi-load-harness";
+import { verifyLoadableUnderPi } from "@danypops/vehicle-client-pi/pi-load-harness";
 
 const EXTENSION_ENTRY = resolve(import.meta.dir, "..", "extension", "src", "index.ts");
 const PAPYRUS_BARREL = resolve(import.meta.dir, "..", "node_modules", "@danypops", "papyrus", "src", "index.ts");

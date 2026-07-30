@@ -1,5 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
 import {
 	ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS,
 	ARTIFACT_DETAIL_MAX_VISIBLE_LINES,
@@ -90,12 +91,34 @@ class ArtifactDetailViewport {
 			{ text: "", wide: false },
 		];
 		const body = renderMarkdownBody(this.content.body, width, this.activeTheme).map((text) => ({ text, wide: false }));
-		const labels = this.content.labels.length > 0
-			? [{ text: "", wide: false }, ...wrap("Labels:", "muted"), ...wrap(this.content.labels.join(", "))]
+
+		// Labels + Metadata are plain field/flat-line shapes -- delegated to malevich's
+		// buildDetailLines. The body (markdown-rendered) and relationships (horizontally
+		// pannable "wide" lines) stay hand-rolled: buildDetailLines has no concept of
+		// either, and forcing them through it would either drop markdown formatting or
+		// lose the pan feature.
+		const fields: DetailField[] = this.content.labels.length > 0 ? [{ label: "Labels", value: this.content.labels.join(", ") }] : [];
+		const sections: DetailSection[] = this.content.metadata.length > 0
+			? [{ heading: "Metadata:", lines: this.content.metadata.map((line) => `  ${line}`) }]
 			: [];
-		const metadata = this.content.metadata.length > 0
-			? [{ text: "", wide: false }, ...wrap("Metadata:", "muted"), ...this.content.metadata.flatMap((line) => wrap(`  ${line}`, "dim"))]
+		const labelsAndMetadata = (fields.length > 0 || sections.length > 0)
+			? buildDetailLines(width, {
+				fields,
+				sections,
+				theme: {
+					field: (s) => theme.fg("muted", s),
+					heading: (s) => theme.fg("muted", s),
+					byline: (s) => theme.fg("dim", s),
+					body: (s) => theme.fg("text", s),
+					line: (s) => theme.fg("dim", s),
+				},
+			}).map((text) => ({ text, wide: false }))
 			: [];
+		// buildDetailLines' fields/sections don't insert a leading blank before the
+		// first field the way the original hand-rolled labels block did -- add it back
+		// when either piece rendered anything, matching the original layout exactly.
+		const labelsAndMetadataWithLeadingBlank = fields.length > 0 ? [{ text: "", wide: false }, ...labelsAndMetadata] : labelsAndMetadata;
+
 		const relationships = this.content.relationships.length > 0
 			? [
 				{ text: "", wide: false },
@@ -103,7 +126,7 @@ class ArtifactDetailViewport {
 				...this.content.relationships.map((text) => ({ text: theme.fg("text", text), wide: true })),
 			]
 			: [];
-		this.lines = [...identity, ...body, ...labels, ...metadata, ...relationships];
+		this.lines = [...identity, ...body, ...labelsAndMetadataWithLeadingBlank, ...relationships];
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
 	}
 }

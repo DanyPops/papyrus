@@ -1,5 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
 import {
 	TASK_DETAIL_HORIZONTAL_PAN_COLUMNS,
 	TASK_DETAIL_MAX_VISIBLE_LINES,
@@ -92,17 +93,32 @@ class TaskDetailViewport {
 			(text.length === 0 ? [""] : wrapTextWithAnsi(theme.fg(color, text), width)).map((line) => ({ text: line, graph: false }));
 		const status = TASK_STATUS_PRESENTATION[this.status as keyof typeof TASK_STATUS_PRESENTATION];
 		const headline = status ? theme.fg(status.color, theme.bold(this.content.headline)) : theme.bold(this.content.headline);
+
+		// Labels + the checklist/gates/metadata/history sections are plain field/flat-line
+		// shapes -- delegated to malevich's buildDetailLines. The headline/identity (styled
+		// per task status), body (markdown-rendered), and the relationship graph
+		// (horizontally pannable "wide" lines) stay hand-rolled: buildDetailLines has no
+		// concept of any of those.
 		const identity = [
 			...wrapTextWithAnsi(headline, width).map((text) => ({ text, graph: false })),
 			...wrap(this.content.identity, "muted"),
-			...(this.content.labels.length > 0 ? wrap(`Labels: ${this.content.labels.join(", ")}`, "muted") : []),
-			{ text: "", graph: false },
 		];
+		const detailTheme = {
+			field: (s: string) => theme.fg("muted", s),
+			heading: (s: string) => theme.fg("muted", s),
+			byline: (s: string) => theme.fg("dim", s),
+			body: (s: string) => theme.fg("text", s),
+			line: (s: string) => theme.fg("dim", s),
+		};
+		const fields: DetailField[] = this.content.labels.length > 0 ? [{ label: "Labels", value: this.content.labels.join(", ") }] : [];
+		const labels = fields.length > 0
+			? [...buildDetailLines(width, { fields, theme: detailTheme }).map((text) => ({ text, graph: false })), { text: "", graph: false }]
+			: [{ text: "", graph: false }];
 		const body = renderMarkdownBody(this.content.body, width, this.activeTheme).map((text) => ({ text, graph: false }));
-		const sections = this.content.sections.flatMap((section) => [
-			{ text: "", graph: false },
-			...section.flatMap((line, index) => wrap(line, index === 0 ? "muted" : "dim")),
-		]);
+		const sections: DetailSection[] = this.content.sections.map((section) => ({ heading: section[0], lines: section.slice(1) }));
+		const sectionLines = sections.length > 0
+			? buildDetailLines(width, { sections, theme: detailTheme }).map((text) => ({ text, graph: false }))
+			: [];
 		const relationshipHeader = this.graphLines.length > 0
 			? [
 				{ text: "", graph: false },
@@ -112,8 +128,9 @@ class TaskDetailViewport {
 			: [];
 		this.detailLines = [
 			...identity,
+			...labels,
 			...body,
-			...sections,
+			...sectionLines,
 			...relationshipHeader,
 			...this.graphLines.map((text) => ({ text: theme.fg("text", text), graph: true })),
 		];

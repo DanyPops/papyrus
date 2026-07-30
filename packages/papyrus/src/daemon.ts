@@ -1,4 +1,4 @@
-import { PushChannel } from "@danypops/daemon-kit/push-channel";
+import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS, dbPath } from "./constants.ts";
 import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
 import { createApp, createPapyrusService } from "./service.ts";

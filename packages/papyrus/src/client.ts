@@ -59,7 +59,7 @@ export async function connectPapyrusClient(dir: string = daemonStateDir()): Prom
 }
 
 export interface PushChannelTarget {
-	/** ws:// URL for the daemon's push-invalidation channel (see push-channel.ts in daemon-kit). */
+	/** ws:// URL for the daemon's push-invalidation channel (see push-channel.ts in vehicle-server). */
 	url: string;
 	token: string;
 }

@@ -26,7 +26,7 @@ import {
 } from "@danypops/papyrus";
 import { formatMetadata } from "./artifact-format.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
-import type { PushChannelClient } from "@danypops/daemon-kit/pi-client";
+import type { PushChannelClient } from "@danypops/vehicle-client/daemon-client";
 import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
 import { registerNotesVehicle } from "./vehicle-notes-client.ts";
 import { BoundedPoll } from "./bounded-poll.ts";

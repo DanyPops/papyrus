@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { PushChannel } from "@danypops/daemon-kit/push-channel";
+import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { TaskOverlay } from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,

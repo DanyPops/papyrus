@@ -7,7 +7,7 @@
  */
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { PushChannel } from "@danypops/daemon-kit/push-channel";
+import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { createApp, createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 afterAll(cleanupTempDirs);

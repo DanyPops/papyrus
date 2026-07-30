@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { runMigrations, type SqliteMigrationRunner } from "@danypops/daemon-kit/storage";
+import { runMigrations, type SqliteMigrationRunner } from "@danypops/vehicle-server/storage";
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
@@ -449,9 +449,10 @@ const LEGACY_MIGRATION_CHAIN_TARGET_VERSION = 13;
 
 /**
  * A migration beyond LEGACY_MIGRATION_CHAIN_TARGET_VERSION. Runs through @danypops/
- * daemon-kit's generic runMigrations engine (one transaction per migration, daemon-kit's
+ * vehicle-server's generic runMigrations engine (one transaction per migration, its
  * default) via dbMigrationRunner below, instead of a new branch appended to the legacy
- * if-chain -- the exact reuse daemon-kit's storage module was refactored (v0.2.1) to allow,
+ * if-chain -- the exact reuse the storage module was refactored (originally daemon-kit
+ * v0.2.1, now absorbed into vehicle-server) to allow,
  * since Papyrus's dual bun:sqlite/node:sqlite Db abstraction could never satisfy that
  * engine's original bun:sqlite-only signature.
  */
@@ -658,7 +659,7 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 ];
 
 /**
- * Adapts Papyrus's own Db/inTransaction to daemon-kit's storage-agnostic
+ * Adapts Papyrus's own Db/inTransaction to vehicle-server's storage-agnostic
  * SqliteMigrationRunner port, so its runMigrations engine (written against bun:sqlite's
  * concrete Database) runs unmodified against Papyrus's dual-runtime Db abstraction instead.
  */

@@ -1,4 +1,4 @@
-import { connectPushChannel, createRetryingClient, type PushChannelClient, type PushChannelState, type RetryingClient } from "@danypops/daemon-kit/pi-client";
+import { connectPushChannel, createRetryingClient, type PushChannelClient, type PushChannelState, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
 import { connectPapyrusClient, resolvePushChannelTarget, resolveVehicleClientTarget, type OperationName, type PapyrusClient, type VehicleClientTarget } from "@danypops/papyrus";
 
 type ClientConnector = () => Promise<PapyrusClient>;

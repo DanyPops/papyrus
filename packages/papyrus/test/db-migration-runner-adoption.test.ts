@@ -1,13 +1,13 @@
 /**
- * Proves the actual adoption: @danypops/daemon-kit's generic runMigrations engine (built
+ * Proves the actual adoption: @danypops/vehicle-server's generic runMigrations engine (built
  * against bun:sqlite's concrete Database) genuinely runs, unmodified, against Papyrus's own
- * dual-runtime Db abstraction via dbMigrationRunner -- the exact reuse daemon-kit's storage
+ * dual-runtime Db abstraction via dbMigrationRunner -- the exact reuse vehicle-server's storage
  * module was refactored (v0.2.1) to allow. This does not touch or depend on the frozen
  * legacy 1-13 migration chain in db.ts; it exercises the adapter directly with its own
  * throwaway migrations, against a real (in-memory) Papyrus database.
  */
 import { describe, expect, it } from "bun:test";
-import { runMigrations, type Migration } from "@danypops/daemon-kit/storage";
+import { runMigrations, type Migration } from "@danypops/vehicle-server/storage";
 import { dbMigrationRunner, openDb, schemaVersion, type Db } from "../src/db.ts";
 
 function freshDb(): Db {
@@ -17,7 +17,7 @@ function freshDb(): Db {
 	return openDb(":memory:");
 }
 
-describe("dbMigrationRunner + daemon-kit's runMigrations, against a real Papyrus Db", () => {
+describe("dbMigrationRunner + vehicle-server's runMigrations, against a real Papyrus Db", () => {
 	it("applies a migration beyond the database's current version and advances PRAGMA user_version", () => {
 		const db = freshDb();
 		const startVersion = schemaVersion(db);
@@ -64,7 +64,7 @@ describe("dbMigrationRunner + daemon-kit's runMigrations, against a real Papyrus
 		db.close();
 	});
 
-	it("rejects a migration list with a version gap, via daemon-kit's own gap check", () => {
+	it("rejects a migration list with a version gap, via vehicle-server's own gap check", () => {
 		const db = freshDb();
 		const startVersion = schemaVersion(db);
 		const migrations: Migration<Db>[] = [

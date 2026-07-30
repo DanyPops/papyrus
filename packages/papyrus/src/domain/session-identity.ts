@@ -17,11 +17,13 @@
  *
  * The actual cryptographic primitive (secret generation, hashing, constant-time verify,
  * first-touch registration semantics) is NOT reimplemented here -- it lives in
- * @danypops/daemon-kit's session-identity module. That gap (a shared bearer token cannot
+ * @danypops/vehicle-server's session-identity module. That gap (a shared bearer token cannot
  * distinguish callers; a session id needs a real credential once it becomes behavior-
- * affecting) is generic to every daemon-kit-shaped daemon, not Papyrus-specific -- Papyrus's
- * own daemon.ts/service.ts predates daemon-kit and has not migrated onto it, but this one
- * capability is adopted narrowly regardless (daemon-kit's exports map is designed for
+ * affecting) is generic to every Vehicle-shaped daemon, not Papyrus-specific -- Papyrus's
+ * own daemon.ts/service.ts is a fully custom Bun.serve() composition root that has never
+ * adopted vehicle-server's own startDaemon()/paths conventions (its own daemon-state.ts
+ * hand-rolls path/token/port management instead), but this one narrow capability is adopted
+ * regardless (vehicle-server's exports map is designed for
  * exactly this: "a consumer only pulls in what it uses"). This file only wires that generic
  * primitive to Papyrus's own SQLite storage (see adapters/sqlite-session-identity-store.ts)
  * and to Task Focus specifically, the one place session_id is behavior-affecting today.

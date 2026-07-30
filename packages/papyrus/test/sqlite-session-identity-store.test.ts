@@ -7,8 +7,8 @@ import { SessionIdentity } from "../src/session-identity-service.ts";
 /**
  * Real SQLite round-trip coverage, mirroring the pattern established by
  * sqlite-log-store.test.ts: the same SessionIdentity service, wired to the real adapter,
- * against a real (in-memory) SQLite connection -- not the daemon-kit primitive's own
- * in-memory-Map fixture (that lives in @danypops/daemon-kit's own test suite).
+ * against a real (in-memory) SQLite connection -- not the vehicle-server primitive's own
+ * in-memory-Map fixture (that lives in @danypops/vehicle-server's own test suite).
  */
 describe("SQLiteSessionIdentityStore (via SessionIdentity)", () => {
 	it("round-trips a registration through real SQLite: verifies true for the right session id and secret, false for any other combination", () => {

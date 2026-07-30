@@ -1,4 +1,4 @@
-import { isSessionRegistered, registerSessionIdentity, releaseSessionIdentity, verifySessionSecret } from "@danypops/daemon-kit/session-identity";
+import { isSessionRegistered, registerSessionIdentity, releaseSessionIdentity, verifySessionSecret } from "@danypops/vehicle-server/session-identity";
 import { assertValidSessionId } from "./domain/session-identity.ts";
 import type { SessionIdentityStore } from "./ports/session-identity-store.ts";
 
@@ -11,7 +11,7 @@ export interface RegisterSessionIdentityResult {
 export class InvalidSessionSecretError extends Error {}
 
 /**
- * Thin Papyrus-side wrapper over @danypops/daemon-kit's storage-agnostic session-identity
+ * Thin Papyrus-side wrapper over @danypops/vehicle-server's storage-agnostic session-identity
  * primitive: validates input shape, binds it to Papyrus's own SQLite-backed store, and
  * exposes the exact three operations Task Focus enforcement needs (see
  * assertAuthorizedForFocus in src/modules/tasks.ts). See domain/session-identity.ts for the

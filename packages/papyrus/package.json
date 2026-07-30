@@ -34,8 +34,7 @@
   },
   "files": ["src", "README.md"],
   "dependencies": {
-    "@danypops/daemon-kit": "^0.10.0",
-    "@danypops/vehicle-core": "^0.1.0",
-    "@danypops/vehicle-server": "^0.1.0"
+    "@danypops/vehicle-core": "^0.1.1",
+    "@danypops/vehicle-server": "^0.1.1"
   }
 }

@@ -1,14 +1,12 @@
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-	NOTE_DISPOSITIONS,
 	PROOF_TYPES,
 	readDiscussionExtra,
 	type Artifact,
 	type DiscussionAndRounds,
 	type DiscussionRound,
 	type GateResult,
-	type NoteHistoryPage,
 	type OperationName,
 	type WorkflowRunResult,
 	type TaskCompletion,
@@ -491,69 +489,9 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 	});
 }
 
-export function registerNotesTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "notes",
-		label: "Notes",
-		description: "Deferred human-intent inbox. ACTIONS: capture, list, show, history, consume, promote, archive. Capture stores a request without creating work. Consume marks it considered. To promote, first create the resulting Task, Doc, Rule, or Skill through its domain tool, then link it with target_id (or target_name). Archive requires an explicit disposition. history returns this note's own real append-only event log (captured/consumed/promoted/archived), not the generic cross-kind graph.history. PREFER `name` (the note's exact title) over `id` for show/history/consume/promote/archive, and `target_name` over `target_id` for promote -- all are backend implementation details, resolved from name automatically (target_name searches across every kind, since a promotion target can be a task, doc, rule, or skill).",
-		parameters: Type.Object({
-			action: Type.String(),
-			id: Type.Optional(Type.String()),
-			name: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()),
-			title: Type.Optional(Type.String()),
-			status: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("active"), Type.Literal("archived")])),
-			text: Type.Optional(Type.String()),
-			limit: Type.Optional(Type.Number()),
-			target_id: Type.Optional(Type.String()),
-			target_name: Type.Optional(Type.String()),
-			disposition: Type.Optional(Type.Union(NOTE_DISPOSITIONS.map((value) => Type.Literal(value)))),
-			reason: Type.Optional(Type.String()),
-			session_id: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Notes", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
-			try {
-				const params: Record<string, unknown> = { ...rawParams };
-				const action = params.action;
-				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "notes-tool" };
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "notes.list", baseRequest },
-					// Kind-agnostic: a promotion target can be a task, doc, rule, or skill, so this searches every kind rather than only notes.
-					{ nameKey: "target_name", idKey: "target_id", listOperation: "artifact.query", baseRequest },
-				]);
-				const request = { ...params, ...baseRequest };
-				if (action === "capture") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("notes.capture", request);
-					return text(`Captured note ${artifactLine(artifact)}`, createArtifactDetails("notes.capture", artifact));
-				}
-				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", request);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No open notes.", createArtifactListDetails("notes.list", rows));
-				}
-				if (action === "show") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("notes.show", request);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("notes.show", artifact));
-				}
-				if (action === "history") {
-					const page = await callService<Record<string, unknown>, NoteHistoryPage>("notes.history", request);
-					const lines = page.events.map((event) => `${event.occurredAt} ${event.type} · ${event.actor}/${event.source}${event.relatedId ? ` · ${event.relatedId}` : ""}${event.disposition ? ` · ${event.disposition}` : ""}${event.reason ? ` · ${event.reason}` : ""}`);
-					const output = lines.join("\n") || "No recorded history for this note.";
-					return text(output, createPreviewDetails("notes.history", "Note history", output));
-				}
-				const operations = { consume: "notes.consume", promote: "notes.promote", archive: "notes.archive" } as const;
-				const operation = operations[action as keyof typeof operations];
-				if (!operation) throw new Error(`unknown notes action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
-				return text(`${action}: ${artifactLine(artifact)}`, createArtifactDetails(operation, artifact));
-			} catch (error) {
-				throw new Error(`notes failed: ${error instanceof Error ? error.message : error}`);
-			}
-		},
-	});
-}
+// notes.* is registered as a real Vehicle (see ../vehicle-notes-client.ts and index.ts),
+// not a hand-rolled pi.registerTool() -- the first domain migrated off the
+// action-dispatch mega-tool pattern this file's other tools still use.
 
 export function registerDocsTool(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -943,7 +881,6 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 /** Thin orchestrator: each domain's tool is independently navigable/testable via its own registerXTool function. */
 export function registerDomainTools(pi: ExtensionAPI): void {
 	registerTasksTool(pi);
-	registerNotesTool(pi);
 	registerDocsTool(pi);
 	registerRulesTool(pi);
 	registerPlaybooksTool(pi);

@@ -19,6 +19,9 @@
   "dependencies": {
     "@danypops/daemon-kit": "^0.10.0",
     "@danypops/papyrus": "^0.38.0",
+    "@danypops/vehicle-core": "^0.1.0",
+    "@danypops/vehicle-client": "^0.1.1",
+    "@danypops/vehicle-client-pi": "^0.1.0",
     "beautiful-mermaid": "1.1.3"
   },
   "devDependencies": {

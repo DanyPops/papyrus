@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import registerPapyrus from "../extension/src/index.ts";
-import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
+import {
+	resetPapyrusClientForTests,
+	resetVehicleClientTargetResolverForTests,
+	setPapyrusClientConnectorForTests,
+	setVehicleClientTargetResolverForTests,
+} from "../extension/src/service-client.ts";
 
 type ToolExecute = (id: string, params: Record<string, unknown>, signal: undefined, onUpdate: undefined, ctx: ExtensionContext) => Promise<{ content: Array<{ type: string; text?: string }>; details?: unknown }>;
 
@@ -14,6 +19,10 @@ async function registeredTools(): Promise<Map<string, ToolExecute>> {
 		sendMessage() {},
 		events: { emit() {} },
 	} as unknown as ExtensionAPI;
+	// No real Papyrus daemon involved in this test -- without this, registerNotesVehicle
+	// would resolve whatever real daemon handle happens to exist on the machine running
+	// this suite, not a hermetic no-op.
+	setVehicleClientTargetResolverForTests(() => undefined);
 	await registerPapyrus(api);
 	return tools;
 }
@@ -36,6 +45,7 @@ function mockService(handler: (operation: string, input: Record<string, unknown>
 const invocationResult = { entryTaskId: "t1", rootTaskIds: ["t0"], created: { tasks: ["t0", "t1"] } };
 
 afterEach(resetPapyrusClientForTests);
+afterEach(resetVehicleClientTargetResolverForTests);
 
 /**
  * Regression: playbooks.invoke ends by calling tasks.focus server-side. The tasks tool always

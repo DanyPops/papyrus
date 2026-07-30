@@ -78,3 +78,22 @@ export function resolvePushChannelTarget(dir: string = daemonStateDir()): PushCh
 	if (!handle) return undefined;
 	return { url: `${handle.baseUrl.replace(/^http/, "ws")}/push`, token: handle.token };
 }
+
+export interface VehicleClientTarget {
+	/** Base URL for a domain migrated onto VehicleRegistry (see src/vehicle/*.ts) -- @danypops/vehicle-client's RemoteVehicleClient mounts its own /vehicle/manifest, /vehicle/invoke, /vehicle/cancel routes under this. */
+	baseUrl: string;
+	token: string;
+}
+
+/**
+ * Narrow surface for a Vehicle-projected domain consumer -- same daemon, same
+ * handle file, same Bearer token every other Papyrus RPC call already uses (see
+ * service.ts's createApp, which mounts the Vehicle HTTP app at /vehicle/* on
+ * this same port). Returns undefined rather than throwing when the daemon has
+ * never started, matching resolvePushChannelTarget's own tolerance.
+ */
+export function resolveVehicleClientTarget(dir: string = daemonStateDir()): VehicleClientTarget | undefined {
+	const handle = readDaemonHandle(dir);
+	if (!handle) return undefined;
+	return { baseUrl: handle.baseUrl, token: handle.token };
+}

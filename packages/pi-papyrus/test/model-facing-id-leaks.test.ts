@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import registerPapyrus from "../extension/src/index.ts";
 import { ActiveTaskContinuation } from "../extension/src/active-task-continuation.ts";
-import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
+import {
+	resetPapyrusClientForTests,
+	resetVehicleClientTargetResolverForTests,
+	setPapyrusClientConnectorForTests,
+	setVehicleClientTargetResolverForTests,
+} from "../extension/src/service-client.ts";
 import { taskContext, type Artifact, type ArtifactStore } from "@danypops/papyrus";
 
 const TASK_ID = "0d6cc36a-2755-474c-b955-6a5534d5f66d";
@@ -41,6 +46,10 @@ async function registeredTools(): Promise<Map<string, ToolExecute>> {
 		sendMessage() {},
 		events: { emit() {} },
 	} as unknown as ExtensionAPI;
+	// No real Papyrus daemon involved in this test -- without this, registerNotesVehicle
+	// would resolve whatever real daemon handle happens to exist on the machine running
+	// this suite, not a hermetic no-op.
+	setVehicleClientTargetResolverForTests(() => undefined);
 	await registerPapyrus(api);
 	return tools;
 }
@@ -66,6 +75,7 @@ function mockService(handler: (operation: string, input: Record<string, unknown>
 }
 
 afterEach(resetPapyrusClientForTests);
+afterEach(resetVehicleClientTargetResolverForTests);
 
 describe("model-facing artifact references are name-first", () => {
 	it("omits UUIDs from injected task context and active-task continuation prompts", () => {
@@ -197,35 +207,8 @@ describe("model-facing artifact references are name-first", () => {
 		expect(calls.some((entry) => entry.operation === "artifact.query")).toBe(false);
 	});
 
-	it("notes.promote resolves target_name to a real target_id, exactly as docs.link's target_name already does", async () => {
-		const tools = await registeredTools();
-		const note = artifact({ kind: "note", title: "Follow up on gate drift", status: "active" });
-		const target = artifact({ id: OTHER_ID, kind: "task", title: "Fix gate dispatch drift", status: "todo" });
-		const calls = mockService((operation, input) => {
-			if (operation === "notes.list" && input.text === "Follow up on gate drift") return [note];
-			if (operation === "artifact.query" && input.text === "Fix gate dispatch drift") return [target];
-			if (operation === "notes.promote") return note;
-			throw new Error(`unexpected operation ${operation}`);
-		});
-
-		await tools.get("notes")!("n", { action: "promote", name: "Follow up on gate drift", target_name: "Fix gate dispatch drift" }, undefined, undefined, context());
-
-		const promoteCall = calls.find((entry) => entry.operation === "notes.promote");
-		expect(promoteCall?.input).toMatchObject({ id: note.id, target_id: OTHER_ID });
-	});
-
-	it("notes(action=\"history\") renders this note's own real event log name-first, distinct from graph.history", async () => {
-		const tools = await registeredTools();
-		const note = artifact({ kind: "note", title: "Follow up on gate drift", status: "active" });
-		mockService((operation, input) => {
-			if (operation === "notes.list" && input.text === "Follow up on gate drift") return [note];
-			if (operation === "notes.history") return { events: [{ id: 1, noteId: TASK_ID, occurredAt: "2026-01-01T00:00:00.000Z", type: "captured", actor: "human", source: "cli", schemaVersion: 1 }] };
-			throw new Error(`unexpected operation ${operation}`);
-		});
-
-		const result = await tools.get("notes")!("n", { action: "history", name: "Follow up on gate drift" }, undefined, undefined, context());
-
-		expect(modelText(result)).toContain("captured");
-		expect(modelText(result)).not.toMatch(UUID);
-	});
+	// notes.* is no longer a hand-rolled pi.registerTool() -- name/target_name
+	// resolution and history rendering for it now live server-side in
+	// @danypops/papyrus's src/vehicle/notes-vehicle.ts, covered by that
+	// package's own notes-vehicle.test.ts, not here.
 });

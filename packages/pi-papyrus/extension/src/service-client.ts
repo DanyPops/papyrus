@@ -1,5 +1,5 @@
 import { connectPushChannel, createRetryingClient, type PushChannelClient, type PushChannelState, type RetryingClient } from "@danypops/daemon-kit/pi-client";
-import { connectPapyrusClient, resolvePushChannelTarget, type OperationName, type PapyrusClient } from "@danypops/papyrus";
+import { connectPapyrusClient, resolvePushChannelTarget, resolveVehicleClientTarget, type OperationName, type PapyrusClient, type VehicleClientTarget } from "@danypops/papyrus";
 
 type ClientConnector = () => Promise<PapyrusClient>;
 
@@ -35,6 +35,27 @@ export function setPushChannelTargetResolverForTests(value: typeof resolvePushCh
 
 export function resetPushChannelTargetResolverForTests(): void {
 	pushChannelTargetResolver = resolvePushChannelTarget;
+}
+
+let vehicleClientTargetResolver: typeof resolveVehicleClientTarget = resolveVehicleClientTarget;
+
+/**
+ * Defaults to the real daemonStateDir() -- every test that exercises the full extension
+ * entrypoint (registerPapyrus(api)), not just registerDomainTools, must override this
+ * first, the same way mockService already overrides setPapyrusClientConnectorForTests,
+ * or a hermetic unit test can silently start depending on whatever real Papyrus daemon
+ * handle happens to exist on the machine running it.
+ */
+export function setVehicleClientTargetResolverForTests(value: () => VehicleClientTarget | undefined): void {
+	vehicleClientTargetResolver = value;
+}
+
+export function resetVehicleClientTargetResolverForTests(): void {
+	vehicleClientTargetResolver = resolveVehicleClientTarget;
+}
+
+export function currentVehicleClientTarget(): VehicleClientTarget | undefined {
+	return vehicleClientTargetResolver();
 }
 
 /**

@@ -28,6 +28,7 @@ import { formatMetadata } from "./artifact-format.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import type { PushChannelClient } from "@danypops/daemon-kit/pi-client";
 import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
+import { registerNotesVehicle } from "./vehicle-notes-client.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
 import { renderNoteWidgetLines } from "./note-widget.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
@@ -321,6 +322,7 @@ export class NoteOverlay {
 export default async function (pi: ExtensionAPI) {
 	setTaskFocusEventBus(pi);
 	registerDomainTools(pi);
+	await registerNotesVehicle(pi);
 	registerPlaybookBridge(pi);
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
@@ -731,7 +733,9 @@ export default async function (pi: ExtensionAPI) {
 		if (event.toolName.startsWith("papyrus_") || event.toolName === "tasks") {
 			await overlay?.refresh();
 		}
-		if (event.toolName === "notes") {
+		// notes.* projects to notes_capture/notes_list/notes_show/... (see
+		// registerNotesVehicle) -- not a single "notes" tool name anymore.
+		if (event.toolName.startsWith("notes_")) {
 			await noteOverlay?.refresh();
 		}
 	});

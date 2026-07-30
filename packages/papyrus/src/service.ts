@@ -28,6 +28,9 @@ import {
 	listInjectableRules,
 } from "./domain-services.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
+import { createNotesVehicleRegistry } from "./vehicle/notes-vehicle.ts";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { Logs } from "./log-service.ts";
 import { SQLiteLogStore } from "./adapters/sqlite-log-store.ts";
 import { SessionIdentity, InvalidSessionSecretError } from "./session-identity-service.ts";
@@ -204,6 +207,13 @@ export interface PapyrusService {
 	operationNames(): OperationName[];
 	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
+	/**
+	 * Notes projected as a real VehicleRegistry (see ./vehicle/notes-vehicle.ts) --
+	 * one honest VehicleOperation per real action, replacing the Pi extension's old
+	 * `notes(action=X)` mega-tool. The first domain migrated this way; not every
+	 * domain has one yet.
+	 */
+	readonly notesVehicle: VehicleRegistry;
 	checkpoint(): void;
 	optimize(): void;
 	/** Time-based Task Focus reclamation (see Tasks.reapStaleFocus); returns how many rows were removed, for daemon logging. */
@@ -469,6 +479,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes, leases);
 	const noteEvents = new SQLiteNoteEventStore(db);
 	const notes = new Notes(artifacts, noteEvents);
+	const notesVehicle = createNotesVehicleRegistry(notes, artifacts);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
@@ -494,6 +505,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: state,
+		notesVehicle,
 		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
@@ -553,12 +565,17 @@ export function createApp(deps: {
 	 */
 	onOperationExecuted?: (operation: string, input: OperationInput) => void;
 }): { fetch(request: Request): Promise<Response> } {
+	// Same Bearer token as the rest of this API -- a Vehicle-projected domain (see
+	// ./vehicle/notes-vehicle.ts) rides the same daemon, same auth, same port; it is
+	// not a second service to stand up or authenticate against separately.
+	const vehicleApp = createVehicleHttpApp({ registry: deps.service.notesVehicle, token: deps.token });
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (request.headers.get("authorization") !== `Bearer ${deps.token}`) {
 				return json({ error: "missing or invalid bearer token" }, { status: 401 });
 			}
 			const url = new URL(request.url);
+			if (url.pathname.startsWith("/vehicle/")) return vehicleApp.fetch(request);
 			if (request.method === "GET" && url.pathname === "/health") {
 				return json({ ok: true, version: VERSION, schema: deps.service.schemaState() });
 			}

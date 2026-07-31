@@ -8,6 +8,8 @@ import {
 	type DiscussionRound,
 	type GateResult,
 	type OperationName,
+	type PlaybookInvocationResult,
+	type PlaybookMissingArguments,
 	type WorkflowRunResult,
 	type TaskCompletion,
 	type TaskExecutionPlan,
@@ -721,13 +723,33 @@ export function registerPlaybooksTool(pi: ExtensionAPI): void {
 					return text(rendered, createPreviewDetails("playbooks.preview", "Playbook preview", rendered));
 				}
 				if (action === "invoke") {
-					const invocation = await callService<Record<string, unknown>, { entryTaskId?: string; rootTaskIds?: string[]; created?: { tasks: string[] }; missingArguments?: string[] }>("playbooks.invoke", params);
-					if (invocation.missingArguments) {
+					const invocation = await callService<Record<string, unknown>, PlaybookInvocationResult | PlaybookMissingArguments>("playbooks.invoke", params);
+					if ("missingArguments" in invocation) {
 						const message = `Missing required argument(s): ${invocation.missingArguments.join(", ")}. Nothing was created -- ask the human for these (discuss tool, live:true), then invoke again.`;
-						return text(message, createPreviewDetails("playbooks.invoke", "Playbook invocation", message));
+						return text(message, createInvocationDetails("playbooks.invoke", invocation.playbookId, { tasks: [], docs: [], rules: [], roots: [] }));
 					}
-					const message = `Invoked: ${invocation.created?.tasks.length ?? 0} task(s) created, entry task ${invocation.entryTaskId} now focused. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`;
-					return text(message, createPreviewDetails("playbooks.invoke", "Playbook invocation", JSON.stringify(invocation, null, 2)));
+					const nodeTitleCounts = new Map<string, number>();
+					for (const node of invocation.execution.nodes) nodeTitleCounts.set(node.title, (nodeTitleCounts.get(node.title) ?? 0) + 1);
+					const execution = invocation.execution.nodes.map((node) => (nodeTitleCounts.get(node.title) ?? 0) > 1
+						? `  [${node.state}] ${node.title} (${node.id})`
+						: `  [${node.state}] ${node.title}`).join("\n");
+					const nodeById = new Map(invocation.execution.nodes.map((node) => [node.id, node]));
+					const rootLabels = invocation.rootTaskIds.map((id) => nodeById.get(id)?.title ?? "unknown task");
+					const entryLabel = nodeById.get(invocation.entryTaskId)?.title ?? invocation.entryTaskId;
+					const createdLabels = await artifactLabelsById([...invocation.created.docs, ...invocation.created.rules]);
+					return text([
+						`Invoked playbook run ${invocation.runId}: ${invocation.created.tasks.length} task(s), ${invocation.created.rules.length} rule(s), ${invocation.created.docs.length} doc(s) created.`,
+						`Entry task now focused: ${entryLabel}. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`,
+						`Ready roots: ${rootLabels.join(", ") || "none"}.`,
+						`Context docs: ${invocation.created.docs.map((id) => createdLabels.get(id) ?? "unknown document").join(", ") || "none"}.`,
+						`Scoped rules: ${invocation.created.rules.map((id) => createdLabels.get(id) ?? "unknown rule").join(", ") || "none"}.`,
+						...(execution ? ["Execution:", execution] : []),
+					].join("\n"), createInvocationDetails("playbooks.invoke", invocation.runId, {
+						tasks: invocation.created.tasks,
+						docs: invocation.created.docs,
+						rules: invocation.created.rules,
+						roots: invocation.rootTaskIds,
+					}));
 				}
 				const trashResult = await handleArtifactRemoveRestore(action, params);
 				if (trashResult) return trashResult;

@@ -24,6 +24,7 @@ export type { DiscussionAndRounds } from "./discussion-service.ts";
 export { NOTE_DISPOSITIONS } from "./note-service.ts";
 export type { OperationName, SchemaState } from "./service.ts";
 export type { WorkflowRunResult } from "./workflow-execution.ts";
+export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook-execution.ts";
 export { projectArtifactRelationships } from "./artifact-relationship-view.ts";
 export { taskContext } from "./task-context.ts";
 export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState } from "./task-execution.ts";

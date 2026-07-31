@@ -42,7 +42,22 @@ function mockService(handler: (operation: string, input: Record<string, unknown>
 	return calls;
 }
 
-const invocationResult = { entryTaskId: "t1", rootTaskIds: ["t0"], created: { tasks: ["t0", "t1"] } };
+const invocationResult = {
+	playbookId: "pb1",
+	runId: "run1",
+	arguments: {},
+	entryTaskId: "t1",
+	rootTaskIds: ["t0"],
+	created: { tasks: ["t0", "t1"], docs: [], rules: [] },
+	execution: {
+		nodes: [
+			{ id: "t0", title: "Step 1", status: "todo", active: true, state: "ready", layer: 0, prerequisiteIds: [], successorIds: ["t1"] },
+			{ id: "t1", title: "Step 2", status: "todo", active: false, state: "blocked", layer: 1, prerequisiteIds: ["t0"], successorIds: [] },
+		],
+		layers: [["t0"], ["t1"]],
+		cycleIds: [],
+	},
+};
 
 afterEach(resetPapyrusClientForTests);
 afterEach(resetVehicleClientTargetResolverForTests);
@@ -99,5 +114,37 @@ describe("playbooks tool: invoke defaults project_root and session_id the same w
 			expect(call.input["project_root"]).toBeUndefined();
 			expect(call.input["session_id"]).toBeUndefined();
 		}
+	});
+});
+
+/**
+ * Regression: playbooks.invoke used to dump the entire raw PlaybookInvocationResult
+ * (including the full execution DAG's raw ids/layers/prerequisite arrays) via
+ * JSON.stringify into the tool's details -- unreadable, confirmed live by a real user.
+ * Mirrors skills.run's already-correct summary + createInvocationDetails pattern.
+ */
+describe("playbooks tool: invoke renders a real summary, not a raw JSON dump", () => {
+	it("summarizes created counts, entry task by label, ready roots by label, and an Execution section -- never a raw JSON blob", async () => {
+		const tools = await registeredTools();
+		mockService(() => invocationResult);
+		const result = await tools.get("playbooks")!("id", { action: "invoke", id: "pb1" }, undefined, undefined, context());
+		const message = result.content[0]!.text!;
+		expect(message).toContain("Invoked playbook run run1: 2 task(s), 0 rule(s), 0 doc(s) created.");
+		expect(message).toContain("Entry task now focused: Step 2.");
+		expect(message).toContain("Ready roots: Step 1.");
+		expect(message).toContain("Execution:");
+		expect(message).toContain("[ready] Step 1");
+		expect(message).toContain("[blocked] Step 2");
+		expect(message).not.toContain("{\n");
+		expect(result.details).toMatchObject({ kind: "invocation", operation: "playbooks.invoke", runId: "run1" });
+	});
+
+	it("reports missing arguments as a plain message, not a raw dump, and creates nothing", async () => {
+		const tools = await registeredTools();
+		mockService(() => ({ playbookId: "pb1", missingArguments: ["jira_ticket"] }));
+		const result = await tools.get("playbooks")!("id", { action: "invoke", id: "pb1" }, undefined, undefined, context());
+		const message = result.content[0]!.text!;
+		expect(message).toBe("Missing required argument(s): jira_ticket. Nothing was created -- ask the human for these (discuss tool, live:true), then invoke again.");
+		expect(result.details).toMatchObject({ kind: "invocation", operation: "playbooks.invoke" });
 	});
 });

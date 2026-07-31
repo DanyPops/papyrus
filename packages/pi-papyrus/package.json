@@ -1,6 +1,6 @@
 {
   "name": "@danypops/pi-papyrus",
-  "version": "0.38.5",
+  "version": "0.39.0",
   "description": "Pi host extension for Papyrus: native tools, TUI panels, and context injection over the daemon-backed graph store",
   "type": "module",
   "keywords": ["pi-package"],
@@ -17,7 +17,7 @@
     "typebox": "*"
   },
   "dependencies": {
-    "@danypops/papyrus": "^0.38.1",
+    "@danypops/papyrus": "^0.39.0",
     "@danypops/vehicle-core": "^0.1.1",
     "@danypops/vehicle-server": "^0.1.1",
     "@danypops/vehicle-client": "^0.1.1",

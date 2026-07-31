@@ -132,11 +132,10 @@ describe("Papyrus native tool rendering", () => {
 	it("wires every native Papyrus tool to the dual-channel renderer and native failures", () => {
 		const domainTools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
 		const lowLevelTools = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
-		// 6, not 7: notes' own renderCall/renderResult left with it when notes.*
-		// migrated onto a real VehicleRegistry (see ../../papyrus/src/vehicle/
-		// notes-vehicle.ts) -- tasks/docs/rules/playbooks/skills/discuss remain.
-		expect(domainTools.match(/renderCall\(/g)).toHaveLength(6);
-		expect(domainTools.match(/renderResult\(/g)).toHaveLength(6);
+		// tasks/playbooks/skills/discuss only -- notes/rules/docs are Vehicle-projected,
+		// no renderCall/renderResult of their own in this file.
+		expect(domainTools.match(/renderCall\(/g)).toHaveLength(4);
+		expect(domainTools.match(/renderResult\(/g)).toHaveLength(4);
 		expect(lowLevelTools.match(/renderCall\(/g)).toHaveLength(3);
 		expect(lowLevelTools.match(/renderResult\(/g)).toHaveLength(3);
 		expect(`${domainTools}\n${lowLevelTools}`).not.toMatch(/return text\(`[^`]*failed:/);

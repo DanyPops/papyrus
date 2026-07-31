@@ -1,31 +1,21 @@
 /**
- * Registers notes.* as a real Vehicle instead of a hand-rolled `pi.registerTool()`
- * mega-tool -- see @danypops/papyrus's src/vehicle/notes-vehicle.ts for the
- * VehicleRegistry side. Same daemon, same handle file, same Bearer token every
- * other Papyrus RPC call already uses (resolveVehicleClientTarget mirrors
- * resolvePushChannelTarget's own resolution).
+ * Registers every Vehicle-projected domain (notes.*, rules.*, docs.*, artifact.*)
+ * as real Pi tools -- see @danypops/papyrus's src/vehicle/papyrus-vehicle.ts.
  *
- * Papyrus's daemon is expected to already be running as an installed service
- * (see `packed install-service`), not auto-spawned on first use -- so unlike
- * registerVehicleTools' README example, failure here (daemon not started yet,
- * stale handle) is tolerated the same silent-degrade way
- * subscribeTaskPushChannel already tolerates it, rather than letting a
- * daemon-not-running condition abort the rest of extension setup. There is
- * no retry-on-later-connect for a tool that was never registered at all --
- * Pi has no way to add one after the fact outside the initial registration
- * flow.
+ * Fails silently on a stale/unreachable daemon handle instead of aborting extension
+ * setup: Papyrus's daemon doesn't auto-spawn, and a tool that failed to register
+ * here has no later retry path.
  *
- * Resolves the target through service-client.ts's currentVehicleClientTarget()
- * (test-injectable, see setVehicleClientTargetResolverForTests), never
- * @danypops/papyrus's resolveVehicleClientTarget() directly -- this runs from
- * the bare extension entrypoint on every registerPapyrus(api) call, so an
- * un-injected default would resolve the real daemonStateDir() in any test
- * exercising the full entrypoint, not just ones about notes.
+ * Uses service-client.ts's currentVehicleClientTarget() (test-injectable) rather
+ * than resolveVehicleClientTarget() directly, so a test exercising the full
+ * extension entrypoint doesn't resolve a real daemonStateDir().
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerVehicleTools } from "@danypops/vehicle-client-pi";
 import { currentVehicleClientTarget } from "./service-client.ts";
+
+const REGISTERED_PERMISSIONS = ["notes:read", "notes:write", "rules:read", "rules:write", "docs:read", "docs:write", "artifact:read", "artifact:write"];
 
 export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 	const target = currentVehicleClientTarget();
@@ -33,7 +23,7 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 	try {
 		const client = new RemoteVehicleClient({ baseUrl: target.baseUrl, token: target.token });
 		await registerVehicleTools(pi, client, {
-			permissions: ["notes:read", "notes:write"],
+			permissions: REGISTERED_PERMISSIONS,
 			principal: { id: "pi-papyrus" },
 		});
 	} catch {

@@ -540,121 +540,9 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 	});
 }
 
-// notes.* is registered as a real Vehicle (see ../vehicle-notes-client.ts and index.ts),
-// not a hand-rolled pi.registerTool() -- the first domain migrated off the
-// action-dispatch mega-tool pattern this file's other tools still use.
-
-export function registerDocsTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "docs",
-		label: "Documents",
-		description: "Document domain tool. ACTIONS: create, list, show, activate, archive, reopen, link, assign_project, update, remove, remove_subtree, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. update changes title/body/labels (at least one required) and is refused for a read-only external projection (e.g. web-spider-ingested Docs) -- capture a correction as a new linked Doc instead. remove moves a Doc to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline; remove_subtree extends this to a whole `contains` subtree in one call. PREFER `name` (the doc's exact title) over `id`, and `target_name` over `target_id` for link -- both are backend implementation details, resolved from name automatically (target_name searches across every kind, since a link target can be a doc, task, rule, or skill). Prefer this over low-level papyrus_* tools for document work.",
-		parameters: Type.Object({
-			action: Type.String(),
-			id: Type.Optional(Type.String()),
-			name: Type.Optional(Type.String()),
-			title: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()),
-			subtype: Type.Optional(Type.String()),
-			status: Type.Optional(Type.String()),
-			text: Type.Optional(Type.String()),
-			limit: Type.Optional(Type.Number()),
-			labels: Type.Optional(Type.Array(Type.String())),
-			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-			template_id: Type.Optional(Type.String()),
-			relation: Type.Optional(Type.String()),
-			target_id: Type.Optional(Type.String()),
-			target_name: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()),
-			reason: Type.Optional(Type.String()),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Documents", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams) {
-			try {
-				const params: Record<string, unknown> = { ...rawParams };
-				const action = params.action;
-				const scopeRequest = { project_root: params.project_root };
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "docs.list", baseRequest: scopeRequest },
-					// Kind-agnostic: a link target can be a doc, task, rule, or skill, so this searches every kind rather than only docs.
-					{ nameKey: "target_name", idKey: "target_id", listOperation: "artifact.query", baseRequest: scopeRequest },
-				]);
-				if (action === "create") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("docs.create", params);
-					return text(`Created document ${artifactLine(artifact)}`, createArtifactDetails("docs.create", artifact));
-				}
-				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("docs.list", params);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No documents found.", createArtifactListDetails("docs.list", rows));
-				}
-				if (action === "show") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("docs.show", params);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("docs.show", artifact));
-				}
-				const trashResult = await handleArtifactRemoveRestore(action, params);
-				if (trashResult) return trashResult;
-				const operations = { activate: "docs.activate", archive: "docs.archive", reopen: "docs.reopen", link: "docs.link", assign_project: "docs.assign_project", update: "docs.update" } as const;
-				const operation = operations[action as keyof typeof operations];
-				if (!operation) throw new Error(`unknown docs action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
-			} catch (error) {
-				throw new Error(`docs failed: ${error instanceof Error ? error.message : error}`);
-			}
-		},
-	});
-}
-
-export function registerRulesTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "rules",
-		label: "Rules",
-		description: "Rule domain tool. ACTIONS: create, list, show, preview, enable, disable, gate, assign_project, update, remove, remove_subtree, restore. project_root is optional at creation (omitted = unscoped); assign_project reassigns it later, or unscopes when project_root is omitted. Active rules inject into the agent system prompt. update changes title/body/labels (at least one required); body updates still enforce the same combined condition+action+body context-tax bound as creation, and are refused for a read-only external projection. remove moves a Rule to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline; remove_subtree extends this to a whole `contains` subtree in one call. PREFER `name` (the rule's exact title) over `id`, and `task_name` over `task_id` for gate -- both are backend implementation details, resolved from name automatically.",
-		parameters: Type.Object({
-			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()), condition: Type.Optional(Type.String()), rule_action: Type.Optional(Type.String()),
-			severity: Type.Optional(Type.String()), labels: Type.Optional(Type.Array(Type.String())),
-			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
-			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), task_id: Type.Optional(Type.String()),
-			task_name: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Rules", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
-			try {
-				const params: Record<string, unknown> = { ...rawParams };
-				const action = params.action;
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "rules.list", baseRequest: { project_root: params.project_root } },
-					{ nameKey: "task_name", idKey: "task_id", listOperation: "tasks.list", baseRequest: { project_root: params.project_root ?? ctx.cwd } },
-				]);
-				if (action === "create") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("rules.create", params);
-					return text(`Created rule ${artifactLine(artifact)}`, createArtifactDetails("rules.create", artifact));
-				}
-				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("rules.list", params);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No rules found.", createArtifactListDetails("rules.list", rows));
-				}
-				if (action === "preview") {
-					const preview = await callService<Record<string, unknown>, string>("rules.preview", params);
-					return text(preview, createPreviewDetails("rules.preview", "Rule preview", preview));
-				}
-				const trashResult = await handleArtifactRemoveRestore(action, params);
-				if (trashResult) return trashResult;
-				const operations = { show: "rules.show", enable: "rules.enable", disable: "rules.disable", gate: "rules.gate", assign_project: "rules.assign_project", update: "rules.update" } as const;
-				const operation = operations[action as keyof typeof operations];
-				if (!operation) throw new Error(`unknown rules action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
-			} catch (error) {
-				throw new Error(`rules failed: ${error instanceof Error ? error.message : error}`);
-			}
-		},
-	});
-}
+// notes.*, rules.*, docs.*, and the shared artifact.* are registered as Vehicles
+// (see ../vehicle-notes-client.ts and @danypops/papyrus's src/vehicle/papyrus-vehicle.ts),
+// not pi.registerTool()s in this file.
 
 export function registerPlaybooksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -950,10 +838,12 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 }
 
 /** Thin orchestrator: each domain's tool is independently navigable/testable via its own registerXTool function. */
+// docs and rules are no longer registered here -- both migrated onto Vehicle
+// (registerNotesVehicle in vehicle-notes-client.ts, wired at session_start in
+// index.ts), replacing their own pi.registerTool() mega-tools. See
+// @danypops/papyrus's src/vehicle/papyrus-vehicle.ts for the server side.
 export function registerDomainTools(pi: ExtensionAPI): void {
 	registerTasksTool(pi);
-	registerDocsTool(pi);
-	registerRulesTool(pi);
 	registerPlaybooksTool(pi);
 	registerSkillsTool(pi);
 	registerDiscussTool(pi);

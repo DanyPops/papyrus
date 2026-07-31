@@ -45,7 +45,11 @@ function mockService(handler: (operation: string, input: Record<string, unknown>
 afterEach(resetPapyrusClientForTests);
 afterEach(resetVehicleClientTargetResolverForTests);
 
-describe("remove_subtree shared across domain tools (tasks, docs, rules, playbooks, skills)", () => {
+// docs' own remove_subtree coverage moved to @danypops/papyrus's
+// test/artifact-trash-vehicle.test.ts -- docs is Vehicle-projected now, no
+// pi.registerTool() of its own. rules/skills/playbooks still use this
+// file's shared handler.
+describe("remove_subtree shared across domain tools (tasks, rules, playbooks, skills)", () => {
 	it("tasks tool: calls artifact.remove_subtree and reports the root's title plus how many contained artifacts were trashed", async () => {
 		const tools = await registeredTools();
 		const calls = mockService((operation) => {
@@ -57,17 +61,5 @@ describe("remove_subtree shared across domain tools (tasks, docs, rules, playboo
 		expect(result.content[0]!.text).toContain('"Root"');
 		expect(result.content[0]!.text).toContain("2 contained artifact(s)");
 		expect(result.content[0]!.text).toContain("skipped 1 already-trashed");
-	});
-
-	it("docs tool: also exposes remove_subtree via the same shared handler", async () => {
-		const tools = await registeredTools();
-		mockService((operation) => {
-			if (operation === "artifact.show") return { id: "d0", kind: "doc", title: "Doc Root", status: "active", body: "", labels: [], extra: {} };
-			return { removed: ["d0", "d1"], skipped: [] };
-		});
-		const result = await tools.get("docs")!("id", { action: "remove_subtree", id: "d0" }, undefined, undefined, context());
-		expect(result.content[0]!.text).toContain('"Doc Root"');
-		expect(result.content[0]!.text).toContain("1 contained artifact(s)");
-		expect(result.content[0]!.text).not.toContain("skipped");
 	});
 });

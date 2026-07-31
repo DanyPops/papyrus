@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import type { VehicleManifestOperation } from "@danypops/vehicle-core";
 import { createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
@@ -11,14 +12,14 @@ const PERMS = { permissions: ["notes:read", "notes:write"] };
 function harness() {
 	const directory = tempDir("papyrus-notes-vehicle-");
 	const service = createPapyrusService(join(directory, "papyrus.db"));
-	return { registry: service.notesVehicle, service };
+	return { registry: service.vehicle, service };
 }
 
 describe("createNotesVehicleRegistry (wired through createPapyrusService)", () => {
 	it("registers exactly one honest VehicleOperation per real notes.* action, never an action-dispatch schema", () => {
 		const { registry, service } = harness();
 		const manifest = registry.manifest();
-		const names = manifest.operations.map((op) => op.name).sort();
+		const names = manifest.operations.map((op: VehicleManifestOperation) => op.name).filter((name: string) => name.startsWith("notes.")).sort();
 		expect(names).toEqual(["notes.archive", "notes.capture", "notes.consume", "notes.history", "notes.list", "notes.promote", "notes.show"]);
 		// No operation's own schema is itself an action-dispatch blob -- confirms the
 		// "God Parameters" shape audited against pi-papyrus's other domain tools

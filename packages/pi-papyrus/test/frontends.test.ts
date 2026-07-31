@@ -9,10 +9,8 @@ import {
 	matchArtifactByName,
 	normalizeJsonEncodedField,
 	registerDiscussTool,
-	registerDocsTool,
 	registerDomainTools,
 	registerPlaybooksTool,
-	registerRulesTool,
 	registerSkillsTool,
 	registerTasksTool,
 } from "../extension/src/domain-tools.ts";
@@ -82,7 +80,7 @@ describe("kind-specific frontend projections", () => {
 		expect(documentRowMeta(artifact({ subtype: "decision", labels: ["sqlite", "architecture"] }), theme)).toBe("decision · sqlite, architecture");
 	});
 
-	it("exposes Notes through direct commands, a bounded inbox, and one Vehicle (not a hand-rolled domain tool)", () => {
+	it("exposes Notes through direct commands, a bounded inbox, and one Vehicle (not a single action-dispatch pi.registerTool())", () => {
 		expect(noteRowMeta(artifact({ subtype: "note", extra: { noteHistory: [{ action: "captured" }, { action: "consumed" }] } }))).toBe("2 events");
 		expect(noteCaptureInput("  Review this later  ", "/workspace/papyrus")).toEqual({
 			body: "Review this later", project_root: "/workspace/papyrus", actor: "human", source: "note-command",
@@ -96,8 +94,8 @@ describe("kind-specific frontend projections", () => {
 		expect(NOTE_LIST_MAX_LIMIT).toBeLessThan(500);
 		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
 		const domainTools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
-		// notes.* moved off domain-tools.ts's hand-rolled action-dispatch shape entirely --
-		// this asserts it stays gone, not that it comes back accidentally during a future edit.
+		// notes.* is not a pi.registerTool({name: "notes", ...}) in domain-tools.ts --
+		// asserts it stays gone, not that it comes back accidentally during a future edit.
 		expect(domainTools).not.toContain('name: "notes"');
 		expect(extension).toContain('registerCommand("note"');
 		expect(extension).toContain('registerCommand("notes"');
@@ -264,11 +262,18 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 		}
 	});
 
-	it("registers name-based equivalents across docs, rules, skills, notes, and discuss too", () => {
+	it("registers name-based equivalents across skills and discuss (still action-dispatch pi.registerTool()s)", () => {
 		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
-		for (const field of ["target_name:", "task_name:", "template_name:", "blocks_task_names:"]) {
+		for (const field of ["template_name:", "blocks_task_names:"]) {
 			expect(tools).toContain(field);
 		}
+	});
+
+	it("registers name-based equivalents server-side for rules/docs, migrated onto Vehicle -- target_name/task_name now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
+		const rulesVehicle = readFileSync(new URL("../../papyrus/src/vehicle/rules-vehicle.ts", import.meta.url), "utf8");
+		const docsVehicle = readFileSync(new URL("../../papyrus/src/vehicle/docs-vehicle.ts", import.meta.url), "utf8");
+		expect(rulesVehicle).toContain("task_name");
+		expect(docsVehicle).toContain("target_name");
 	});
 
 	it("registers from_name/to_name on papyrus_graph, matching every other link-target name-resolution field", () => {
@@ -329,12 +334,10 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 });
 
 /**
- * Each domain's tool registers independently -- the actual point of splitting registerDomainTools
- * into one function per domain: no domain's tool depends on another's having been registered
- * first, and registerDomainTools itself is just a thin orchestrator calling all 6 remaining
- * hand-rolled domain tools. notes.* is registered separately, as a real Vehicle (see
- * ../extension/src/vehicle-notes-client.ts) -- the first domain migrated off this
- * action-dispatch shape entirely, so it has no registerXTool counterpart here anymore.
+ * Each domain's tool registers independently: no domain depends on another's having been
+ * registered first, and registerDomainTools is a thin orchestrator over the rest. notes/
+ * rules/docs have no registerXTool counterpart here -- they're Vehicle-projected (see
+ * ../extension/src/vehicle-notes-client.ts), not action-dispatch pi.registerTool()s.
  */
 describe("registerXTool: each domain tool is independently registrable, not just reachable via the orchestrator", () => {
 	function registeredToolNames(register: (pi: any) => void): string[] {
@@ -345,15 +348,13 @@ describe("registerXTool: each domain tool is independently registrable, not just
 
 	it("registers exactly its own tool, nothing from any other domain", () => {
 		expect(registeredToolNames(registerTasksTool)).toEqual(["tasks"]);
-		expect(registeredToolNames(registerDocsTool)).toEqual(["docs"]);
-		expect(registeredToolNames(registerRulesTool)).toEqual(["rules"]);
 		expect(registeredToolNames(registerPlaybooksTool)).toEqual(["playbooks"]);
 		expect(registeredToolNames(registerSkillsTool)).toEqual(["skills"]);
 		expect(registeredToolNames(registerDiscussTool)).toEqual(["discuss"]);
 	});
 
-	it("registerDomainTools registers all 6 remaining hand-rolled tools, in the same shape as calling each individually", () => {
-		expect(registeredToolNames(registerDomainTools)).toEqual(["tasks", "docs", "rules", "playbooks", "skills", "discuss"]);
+	it("registerDomainTools registers all remaining action-dispatch tools, in the same shape as calling each individually -- docs and rules migrated onto Vehicle, no longer here", () => {
+		expect(registeredToolNames(registerDomainTools)).toEqual(["tasks", "playbooks", "skills", "discuss"]);
 	});
 });
 

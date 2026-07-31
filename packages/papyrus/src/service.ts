@@ -28,7 +28,7 @@ import {
 	listInjectableRules,
 } from "./domain-services.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
-import { createNotesVehicleRegistry } from "./vehicle/notes-vehicle.ts";
+import { createPapyrusVehicleRegistry } from "./vehicle/papyrus-vehicle.ts";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { Logs } from "./log-service.ts";
@@ -208,12 +208,13 @@ export interface PapyrusService {
 	schemaState(): SchemaState;
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
 	/**
-	 * Notes projected as a real VehicleRegistry (see ./vehicle/notes-vehicle.ts) --
-	 * one honest VehicleOperation per real action, replacing the Pi extension's old
-	 * `notes(action=X)` mega-tool. The first domain migrated this way; not every
-	 * domain has one yet.
+	 * Every domain migrated onto Vehicle, merged into one registry/one HTTP mount
+	 * (see ./vehicle/papyrus-vehicle.ts) -- one honest VehicleOperation per real
+	 * action, replacing the Pi extension's old `<domain>(action=X)` mega-tools.
+	 * Not every domain is migrated yet -- see papyrus-vehicle.ts's own doc comment
+	 * for what still isn't and why.
 	 */
-	readonly notesVehicle: VehicleRegistry;
+	readonly vehicle: VehicleRegistry;
 	checkpoint(): void;
 	optimize(): void;
 	/** Time-based Task Focus reclamation (see Tasks.reapStaleFocus); returns how many rows were removed, for daemon logging. */
@@ -479,13 +480,13 @@ export function createPapyrusService(path: string): PapyrusService {
 	const tasks = new Tasks(artifacts, gates, focus, events, scopes, leases);
 	const noteEvents = new SQLiteNoteEventStore(db);
 	const notes = new Notes(artifacts, noteEvents);
-	const notesVehicle = createNotesVehicleRegistry(notes, artifacts);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const discussions = new Discussions(artifacts, new SQLiteDiscussionRoundStore(db));
 	const authority = createAuthorityRegistry();
+	const vehicle = createPapyrusVehicleRegistry({ artifacts, scopes: artifactScopes, authority, notes });
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(logsOperations(logs));
@@ -505,7 +506,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	return {
 		operationNames: () => [...EXPECTED_OPERATION_NAMES],
 		schemaState: state,
-		notesVehicle,
+		vehicle,
 		async execute(operation, input = {}) {
 			const handler = registry[operation as OperationName];
 			if (!handler) throw new UnknownOperationError(`unknown operation "${operation}"`);
@@ -565,10 +566,8 @@ export function createApp(deps: {
 	 */
 	onOperationExecuted?: (operation: string, input: OperationInput) => void;
 }): { fetch(request: Request): Promise<Response> } {
-	// Same Bearer token as the rest of this API -- a Vehicle-projected domain (see
-	// ./vehicle/notes-vehicle.ts) rides the same daemon, same auth, same port; it is
-	// not a second service to stand up or authenticate against separately.
-	const vehicleApp = createVehicleHttpApp({ registry: deps.service.notesVehicle, token: deps.token });
+	// Same Bearer token, daemon, and port as the rest of this API -- see ./vehicle/papyrus-vehicle.ts.
+	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicle, token: deps.token });
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (request.headers.get("authorization") !== `Bearer ${deps.token}`) {

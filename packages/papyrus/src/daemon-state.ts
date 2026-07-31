@@ -12,6 +12,9 @@ import {
 export interface DaemonHandle {
 	baseUrl: string;
 	token: string;
+	host: string;
+	port: number;
+	pid: number;
 }
 
 export function daemonStateDir(
@@ -38,9 +41,9 @@ export function loadOrCreateToken(dir: string): string {
 	return token;
 }
 
-export function writeDaemonPort(dir: string, port: number): void {
+export function writeDaemonPort(dir: string, port: number, pid: number = process.pid): void {
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, DAEMON_PORT_FILE), `${port}\n`, { mode: 0o600 });
+	writeFileSync(join(dir, DAEMON_PORT_FILE), `${port}\n${pid}\n`, { mode: 0o600 });
 }
 
 export function clearDaemonPort(dir: string): void {
@@ -50,9 +53,14 @@ export function clearDaemonPort(dir: string): void {
 export function readDaemonHandle(dir: string): DaemonHandle | undefined {
 	try {
 		const token = readFileSync(join(dir, DAEMON_TOKEN_FILE), "utf8").trim();
-		const port = Number(readFileSync(join(dir, DAEMON_PORT_FILE), "utf8").trim());
+		const lines = readFileSync(join(dir, DAEMON_PORT_FILE), "utf8").trim().split("\n");
+		const port = Number(lines[0]);
+		// pid is absent for a handle written before this field existed -- 0 is a safe
+		// "unknown" sentinel (never a real pid), not a crash. Nothing currently reads
+		// pid to make a kill/staleness decision, so a stale 0 is inert, not unsafe.
+		const pid = lines[1] ? Number(lines[1]) : 0;
 		if (!token || !Number.isInteger(port) || port < 1 || port > 65_535) return undefined;
-		return { baseUrl: `http://${DAEMON_HOST}:${port}`, token };
+		return { baseUrl: `http://${DAEMON_HOST}:${port}`, token, host: DAEMON_HOST, port, pid };
 	} catch {
 		return undefined;
 	}

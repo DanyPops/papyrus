@@ -33,7 +33,7 @@ Install the Pi extension; it depends on the daemon package, which is pulled in a
 
 ```bash
 packed install npm:@danypops/pi-papyrus
-~/.pi/agent/npm/node_modules/.bin/papyrus service install
+packed install-service npm:@danypops/pi-papyrus --approve
 ```
 
 Existing databases are never migrated on daemon boot. After upgrading to a newer schema, run the authenticated CLI migration explicitly:

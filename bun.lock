@@ -11,11 +11,12 @@
     },
     "packages/papyrus": {
       "name": "@danypops/papyrus",
-      "version": "0.38.1",
+      "version": "0.38.3",
       "bin": {
         "papyrus": "src/cli.ts",
       },
       "dependencies": {
+        "@danypops/vehicle-client": "^0.1.1",
         "@danypops/vehicle-core": "^0.1.1",
         "@danypops/vehicle-server": "^0.3.2",
       },
@@ -26,7 +27,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.38.4",
+      "version": "0.38.5",
       "dependencies": {
         "@danypops/papyrus": "^0.38.1",
         "@danypops/vehicle-client": "^0.1.1",

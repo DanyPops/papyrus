@@ -21,8 +21,8 @@ describe("Papyrus daemon state", () => {
 		expect(first).toBe(second);
 		expect(first.length).toBe(64);
 		expect(statSync(join(dir, "token")).mode & 0o777).toBe(0o600);
-		writeDaemonPort(dir, 43123);
-		expect(readDaemonHandle(dir)).toEqual({ baseUrl: "http://127.0.0.1:43123", token: first });
+		writeDaemonPort(dir, 43123, 99999);
+		expect(readDaemonHandle(dir)).toEqual({ baseUrl: "http://127.0.0.1:43123", token: first, host: "127.0.0.1", port: 43123, pid: 99999 });
 	});
 });
 

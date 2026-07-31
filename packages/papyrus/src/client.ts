@@ -1,5 +1,8 @@
-import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
-import { daemonStateDir, readDaemonHandle } from "./daemon-state.ts";
+import { spawn as spawnProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
+import { daemonStateDir, readDaemonHandle, type DaemonHandle } from "./daemon-state.ts";
 import type { OperationName, SchemaState } from "./service.ts";
 
 export type FetchAdapter = (request: Request) => Promise<Response>;
@@ -46,9 +49,7 @@ export class PapyrusClient {
 	}
 }
 
-export async function connectPapyrusClient(dir: string = daemonStateDir()): Promise<PapyrusClient> {
-	const handle = readDaemonHandle(dir);
-	if (!handle) throw new Error("Papyrus daemon is not running; install/start papyrus.service");
+async function probedPapyrusClient(handle: DaemonHandle): Promise<PapyrusClient> {
 	const probe = new PapyrusClient(handle.baseUrl, handle.token, (request) => fetch(request), DAEMON_PROBE_TIMEOUT_MS);
 	try {
 		await probe.health();
@@ -56,6 +57,54 @@ export async function connectPapyrusClient(dir: string = daemonStateDir()): Prom
 	} catch {
 		throw new Error("Papyrus daemon state is stale or unreachable; restart papyrus.service");
 	}
+}
+
+/** packages/papyrus/src/cli.ts, resolved relative to this file's own installed location, not require.resolve('@danypops/papyrus') -- this module IS that package, no cross-package lookup needed. */
+function papyrusCliPath(): string {
+	return fileURLToPath(new URL("cli.ts", import.meta.url));
+}
+
+export interface ConnectPapyrusClientOptions {
+	/**
+	 * Environment passed to an auto-spawned daemon child. Defaults to the current
+	 * process.env. Always carries DAEMON_DIR_ENV=dir so the spawned child computes
+	 * the exact same state directory this call itself reads/polls -- without this,
+	 * a caller-supplied `dir` (every real test; production always uses the default
+	 * daemonStateDir(), which the child would derive identically on its own) would
+	 * silently diverge from wherever the child actually starts writing its handle.
+	 */
+	env?: Record<string, string | undefined>;
+}
+
+/**
+ * Transparently starts the daemon first if it is not already running -- matches
+ * every other daemon-backed ecosystem package that opted into auto-start (see
+ * @danypops/vehicle-client's connectWithPolicy doc comment: web-spider opts in,
+ * lector/pi-packed fail closed by design). Papyrus previously failed closed with
+ * "install/start papyrus.service", requiring a human to separately discover and
+ * run `papyrus service install` before the very first tool call could succeed.
+ * A handle file that exists but points at a dead/unreachable daemon is a distinct
+ * failure (stale, not "never started") and is NOT auto-recovered here -- it still
+ * throws its own actionable "restart manually" error, unchanged from before.
+ */
+export async function connectPapyrusClient(dir: string = daemonStateDir(), options: ConnectPapyrusClientOptions = {}): Promise<PapyrusClient> {
+	return connectWithPolicy({
+		readHandle: () => readDaemonHandle(dir) ?? null,
+		buildClient: probedPapyrusClient,
+		autoStart: true,
+		spawn: () => {
+			spawnDetachedDaemon({
+				binPath: papyrusCliPath(),
+				args: ["serve"],
+				env: { ...(options.env ?? process.env), [DAEMON_DIR_ENV]: dir },
+				spawn: (command, args, spawnOptions) => {
+					const child = spawnProcess(command, args, spawnOptions);
+					child.unref();
+				},
+			});
+		},
+		fallbackMessage: "Papyrus daemon failed to start automatically; run `papyrus service install` or `papyrus serve` manually.",
+	});
 }
 
 export interface PushChannelTarget {

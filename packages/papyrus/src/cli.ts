@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
 import { DAEMON_UNIT_NAME, TASK_EXECUTION_MAX_NODES, dbPath } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
@@ -18,20 +19,36 @@ export interface SystemdUnitOptions {
 	cliPath: string;
 }
 
+/**
+ * Pure text generator, delegating to vehicle-server's shared generateSystemdUnit -- kept as its
+ * own named export with the same options shape since this package's own tests (and any external
+ * caller) call it directly.
+ *
+ * Papyrus's own daemon.ts does not (yet) use vehicle-server's startDaemon/runDaemonProcess -- it's
+ * a bespoke Bun.serve() with its own state-file layout (daemon-state.ts) and maintenance-timer
+ * scheduling, predating that shared substrate. Only unit *generation* is migrated here; unitPath()
+ * stays a manual XDG_CONFIG_HOME construction rather than pulling in resolveDaemonPaths() for a
+ * database/token/handle layout Papyrus doesn't actually use. DAEMON_KIT_LAUNCH_PROVENANCE=service
+ * is emitted (generateSystemdUnit always adds it) but is currently inert -- Papyrus's daemon never
+ * reads it, since it has no idle-shutdown concept of its own. Migrating daemon.ts's own substrate
+ * is tracked separately.
+ */
+function papyrusServiceSpec(options: SystemdUnitOptions): ServiceSpec {
+	return {
+		name: "papyrus",
+		displayName: "Papyrus graph artifact service",
+		binPath: options.bunBin,
+		args: [options.cliPath, "serve"],
+		descriptorPath: unitPath(),
+		// Restart=always/RestartSec=2 already unconditional in the prior hand-rolled unit --
+		// preserved exactly, not a new opt-in.
+		restartOnFailure: true,
+		restartSec: 2,
+	};
+}
+
 export function renderSystemdUnit(options: SystemdUnitOptions): string {
-	return `[Unit]
-Description=Papyrus graph artifact service
-After=default.target
-
-[Service]
-Type=simple
-ExecStart=${options.bunBin} ${options.cliPath} serve
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-`;
+	return generateSystemdUnit(papyrusServiceSpec(options));
 }
 
 function unitPath(): string {
@@ -53,14 +70,12 @@ function isDaemonActive(): boolean {
 }
 
 function installService(): void {
-	const path = unitPath();
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, renderSystemdUnit({
-		bunBin: process.execPath,
-		cliPath: fileURLToPath(import.meta.url),
-	}));
-	systemctl("daemon-reload");
-	systemctl("enable", DAEMON_UNIT_NAME);
+	const spec = papyrusServiceSpec({ bunBin: process.execPath, cliPath: fileURLToPath(import.meta.url) });
+	const result = installUserService(spec, createNodeServiceInstallDeps());
+	if (!result.installed) throw new Error(`failed to install the Papyrus service: ${result.reason}`);
+	// installUserService's Linux path is `enable --now` (starts if not already running) --
+	// an explicit restart on top ensures a re-install after an upgrade actually picks up the
+	// freshly-generated unit's new ExecStart path, not just re-enables the old one.
 	systemctl("restart", DAEMON_UNIT_NAME);
 }
 

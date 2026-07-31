@@ -27,13 +27,18 @@ describe("Papyrus daemon state", () => {
 });
 
 describe("Papyrus systemd service", () => {
+	// Delegates to vehicle-server's shared generateSystemdUnit (see cli.ts's papyrusServiceSpec) --
+	// ExecStart is now shell-quoted per argument, and DAEMON_KIT_LAUNCH_PROVENANCE=service is now
+	// always present (currently inert -- Papyrus's own daemon.ts doesn't read it, see cli.ts's
+	// doc comment). Restart=always/RestartSec=2 preserved exactly as before.
 	it("renders a restartable long-running user unit", () => {
 		const unit = renderSystemdUnit({
 			bunBin: "/home/u/.bun/bin/bun",
 			cliPath: "/home/u/Projects/papyrus/src/cli.ts",
 		});
-		expect(unit).toContain("ExecStart=/home/u/.bun/bin/bun /home/u/Projects/papyrus/src/cli.ts serve");
+		expect(unit).toContain('ExecStart="/home/u/.bun/bin/bun" "/home/u/Projects/papyrus/src/cli.ts" "serve"');
 		expect(unit).toContain("Restart=always");
+		expect(unit).toContain("RestartSec=2");
 		expect(unit).toContain("WantedBy=default.target");
 	});
 });

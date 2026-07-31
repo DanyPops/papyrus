@@ -1,0 +1,243 @@
+/**
+ * Playbooks projected as a real VehicleRegistry: one VehicleOperation per real action.
+ * Wraps modules/playbooks.ts's operation definitions. remove/restore/remove_subtree are
+ * not duplicated here -- see ./artifact-trash-vehicle.ts.
+ *
+ * playbooks.invoke's own module handler calls tasks.focus() directly (bypassing the
+ * guarded tasks.focus operation, per modules/playbooks.ts's own doc comment) and re-runs
+ * that exact guard itself via sessionIdentity.assertAuthorized(session_id, session_secret).
+ * Those two fields never belong in this operation's model-visible inputSchema -- a model
+ * has no business knowing or supplying a session secret. Instead they travel through
+ * VehicleInvocationOptions.principal.claims, populated by pi-papyrus's own
+ * resolveInvocation hook (see vehicle-notes-client.ts) from its own already-cached
+ * session_secret, the same value the hand-rolled tool used to thread through as a raw
+ * input field. A caller with no cached secret for this session (unregistered, or a non-Pi
+ * Vehicle client) simply gets the guard's own no-op-when-unset default, unchanged.
+ *
+ * invoke's output carries its own `content` block (see @danypops/vehicle-core's
+ * WithVehicleContent) built from the same execution-DAG summary pi-papyrus's hand-rolled
+ * tool used to build client-side.
+ */
+import { bindVehicleOperation, defineVehicleOperation, type VehicleOperationContext } from "@danypops/vehicle-core";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { listPlaybooks } from "../domain-services.ts";
+import { playbooksOperations } from "../modules/playbooks.ts";
+import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook-execution.ts";
+import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
+import type { TaskEventStore } from "../ports/task-event-store.ts";
+import type { TaskScopeStore } from "../ports/task-scope-store.ts";
+import type { SessionIdentity } from "../session-identity-service.ts";
+import type { Tasks } from "../task-service.ts";
+import { buildWorkflowRunContent, looseObjectSchema, normalizeJsonEncodedField, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
+
+const OWNER = "playbooks";
+const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
+
+export interface PlaybooksVehicleDeps {
+	artifacts: ArtifactStore;
+	events: TaskEventStore;
+	scopes: TaskScopeStore;
+	artifactScopes: ArtifactScopeStore;
+	tasks: Tasks;
+	sessionIdentity: SessionIdentity;
+}
+
+/** Unscoped resolution -- a Playbook is commonly cross-project (e.g. a lab-deploy playbook), matching the hand-rolled tool's own resolutionRequest choice. */
+function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: unknown, name: unknown): string {
+	if (typeof id === "string" && id.length > 0) return id;
+	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
+	return resolveArtifactIdWidened(name, () => listPlaybooks(artifacts, scopes, { text: name }));
+}
+
+export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, deps: PlaybooksVehicleDeps): void {
+	const { artifacts, events, scopes, artifactScopes, tasks, sessionIdentity } = deps;
+	const moduleOperations = new Map(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }).map((op) => [op.name, op]));
+	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
+
+	const define = (
+		action: string,
+		description: string,
+		effect: "read" | "local-write",
+		properties: Record<string, { type: string; enum?: readonly string[] }>,
+		required: readonly string[],
+		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
+		execute?: (input: Record<string, unknown>, context: VehicleOperationContext<Record<string, unknown>>) => unknown,
+	): void => {
+		const operation = defineVehicleOperation({
+			name: `playbooks.${action}`,
+			version: 1,
+			description,
+			input: looseObjectSchema(properties, required),
+			output: passthroughOutput,
+			permissions: ["playbooks:read", "playbooks:write"],
+			effect,
+			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
+			limits: LIMITS,
+		});
+		registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => (execute ?? ((input: Record<string, unknown>) => call(`playbooks.${action}`, input)))(resolve(context.input), context)));
+	};
+
+	define(
+		"create",
+		"Creates a Playbook -- prose: a trigger and an ordered list of steps. `arguments` declares named inputs: [{name, description?, required?}] (required defaults true), referenced in step text as {{name}}. project_root is optional (omitted = unscoped).",
+		"local-write",
+		{ title: stringProp, body: stringProp, trigger: stringProp, steps: { type: "array" }, tools: { type: "array" }, arguments: { type: "array" }, labels: { type: "array" }, extra: { type: "object" }, project_root: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		["title"],
+		(input) => {
+			normalizeJsonEncodedField(input, "arguments");
+			return input;
+		},
+	);
+
+	define(
+		"list",
+		"Lists Playbooks matching an optional status/text filter, scoped to project_root when given.",
+		"read",
+		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp },
+		[],
+		(input) => input,
+	);
+
+	define(
+		"show",
+		"Shows one Playbook by id or title.",
+		"read",
+		{ id: stringProp, name: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"preview",
+		"Renders a Playbook's whole composition tree as text, with no side effects.",
+		"read",
+		{ id: stringProp, name: stringProp, arguments: { type: "object" } },
+		[],
+		(input) => {
+			normalizeJsonEncodedField(input, "arguments");
+			return { ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) };
+		},
+	);
+
+	define(
+		"invoke",
+		"Compiles the Playbook's steps and composition tree into real Tasks wired with dependsOn, and focuses the first one -- one step surfaces at a time as it becomes focused, exactly like any other Task. `arguments` supplies known values as {name: value}; if a declared REQUIRED argument is still missing, nothing is created and missingArguments is returned instead -- ask the human for these (discuss tool, live:true) and invoke again, never guess. Drive the returned entryTaskId forward with the tasks tool (start/submit/complete).",
+		"local-write",
+		{ id: stringProp, name: stringProp, run_id: stringProp, arguments: { type: "object" }, project_root: stringProp },
+		[],
+		(input) => {
+			normalizeJsonEncodedField(input, "arguments");
+			return { ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) };
+		},
+		(input, context) => {
+			const claims = context.principal?.claims as { sessionId?: string; sessionSecret?: string } | undefined;
+			const invocation = call("playbooks.invoke", {
+				...input,
+				session_id: claims?.sessionId,
+				session_secret: claims?.sessionSecret,
+			}) as PlaybookInvocationResult | PlaybookMissingArguments;
+			if ("missingArguments" in invocation) {
+				const text = `Missing required argument(s): ${invocation.missingArguments.join(", ")}. Nothing was created -- ask the human for these (discuss tool, live:true), then invoke again.`;
+				return { ...invocation, content: [{ type: "text" as const, text }] };
+			}
+			const nodeById = new Map(invocation.execution.nodes.map((node) => [node.id, node]));
+			const entryLabel = nodeById.get(invocation.entryTaskId)?.title ?? invocation.entryTaskId;
+			const content = buildWorkflowRunContent(
+				artifacts,
+				`Invoked playbook run ${invocation.runId}: ${invocation.created.tasks.length} task(s), ${invocation.created.rules.length} rule(s), ${invocation.created.docs.length} doc(s) created.`,
+				invocation,
+				[`Entry task now focused: ${entryLabel}. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`],
+			);
+			return { ...invocation, content: [content] };
+		},
+	);
+
+	define(
+		"enable",
+		"Enables a Playbook.",
+		"local-write",
+		{ id: stringProp, name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"disable",
+		"Disables a Playbook.",
+		"local-write",
+		{ id: stringProp, name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"assign_project",
+		"Reassigns a Playbook's project_root, or unscopes it when project_root is omitted.",
+		"local-write",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"update",
+		"Changes a Playbook's title/body/labels (at least one required). Refused for a read-only external projection.",
+		"local-write",
+		{ id: stringProp, name: stringProp, title: stringProp, body: stringProp, labels: { type: "array" }, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"contain",
+		"Nests a child Playbook inside a parent -- the child's steps run AFTER the parent's own. Prefer parent_name/child_name over parent_id/child_id -- resolved server-side.",
+		"local-write",
+		{ parent_id: stringProp, parent_name: stringProp, child_id: stringProp, child_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({
+			...input,
+			parent_id: resolvePlaybookId(artifacts, artifactScopes, input.parent_id, input.parent_name),
+			child_id: resolvePlaybookId(artifacts, artifactScopes, input.child_id, input.child_name),
+		}),
+	);
+
+	define(
+		"uncontain",
+		"Removes a parent/child Playbook nesting. Idempotent -- a no-op if the edge is already absent.",
+		"local-write",
+		{ parent_id: stringProp, parent_name: stringProp, child_id: stringProp, child_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({
+			...input,
+			parent_id: resolvePlaybookId(artifacts, artifactScopes, input.parent_id, input.parent_name),
+			child_id: resolvePlaybookId(artifacts, artifactScopes, input.child_id, input.child_name),
+		}),
+	);
+
+	define(
+		"depend",
+		"Chains a prerequisite Playbook before another -- it must fully complete FIRST. Prefer dependency_name over dependency_id.",
+		"local-write",
+		{ id: stringProp, name: stringProp, dependency_id: stringProp, dependency_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({
+			...input,
+			id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
+			dependency_id: resolvePlaybookId(artifacts, artifactScopes, input.dependency_id, input.dependency_name),
+		}),
+	);
+
+	define(
+		"undepend",
+		"Removes a Playbook dependency. Idempotent -- a no-op if the edge is already absent.",
+		"local-write",
+		{ id: stringProp, name: stringProp, dependency_id: stringProp, dependency_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({
+			...input,
+			id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
+			dependency_id: resolvePlaybookId(artifacts, artifactScopes, input.dependency_id, input.dependency_name),
+		}),
+	);
+}

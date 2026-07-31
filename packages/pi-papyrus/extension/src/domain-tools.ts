@@ -8,9 +8,6 @@ import {
 	type DiscussionRound,
 	type GateResult,
 	type OperationName,
-	type PlaybookInvocationResult,
-	type PlaybookMissingArguments,
-	type WorkflowRunResult,
 	type TaskCompletion,
 	type TaskExecutionPlan,
 	type TaskGraph,
@@ -182,23 +179,6 @@ async function resolveArtifactIdByName(listOperation: OperationName, baseRequest
 		const id = matchArtifactByName(widenedCandidates, name);
 		notes?.push(`"${name}" was not found in the current project scope; resolved across all projects instead.`);
 		return id;
-	}
-}
-
-/**
- * Playbook `arguments` is intentionally untyped in this tool's schema (an array on create, a
- * {name: value} map on invoke) -- unlike every other JSON-shaped field here, which has a concrete
- * array/record schema the calling layer can serialize correctly. A genuinely schema-less field can
- * arrive pre-serialized as JSON text instead of a parsed value; parse it back in place before it
- * reaches the service, the same tolerance the CLI's own --arguments-json/--*-json flags already give.
- */
-export function normalizeJsonEncodedField(params: Record<string, unknown>, key: string): void {
-	const value = params[key];
-	if (typeof value !== "string") return;
-	try {
-		params[key] = JSON.parse(value);
-	} catch {
-		throw new Error(`${key} must be valid JSON`);
 	}
 }
 
@@ -540,200 +520,9 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 	});
 }
 
-// notes.*, rules.*, docs.*, and the shared artifact.* are registered as Vehicles
-// (see ../vehicle-notes-client.ts and @danypops/papyrus's src/vehicle/papyrus-vehicle.ts),
-// not pi.registerTool()s in this file.
-
-export function registerPlaybooksTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "playbooks",
-		label: "Playbooks",
-		description: "Playbook domain tool -- a completely different beast from the skills tool at the AUTHORING level (a Playbook is prose: a trigger and an ordered list of steps), but invoke recycles the exact same materialization engine workflow Skills use: it compiles the Playbook's steps and its contains/depends_on composition tree into real Tasks (one per step, plus one container task per playbook in the tree), wires them with dependsOn so completing one auto-focuses the next, and focuses the first one -- no text dump, one step (page) surfaces at a time as it becomes the focused task, exactly like any other Task. contain/uncontain nest a child Playbook inside a parent (its steps run AFTER the parent's own, as part of it); depend/undepend chain a prerequisite Playbook before another (it must fully complete FIRST). Both are bounded; a composition cycle is a hard invoke-time error (real Tasks would otherwise be created in a loop), unlike preview's degrade-to-a-marker. ACTIONS: create, list, show, invoke, preview, enable, disable, assign_project, update, contain, uncontain, depend, undepend, remove, remove_subtree, restore. project_root is optional everywhere (omitted = unscoped). On create, `arguments` declares named inputs the Playbook needs: [{name, description?, required?}] (required defaults true) -- referenced in step text as `{{name}}`, substituted at invoke time. On invoke, `arguments` supplies known values as {name: value}; if any declared REQUIRED argument is still missing, invoke creates nothing and returns `missingArguments` -- ask the human for these (discuss tool, live:true) and invoke again, never guess or invent a value. A successful invoke returns `entryTaskId` (now focused) and `created.tasks` -- drive it forward with the tasks tool (start/submit/complete) like any other Task; contains/depends_on wiring auto-focuses each next step on completion. preview renders the whole tree as text with no side effects, for a human who just wants to read it first. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Playbook to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline; remove_subtree extends this to the whole nested-Playbook tree in one call. PREFER `name` (the playbook's exact title) over `id`, and `parent_name`/`child_name`/`dependency_name` over `parent_id`/`child_id`/`dependency_id` for contain/uncontain/depend/undepend -- all are backend implementation details, resolved from name automatically.",
-		parameters: Type.Object({
-			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
-			tools: Type.Optional(Type.Array(Type.String())), labels: Type.Optional(Type.Array(Type.String())),
-			arguments: Type.Optional(Type.Unknown()),
-			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
-			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()),
-			parent_id: Type.Optional(Type.String()), parent_name: Type.Optional(Type.String()),
-			child_id: Type.Optional(Type.String()), child_name: Type.Optional(Type.String()),
-			dependency_id: Type.Optional(Type.String()), dependency_name: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Playbooks", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
-			try {
-				const params: Record<string, unknown> = { ...rawParams };
-				const action = params.action;
-				// Name resolution must search regardless of project scope -- a Playbook itself is
-				// commonly unscoped (e.g. a cross-repo lab-deploy playbook), so resolutionRequest
-				// uses the caller's ORIGINAL project_root (undefined unless explicitly given), never
-				// the invoke-specific default applied below -- that default is only for where the
-				// resulting TASKS land, not for finding the playbook artifact itself.
-				const resolutionRequest = { project_root: params.project_root };
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-					{ nameKey: "child_name", idKey: "child_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "playbooks.list", baseRequest: resolutionRequest },
-				]);
-				// invoke ends by calling tasks.focus server-side -- that focus write must land in the
-				// SAME session scope the tasks tool reads from (ctx.sessionManager.getSessionId()),
-				// the same resolution the tasks tool itself always applies, or the entry task's focus
-				// is invisible to tasks(action=focused/active) despite invoke reporting it as focused.
-				// project_root defaults to ctx.cwd for the same reason: the tasks tool always scopes
-				// its OWN reads to ctx.cwd unless told otherwise, so an unscoped playbook-materialized
-				// task is invisible to tasks(action=focused) even with the right session -- confirmed
-				// live (the focus_set event existed with the correct sessionId, but Tasks.focused's own
-				// project-scope filter silently excluded the unscoped task from a cwd-scoped read).
-				// Applied AFTER name resolution: it must never affect finding the playbook itself.
-				if (action === "invoke") {
-					const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
-					Object.assign(params, {
-						project_root: params.project_root ?? ctx.cwd,
-						session_id: resolvedSessionId,
-						...sessionSecretField(resolvedSessionId as string),
-					});
-				}
-				if (action === "create" || action === "invoke" || action === "preview") normalizeJsonEncodedField(params, "arguments");
-				if (action === "create") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("playbooks.create", params);
-					return text(`Created playbook ${artifactLine(artifact)}`, createArtifactDetails("playbooks.create", artifact));
-				}
-				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("playbooks.list", params);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No playbooks found.", createArtifactListDetails("playbooks.list", rows));
-				}
-				if (action === "preview") {
-					const rendered = await callService<Record<string, unknown>, string>("playbooks.preview", params);
-					return text(rendered, createPreviewDetails("playbooks.preview", "Playbook preview", rendered));
-				}
-				if (action === "invoke") {
-					const invocation = await callService<Record<string, unknown>, PlaybookInvocationResult | PlaybookMissingArguments>("playbooks.invoke", params);
-					if ("missingArguments" in invocation) {
-						const message = `Missing required argument(s): ${invocation.missingArguments.join(", ")}. Nothing was created -- ask the human for these (discuss tool, live:true), then invoke again.`;
-						return text(message, createInvocationDetails("playbooks.invoke", invocation.playbookId, { tasks: [], docs: [], rules: [], roots: [] }));
-					}
-					const nodeTitleCounts = new Map<string, number>();
-					for (const node of invocation.execution.nodes) nodeTitleCounts.set(node.title, (nodeTitleCounts.get(node.title) ?? 0) + 1);
-					const execution = invocation.execution.nodes.map((node) => (nodeTitleCounts.get(node.title) ?? 0) > 1
-						? `  [${node.state}] ${node.title} (${node.id})`
-						: `  [${node.state}] ${node.title}`).join("\n");
-					const nodeById = new Map(invocation.execution.nodes.map((node) => [node.id, node]));
-					const rootLabels = invocation.rootTaskIds.map((id) => nodeById.get(id)?.title ?? "unknown task");
-					const entryLabel = nodeById.get(invocation.entryTaskId)?.title ?? invocation.entryTaskId;
-					const createdLabels = await artifactLabelsById([...invocation.created.docs, ...invocation.created.rules]);
-					return text([
-						`Invoked playbook run ${invocation.runId}: ${invocation.created.tasks.length} task(s), ${invocation.created.rules.length} rule(s), ${invocation.created.docs.length} doc(s) created.`,
-						`Entry task now focused: ${entryLabel}. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`,
-						`Ready roots: ${rootLabels.join(", ") || "none"}.`,
-						`Context docs: ${invocation.created.docs.map((id) => createdLabels.get(id) ?? "unknown document").join(", ") || "none"}.`,
-						`Scoped rules: ${invocation.created.rules.map((id) => createdLabels.get(id) ?? "unknown rule").join(", ") || "none"}.`,
-						...(execution ? ["Execution:", execution] : []),
-					].join("\n"), createInvocationDetails("playbooks.invoke", invocation.runId, {
-						tasks: invocation.created.tasks,
-						docs: invocation.created.docs,
-						rules: invocation.created.rules,
-						roots: invocation.rootTaskIds,
-					}));
-				}
-				const trashResult = await handleArtifactRemoveRestore(action, params);
-				if (trashResult) return trashResult;
-				const operations = {
-					show: "playbooks.show", enable: "playbooks.enable", disable: "playbooks.disable", assign_project: "playbooks.assign_project", update: "playbooks.update",
-					contain: "playbooks.contain", uncontain: "playbooks.uncontain", depend: "playbooks.depend", undepend: "playbooks.undepend",
-				} as const;
-				const operation = operations[action as keyof typeof operations];
-				if (!operation) throw new Error(`unknown playbooks action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
-			} catch (error) {
-				throw new Error(`playbooks failed: ${error instanceof Error ? error.message : error}`);
-			}
-		},
-	});
-}
-
-export function registerSkillsTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "skills",
-		label: "Skills",
-		description: "Papyrus Skill workflow and compatibility-template domain tool. Papyrus Skills are parameterized Task/Rule/Doc bundles, distinct from prompt-only skills. ACTIONS: create, create_template, list, show, invoke, run, enable, disable, instantiate, assign_project, update, remove, remove_subtree, restore. run validates arguments and atomically creates one scoped workflow run. project_root is optional at creation (omitted = unscoped) for create/create_template; assign_project reassigns it later, or unscopes when project_root is omitted. update changes title/body/labels (at least one required) and is refused for a read-only external projection. remove moves a Skill to a time-gated trash, excluded from list/query but still directly showable, restorable via restore until the purge deadline; remove_subtree extends this to a whole `contains` subtree in one call. PREFER `name` (the skill's exact title) over `id`, and `template_name` over `template_id` for instantiate -- both are backend implementation details, resolved from name automatically.",
-		parameters: Type.Object({
-			action: Type.String(), id: Type.Optional(Type.String()), name: Type.Optional(Type.String()), title: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()), trigger: Type.Optional(Type.String()), steps: Type.Optional(Type.Array(Type.String())),
-			tools: Type.Optional(Type.Array(Type.String())), definition: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-			arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())), run_id: Type.Optional(Type.String()),
-			labels: Type.Optional(Type.Array(Type.String())),
-			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())), status: Type.Optional(Type.String()),
-			text: Type.Optional(Type.String()), limit: Type.Optional(Type.Number()), template_id: Type.Optional(Type.String()),
-			template_name: Type.Optional(Type.String()),
-			target_kind: Type.Optional(Type.String()), defaults: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-			required: Type.Optional(Type.Array(Type.String())), kind: Type.Optional(Type.String()), subtype: Type.Optional(Type.String()),
-			project_root: Type.Optional(Type.String()), reason: Type.Optional(Type.String()),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Skills", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
-			try {
-				const params: Record<string, unknown> = { ...rawParams };
-				const action = params.action;
-				const request = { ...params, project_root: params.project_root ?? ctx.cwd };
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "skills.list", baseRequest: { project_root: params.project_root } },
-					{ nameKey: "template_name", idKey: "template_id", listOperation: "skills.list", baseRequest: { project_root: params.project_root } },
-				]);
-				if (action === "create" || action === "create_template") {
-					const operation = action === "create" ? "skills.create" : "skills.create_template";
-					const artifact = await callService<Record<string, unknown>, Artifact>(operation, params);
-					return text(`Created skill ${artifactLine(artifact)}`, createArtifactDetails(operation, artifact));
-				}
-				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("skills.list", params);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No skills found.", createArtifactListDetails("skills.list", rows));
-				}
-				if (action === "invoke") {
-					const invocation = await callService<Record<string, unknown>, string>("skills.invoke", params);
-					return text(invocation, createPreviewDetails("skills.invoke", "Skill invocation", invocation));
-				}
-				if (action === "run") {
-					const run = await callService<Record<string, unknown>, WorkflowRunResult>("skills.run", request);
-					const runTitleCounts = new Map<string, number>();
-					for (const node of run.execution.nodes) runTitleCounts.set(node.title, (runTitleCounts.get(node.title) ?? 0) + 1);
-					const execution = run.execution.nodes.map((node) => (runTitleCounts.get(node.title) ?? 0) > 1
-						? `  [${node.state}] ${node.title} (${node.id})`
-						: `  [${node.state}] ${node.title}`).join("\n");
-					const nodeById = new Map(run.execution.nodes.map((node) => [node.id, node]));
-					const rootLabels = run.rootTaskIds.map((id) => nodeById.get(id)?.title ?? "unknown task");
-					const createdLabels = await artifactLabelsById([...run.created.docs, ...run.created.rules]);
-					return text([
-						`Created Skill run ${run.runId}: ${run.created.tasks.length} tasks, ${run.created.rules.length} rules, ${run.created.docs.length} docs.`,
-						`Ready roots: ${rootLabels.join(", ") || "none"}.`,
-						`Context docs: ${run.created.docs.map((id) => createdLabels.get(id) ?? "unknown document").join(", ") || "none"}.`,
-						`Scoped rules: ${run.created.rules.map((id) => createdLabels.get(id) ?? "unknown rule").join(", ") || "none"}.`,
-						...(execution ? ["Execution:", execution] : []),
-					].join("\n"), createInvocationDetails("skills.run", run.runId, {
-						tasks: run.created.tasks,
-						docs: run.created.docs,
-						rules: run.created.rules,
-						roots: run.rootTaskIds,
-					}));
-				}
-				const trashResult = await handleArtifactRemoveRestore(action, params);
-				if (trashResult) return trashResult;
-				const operations = { show: "skills.show", enable: "skills.enable", disable: "skills.disable", instantiate: "skills.instantiate", assign_project: "skills.assign_project", update: "skills.update" } as const;
-				const operation = operations[action as keyof typeof operations];
-				if (!operation) throw new Error(`unknown skills action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, action === "instantiate" ? request : params);
-				return text(`${artifactLine(artifact)}${action === "show" ? `\n\n${artifact.body}` : ""}`, createArtifactDetails(operation, artifact));
-			} catch (error) {
-				throw new Error(`skills failed: ${error instanceof Error ? error.message : error}`);
-			}
-		},
-	});
-}
+// notes.*, rules.*, docs.*, skills.*, playbooks.*, and the shared artifact.* are
+// registered as Vehicles (see ../vehicle-notes-client.ts and @danypops/papyrus's
+// src/vehicle/papyrus-vehicle.ts), not pi.registerTool()s in this file.
 
 export function registerDiscussTool(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -838,13 +627,11 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 }
 
 /** Thin orchestrator: each domain's tool is independently navigable/testable via its own registerXTool function. */
-// docs and rules are no longer registered here -- both migrated onto Vehicle
-// (registerNotesVehicle in vehicle-notes-client.ts, wired at session_start in
-// index.ts), replacing their own pi.registerTool() mega-tools. See
-// @danypops/papyrus's src/vehicle/papyrus-vehicle.ts for the server side.
+// notes, rules, docs, skills, and playbooks are no longer registered here -- all migrated onto
+// Vehicle (registerNotesVehicle in vehicle-notes-client.ts, wired at session_start in index.ts),
+// replacing their own pi.registerTool() mega-tools. See @danypops/papyrus's
+// src/vehicle/papyrus-vehicle.ts for the server side.
 export function registerDomainTools(pi: ExtensionAPI): void {
 	registerTasksTool(pi);
-	registerPlaybooksTool(pi);
-	registerSkillsTool(pi);
 	registerDiscussTool(pi);
 }

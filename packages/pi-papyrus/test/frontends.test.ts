@@ -7,11 +7,8 @@ import {
 	artifactLine as domainToolsArtifactLine,
 	artifactLines,
 	matchArtifactByName,
-	normalizeJsonEncodedField,
 	registerDiscussTool,
 	registerDomainTools,
-	registerPlaybooksTool,
-	registerSkillsTool,
 	registerTasksTool,
 } from "../extension/src/domain-tools.ts";
 import { discussionRowMeta } from "../extension/src/discuss.ts";
@@ -262,18 +259,20 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 		}
 	});
 
-	it("registers name-based equivalents across skills and discuss (still action-dispatch pi.registerTool()s)", () => {
+	it("registers name-based equivalents for discuss (still an action-dispatch pi.registerTool())", () => {
 		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
-		for (const field of ["template_name:", "blocks_task_names:"]) {
-			expect(tools).toContain(field);
-		}
+		expect(tools).toContain("blocks_task_names:");
 	});
 
-	it("registers name-based equivalents server-side for rules/docs, migrated onto Vehicle -- target_name/task_name now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
+	it("registers name-based equivalents server-side for rules/docs/skills/playbooks, migrated onto Vehicle -- target_name/task_name/template_name/parent_name/child_name/dependency_name now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
 		const rulesVehicle = readFileSync(new URL("../../papyrus/src/vehicle/rules-vehicle.ts", import.meta.url), "utf8");
 		const docsVehicle = readFileSync(new URL("../../papyrus/src/vehicle/docs-vehicle.ts", import.meta.url), "utf8");
+		const skillsVehicle = readFileSync(new URL("../../papyrus/src/vehicle/skills-vehicle.ts", import.meta.url), "utf8");
+		const playbooksVehicle = readFileSync(new URL("../../papyrus/src/vehicle/playbooks-vehicle.ts", import.meta.url), "utf8");
 		expect(rulesVehicle).toContain("task_name");
 		expect(docsVehicle).toContain("target_name");
+		expect(skillsVehicle).toContain("template_name");
+		for (const field of ["parent_name", "child_name", "dependency_name"]) expect(playbooksVehicle).toContain(field);
 	});
 
 	it("registers from_name/to_name on papyrus_graph, matching every other link-target name-resolution field", () => {
@@ -336,8 +335,9 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 /**
  * Each domain's tool registers independently: no domain depends on another's having been
  * registered first, and registerDomainTools is a thin orchestrator over the rest. notes/
- * rules/docs have no registerXTool counterpart here -- they're Vehicle-projected (see
- * ../extension/src/vehicle-notes-client.ts), not action-dispatch pi.registerTool()s.
+ * rules/docs/skills/playbooks have no registerXTool counterpart here -- they're Vehicle-
+ * projected (see ../extension/src/vehicle-notes-client.ts), not action-dispatch
+ * pi.registerTool()s.
  */
 describe("registerXTool: each domain tool is independently registrable, not just reachable via the orchestrator", () => {
 	function registeredToolNames(register: (pi: any) => void): string[] {
@@ -348,44 +348,10 @@ describe("registerXTool: each domain tool is independently registrable, not just
 
 	it("registers exactly its own tool, nothing from any other domain", () => {
 		expect(registeredToolNames(registerTasksTool)).toEqual(["tasks"]);
-		expect(registeredToolNames(registerPlaybooksTool)).toEqual(["playbooks"]);
-		expect(registeredToolNames(registerSkillsTool)).toEqual(["skills"]);
 		expect(registeredToolNames(registerDiscussTool)).toEqual(["discuss"]);
 	});
 
-	it("registerDomainTools registers all remaining action-dispatch tools, in the same shape as calling each individually -- docs and rules migrated onto Vehicle, no longer here", () => {
-		expect(registeredToolNames(registerDomainTools)).toEqual(["tasks", "playbooks", "skills", "discuss"]);
-	});
-});
-
-/**
- * Regression: Playbook `arguments` is genuinely untyped in the playbooks tool's schema (an array
- * on create, a {name: value} map on invoke) -- unlike every other JSON-shaped field, which has a
- * concrete array/record schema. A live tool call arrived with `arguments` as JSON-encoded text
- * instead of a parsed array, failing playbooks.create's "must be an array" check. This is the fix.
- */
-describe("normalizeJsonEncodedField: tolerates a JSON-encoded string for a genuinely untyped tool field", () => {
-	it("parses a JSON-encoded string in place", () => {
-		const params: Record<string, unknown> = { arguments: '[{"name":"project_root","required":true}]' };
-		normalizeJsonEncodedField(params, "arguments");
-		expect(params.arguments).toEqual([{ name: "project_root", required: true }]);
-	});
-
-	it("leaves an already-parsed value untouched", () => {
-		const already = [{ name: "project_root", required: true }];
-		const params: Record<string, unknown> = { arguments: already };
-		normalizeJsonEncodedField(params, "arguments");
-		expect(params.arguments).toBe(already);
-	});
-
-	it("leaves a missing field untouched", () => {
-		const params: Record<string, unknown> = {};
-		normalizeJsonEncodedField(params, "arguments");
-		expect(params.arguments).toBeUndefined();
-	});
-
-	it("throws a clear error on genuinely invalid JSON, instead of a generic parse crash", () => {
-		const params: Record<string, unknown> = { arguments: "{not json" };
-		expect(() => normalizeJsonEncodedField(params, "arguments")).toThrow("arguments must be valid JSON");
+	it("registerDomainTools registers all remaining action-dispatch tools, in the same shape as calling each individually -- docs, rules, skills, and playbooks migrated onto Vehicle, no longer here", () => {
+		expect(registeredToolNames(registerDomainTools)).toEqual(["tasks", "discuss"]);
 	});
 });

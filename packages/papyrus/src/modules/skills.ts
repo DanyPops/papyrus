@@ -17,12 +17,15 @@
  * extraction.
  */
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import { assignSkillProject, createArtifactTemplate, createSkill, listSkills, showSkill, skillInvocation, transitionSkill, updateSkill } from "../domain-services.ts";
+import type { Artifact, CreateArtifactInput } from "../domain/artifact.ts";
+import type { ArtifactEventContext } from "../domain/artifact-event.ts";
+import { assignSkillProject, createArtifactTemplate, createSkill, instantiateTemplate, listSkills, showSkill, skillInvocation, transitionSkill, updateSkill } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
+import type { Tasks, TaskStatus } from "../task-service.ts";
 import { instantiateSkillWorkflow } from "../workflow-execution.ts";
 
 const MODULE_ID = "skills";
@@ -74,6 +77,45 @@ export interface SkillsModuleDeps {
 	/** Docs/Rules/Skills project scoping (distinct from `scopes`, which is Task-run project scoping for skills.run's materialized blueprint tasks). */
 	artifactScopes: ArtifactScopeStore;
 	authority: AuthorityRegistry;
+}
+
+function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
+	const { template_id, ...rest } = input;
+	return { ...rest, templateId: typeof template_id === "string" ? template_id : undefined } as CreateArtifactInput;
+}
+
+/**
+ * skills.instantiate's own branching logic (compatibility-template creation vs. a
+ * task-target template's tasks.create() call) -- shared between service.ts's raw RPC
+ * forwarder and skills-vehicle.ts's Vehicle operation, the two real callers, instead
+ * of reimplemented in each. Takes `tasks: Tasks` directly rather than through
+ * SkillsModuleDeps: a genuine cross-module dependency, the same category as
+ * rules.injectable and the module comment's own reason skills.instantiate isn't
+ * registered as an operation here.
+ */
+export interface InstantiateSkillDeps {
+	artifacts: ArtifactStore;
+	tasks: Tasks;
+	authority: AuthorityRegistry;
+}
+
+export function instantiateSkillOrTemplate(deps: InstantiateSkillDeps, input: OperationInput, context?: ArtifactEventContext): Artifact {
+	const templateId = string(input, "template_id");
+	const template = deps.artifacts.get(templateId);
+	// Note ownership for a non-task template target is enforced inside instantiateTemplate's
+	// own rejectsNoteTemplate for the non-task branch below -- nothing else currently claims
+	// an unresolved (pre-template-resolution) kind, so there is no check to perform here.
+	if (template?.extra["targetKind"] !== "task") return instantiateTemplate(deps.artifacts, templateId, normalizeCreateInput(input), deps.authority, context);
+	return deps.tasks.create({
+		title: optionalString(input, "title") as string,
+		body: optionalString(input, "body"),
+		status: optionalString(input, "status") as TaskStatus | undefined,
+		labels: input["labels"] as string[] | undefined,
+		extra: input["extra"] as Record<string, unknown> | undefined,
+		templateId,
+		projectRoot: string(input, "project_root"),
+		projectSource: "cwd",
+	}, context);
 }
 
 /** Registers every skills.* operation except skills.instantiate (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */

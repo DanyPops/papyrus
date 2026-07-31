@@ -45,11 +45,11 @@ function mockService(handler: (operation: string, input: Record<string, unknown>
 afterEach(resetPapyrusClientForTests);
 afterEach(resetVehicleClientTargetResolverForTests);
 
-// docs' own remove_subtree coverage moved to @danypops/papyrus's
-// test/artifact-trash-vehicle.test.ts -- docs is Vehicle-projected now, no
-// pi.registerTool() of its own. rules/skills/playbooks still use this
-// file's shared handler.
-describe("remove_subtree shared across domain tools (tasks, rules, playbooks, skills)", () => {
+// docs/rules/skills/playbooks' own remove_subtree coverage moved to
+// @danypops/papyrus's test/artifact-trash-vehicle.test.ts -- all four are
+// Vehicle-projected now, no pi.registerTool() of their own. tasks is the
+// only remaining consumer of this file's shared handler.
+describe("remove_subtree shared across domain tools (tasks)", () => {
 	it("tasks tool: calls artifact.remove_subtree and reports the root's title plus how many contained artifacts were trashed", async () => {
 		const tools = await registeredTools();
 		const calls = mockService((operation) => {

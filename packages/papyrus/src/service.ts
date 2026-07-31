@@ -24,7 +24,6 @@ import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
 import { Tasks, type TaskStatus } from "./task-service.ts";
 import {
-	instantiateTemplate,
 	listInjectableRules,
 } from "./domain-services.ts";
 import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
@@ -40,7 +39,7 @@ import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./m
 import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
 import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
-import { skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
+import { instantiateSkillOrTemplate, skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
 import { playbooksOperations, PLAYBOOKS_OPERATION_NAMES } from "./modules/playbooks.ts";
 import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
 import { discussOperations, DISCUSS_OPERATION_NAMES } from "./modules/discuss.ts";
@@ -432,24 +431,7 @@ function handlers(
 		"playbooks.uncontain": forwardToModule("playbooks.uncontain"),
 		"playbooks.depend": forwardToModule("playbooks.depend"),
 		"playbooks.undepend": forwardToModule("playbooks.undepend"),
-		"skills.instantiate": (input) => {
-			const templateId = string(input, "template_id");
-			const template = artifacts.get(templateId);
-			// Note ownership for a non-task template target is enforced inside instantiateTemplate's
-			// own rejectsNoteTemplate for the non-task branch below -- nothing else currently claims
-			// an unresolved (pre-template-resolution) kind, so there is no check to perform here.
-			if (template?.extra["targetKind"] !== "task") return instantiateTemplate(artifacts, templateId, normalizeCreateInput(input), authority, eventContext(input));
-			return tasks.create({
-				title: optionalString(input, "title") as string,
-				body: optionalString(input, "body"),
-				status: optionalString(input, "status") as TaskStatus | undefined,
-				labels: input["labels"] as string[] | undefined,
-				extra: input["extra"] as Record<string, unknown> | undefined,
-				templateId,
-				projectRoot: string(input, "project_root"),
-				projectSource: "cwd",
-			}, eventContextFor(input, "template-instantiation"));
-		},
+		"skills.instantiate": (input) => instantiateSkillOrTemplate({ artifacts, tasks, authority }, input, eventContextFor(input, "template-instantiation")),
 		"graph_projection.apply": forwardToModule("graph_projection.apply"),
 		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 		"logs.append": forwardToModule("logs.append"),
@@ -486,7 +468,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const discussions = new Discussions(artifacts, new SQLiteDiscussionRoundStore(db));
 	const authority = createAuthorityRegistry();
-	const vehicle = createPapyrusVehicleRegistry({ artifacts, scopes: artifactScopes, authority, notes });
+	const vehicle = createPapyrusVehicleRegistry({ artifacts, scopes: artifactScopes, authority, notes, events, taskScopes: scopes, tasks, sessionIdentity });
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(logsOperations(logs));

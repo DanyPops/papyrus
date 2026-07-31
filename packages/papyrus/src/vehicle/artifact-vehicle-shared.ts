@@ -3,8 +3,10 @@
  * VehicleRegistry projection (notes-vehicle.ts, rules-vehicle.ts, docs-vehicle.ts,
  * artifact-trash-vehicle.ts).
  */
-import { defineVehicleSchema, type VehicleSchemaCodec } from "@danypops/vehicle-core";
+import { defineVehicleSchema, type VehicleSchemaCodec, type VehicleContentBlock } from "@danypops/vehicle-core";
 import type { Artifact } from "../domain/artifact.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
+import type { TaskExecutionPlan } from "../task-execution.ts";
 
 /**
  * VehicleRegistry only ever calls a schema's own safeParse -- jsonSchema is
@@ -42,6 +44,17 @@ export const passthroughOutput: VehicleSchemaCodec<unknown> = defineVehicleSchem
 export const stringProp = { type: "string" } as const;
 export const numberProp = { type: "number" } as const;
 
+/** A known LLM tool-calling quirk: a nested-object field arrives JSON-stringified rather than as a real object. Mutates input[key] in place when it's a string, leaves it untouched otherwise. */
+export function normalizeJsonEncodedField(input: Record<string, unknown>, key: string): void {
+	const value = input[key];
+	if (typeof value !== "string") return;
+	try {
+		input[key] = JSON.parse(value);
+	} catch {
+		throw new Error(`${key} must be valid JSON`);
+	}
+}
+
 /** Exact match semantics as the Pi-extension helper this replaces (domain-tools.ts's matchArtifactByName) -- case-insensitive exact title match, refuses to guess between ambiguous matches. */
 export function matchArtifactByName(candidates: readonly Artifact[], name: string): string {
 	const needle = name.trim().toLowerCase();
@@ -66,4 +79,48 @@ export function resolveArtifactIdWidened(name: string, fetchCandidates: () => re
 		if (!(error instanceof Error) || !error.message.startsWith("no artifact named") || !fetchWidened) throw error;
 		return matchArtifactByName(fetchWidened(), name);
 	}
+}
+
+/** Synchronous equivalent of pi-papyrus's own artifactLabelsById -- server-side, a direct ArtifactStore.get() replaces the extra RPC round-trip that helper needed client-side. Disambiguates same-titled artifacts by appending their id. */
+export function labelsById(artifacts: ArtifactStore, ids: readonly string[]): Map<string, string> {
+	const uniqueIds = [...new Set(ids)];
+	const resolved = uniqueIds.map((id) => artifacts.get(id)).filter((artifact): artifact is Artifact => artifact !== null);
+	const titleCounts = new Map<string, number>();
+	for (const artifact of resolved) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
+	return new Map(resolved.map((artifact) => [artifact.id, (titleCounts.get(artifact.title) ?? 0) > 1 ? `${artifact.title} (${artifact.id})` : artifact.title]));
+}
+
+export interface WorkflowRunNarrativeInput {
+	runId: string;
+	created: { docs: readonly string[]; rules: readonly string[]; tasks: readonly string[] };
+	rootTaskIds: readonly string[];
+	execution: TaskExecutionPlan;
+}
+
+/**
+ * Shared between skills.run and playbooks.invoke's Vehicle operations -- both produce the
+ * same shaped narrative (ready roots, context docs, scoped rules, an execution tree), only
+ * the headline and whether an "entry task focused" line is present differ. Builds the model-
+ * facing `content` text directly, so the model reads a summary instead of the raw execution
+ * DAG -- the same shape pi-papyrus's own hand-rolled skills/playbooks tools built client-side,
+ * now built once here where the run result is actually produced.
+ */
+export function buildWorkflowRunContent(artifacts: ArtifactStore, headline: string, input: WorkflowRunNarrativeInput, extraLines: readonly string[] = []): VehicleContentBlock {
+	const nodeById = new Map(input.execution.nodes.map((node) => [node.id, node]));
+	const rootLabels = input.rootTaskIds.map((id) => nodeById.get(id)?.title ?? "unknown task");
+	const createdLabels = labelsById(artifacts, [...input.created.docs, ...input.created.rules]);
+	const titleCounts = new Map<string, number>();
+	for (const node of input.execution.nodes) titleCounts.set(node.title, (titleCounts.get(node.title) ?? 0) + 1);
+	const executionLines = input.execution.nodes
+		.map((node) => ((titleCounts.get(node.title) ?? 0) > 1 ? `  [${node.state}] ${node.title} (${node.id})` : `  [${node.state}] ${node.title}`))
+		.join("\n");
+	const text = [
+		headline,
+		...extraLines,
+		`Ready roots: ${rootLabels.join(", ") || "none"}.`,
+		`Context docs: ${input.created.docs.map((id) => createdLabels.get(id) ?? "unknown document").join(", ") || "none"}.`,
+		`Scoped rules: ${input.created.rules.map((id) => createdLabels.get(id) ?? "unknown rule").join(", ") || "none"}.`,
+		...(executionLines ? ["Execution:", executionLines] : []),
+	].join("\n");
+	return { type: "text", text };
 }

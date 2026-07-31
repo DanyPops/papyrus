@@ -132,10 +132,10 @@ describe("Papyrus native tool rendering", () => {
 	it("wires every native Papyrus tool to the dual-channel renderer and native failures", () => {
 		const domainTools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
 		const lowLevelTools = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
-		// tasks/discuss only -- notes/rules/docs/skills/playbooks are Vehicle-projected,
+		// discuss only -- notes/rules/docs/skills/playbooks/tasks are Vehicle-projected,
 		// no renderCall/renderResult of their own in this file.
-		expect(domainTools.match(/renderCall\(/g)).toHaveLength(2);
-		expect(domainTools.match(/renderResult\(/g)).toHaveLength(2);
+		expect(domainTools.match(/renderCall\(/g)).toHaveLength(1);
+		expect(domainTools.match(/renderResult\(/g)).toHaveLength(1);
 		expect(lowLevelTools.match(/renderCall\(/g)).toHaveLength(3);
 		expect(lowLevelTools.match(/renderResult\(/g)).toHaveLength(3);
 		expect(`${domainTools}\n${lowLevelTools}`).not.toMatch(/return text\(`[^`]*failed:/);

@@ -1,31 +1,18 @@
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-	PROOF_TYPES,
 	readDiscussionExtra,
 	type Artifact,
 	type DiscussionAndRounds,
 	type DiscussionRound,
-	type GateResult,
 	type OperationName,
-	type TaskCompletion,
-	type TaskExecutionPlan,
-	type TaskGraph,
-	type TaskHistoryPage,
-	type TaskLease,
-	type TaskViewSelection,
 } from "@danypops/papyrus";
 import { askQuestion } from "./discuss-ask-view.ts";
-import { emitTaskFocusEvent } from "./task-focus-events.ts";
-import { sessionSecretField } from "./session-identity.ts";
 import { callService } from "./service-client.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
 	createArtifactDetails,
 	createArtifactListDetails,
-	createGateRunDetails,
-	createGraphDetails,
-	createInvocationDetails,
 	createModelContent,
 	createPreviewDetails,
 } from "./tool-rendering/render-model.ts";
@@ -110,15 +97,6 @@ export function artifactLines(artifacts: Artifact[]): string[] {
 	const titleCounts = new Map<string, number>();
 	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
 	return artifacts.map((artifact) => (titleCounts.get(artifact.title)! > 1 ? `${artifactLine(artifact)} (${artifact.id})` : artifactLine(artifact)));
-}
-
-/** Resolves internal ids for model text; ids resurface only when equal titles need disambiguation. */
-async function artifactLabelsById(ids: readonly string[]): Promise<Map<string, string>> {
-	const uniqueIds = [...new Set(ids)];
-	const artifacts = (await Promise.all(uniqueIds.map((id) => callService<Record<string, unknown>, Artifact | null>("artifact.show", { id })))).filter((artifact): artifact is Artifact => artifact !== null);
-	const titleCounts = new Map<string, number>();
-	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
-	return new Map(artifacts.map((artifact) => [artifact.id, titleCounts.get(artifact.title)! > 1 ? `${artifact.title} (${artifact.id})` : artifact.title]));
 }
 
 /**
@@ -256,271 +234,7 @@ async function handleArtifactRemoveRestore(action: unknown, params: Record<strin
 	return null;
 }
 
-const proofReferenceSchema = Type.Object({
-	type: Type.Union(PROOF_TYPES.map((type) => Type.Literal(type))),
-	target: Type.String(),
-	expect: Type.Optional(Type.String()),
-});
-
-const checklistCriterionSchema = Type.Object({
-	proof: Type.Array(proofReferenceSchema, { minItems: 1 }),
-});
-
-export function registerTasksTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: "tasks",
-		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, update, list, show, history, context, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, cancel_subtree, run_gates, set_checklist, set_gates, depend, undepend, contain, uncontain, remove, remove_subtree, restore, claim, heartbeat_lease, release_lease, lease, event_feed. Lifecycle: todo → in-progress → review → done; review failure → rejected → retry → in-progress; canceled is terminal. Focus and lease are independent of lifecycle and of each other -- multiple sessions can focus the same task while only one holds its lease (claim throws if a different owner already holds one; release/heartbeat need the exact token claim returned; owner defaults to this session's id). context returns the full plan (the system prompt itself only carries a one-line pointer) -- call it explicitly after a compaction or before reconciling. complete runs gates + checklist-proof review, then focuses one ready successor. cancel_subtree cancels a task and its whole containment subtree in one call, skipping tasks already done/canceled. remove/restore use a time-gated trash (refuses the live Focus); remove_subtree trashes a whole `contains` subtree in one call; undepend/uncontain are idempotent no-ops when the edge is already absent. update recovers an accidentally-terminal task via status=todo + reason, without rewriting real history; update never touches gates (title/body/labels/status only) -- use set_gates to replace a task's gate commands after creation. Prefer `name` (exact title) over `id` -- id is a backend detail, resolved automatically, needed only to disambiguate a shared title; `parent_name`/`child_name`/`root_task_name` are the same pattern for their `_id` counterparts. For a prerequisite, use `dependency_name` (singular, resolved to `dependency_id`) with the `depend`/`undepend` actions; `depends_on_names` (plural array, resolved to `depends_on`) is only for `create`'s initial dependency set -- passing the wrong one of the two to `depend` leaves `dependency_id` unset and fails with a `dependency_id is required` error. A name resolved outside this call's own project scope (e.g. depending on a task in a different project) is retried once against every project before failing, and the response notes when that happened.",
-		parameters: Type.Object({
-			action: Type.String(),
-			id: Type.Optional(Type.String()),
-			name: Type.Optional(Type.String()),
-			title: Type.Optional(Type.String()),
-			body: Type.Optional(Type.String()),
-			status: Type.Optional(Type.String()),
-			text: Type.Optional(Type.String()),
-			limit: Type.Optional(Type.Number()),
-			cursor: Type.Optional(Type.Number()),
-			direction: Type.Optional(Type.Union([Type.Literal("asc"), Type.Literal("desc")])),
-			reason: Type.Optional(Type.String()),
-			session_id: Type.Optional(Type.String()),
-			labels: Type.Optional(Type.Array(Type.String())),
-			extra: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-			gates: Type.Optional(Type.Array(Type.Record(Type.String(), Type.Unknown()))),
-			checklist: Type.Optional(Type.Record(Type.String(), checklistCriterionSchema)),
-			template_id: Type.Optional(Type.String()),
-			parent_id: Type.Optional(Type.String()),
-			parent_name: Type.Optional(Type.String()),
-			child_id: Type.Optional(Type.String()),
-			child_name: Type.Optional(Type.String()),
-			dependency_id: Type.Optional(Type.String()),
-			dependency_name: Type.Optional(Type.String()),
-			depends_on: Type.Optional(Type.Array(Type.String())),
-			depends_on_names: Type.Optional(Type.Array(Type.String())),
-			project_root: Type.Optional(Type.String()),
-			scope: Type.Optional(Type.Union([Type.Literal("project"), Type.Literal("graph"), Type.Literal("all")])),
-			root_task_id: Type.Optional(Type.String()),
-			root_task_name: Type.Optional(Type.String()),
-			owner: Type.Optional(Type.String()),
-			token: Type.Optional(Type.String()),
-			ttl_ms: Type.Optional(Type.Number()),
-			note: Type.Optional(Type.String()),
-			event_types: Type.Optional(Type.Array(Type.String())),
-		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Tasks", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
-		async execute(_id, rawParams, _signal, _onUpdate, ctx) {
-			try {
-				const params: Record<string, unknown> = { ...rawParams };
-				const action = params.action;
-				// Defaults to this Pi session's own id so Focus reads/writes are isolated per agent
-				// without depending on the model to know or supply its own session identity.
-				// session_secret is looked up by the resolved session_id itself (not blindly the
-				// current session's), so a model that explicitly overrides session_id to a DIFFERENT
-				// session never gets this session's secret smuggled in on its behalf -- the cache only
-				// ever holds this extension's own registered session anyway (see session-identity.ts).
-				const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
-				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) };
-				// Collects a note whenever a name field below only resolved by widening past this call's
-				// own project scope (see resolveArtifactIdByName) -- surfaced at the end of this action's
-				// own response text rather than resolved silently, since a cross-project depend/contain
-				// is exactly the case a shared per-call scope can't otherwise express.
-				const notes: string[] = [];
-				// Resolve the graph root first: every other name lookup must use the caller's final
-				// project/scope/root selection, otherwise `scope: all|graph` silently collapses back
-				// to the current project and forces callers to reach for an id.
-				await resolveNameFields(params, [
-					{ nameKey: "root_task_name", idKey: "root_task_id", listOperation: "tasks.list", baseRequest: { ...baseRequest, scope: "project" } },
-				], notes);
-				const resolutionRequest = {
-					...baseRequest,
-					...(params.scope === undefined ? {} : { scope: params.scope }),
-					...(params.root_task_id === undefined ? {} : { root_task_id: params.root_task_id }),
-				};
-				// The daemon remains keyed by stable ids; the agent facade resolves names against the
-				// exact requested view before dispatching those internal ids.
-				await resolveNameFields(params, [
-					{ nameKey: "name", idKey: "id", listOperation: "tasks.list", baseRequest: resolutionRequest },
-					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
-					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
-					{ nameKey: "child_name", idKey: "child_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
-				], notes);
-				await resolveNameArrayField(params, "depends_on_names", "depends_on", "tasks.list", resolutionRequest, notes);
-				const request = { ...params, ...baseRequest };
-				const result = await (async (): Promise<ReturnType<typeof text>> => {
-				if (action === "create") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
-					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
-				}
-				if (action === "list") {
-					const rows = await callService<Record<string, unknown>, Artifact[]>("tasks.list", request);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No tasks found.", createArtifactListDetails("tasks.list", rows));
-				}
-				if (action === "show") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.show", params);
-					return text(`${artifactLine(artifact)}\n\n${artifact.body}`, createArtifactDetails("tasks.show", artifact));
-				}
-				if (action === "history") {
-					const page = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", request);
-					const lines = page.events.map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`);
-					const output = lines.join("\n") || "No recorded history for this task.";
-					return text(output, createPreviewDetails("tasks.history", "Task history", output));
-				}
-				if (action === "scope") {
-					const selection = await callService<Record<string, unknown>, TaskViewSelection>("tasks.scope", request);
-					return text(`Task scope: ${selection.label}`, createPreviewDetails("tasks.scope", "Task scope", selection.label));
-				}
-				if (action === "active") {
-					const artifact = await callService<Record<string, unknown>, Artifact | null>("tasks.active", request);
-					return artifact
-						? text(`Active: ${artifactLine(artifact)}`, createArtifactDetails("tasks.active", artifact))
-						: text("No active task.", createPreviewDetails("tasks.active", "Active task", "No active task."));
-				}
-				if (action === "focused") {
-					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string } | null>("tasks.focused", request);
-					return focus
-						? text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails("tasks.focused", focus.artifact))
-						: text("No focused task.", createPreviewDetails("tasks.focused", "Focused task", "No focused task."));
-				}
-				if (action === "pause" || action === "unpause") {
-					const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
-					const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, request);
-					emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId: request.session_id as string, status: action === "pause" ? "paused" : "unpaused" });
-					return text(`Focused (${focus.status}): ${artifactLine(focus.artifact)}`, createArtifactDetails(operation, focus.artifact));
-				}
-				if (action === "clear_focus") {
-					const result = await callService<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", request);
-					if (result.cleared) emitTaskFocusEvent({ taskId: null, sessionId: request.session_id as string, status: "cleared" });
-					const output = result.cleared ? "Task focus cleared." : "No focused task.";
-					return text(output, createPreviewDetails("tasks.clear_focus", "Task focus", output));
-				}
-				if (action === "graph") {
-					const graph = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", request);
-					const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
-					const containment = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
-					const edges = graph.nodes.flatMap((node) => [
-						...node.dependencyIds.map((dependencyId) => ({ from: node.task.id, relation: "depends_on", to: dependencyId })),
-						...node.childIds.map((childId) => ({ from: node.task.id, relation: "contains", to: childId })),
-					]);
-					return text(
-						`Task graph: ${graph.nodes.length} nodes, ${graph.rootIds.length} roots, ${dependencies} dependencies, ${containment} containment edges.`,
-						createGraphDetails("tasks.graph", graph.nodes.map((node) => node.task), edges),
-					);
-				}
-				if (action === "plan") {
-					const plan = await callService<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", request);
-					const byId = new Map(plan.nodes.map((node) => [node.id, node]));
-					const titleCounts = new Map<string, number>();
-					for (const node of plan.nodes) titleCounts.set(node.title, (titleCounts.get(node.title) ?? 0) + 1);
-					const nodeLabel = (id: string): string => {
-						const node = byId.get(id);
-						if (!node) return "unknown task";
-						return (titleCounts.get(node.title) ?? 0) > 1 ? `${node.title} (${node.id})` : node.title;
-					};
-					const lines = plan.layers.flatMap((layer, index) => [
-						`Layer ${index + 1}`,
-						...layer.map((id) => {
-							const node = byId.get(id);
-							return `  [${node?.state ?? "unknown"}] ${nodeLabel(id)}`;
-						}),
-					]);
-					if (plan.cycleIds.length > 0) lines.push(`Invalid cycle: ${plan.cycleIds.map(nodeLabel).join(", ")}`);
-					const output = lines.join("\n") || "No tasks in execution plan.";
-					return text(output, createPreviewDetails("tasks.plan", "Task execution plan", output));
-				}
-				if (action === "context") {
-					const summary = await callService<Record<string, unknown>, string | null>("tasks.context", { ...request, verbosity: "full" });
-					const output = summary ?? "No open tasks.";
-					return text(output, createPreviewDetails("tasks.context", "Task reconciliation context", output));
-				}
-				if (action === "set_checklist") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_checklist", params);
-					return text(`Updated checklist: ${artifactLine(artifact)}`, createArtifactDetails("tasks.set_checklist", artifact));
-				}
-				if (action === "set_gates") {
-					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.set_gates", params);
-					return text(`Updated gates: ${artifactLine(artifact)}`, createArtifactDetails("tasks.set_gates", artifact));
-				}
-				if (action === "complete") {
-					const result = await callService<Record<string, unknown>, TaskCompletion>("tasks.complete", request);
-					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
-					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
-					const focused = result.focused ? `\nActive: ${artifactLine(result.focused)}` : "";
-					const blockedLines = artifactLines(result.blocked.map((entry) => entry.artifact));
-					const dependencyLabels = await artifactLabelsById(result.blocked.flatMap((entry) => entry.dependencyIds));
-					const blocked = result.blocked.length > 0
-						? `\nBlocked: ${result.blocked.map((entry, index) => `${blockedLines[index]} waits for ${entry.dependencyIds.map((id) => dependencyLabels.get(id) ?? "unknown task").join(", ")}`).join("; ")}`
-						: "";
-					const output = `${result.completed ? "Completed" : "Rejected"}: ${artifactLine(result.artifact)}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
-					return text(output, createPreviewDetails("tasks.complete", "Task completion", output));
-				}
-				if (action === "run_gates") {
-					const [gates, task] = await Promise.all([
-						callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", request),
-						callService<Record<string, unknown>, Artifact>("tasks.show", { id: params.id }),
-					]);
-					return text(
-						gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.",
-						createGateRunDetails("tasks.run_gates", (params.id as string | undefined) ?? "", task.title, gates.map((gate) => ({
-							passed: gate.passed, type: gate.gate.type, target: gate.gate.target, output: gate.output,
-						}))),
-					);
-				}
-				if (action === "event_feed") {
-					const page = await callService<Record<string, unknown>, { events: Array<{ id: number; occurredAt: string; taskId: string; type: string }>; nextCursor?: number }>("tasks.event_feed", { cursor: params.cursor, limit: params.limit, event_types: params.event_types });
-					const output = page.events.length === 0 ? "No events." : page.events.map((event) => `${event.id} ${event.occurredAt} ${event.taskId} ${event.type}`).join("\n");
-					return text(page.nextCursor !== undefined ? `${output}\n\n(more available -- resume with cursor: ${page.nextCursor})` : output, createPreviewDetails("tasks.event_feed", "Task event feed", output));
-				}
-				if (action === "claim" || action === "heartbeat_lease" || action === "release_lease" || action === "lease") {
-					const leaseRequest = { ...request, owner: (params.owner as string | undefined) ?? resolvedSessionId };
-					if (action === "release_lease") {
-						const released = await callService<Record<string, unknown>, { released: boolean }>("tasks.release_lease", leaseRequest);
-						const output = released.released ? "Lease released." : "No live lease to release.";
-						return text(output, createPreviewDetails("tasks.release_lease", "Task lease", output));
-					}
-					const operation = action === "claim" ? "tasks.claim" : action === "heartbeat_lease" ? "tasks.heartbeat_lease" : "tasks.lease";
-					const lease = await callService<Record<string, unknown>, TaskLease | null>(operation, leaseRequest);
-					const output = lease ? `Leased by "${lease.owner}" until ${lease.leaseExpiresAt} (token ${lease.token}).` : "No live lease.";
-					return text(output, createPreviewDetails(operation, "Task lease", output));
-				}
-				if (action === "cancel_subtree") {
-					const outcome = await callService<Record<string, unknown>, { canceled: string[]; skipped: string[] }>("tasks.cancel_subtree", request);
-					const output = `Canceled ${outcome.canceled.length} task(s)${outcome.skipped.length > 0 ? `, skipped ${outcome.skipped.length} already-terminal` : ""}.`;
-					return text(output, createPreviewDetails("tasks.cancel_subtree", "Cancel task subtree", JSON.stringify(outcome, null, 2)));
-				}
-				const trashResult = await handleArtifactRemoveRestore(action, params);
-				if (trashResult) return trashResult;
-				const operations = {
-					focus: "tasks.focus",
-					start: "tasks.start",
-					submit: "tasks.submit",
-					reject: "tasks.reject",
-					retry: "tasks.retry",
-					cancel: "tasks.cancel",
-					update: "tasks.update",
-					set_scope: "tasks.set_scope",
-					assign_project: "tasks.assign_project",
-					depend: "tasks.depend",
-					undepend: "tasks.undepend",
-					contain: "tasks.contain",
-					uncontain: "tasks.uncontain",
-				} as const;
-				const operation = operations[action as keyof typeof operations];
-				if (!operation) throw new Error(`unknown tasks action: ${action}`);
-				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
-				if (operation === "tasks.focus") emitTaskFocusEvent({ taskId: artifact.id, sessionId: request.session_id as string, status: "focused" });
-				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
-				})();
-				if (notes.length > 0 && result.content[0]?.type === "text") result.content[0].text += `\n\n${notes.join("\n")}`;
-				return result;
-			} catch (error) {
-				throw new Error(`tasks failed: ${error instanceof Error ? error.message : error}`);
-			}
-		},
-	});
-}
-
-// notes.*, rules.*, docs.*, skills.*, playbooks.*, and the shared artifact.* are
+// notes.*, rules.*, docs.*, skills.*, playbooks.*, tasks.*, and the shared artifact.* are
 // registered as Vehicles (see ../vehicle-notes-client.ts and @danypops/papyrus's
 // src/vehicle/papyrus-vehicle.ts), not pi.registerTool()s in this file.
 
@@ -627,11 +341,11 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 }
 
 /** Thin orchestrator: each domain's tool is independently navigable/testable via its own registerXTool function. */
-// notes, rules, docs, skills, and playbooks are no longer registered here -- all migrated onto
-// Vehicle (registerNotesVehicle in vehicle-notes-client.ts, wired at session_start in index.ts),
-// replacing their own pi.registerTool() mega-tools. See @danypops/papyrus's
-// src/vehicle/papyrus-vehicle.ts for the server side.
+// notes, rules, docs, skills, playbooks, and tasks are no longer registered here -- all migrated
+// onto Vehicle (registerNotesVehicle in vehicle-notes-client.ts, wired at session_start in
+// index.ts), replacing their own pi.registerTool() mega-tools. See @danypops/papyrus's
+// src/vehicle/papyrus-vehicle.ts for the server side. discuss remains here -- live:true needs an
+// interactive UI round-trip a stateless Vehicle operation can't express.
 export function registerDomainTools(pi: ExtensionAPI): void {
-	registerTasksTool(pi);
 	registerDiscussTool(pi);
 }

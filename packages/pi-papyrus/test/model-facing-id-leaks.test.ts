@@ -11,7 +11,6 @@ import {
 import { taskContext, type Artifact, type ArtifactStore } from "@danypops/papyrus";
 
 const TASK_ID = "0d6cc36a-2755-474c-b955-6a5534d5f66d";
-const ROOT_ID = "cb4152c3-dc81-40f6-8f10-05cd813a4444";
 const OTHER_ID = "899fdd09-1340-450b-ae60-e1816f9b481e";
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
 
@@ -133,39 +132,10 @@ describe("model-facing artifact references are name-first", () => {
 		expect(output).toContain(OTHER_ID);
 	});
 
-	it("passes scope, project root, and resolved graph root through name lookup", async () => {
-		const tools = await registeredTools();
-		const calls = mockService((operation, input) => {
-			if (operation === "tasks.list" && input.text === "Root task") return [artifact({ id: ROOT_ID, title: "Root task" })];
-			if (operation === "tasks.list" && input.text === "Decide middleware fate") return [artifact()];
-			if (operation === "tasks.show") return artifact();
-			throw new Error(`unexpected operation ${operation}`);
-		});
-
-		await tools.get("tasks")!("t", {
-			action: "show",
-			name: "Decide middleware fate",
-			scope: "graph",
-			root_task_name: "Root task",
-			project_root: "/workspace/alef",
-		}, undefined, undefined, context());
-
-		const targetLookup = calls.find((call) => call.operation === "tasks.list" && call.input.text === "Decide middleware fate");
-		expect(targetLookup?.input).toMatchObject({ project_root: "/workspace/alef", scope: "graph", root_task_id: ROOT_ID });
-	});
-
-	it("tasks(action=\"context\") calls through with verbosity=full -- an explicit on-demand call always gets the complete plan, unlike the unconditional injection", async () => {
-		const tools = await registeredTools();
-		const calls = mockService((operation) => {
-			if (operation === "tasks.context") return "Current: Decide middleware fate [in-progress]";
-			throw new Error(`unexpected operation ${operation}`);
-		});
-
-		await tools.get("tasks")!("t", { action: "context", project_root: "/workspace/alef" }, undefined, undefined, context());
-
-		const call = calls.find((entry) => entry.operation === "tasks.context");
-		expect(call?.input).toMatchObject({ verbosity: "full" });
-	});
+	// "passes scope, project root, and resolved graph root through name lookup" and
+	// "tasks(action=\"context\") calls through with verbosity=full" moved to
+	// @danypops/papyrus's test/tasks-vehicle.test.ts -- tasks is Vehicle-projected now,
+	// no pi.registerTool() of its own left to exercise via raw RPC mocking.
 
 	it("papyrus_graph link/unlink resolve from_name/to_name to real ids, exactly as docs.link's target_name already does", async () => {
 		const tools = await registeredTools();

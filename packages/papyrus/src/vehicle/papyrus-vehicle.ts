@@ -5,8 +5,8 @@
  * artifact.*), so merging costs nothing and avoids a separate registry/mount/client
  * per domain.
  *
- * discuss and tasks still register via pi-papyrus's own pi.registerTool() in
- * domain-tools.ts, not here -- see the papyrus Vehicle migration task for why.
+ * discuss still registers via pi-papyrus's own pi.registerTool() in domain-tools.ts,
+ * not here -- see the papyrus Vehicle migration task for why.
  */
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { AuthorityRegistry } from "../authority-registry.ts";
@@ -24,6 +24,7 @@ import { registerNotesVehicleOperations } from "./notes-vehicle.ts";
 import { registerPlaybooksVehicleOperations } from "./playbooks-vehicle.ts";
 import { registerRulesVehicleOperations } from "./rules-vehicle.ts";
 import { registerSkillsVehicleOperations } from "./skills-vehicle.ts";
+import { registerTasksVehicleOperations } from "./tasks-vehicle.ts";
 
 export interface PapyrusVehicleDeps {
 	artifacts: ArtifactStore & ArtifactTrashStore;
@@ -43,6 +44,7 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority);
 	registerSkillsVehicleOperations(registry, { artifacts: deps.artifacts, events: deps.events, scopes: deps.taskScopes, artifactScopes: deps.scopes, authority: deps.authority, tasks: deps.tasks });
 	registerPlaybooksVehicleOperations(registry, { artifacts: deps.artifacts, events: deps.events, scopes: deps.taskScopes, artifactScopes: deps.scopes, tasks: deps.tasks, sessionIdentity: deps.sessionIdentity });
+	registerTasksVehicleOperations(registry, { tasks: deps.tasks, artifacts: deps.artifacts, sessionIdentity: deps.sessionIdentity });
 	registerArtifactTrashOperations(registry, deps.artifacts);
 	return registry;
 }

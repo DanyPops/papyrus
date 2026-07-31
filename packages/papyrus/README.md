@@ -84,7 +84,7 @@ The existing `artifact-template` skill subtype remains a compatibility mechanism
 
 ### Removing an artifact
 
-Artifacts are never hard-deleted on request: every artifact gets a permanent, immutable `created` row in the mutation event log the moment it exists, so removal is a real, time-gated trash rather than a status flip. `remove` (any of the `tasks`/`docs`/`rules`/`skills` domain tools, or `papyrus artifact remove <id> [--reason <text>]`) moves an artifact to the trash: it is immediately excluded from every list/query, still directly reachable by id, and fully recoverable via `restore` until its purge deadline (30 days later) passes. `remove` refuses a Task that is the live Task Focus in any scope.
+Artifacts are never hard-deleted on request: every artifact gets a permanent, immutable `created` row in the mutation event log the moment it exists, so removal is a real, time-gated trash rather than a status flip. `remove` (the shared `artifact.remove`/`artifact.remove_subtree` operations every agent-facing domain routes through, or `papyrus artifact remove <id> [--reason <text>]`) moves an artifact to the trash: it is immediately excluded from every list/query, still directly reachable by id, and fully recoverable via `restore` until its purge deadline (30 days later) passes. `remove` refuses a Task that is the live Task Focus in any scope.
 
 Once the deadline passes, the daemon's periodic sweep performs a real, cascading, irreversible deletion — the one deliberate, narrow exception to Papyrus's otherwise-absolute append-only history, enforced by the database itself (not merely application code) via a trigger condition checked at delete time.
 

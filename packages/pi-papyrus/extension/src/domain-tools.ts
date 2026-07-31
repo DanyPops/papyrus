@@ -139,15 +139,48 @@ export function matchArtifactByName(candidates: Artifact[], name: string): strin
 }
 
 /**
+ * tasks.list is the one list operation that requires `project_root` and separately supports a
+ * `scope` ("project" | "graph" | "all") to widen or narrow the search. Every other list operation
+ * (docs.list, rules.list, skills.list, playbooks.list, artifact.query, ...) instead treats an
+ * omitted `project_root` as an unscoped/global search (domain-services.ts's listScoped) and has
+ * no `scope` concept at all -- so "search everywhere" means something different for each.
+ */
+const SCOPE_AWARE_LIST_OPERATIONS = new Set<OperationName>(["tasks.list"]);
+
+/** The widened-scope request tried once when a name isn't found under the caller's current scope. */
+function widenedRequest(listOperation: OperationName, baseRequest: Record<string, unknown>): Record<string, unknown> {
+	return SCOPE_AWARE_LIST_OPERATIONS.has(listOperation)
+		? { ...baseRequest, scope: "all" }
+		: { ...baseRequest, project_root: undefined };
+}
+
+/**
  * Resolves a name to its id via `listOperation` (whichever kind's list call is the right search
  * scope -- tasks.list, docs.list, rules.list, skills.list, notes.list, discuss.list, or the
  * kind-agnostic artifact.query for a cross-kind reference like a link target). `baseRequest`
  * should mirror whatever scoping (project_root, etc.) that operation's own "list" action already
  * uses, so resolution never searches a wider or narrower scope than a plain list call would.
+ *
+ * A two-artifact action (depend/contain/gate/link) routinely names artifacts that live in two
+ * different projects, and one call has no way to give two different name fields two different
+ * scopes. When the first lookup finds nothing under the caller's current scope, retry exactly
+ * once against a global search before giving up -- but never when the caller already pinned an
+ * explicit `scope`, so a genuine "not found in the scope I asked for" stays a real error instead
+ * of being silently papered over. `notes`, when given, records that a name only resolved after
+ * widening, so the caller can surface that a search went wider than the caller's default scope
+ * rather than resolving silently.
  */
-async function resolveArtifactIdByName(listOperation: OperationName, baseRequest: Record<string, unknown>, name: string): Promise<string> {
+async function resolveArtifactIdByName(listOperation: OperationName, baseRequest: Record<string, unknown>, name: string, notes?: string[]): Promise<string> {
 	const candidates = await callService<Record<string, unknown>, Artifact[]>(listOperation, { ...baseRequest, text: name });
-	return matchArtifactByName(candidates, name);
+	try {
+		return matchArtifactByName(candidates, name);
+	} catch (error) {
+		if (!(error instanceof Error) || !error.message.startsWith("no artifact named") || baseRequest["scope"] !== undefined) throw error;
+		const widenedCandidates = await callService<Record<string, unknown>, Artifact[]>(listOperation, { ...widenedRequest(listOperation, baseRequest), text: name });
+		const id = matchArtifactByName(widenedCandidates, name);
+		notes?.push(`"${name}" was not found in the current project scope; resolved across all projects instead.`);
+		return id;
+	}
 }
 
 /**
@@ -167,15 +200,21 @@ export function normalizeJsonEncodedField(params: Record<string, unknown>, key: 
 	}
 }
 
-/** Resolves every {nameKey -> idKey} pair present and not already satisfied by an explicit id, in place. */
+/**
+ * Resolves every {nameKey -> idKey} pair present and not already satisfied by an explicit id, in
+ * place. `notes`, when given, collects a message for each name that only resolved by widening
+ * past the caller's own scope (see resolveArtifactIdByName) -- callers that want that surfaced
+ * to the model/human pass an array here and append it to their own response text.
+ */
 export async function resolveNameFields(
 	params: Record<string, unknown>,
 	fields: ReadonlyArray<{ nameKey: string; idKey: string; listOperation: OperationName; baseRequest: Record<string, unknown> }>,
+	notes?: string[],
 ): Promise<void> {
 	for (const { nameKey, idKey, listOperation, baseRequest } of fields) {
 		const nameValue = params[nameKey];
 		if (typeof nameValue === "string" && nameValue.length > 0 && !params[idKey]) {
-			params[idKey] = await resolveArtifactIdByName(listOperation, baseRequest, nameValue);
+			params[idKey] = await resolveArtifactIdByName(listOperation, baseRequest, nameValue, notes);
 		}
 	}
 }
@@ -187,10 +226,11 @@ async function resolveNameArrayField(
 	idsKey: string,
 	listOperation: OperationName,
 	baseRequest: Record<string, unknown>,
+	notes?: string[],
 ): Promise<void> {
 	const names = params[namesKey];
 	if (Array.isArray(names) && names.length > 0 && !params[idsKey]) {
-		params[idsKey] = await Promise.all(names.map((entry) => resolveArtifactIdByName(listOperation, baseRequest, String(entry))));
+		params[idsKey] = await Promise.all(names.map((entry) => resolveArtifactIdByName(listOperation, baseRequest, String(entry), notes)));
 	}
 }
 
@@ -248,7 +288,7 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
-		description: "Task domain tool. ACTIONS: create, update, list, show, history, context, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, cancel_subtree, run_gates, set_checklist, set_gates, depend, undepend, contain, uncontain, remove, remove_subtree, restore, claim, heartbeat_lease, release_lease, lease, event_feed. Lifecycle: todo → in-progress → review → done; review failure → rejected → retry → in-progress; canceled is terminal. Focus and lease are independent of lifecycle and of each other -- multiple sessions can focus the same task while only one holds its lease (claim throws if a different owner already holds one; release/heartbeat need the exact token claim returned; owner defaults to this session's id). context returns the full plan (the system prompt itself only carries a one-line pointer) -- call it explicitly after a compaction or before reconciling. complete runs gates + checklist-proof review, then focuses one ready successor. cancel_subtree cancels a task and its whole containment subtree in one call, skipping tasks already done/canceled. remove/restore use a time-gated trash (refuses the live Focus); remove_subtree trashes a whole `contains` subtree in one call; undepend/uncontain are idempotent no-ops when the edge is already absent. update recovers an accidentally-terminal task via status=todo + reason, without rewriting real history; update never touches gates (title/body/labels/status only) -- use set_gates to replace a task's gate commands after creation. Prefer `name` (exact title) over `id` -- id is a backend detail, resolved automatically, needed only to disambiguate a shared title; `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` are the same pattern for their `_id` counterparts.",
+		description: "Task domain tool. ACTIONS: create, update, list, show, history, context, scope, set_scope, assign_project, graph, plan, active, focused, focus, pause, unpause, clear_focus, start, submit, complete, reject, retry, cancel, cancel_subtree, run_gates, set_checklist, set_gates, depend, undepend, contain, uncontain, remove, remove_subtree, restore, claim, heartbeat_lease, release_lease, lease, event_feed. Lifecycle: todo → in-progress → review → done; review failure → rejected → retry → in-progress; canceled is terminal. Focus and lease are independent of lifecycle and of each other -- multiple sessions can focus the same task while only one holds its lease (claim throws if a different owner already holds one; release/heartbeat need the exact token claim returned; owner defaults to this session's id). context returns the full plan (the system prompt itself only carries a one-line pointer) -- call it explicitly after a compaction or before reconciling. complete runs gates + checklist-proof review, then focuses one ready successor. cancel_subtree cancels a task and its whole containment subtree in one call, skipping tasks already done/canceled. remove/restore use a time-gated trash (refuses the live Focus); remove_subtree trashes a whole `contains` subtree in one call; undepend/uncontain are idempotent no-ops when the edge is already absent. update recovers an accidentally-terminal task via status=todo + reason, without rewriting real history; update never touches gates (title/body/labels/status only) -- use set_gates to replace a task's gate commands after creation. Prefer `name` (exact title) over `id` -- id is a backend detail, resolved automatically, needed only to disambiguate a shared title; `parent_name`/`child_name`/`root_task_name` are the same pattern for their `_id` counterparts. For a prerequisite, use `dependency_name` (singular, resolved to `dependency_id`) with the `depend`/`undepend` actions; `depends_on_names` (plural array, resolved to `depends_on`) is only for `create`'s initial dependency set -- passing the wrong one of the two to `depend` leaves `dependency_id` unset and fails with a `dependency_id is required` error. A name resolved outside this call's own project scope (e.g. depending on a task in a different project) is retried once against every project before failing, and the response notes when that happened.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -299,12 +339,17 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 				// ever holds this extension's own registered session anyway (see session-identity.ts).
 				const resolvedSessionId = params.session_id ?? ctx.sessionManager.getSessionId();
 				const baseRequest = { project_root: params.project_root ?? ctx.cwd, actor: "agent", source: "pi-tool", session_id: resolvedSessionId, ...sessionSecretField(resolvedSessionId as string) };
+				// Collects a note whenever a name field below only resolved by widening past this call's
+				// own project scope (see resolveArtifactIdByName) -- surfaced at the end of this action's
+				// own response text rather than resolved silently, since a cross-project depend/contain
+				// is exactly the case a shared per-call scope can't otherwise express.
+				const notes: string[] = [];
 				// Resolve the graph root first: every other name lookup must use the caller's final
 				// project/scope/root selection, otherwise `scope: all|graph` silently collapses back
 				// to the current project and forces callers to reach for an id.
 				await resolveNameFields(params, [
 					{ nameKey: "root_task_name", idKey: "root_task_id", listOperation: "tasks.list", baseRequest: { ...baseRequest, scope: "project" } },
-				]);
+				], notes);
 				const resolutionRequest = {
 					...baseRequest,
 					...(params.scope === undefined ? {} : { scope: params.scope }),
@@ -317,9 +362,10 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 					{ nameKey: "dependency_name", idKey: "dependency_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
 					{ nameKey: "parent_name", idKey: "parent_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
 					{ nameKey: "child_name", idKey: "child_id", listOperation: "tasks.list", baseRequest: resolutionRequest },
-				]);
-				await resolveNameArrayField(params, "depends_on_names", "depends_on", "tasks.list", resolutionRequest);
+				], notes);
+				await resolveNameArrayField(params, "depends_on_names", "depends_on", "tasks.list", resolutionRequest, notes);
 				const request = { ...params, ...baseRequest };
+				const result = await (async (): Promise<ReturnType<typeof text>> => {
 				if (action === "create") {
 					const artifact = await callService<Record<string, unknown>, Artifact>("tasks.create", request);
 					return text(`Created task ${artifactLine(artifact)}`, createArtifactDetails("tasks.create", artifact));
@@ -482,6 +528,9 @@ export function registerTasksTool(pi: ExtensionAPI): void {
 				const artifact = await callService<Record<string, unknown>, Artifact>(operation, request);
 				if (operation === "tasks.focus") emitTaskFocusEvent({ taskId: artifact.id, sessionId: request.session_id as string, status: "focused" });
 				return text(artifactLine(artifact), createArtifactDetails(operation, artifact));
+				})();
+				if (notes.length > 0 && result.content[0]?.type === "text") result.content[0].text += `\n\n${notes.join("\n")}`;
+				return result;
 			} catch (error) {
 				throw new Error(`tasks failed: ${error instanceof Error ? error.message : error}`);
 			}

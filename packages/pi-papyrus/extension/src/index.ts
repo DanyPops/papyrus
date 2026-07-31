@@ -37,9 +37,9 @@ import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanI
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { buildContextBreakdown, buildMessageHistoryTree, buildTaskItemTree, buildToolDefinitionItems, computeContextBudget, computeRuleBudget, DEFAULT_RESERVE_TOKENS, type ContextSegmentItem, type SessionEntryLike, type SessionTreeNodeLike } from "./context-budget.ts";
-import { buildBasePromptItems } from "./base-prompt-breakdown.ts";
-import { showContextView } from "./context-view.ts";
+import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
+import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context-hub-contribution.ts";
+import { CONTEXT_DEFAULT_RESERVE_TOKENS, CONTEXT_HUB_CONTRIBUTION_CHANNEL, CONTEXT_HUB_CONTRIBUTION_SCHEMA } from "@danypops/jittor";
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -327,15 +327,11 @@ export default async function (pi: ExtensionAPI) {
 	const contextInjectionProducerId = randomUUID();
 	let previousContextInjectionFingerprint: string | undefined;
 	let logTurnSequence = 0;
-	// Cached from the most recent before_agent_start observation: Pi's own base system prompt
-	// is only ever visible transiently inside that hook's event.systemPrompt, so /context
-	// reuses the size buildContextInjection already computes every turn rather than going
-	// without it entirely. basePromptItems is the structural sub-breakdown built from the same
-	// event's systemPromptOptions field ("Extensions can inspect this to understand what Pi
-	// loaded without re-discovering resources", per Pi's own doc comment) -- no new hook, no new
-	// risk, just reading a field before_agent_start already hands over.
-	let lastObservedBasePromptTokens: number | null = null;
-	let lastObservedBasePromptItems: ContextSegmentItem[] = [];
+	// Papyrus's own Context Hub contribution (rules/tasks/skills, bundled into one segment --
+	// see context-hub-contribution.ts) re-emits every turn alongside the existing injection
+	// observation, its own independent monotonic sequence, same cadence and shape as
+	// contextInjectionSequence but on a different channel/schema.
+	let contextHubContributionSequence = 0;
 	const taskContinuation = new ActiveTaskContinuation({
 		maxTurns: TASK_DRIVER_MAX_TURNS,
 		maxUnchangedTurns: TASK_DRIVER_MAX_UNCHANGED_TURNS,
@@ -388,7 +384,7 @@ export default async function (pi: ExtensionAPI) {
 			if (!usage || usage.tokens === null) return; // nothing real to report yet (e.g. before the first assistant turn, or right after compaction)
 			const totalTokens = usage.tokens;
 			const sessionId = ctx.sessionManager.getSessionId();
-			const effectiveBudget = Math.max(0, usage.contextWindow - DEFAULT_RESERVE_TOKENS);
+			const effectiveBudget = Math.max(0, usage.contextWindow - CONTEXT_DEFAULT_RESERVE_TOKENS);
 			const percentOfBudget = effectiveBudget > 0 ? Math.round((totalTokens / effectiveBudget) * 1000) / 10 : null;
 			await callService("logs.append", {
 				source_id: PI_SESSION_CONTEXT_LOG_SOURCE,
@@ -628,52 +624,6 @@ export default async function (pi: ExtensionAPI) {
 		description: "Browse Papyrus Discussions and reply, defer, resume, settle, or block/unblock a task (interactive)",
 		handler: async (_args, ctx) => { await discussModule.showDiscussions(ctx); },
 	});
-	pi.registerCommand("context", {
-		description: "Structured, per-segment breakdown of the context window: real usage against the model's window, drilling into Papyrus Rules and the Pi-native skill catalog",
-		handler: async (_args, ctx) => {
-			try {
-				const sessionId = ctx.sessionManager.getSessionId();
-				const [rules, taskGraph] = await Promise.all([
-					callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
-					callService<Record<string, unknown>, TaskGraph>("tasks.graph", { project_root: ctx.cwd, session_id: sessionId }),
-				]);
-				const { skills } = computeContextBudget(rules, ctx.cwd);
-				const ruleBudget = computeRuleBudget(rules);
-				const usage = ctx.getContextUsage?.();
-				// Real tree (not just the linear current-branch path): surfaces content sitting in an
-				// abandoned /tree branch, which cost real tokens to generate but isn't in context now.
-				const tree = ctx.sessionManager.getTree() as SessionTreeNodeLike[];
-				// buildContextEntries(), NOT getBranch(): getBranch() returns every raw entry on the
-				// current path including everything a real compaction has already summarized away.
-				// A session with 3 real compactions confirmed this made "active" message-history
-				// tokens overcount the real total by over 13x -- getBranch()'s own docstring already
-				// says as much ("Use buildSessionContext() to get the resolved messages for the
-				// LLM"); buildContextEntries() is the compaction-aware entry list matching what the
-				// LLM actually sees (the latest compaction entry itself, plus kept entries from its
-				// firstKeptEntryId onward, plus everything after -- older summarized entries omitted).
-				const activeEntryIds = new Set((ctx.sessionManager.buildContextEntries() as SessionEntryLike[]).map((entry) => entry.id));
-				const branchEntryIds = new Set((ctx.sessionManager.getBranch() as SessionEntryLike[]).map((entry) => entry.id));
-				const messageHistory = buildMessageHistoryTree(tree, activeEntryIds, branchEntryIds);
-				const activeToolNames = new Set(pi.getActiveTools());
-				const toolDefinitionItems = buildToolDefinitionItems(pi.getAllTools().filter((tool) => activeToolNames.has(tool.name)));
-				const breakdown = buildContextBreakdown({
-					totalTokens: usage?.tokens ?? null,
-					contextWindow: ctx.model?.contextWindow ?? null,
-					ruleBudget,
-					taskItems: buildTaskItemTree(taskGraph),
-					skills,
-					basePromptEstimatedTokens: lastObservedBasePromptTokens,
-					basePromptItems: lastObservedBasePromptItems,
-					toolDefinitionItems,
-					messageHistoryItems: messageHistory.items,
-					messageHistoryActiveTokens: messageHistory.activeTokens,
-				});
-				await showContextView(ctx, breakdown);
-			} catch (error) {
-				ctx.ui.notify(`Context breakdown failed: ${error instanceof Error ? error.message : error}`, "error");
-			}
-		},
-	});
 
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
 
@@ -780,12 +730,14 @@ export default async function (pi: ExtensionAPI) {
 	// tasks, they're explicitly called out — the agent should address them.
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		let result: { systemPrompt: string } | undefined;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const [rules, playbooks, summary] = await Promise.all([
-				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
+			const [rules, playbooks, summary, taskGraph] = await Promise.all([
+				callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", { status: "active", limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS }),
 				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId, verbosity: "summary" }),
+				callService<Record<string, unknown>, TaskGraph>("tasks.graph", { project_root: ctx.cwd, session_id: sessionId }),
 			]);
 			const injection = buildContextInjection({
 				basePrompt: event.systemPrompt ?? "",
@@ -798,12 +750,25 @@ export default async function (pi: ExtensionAPI) {
 				previousFingerprint: previousContextInjectionFingerprint,
 			});
 			previousContextInjectionFingerprint = injection.observation.fingerprint;
-			lastObservedBasePromptTokens = Math.ceil(injection.observation.before.characters / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN);
-			lastObservedBasePromptItems = buildBasePromptItems(event.systemPromptOptions, injection.observation.before.characters);
 			pi.events.emit(PAPYRUS_CONTEXT_INJECTION_CHANNEL, injection.observation);
-			if (injection.prompt !== (event.systemPrompt ?? "")) return { systemPrompt: injection.prompt };
+			if (injection.prompt !== (event.systemPrompt ?? "")) result = { systemPrompt: injection.prompt };
+			// Context Hub contribution is best-effort observability for /context -- its own failure
+			// must never block this turn's actual rules/tasks injection above.
+			try {
+				const { rules: ruleBudget, skills } = computeContextBudget(rules, ctx.cwd);
+				pi.events.emit(CONTEXT_HUB_CONTRIBUTION_CHANNEL, {
+					schema: CONTEXT_HUB_CONTRIBUTION_SCHEMA,
+					observedAt: Date.now(),
+					sequence: ++contextHubContributionSequence,
+					producerName: PAPYRUS_CONTEXT_HUB_PRODUCER_NAME,
+					segment: papyrusContextSegment(ruleBudget, buildTaskItemTree(taskGraph), skills),
+				});
+			} catch {
+				// Malformed/unreachable daemon data for this turn's contribution -- drop it silently.
+			}
 		} catch {
 			// DB not ready
 		}
+		return result;
 	});
 }

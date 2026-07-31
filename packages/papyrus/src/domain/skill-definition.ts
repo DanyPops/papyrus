@@ -47,12 +47,13 @@ export interface SkillTaskBlueprint {
 }
 
 /**
- * A pipeline step that nests another workflow Skill's run inside this one -- the Jenkins
- * "trigger downstream job and wait" / Ansible "include_tasks" primitive. `skillId` is late-
- * bound: existence and workflow-subtype are checked at execution time (workflow-execution.ts),
- * not here, since this validator has no store access. `dependsOn`/`parent` place this step in
- * the SAME dependency graph as ordinary task blueprints -- a task can depend on a skill-call
- * ref (meaning: depend on every task the nested run creates), and a skill-call's own `parent`
+ * A pipeline step that nests another run inside this one -- the Jenkins "trigger downstream
+ * job and wait" / Ansible "include_tasks" primitive. The target named by `skillId` can be
+ * either a workflow Skill or a Playbook (workflow-execution.ts resolves which, by the target
+ * artifact's own kind); existence and eligibility are both checked at execution time, not
+ * here, since this validator has no store access. `dependsOn`/`parent` place this step in the
+ * SAME dependency graph as ordinary task blueprints -- a task can depend on a skill-call ref
+ * (meaning: depend on every task the nested run creates), and a skill-call's own `parent`
  * contains the nested run's root tasks under an outer task.
  */
 export interface SkillCallBlueprint {
@@ -86,7 +87,8 @@ export interface SkillDefinition {
 
 const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const PLACEHOLDER_PATTERN = /{{\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*}}/g;
-const INPUT_TYPES = new Set<SkillInputType>(["string", "number", "boolean"]);
+/** Exported so any other caller declaring typed inputs against this same shape (e.g. Playbook arguments) validates and rejects exactly the same way, instead of re-deriving its own type-checking logic. */
+export const SKILL_INPUT_TYPES = new Set<SkillInputType>(["string", "number", "boolean"]);
 const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const RELATIONS = new Set<string>(SEED_RELATIONS);
 
@@ -105,7 +107,8 @@ function string(value: unknown, label: string): string {
 	return value;
 }
 
-function validateArgumentValue(name: string, type: SkillInputType, value: unknown): SkillArgumentValue {
+/** Exported for reuse by any other typed-argument declaration against this same value shape (e.g. Playbook arguments), rather than re-deriving this exact check elsewhere. */
+export function validateArgumentValue(name: string, type: SkillInputType, value: unknown): SkillArgumentValue {
 	if (typeof value !== type || (type === "number" && !Number.isFinite(value))) {
 		throw new Error(`skill argument "${name}" must be a ${type}`);
 	}
@@ -121,7 +124,7 @@ function validateInputs(value: unknown): Record<string, SkillInputDefinition> {
 		if (RESERVED_KEYS.has(name)) throw new Error(`reserved skill input name "${name}"`);
 		if (!NAME_PATTERN.test(name)) throw new Error(`invalid skill input name "${name}"`);
 		const input = record(raw, `skill input "${name}"`);
-		if (!INPUT_TYPES.has(input["type"] as SkillInputType)) throw new Error(`skill input "${name}" has unsupported type`);
+		if (!SKILL_INPUT_TYPES.has(input["type"] as SkillInputType)) throw new Error(`skill input "${name}" has unsupported type`);
 		const type = input["type"] as SkillInputType;
 		if (input["required"] !== undefined && typeof input["required"] !== "boolean") {
 			throw new Error(`skill input "${name}" required must be boolean`);

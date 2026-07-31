@@ -80,7 +80,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 
 	define(
 		"create",
-		"Creates a Playbook -- prose: a trigger and an ordered list of steps. `arguments` declares named inputs: [{name, description?, required?}] (required defaults true), referenced in step text as {{name}}. project_root is optional (omitted = unscoped).",
+		"Creates a Playbook -- a trigger and an ordered list of steps. Each step is either a plain prose string (a task), or a structured object: {kind:'doc',title,body?,subtype?,labels?} creates a Doc, {kind:'rule',title,body?,condition?,action?,severity?,labels?} creates a Rule, {kind:'call',title,playbookId,arguments?} nests another Playbook's own run as a pipeline step gated in the same sequence, {kind:'task',title?,body} is an explicit task step. `arguments` declares named inputs: [{name, description?, required?, type?('string'|'number'|'boolean', default 'string'), enum?, default?}] (required defaults true), referenced in step text/call arguments as {{name}}. project_root is optional (omitted = unscoped).",
 		"local-write",
 		{ title: stringProp, body: stringProp, trigger: stringProp, steps: { type: "array" }, tools: { type: "array" }, arguments: { type: "array" }, labels: { type: "array" }, extra: { type: "object" }, project_root: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		["title"],

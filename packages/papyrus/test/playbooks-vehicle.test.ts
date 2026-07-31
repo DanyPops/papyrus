@@ -97,6 +97,30 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		service.close();
 	});
 
+	it("create/invoke accept structured (doc/rule/call) steps and typed arguments through the real Vehicle JSON schema, not just the module layer directly", async () => {
+		const { registry, service } = harness();
+		const target = (await registry.invoke("playbooks.create", 1, { title: "Nested target", steps: ["Target step"] }, PERMS)) as { id: string };
+		const created = (await registry.invoke("playbooks.create", 1, {
+			title: "Rich playbook",
+			steps: [
+				"Plain step",
+				{ kind: "doc", title: "A doc", body: "content" },
+				{ kind: "rule", title: "A rule", condition: "always" },
+				{ kind: "call", title: "Run target", playbookId: target.id },
+			],
+			arguments: [{ name: "count", type: "number", required: true }],
+		}, PERMS)) as { id: string };
+
+		const invocation = (await registry.invoke("playbooks.invoke", 1, { id: created.id, arguments: { count: 3 } }, PERMS)) as {
+			created: { docs: string[]; rules: string[]; tasks: string[] };
+			arguments: Record<string, unknown>;
+		};
+		expect(invocation.created.docs).toHaveLength(1);
+		expect(invocation.created.rules).toHaveLength(1);
+		expect(invocation.arguments["count"]).toBe(3);
+		service.close();
+	});
+
 	it("invoke accepts a JSON-encoded string for arguments -- a known LLM tool-calling quirk", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("playbooks.create", 1, { title: "Needs env 2", steps: ["Deploy to {{environment}}"], arguments: [{ name: "environment", required: true }] }, PERMS)) as { id: string };

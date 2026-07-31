@@ -10,6 +10,7 @@ import {
 	type SkillDefinition,
 } from "./domain/skill-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
+import { compilePlaybookDefinition, type PlaybookExternalLink } from "./playbook-definition.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
@@ -159,31 +160,76 @@ export function instantiateSkillWorkflow(
 	return requireAtomicArtifactStore(artifacts).atomic(run);
 }
 
+/** Reads each created task's own lineage.ref tag back off the store -- resolves a compiled Playbook's blueprint refs back to real task ids after materialization, without threading an extra ref-to-id map out of materializeWorkflowDefinition's own return shape. Shared by top-level Playbook invocation (playbook-execution.ts) and a nested Playbook pipeline-call step alike. */
+export function resolveRefToTaskId(artifacts: ArtifactStore, taskIds: string[], extraKey: string): Map<string, string> {
+	const map = new Map<string, string>();
+	for (const taskId of taskIds) {
+		const lineage = artifacts.get(taskId)?.extra[extraKey];
+		if (typeof lineage !== "object" || lineage === null || Array.isArray(lineage)) continue;
+		const ref = (lineage as Record<string, unknown>)["ref"];
+		if (typeof ref === "string") map.set(ref, taskId);
+	}
+	return map;
+}
+
+/** Applies a compiled Playbook's external links (a Rule that `gates` it, a Doc it `references`, etc.) once its blueprint refs have resolved to real task ids -- shared by top-level Playbook invocation and a nested Playbook pipeline-call step alike. */
+export function applyPlaybookExternalLinks(artifacts: ArtifactStore, externalLinks: PlaybookExternalLink[], refToTaskId: Map<string, string>): void {
+	for (const link of externalLinks) {
+		const taskId = refToTaskId.get(link.rootRef);
+		if (!taskId) continue; // defensive -- every rootRef the compiler emits is always materialized
+		if (link.ownerIsFrom) artifacts.link({ from: taskId, relation: link.relation, to: link.otherArtifactId });
+		else artifacts.link({ from: link.otherArtifactId, relation: link.relation, to: taskId });
+	}
+}
+
 /**
- * The recursive pipeline core. A workflow Skill's `skills` blueprint entries are pipeline
- * steps that trigger another workflow Skill's own run -- the Jenkins "downstream job" /
- * Ansible "include_tasks" primitive. Nested runs execute BEFORE this level's dependsOn/parent
+ * The recursive pipeline core. A `skills` blueprint entry's target can be either a workflow
+ * Skill (an already-persisted, versioned JSON blueprint) or a Playbook (its steps/composition
+ * tree compiled fresh, right here, the same way a top-level Playbook invocation does) -- the
+ * Jenkins "downstream job" / Ansible "include_tasks" primitive either way, dispatched purely
+ * by the target artifact's own kind. Nested runs execute BEFORE this level's dependsOn/parent
  * edges are wired, since a step depending on a skill-call ref needs to know every task id
  * that nested run actually produced (not knowable ahead of time -- it depends on the nested
- * skill's own definition). `ancestorSkillIds` tracks the current call CHAIN (not a global
+ * target's own definition). `ancestorIds` tracks the current call CHAIN (not a global
  * ever-visited set): sibling skill-calls under the same parent are independent and may
- * legitimately share a called skill; only a real cycle back to an ancestor is rejected.
+ * legitimately share a called target; only a real cycle back to an ancestor is rejected. This
+ * is a SEPARATE cycle/depth check from a Playbook's own contains/depends_on composition tree
+ * (playbook-definition.ts's compileNode) -- a cycle threading through BOTH graphs at once
+ * (Playbook composition -> a call step -> back into that same Playbook's composition) is not
+ * cross-checked between the two, but each graph's own independent depth cap still bounds it;
+ * it fails with a nesting-depth error rather than a precise cycle message, not an infinite loop.
  */
 function runWorkflowSteps(
 	artifacts: ArtifactStore,
-	skillId: string,
+	targetId: string,
 	input: InstantiateSkillWorkflowInput,
 	history: WorkflowRunHistory | undefined,
-	ancestorSkillIds: ReadonlySet<string>,
+	ancestorIds: ReadonlySet<string>,
 	depth: number,
 ): WorkflowRunResult {
-	if (ancestorSkillIds.has(skillId)) throw new Error(`skill workflow nesting cycle includes "${skillId}"`);
+	if (ancestorIds.has(targetId)) throw new Error(`skill workflow nesting cycle includes "${targetId}"`);
 	if (depth > SKILL_WORKFLOW_MAX_NESTING_DEPTH) throw new Error(`skill workflow nesting exceeds ${SKILL_WORKFLOW_MAX_NESTING_DEPTH} levels`);
-	const nextAncestors = new Set([...ancestorSkillIds, skillId]);
-	const { definition } = requireWorkflowSkill(artifacts, skillId);
+	const nextAncestors = new Set([...ancestorIds, targetId]);
+	const target = artifacts.get(targetId);
+	if (target?.kind === "playbook") {
+		const compiled = compilePlaybookDefinition(artifacts, targetId);
+		const result = materializeWorkflowDefinition(
+			artifacts,
+			{ ownerId: targetId, extraKey: "playbookRun", labelPrefix: "playbook-run" },
+			compiled.definition,
+			{ ...input, focusRef: compiled.entryRef },
+			history,
+			nextAncestors,
+			depth,
+		);
+		const refToTaskId = resolveRefToTaskId(artifacts, result.created.tasks, "playbookRun");
+		applyPlaybookExternalLinks(artifacts, compiled.externalLinks, refToTaskId);
+		return result;
+	}
+	const { definition } = requireWorkflowSkill(artifacts, targetId);
 	return materializeWorkflowDefinition(
 		artifacts,
-		{ ownerId: skillId, extraKey: "skillRun", labelPrefix: "skill-run" },
+		{ ownerId: targetId, extraKey: "skillRun", labelPrefix: "skill-run" },
 		definition,
 		input,
 		history,
@@ -298,6 +344,10 @@ export function materializeWorkflowDefinition(
 	const stepRootTaskIds = new Map<string, string[]>(
 		tasks.map((task, index) => [rendered.blueprints.tasks[index]!.ref, (rendered.blueprints.tasks[index]!.dependsOn?.length ?? 0) === 0 ? [task.id] : []]),
 	);
+	// A skill-call ref never gets its own real task -- it resolves to whatever the nested run's
+	// entry (or, absent a resolvable one, its first root task) actually is. Lets a focusRef chain
+	// straight through an arbitrary number of nested calls down to a real task, recursively.
+	const stepEntryTaskIds = new Map<string, string>();
 	for (const call of rendered.blueprints.skills as SkillCallBlueprint[]) {
 		const nested = runWorkflowSteps(
 			artifacts,
@@ -310,6 +360,8 @@ export function materializeWorkflowDefinition(
 		nestedRuns.push(nested);
 		stepTaskIds.set(call.ref, nested.created.tasks);
 		stepRootTaskIds.set(call.ref, nested.rootTaskIds);
+		const entry = nested.entryTaskId ?? nested.rootTaskIds[0];
+		if (entry !== undefined) stepEntryTaskIds.set(call.ref, entry);
 	}
 
 	for (const blueprint of rendered.blueprints.tasks) {
@@ -357,6 +409,15 @@ export function materializeWorkflowDefinition(
 		if ((call.dependsOn?.length ?? 0) === 0) artifacts.link({ from: ownerId, relation: "triggers", to: call.skillId });
 	}
 
+	// A focusRef naming an ordinary task ref resolves directly through ids; one naming a
+	// skill-call ref resolves through the nested run it triggered instead (never through ids,
+	// which only maps a skill-call ref to a synthetic placeholder that was never actually created).
+	const focusTaskId = input.focusRef === undefined
+		? undefined
+		: rendered.blueprints.tasks.some((task) => task.ref === input.focusRef)
+			? ids.get(input.focusRef)
+			: stepEntryTaskIds.get(input.focusRef);
+
 	return {
 		skillId: ownerId,
 		runId,
@@ -368,7 +429,7 @@ export function materializeWorkflowDefinition(
 			skillRuns: [...nestedRuns.map((run) => run.runId), ...nestedRuns.flatMap((run) => run.created.skillRuns)],
 		},
 		rootTaskIds,
-		...(input.focusRef !== undefined && ids.has(input.focusRef) ? { entryTaskId: ids.get(input.focusRef)! } : {}),
+		...(focusTaskId !== undefined ? { entryTaskId: focusTaskId } : {}),
 		execution: projectTaskExecution(executionGraph(tasks, rendered, ids, extraKey)),
 	};
 }

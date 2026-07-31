@@ -11,7 +11,7 @@ import type { SkillArgumentValue } from "./domain/skill-definition.ts";
 import { compilePlaybookDefinition } from "./playbook-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import { materializeWorkflowDefinition, type WorkflowRunHistory } from "./workflow-execution.ts";
+import { applyPlaybookExternalLinks, materializeWorkflowDefinition, resolveRefToTaskId, type WorkflowRunHistory } from "./workflow-execution.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
 
 export interface InvokePlaybookInput {
@@ -42,18 +42,6 @@ function missingRequiredInputs(inputs: Record<string, { required?: boolean; defa
 		.map(([name]) => name);
 }
 
-/** Reads each newly-created task's own playbookRun.ref tag back off the store -- avoids threading an extra ref-to-id map out of materializeWorkflowDefinition's existing, already-stable return shape. */
-function resolveRefToTaskId(artifacts: ArtifactStore, taskIds: string[]): Map<string, string> {
-	const map = new Map<string, string>();
-	for (const taskId of taskIds) {
-		const lineage = artifacts.get(taskId)?.extra["playbookRun"];
-		if (typeof lineage !== "object" || lineage === null || Array.isArray(lineage)) continue;
-		const ref = (lineage as Record<string, unknown>)["ref"];
-		if (typeof ref === "string") map.set(ref, taskId);
-	}
-	return map;
-}
-
 export function invokePlaybook(
 	artifacts: ArtifactStore,
 	playbookId: string,
@@ -75,13 +63,8 @@ export function invokePlaybook(
 			new Set(),
 			0,
 		);
-		const refToTaskId = resolveRefToTaskId(artifacts, result.created.tasks);
-		for (const link of compiled.externalLinks) {
-			const taskId = refToTaskId.get(link.rootRef);
-			if (!taskId) continue; // defensive -- every rootRef this compiler emits is always materialized
-			if (link.ownerIsFrom) artifacts.link({ from: taskId, relation: link.relation, to: link.otherArtifactId });
-			else artifacts.link({ from: link.otherArtifactId, relation: link.relation, to: taskId });
-		}
+		const refToTaskId = resolveRefToTaskId(artifacts, result.created.tasks, "playbookRun");
+		applyPlaybookExternalLinks(artifacts, compiled.externalLinks, refToTaskId);
 		return {
 			playbookId,
 			runId: result.runId,

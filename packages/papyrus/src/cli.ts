@@ -128,7 +128,7 @@ const USAGE = `Usage:
   papyrus skills instantiate <template-id> [--title <title>] [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--json]
   papyrus skills assign-project <id> [project-root] [--json]
   papyrus skills update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
-  papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--arguments-json <json array>] [--project-root <path>] [--json]
+  papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json array of strings and/or {kind:'doc'|'rule'|'call'|'task',...} objects>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--arguments-json <json array, each optionally {type,enum,default}>] [--project-root <path>] [--json]
   papyrus playbooks invoke <id> [--arguments-json <json object>] [--project-root <path>] [--json]  # materializes real tasks (contains/depends_on-wired) and focuses the entry task
   papyrus playbooks preview <id> [--arguments-json <json object>] [--json]  # renders text only, creates nothing
   papyrus playbooks list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
@@ -231,10 +231,11 @@ function parseJsonStringArrayFlag(value: string | undefined, flag: string): stri
 }
 
 /**
- * No shape assertion here -- unlike every other JSON flag, playbooks --arguments-json is genuinely
- * polymorphic (an array on create, a {name: value} map on invoke), and the two actions share one
- * flag-parsing pass in runPlaybooksCli. The service validates the shape for whichever operation
- * actually receives it.
+ * No shape assertion here -- playbooks --arguments-json is genuinely polymorphic (an array on
+ * create, a {name: value} map on invoke, sharing one flag-parsing pass in runPlaybooksCli), and
+ * --steps-json accepts a mix of plain prose strings and structured step objects (doc/rule/call/
+ * task) that a single string-array assertion would wrongly reject. The service validates the
+ * real shape for whichever operation actually receives it.
  */
 function parseJsonAnyFlag(value: string | undefined, flag: string): unknown {
 	if (value === undefined) throw new Error(`${flag} requires a value`);
@@ -822,7 +823,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 	let title: string | undefined;
 	let body: string | undefined;
 	let trigger: string | undefined;
-	let steps: string[] | undefined;
+	let steps: unknown;
 	let tools: string[] | undefined;
 	let labels: string[] | undefined;
 	let extra: Record<string, unknown> | undefined;
@@ -837,7 +838,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
 		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
 		if (argument === "--trigger") { trigger = args[++index]; if (trigger === undefined) throw new Error("--trigger requires a value"); continue; }
-		if (argument === "--steps-json") { steps = parseJsonStringArrayFlag(args[++index], "--steps-json"); continue; }
+		if (argument === "--steps-json") { steps = parseJsonAnyFlag(args[++index], "--steps-json"); continue; }
 		if (argument === "--tools-json") { tools = parseJsonStringArrayFlag(args[++index], "--tools-json"); continue; }
 		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
 		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }

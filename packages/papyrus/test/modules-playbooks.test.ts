@@ -76,4 +76,113 @@ describe("modules/playbooks — a Papyrus-native registered module, recycling th
 		const entry = artifacts.get(withValue.entryTaskId)!;
 		expect(entry.body).toBe("Deploy to staging");
 	});
+
+	it("a typed (number) argument declared at create substitutes as a real number, not a stringified one, when the placeholder is the whole value", async () => {
+		const { registry, artifacts } = fixture();
+		const created = await registry.get("playbooks.create")!.execute({
+			title: "Scale service", trigger: "scaling", steps: [{ kind: "task", title: "Scale", body: "replicas: {{count}}" }],
+			arguments: [{ name: "count", required: true, type: "number" }],
+		}) as { id: string };
+		const invocation = await registry.get("playbooks.invoke")!.execute({ id: created.id, arguments: { count: 5 } }) as { entryTaskId: string; arguments: Record<string, unknown> };
+		expect(invocation.arguments["count"]).toBe(5);
+		const entry = artifacts.get(invocation.entryTaskId)!;
+		expect(entry.body).toBe("replicas: 5");
+	});
+
+	it("rejects an enum argument value outside its declared set", async () => {
+		const { registry } = fixture();
+		const created = await registry.get("playbooks.create")!.execute({
+			title: "Deploy service", trigger: "deploying", steps: ["Deploy to {{environment}}"],
+			arguments: [{ name: "environment", required: true, enum: ["staging", "production"] }],
+		}) as { id: string };
+		expect(() => registry.get("playbooks.invoke")!.execute({ id: created.id, arguments: { environment: "prod-typo" } })).toThrow(/must be one of/);
+	});
+
+	it("creates a Doc and a Rule alongside the container/step tasks when the playbook declares doc/rule steps", async () => {
+		const { registry, artifacts } = fixture();
+		const created = await registry.get("playbooks.create")!.execute({
+			title: "Ships a design", trigger: "designing",
+			steps: [
+				"Draft the approach",
+				{ kind: "doc", title: "Design record", body: "the record" },
+				{ kind: "rule", title: "Always review first", condition: "reviewing", action: "check the design record" },
+			],
+		}) as { id: string };
+		const invocation = await registry.get("playbooks.invoke")!.execute({ id: created.id }) as { created: { docs: string[]; rules: string[]; tasks: string[] } };
+		expect(invocation.created.docs).toHaveLength(1);
+		expect(invocation.created.rules).toHaveLength(1);
+		expect(artifacts.get(invocation.created.docs[0]!)!).toMatchObject({ kind: "doc", title: "Design record", body: "the record" });
+		expect(artifacts.get(invocation.created.rules[0]!)!).toMatchObject({ kind: "rule", title: "Always review first" });
+	});
+
+	it("a call step nests another Playbook's own run as a real pipeline step, gated the same way a task step would be", async () => {
+		const { registry, artifacts } = fixture();
+		const target = await registry.get("playbooks.create")!.execute({ title: "Nested target", trigger: "called", steps: ["Target step one", "Target step two"] }) as { id: string };
+		const caller = await registry.get("playbooks.create")!.execute({
+			title: "Caller", trigger: "calling",
+			steps: ["Before", { kind: "call", title: "Run nested", playbookId: target.id }, "After"],
+		}) as { id: string };
+
+		const invocation = await registry.get("playbooks.invoke")!.execute({ id: caller.id }) as { entryTaskId: string; created: { tasks: string[] } };
+		// container + Before + After for the caller, plus container + two steps for the nested target run.
+		expect(invocation.created.tasks).toHaveLength(6);
+		const bodies = invocation.created.tasks.map((id) => artifacts.get(id)!.body);
+		expect(bodies).toEqual(expect.arrayContaining(["After", "Before", "Target step one", "Target step two"]));
+
+		const before = invocation.created.tasks.map((id) => artifacts.get(id)!).find((task) => task.body === "Before")!;
+		const after = invocation.created.tasks.map((id) => artifacts.get(id)!).find((task) => task.body === "After")!;
+		const targetStepOne = invocation.created.tasks.map((id) => artifacts.get(id)!).find((task) => task.body === "Target step one")!;
+
+		// "After" depends (transitively, through the nested run) on the call having completed --
+		// concretely, After depends_on the nested run's own root task(s), which contain the target's steps.
+		const afterDeps = artifacts.relationships({ artifactIds: [after.id] }).filter((edge) => edge.from === after.id && edge.relation === "depends_on").map((edge) => edge.to);
+		expect(afterDeps.length).toBeGreaterThan(0);
+		expect(before.id).not.toBe(after.id);
+		expect(targetStepOne).toBeTruthy();
+	});
+
+	it("resolves entryTaskId through a nested call even when the call is the very first step", async () => {
+		const { registry, artifacts } = fixture();
+		const target = await registry.get("playbooks.create")!.execute({ title: "Nested first", trigger: "called", steps: ["Only target step"] }) as { id: string };
+		const caller = await registry.get("playbooks.create")!.execute({
+			title: "Calls first", trigger: "calling",
+			steps: [{ kind: "call", title: "Run nested", playbookId: target.id }],
+		}) as { id: string };
+		const invocation = await registry.get("playbooks.invoke")!.execute({ id: caller.id }) as { entryTaskId: string };
+		const entry = artifacts.get(invocation.entryTaskId)!;
+		// The resolved entry is a REAL task from the nested run, not a synthetic placeholder for the call step itself.
+		expect(entry.kind).toBe("task");
+		expect(entry.body).toBe("Only target step");
+	});
+
+	it("rejects malformed structured steps at create -- an unknown kind, a doc step with no title, a call step with no playbookId", async () => {
+		const { registry } = fixture();
+		expect(() => registry.get("playbooks.create")!.execute({ title: "Bad kind", steps: [{ kind: "nonsense", title: "x" }] })).toThrow(/unknown kind/);
+		expect(() => registry.get("playbooks.create")!.execute({ title: "Bad doc", steps: [{ kind: "doc" }] })).toThrow(/requires a title/);
+		expect(() => registry.get("playbooks.create")!.execute({ title: "Bad call", steps: [{ kind: "call", title: "x" }] })).toThrow(/requires a playbookId/);
+	});
+
+	it("rejects an argument with an unsupported type, and an enum default that isn't itself in the enum", async () => {
+		const { registry } = fixture();
+		expect(() => registry.get("playbooks.create")!.execute({ title: "Bad type", arguments: [{ name: "x", type: "array" }] })).toThrow(/unsupported type/);
+		expect(() => registry.get("playbooks.create")!.execute({ title: "Bad default", arguments: [{ name: "x", enum: ["a", "b"], default: "c" }] })).toThrow(/one of its enum values/);
+	});
+
+	it("previews structured steps as readable text, distinct per kind, and shows an argument's type/enum qualifier", async () => {
+		const { registry } = fixture();
+		const created = await registry.get("playbooks.create")!.execute({
+			title: "Rich preview", trigger: "manual",
+			steps: [
+				{ kind: "doc", title: "A doc" },
+				{ kind: "rule", title: "A rule", condition: "always" },
+				{ kind: "call", title: "A call", playbookId: "some-other-id" },
+			],
+			arguments: [{ name: "environment", required: true, type: "string", enum: ["staging", "production"] }],
+		}) as { id: string };
+		const preview = await registry.get("playbooks.preview")!.execute({ id: created.id }) as string;
+		expect(preview).toContain('[creates Doc] "A doc"');
+		expect(preview).toContain('[creates Rule] "A rule" -- when: always');
+		expect(preview).toContain('[calls playbook] "A call" -> some-other-id');
+		expect(preview).toContain("one of: staging, production");
+	});
 });

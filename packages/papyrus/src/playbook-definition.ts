@@ -1,19 +1,22 @@
 /**
  * playbook-definition.ts — compiles a Playbook's own steps/trigger/tools/arguments, plus its
- * `contains` (nested) and `depends_on` (prerequisite) composition tree, into an in-memory
- * SkillDefinition. This is the "recycle Papyrus Skills -> Playbooks" half of the redesign:
- * rather than a second graph-materialization engine, a Playbook becomes prose that compiles
- * down to the exact blueprint shape workflow Skills already use, then hands off to
- * workflow-execution.ts's shared materializeWorkflowDefinition for the actual Task creation.
+ * `contains` (nested) and `depends_on` (prerequisite) whole-artifact composition tree, into
+ * an in-memory SkillDefinition. Rather than a second graph-materialization engine, a Playbook
+ * becomes a definition that compiles down to the exact Blueprint shape a workflow Skill
+ * already uses, then hands off to workflow-execution.ts's shared materializeWorkflowDefinition
+ * for the actual artifact creation.
  *
  * One task blueprint per playbook-node root (a container, never itself gated) plus one per
  * step (chained by sequential dependsOn); `contains`-linked playbooks nest their own root
  * under the parent root and continue the parent's own step chain ("run as part of this one",
  * after the parent's own steps); `depends_on`-linked playbooks compile as independent
- * subtrees whose tails gate this node's first step ("complete this FIRST"). No SkillCallBlueprint
- * indirection is used -- everything is inlined into one flat definition, since a Playbook's
- * composition tree is fully known and owned at compile time, unlike a workflow Skill's nested
- * pipeline step (which references another SKILL by id, resolved and executed independently).
+ * subtrees whose tails gate this node's first step ("complete this FIRST"). That whole-artifact
+ * composition tree is fully known and owned at compile time and is always inlined directly
+ * (no SkillCallBlueprint indirection). A step-level `call` (one step within a single playbook
+ * node, not the composition tree above) is the one place this compiler DOES emit a
+ * SkillCallBlueprint -- a finer-grained, in-blueprint nested-run reference resolved and
+ * executed independently by workflow-execution.ts, exactly like a workflow Skill's own nested
+ * pipeline step, since its target's own definition is not knowable at this compile time.
  */
 import {
 	PLAYBOOK_INVOCATION_MAX_CALL_DEPTH,
@@ -21,9 +24,9 @@ import {
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
-import type { SkillDefinition, SkillInputDefinition, SkillTaskBlueprint } from "./domain/skill-definition.ts";
+import type { SkillCallBlueprint, SkillDefinition, SkillDocBlueprint, SkillInputDefinition, SkillRuleBlueprint, SkillTaskBlueprint } from "./domain/skill-definition.ts";
 import { validateSkillDefinition } from "./domain/skill-definition.ts";
-import type { PlaybookArgument } from "./domain-services.ts";
+import type { PlaybookArgument, PlaybookStep } from "./domain-services.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 
 /** A non-composing edge touching a playbook node, to be mirrored onto that node's generated root task once real task ids exist -- e.g. a Rule `gates` this playbook, or this playbook `references`/`documents` a Doc. Direction is preserved exactly: `from`/`to` name whichever side is NOT the playbook, and `ownerIsFrom` says which side the playbook (now the generated root task) occupies. */
@@ -56,8 +59,8 @@ function requirePlaybook(artifacts: ArtifactStore, id: string): Artifact {
 	return playbook;
 }
 
-function stepsOf(playbook: Artifact): string[] {
-	return Array.isArray(playbook.extra["steps"]) ? playbook.extra["steps"].filter((step): step is string => typeof step === "string") : [];
+function stepsOf(playbook: Artifact): PlaybookStep[] {
+	return Array.isArray(playbook.extra["steps"]) ? (playbook.extra["steps"] as PlaybookStep[]) : [];
 }
 
 function toolsOf(playbook: Artifact): string[] {
@@ -87,7 +90,10 @@ function stepTitle(step: string): string {
 }
 
 interface CompileContext {
+	docs: SkillDocBlueprint[];
+	rules: SkillRuleBlueprint[];
 	tasks: SkillTaskBlueprint[];
+	skills: SkillCallBlueprint[];
 	inputs: Record<string, SkillInputDefinition>;
 	externalLinks: PlaybookExternalLink[];
 	refCounter: { n: number };
@@ -101,9 +107,18 @@ interface CompileNodeResult {
 	tailRef: string;
 }
 
+/** A composition tree can declare the same argument name from more than one node (e.g. two prerequisite playbooks both need a `target`); required OR-accumulates the same way it always did, but the type must agree everywhere -- silently picking one node's type over another's would compile a definition whose placeholder substitution disagrees with what one of the two authors actually declared. */
 function mergeArgument(inputs: Record<string, SkillInputDefinition>, argument: PlaybookArgument): void {
 	const existing = inputs[argument.name];
-	inputs[argument.name] = { type: "string", required: (existing?.required ?? false) || argument.required };
+	if (existing && existing.type !== argument.type) {
+		throw new Error(`playbook composition declares conflicting types for argument "${argument.name}" (${existing.type} vs ${argument.type})`);
+	}
+	inputs[argument.name] = {
+		type: argument.type,
+		required: (existing?.required ?? false) || argument.required,
+		...(argument.enum ? { enum: argument.enum } : {}),
+		...(argument.default !== undefined ? { default: argument.default } : {}),
+	};
 }
 
 function compileNode(
@@ -148,15 +163,47 @@ function compileNode(
 		if (headRef === undefined) headRef = result.headRef;
 	}
 
+	// Doc/rule steps are not gated tasks (SkillDocBlueprint/SkillRuleBlueprint have no
+	// dependsOn/parent of their own -- workflow-execution.ts always creates them unconditionally
+	// alongside the run) -- they do not touch cursorPrecedingRefs/headRef/tailRef at all. A task
+	// or call step DOES occupy a position in the sequential chain, exactly as a plain-string step
+	// always did.
 	let cursorPrecedingRefs = [...incomingPrecedingRefs, ...prerequisiteTailRefs];
 	let tailRef = rootRef;
 	for (const [index, step] of stepsOf(playbook).entries()) {
-		const stepRef = `${rootRef}-s${index}`;
-		ctx.tasks.push({ ref: stepRef, title: stepTitle(step), body: step, parent: rootRef, dependsOn: cursorPrecedingRefs });
-		if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS) throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
-		if (headRef === undefined) headRef = stepRef;
-		cursorPrecedingRefs = [stepRef];
-		tailRef = stepRef;
+		if (typeof step === "string" || step.kind === "task") {
+			const body = typeof step === "string" ? step : step.body;
+			const title = typeof step === "string" ? stepTitle(step) : (step.title ?? stepTitle(body));
+			const stepRef = `${rootRef}-s${index}`;
+			ctx.tasks.push({ ref: stepRef, title, body, parent: rootRef, dependsOn: cursorPrecedingRefs });
+			if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS) throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
+			if (headRef === undefined) headRef = stepRef;
+			cursorPrecedingRefs = [stepRef];
+			tailRef = stepRef;
+		} else if (step.kind === "doc") {
+			const stepRef = `${rootRef}-d${index}`;
+			ctx.docs.push({ ref: stepRef, title: step.title, ...(step.body ? { body: step.body } : {}), ...(step.subtype ? { subtype: step.subtype } : {}), ...(step.labels ? { labels: step.labels } : {}) });
+		} else if (step.kind === "rule") {
+			const stepRef = `${rootRef}-r${index}`;
+			ctx.rules.push({
+				ref: stepRef,
+				title: step.title,
+				...(step.body ? { body: step.body } : {}),
+				...(step.condition ? { condition: step.condition } : {}),
+				...(step.action ? { action: step.action } : {}),
+				...(step.severity ? { severity: step.severity } : {}),
+				...(step.labels ? { labels: step.labels } : {}),
+			});
+		} else {
+			// kind === "call": nests another Playbook's (or, until Skill retires, a workflow Skill's)
+			// run as a pipeline step -- shares the same dependsOn chain as a task step, resolved
+			// polymorphically at execution time by workflow-execution.ts based on the target's kind.
+			const stepRef = `${rootRef}-c${index}`;
+			ctx.skills.push({ ref: stepRef, title: step.title, skillId: step.playbookId, ...(step.arguments ? { arguments: step.arguments } : {}), parent: rootRef, dependsOn: cursorPrecedingRefs });
+			if (headRef === undefined) headRef = stepRef;
+			cursorPrecedingRefs = [stepRef];
+			tailRef = stepRef;
+		}
 	}
 
 	for (const nestedId of nestedIds) {
@@ -172,12 +219,12 @@ function compileNode(
 
 /** Pure and read-only: creates no artifacts. Cycle/depth-bounded exactly like playbookInvocation's own traversal, but a composition cycle here is a hard error (real Tasks would be created, unlike a text render degrading to a marker). */
 export function compilePlaybookDefinition(artifacts: ArtifactStore, playbookId: string): CompiledPlaybook {
-	const ctx: CompileContext = { tasks: [], inputs: {}, externalLinks: [], refCounter: { n: 0 } };
+	const ctx: CompileContext = { docs: [], rules: [], tasks: [], skills: [], inputs: {}, externalLinks: [], refCounter: { n: 0 } };
 	const { headRef } = compileNode(artifacts, playbookId, ctx, new Set(), 0, undefined, []);
 	const definition = validateSkillDefinition({
 		version: 1,
 		inputs: ctx.inputs,
-		blueprints: { docs: [], rules: [], tasks: ctx.tasks, skills: [] },
+		blueprints: { docs: ctx.docs, rules: ctx.rules, tasks: ctx.tasks, skills: ctx.skills },
 		links: [],
 	});
 	return { definition, entryRef: headRef, externalLinks: ctx.externalLinks };

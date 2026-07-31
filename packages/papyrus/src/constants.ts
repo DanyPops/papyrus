@@ -113,6 +113,9 @@ export const PLAYBOOK_INVOCATION_MAX_CALL_DEPTH = 4;
 export const PLAYBOOK_ARGUMENT_MAX_COUNT = 20;
 export const PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH = 64;
 export const PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH = 500;
+/** A Playbook argument's enum/default validation reuses SKILL_MAX_ENUM_VALUES directly (same value shape, no reason for a second bound). */
+/** One playbook's own steps array, before composition with any contained/depended-on playbook -- mirrors SKILL_MAX_BLUEPRINTS' role for a workflow Skill's flat blueprint list. */
+export const PLAYBOOK_MAX_STEPS = 100;
 /**
  * playbooks.invoke materializes a real Task per step (plus one container Task per playbook
  * node in the contains/depends_on composition tree) instead of rendering text -- this bounds

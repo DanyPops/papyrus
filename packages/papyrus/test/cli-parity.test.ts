@@ -224,3 +224,18 @@ describe("playbooks --arguments-json (create: declares parameters, invoke: suppl
 		expect(client.calls[0]?.input["arguments"]).toBeUndefined();
 	});
 });
+
+/**
+ * --steps-json used to assert a plain string array (parseJsonStringArrayFlag), which would have
+ * actively rejected the structured (doc/rule/call/task) step objects the domain model now
+ * accepts -- confirms the CLI forwards a mixed array un-mangled, the same "no shape assertion,
+ * the service validates" posture --arguments-json already established above.
+ */
+describe("playbooks --steps-json accepts a mix of plain strings and structured step objects", () => {
+	it("threads a mixed steps array into playbooks.create without rejecting the structured entries", async () => {
+		const client = new FakeClient(artifact);
+		const stepsJson = JSON.stringify(["Plain step", { kind: "doc", title: "A doc" }, { kind: "call", title: "Nested", playbookId: "p1" }]);
+		await runPlaybooksCli(["create", "--title", "T", "--steps-json", stepsJson, "--json"], client);
+		expect(client.calls[0]?.input["steps"]).toEqual(["Plain step", { kind: "doc", title: "A doc" }, { kind: "call", title: "Nested", playbookId: "p1" }]);
+	});
+});

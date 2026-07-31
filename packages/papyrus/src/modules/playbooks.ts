@@ -1,11 +1,12 @@
 /**
  * modules/playbooks.ts — Playbooks as a Papyrus-native registered module.
  *
- * A Playbook (trigger + ordered steps, contains/depends_on composition, predefined
- * rules/docs) is a completely different beast from a Skill (a mechanically instantiated
- * artifact-template or workflow blueprint) at the AUTHORING level -- but playbooks.invoke
- * recycles the exact same materialization engine workflow Skills use (playbook-execution.ts
- * compiles a Playbook's composition tree into a SkillDefinition, then hands off to
+ * A Playbook is prose-first, whole-artifact composition (contains/depends_on between real
+ * Playbook artifacts) rather than a raw JSON blueprint -- but its own step list can now also
+ * declare Doc/Rule blueprints and typed arguments and nested pipeline calls, the same
+ * Blueprint richness a workflow Skill's JSON definition always had. playbooks.invoke recycles
+ * the exact same materialization engine workflow Skills use (playbook-execution.ts compiles a
+ * Playbook's steps and composition tree into a SkillDefinition, then hands off to
  * workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
  * playbook-definition.ts for the full rationale.
  */
@@ -98,14 +99,14 @@ export function playbooksOperations({ artifacts, events, scopes, artifactScopes,
 	return [
 		define("playbooks.create", (input: OperationInput) => createPlaybook(artifacts, artifactScopes, {
 			title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
-			steps: input["steps"] as string[] | undefined, tools: input["tools"] as string[] | undefined,
+			steps: input["steps"], tools: input["tools"] as string[] | undefined,
 			arguments: input["arguments"],
 			labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
 			projectRoot: optionalString(input, "project_root"),
 		}, eventContext(input))),
 		define("playbooks.list", (input: OperationInput) => listPlaybooks(artifacts, artifactScopes, artifactFilter(input))),
 		define("playbooks.show", (input: OperationInput) => showPlaybook(artifacts, string(input, "id"))),
-		define("playbooks.preview", (input: OperationInput) => playbookInvocation(artifacts, string(input, "id"), input["arguments"] as Record<string, string> | undefined)),
+		define("playbooks.preview", (input: OperationInput) => playbookInvocation(artifacts, string(input, "id"), input["arguments"] as Record<string, unknown> | undefined)),
 		define("playbooks.invoke", (input: OperationInput) => {
 			const result = invokePlaybook(artifacts, string(input, "id"), {
 				runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),

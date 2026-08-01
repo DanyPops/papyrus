@@ -20,7 +20,7 @@ import { emitTaskFocusEvent } from "./task-focus-events.ts";
 
 const REGISTERED_PERMISSIONS = [
 	"notes:read", "notes:write", "rules:read", "rules:write", "docs:read", "docs:write",
-	"skills:read", "skills:write", "playbooks:read", "playbooks:write", "tasks:read", "tasks:write",
+	"playbooks:read", "playbooks:write", "tasks:read", "tasks:write",
 	"artifact:read", "artifact:write",
 ];
 

@@ -42,7 +42,7 @@ The daemon uses WAL, foreign keys, a bounded busy timeout, versioned migrations,
 
 `artifacts` is the shared graph-identity supertype, not a second copy of every application's database. `edges` references that single identity table at both endpoints, preserving foreign-key integrity for cross-domain links. Domain extension tables exist only where application invariants require indexed relational state: Task chronology/focus/scope and Discourse posts/events/session cursors/projection checkpoints. This is a class-table/table-per-type variant with explicit child-to-parent foreign keys; Papyrus does not use SQLite table inheritance or orphan-prone `(target_type, target_id)` links.
 
-The owning application remains the mutation authority. Discourse commits its extension rows and `context-thread`/`context-message` Doc projections atomically through `discourse.store`; generic artifact, document, Skill-template, lifecycle, and graph-link operations reject those owned subtypes and the `reply_to`/`discusses` relations. SQLite triggers additionally verify that each extension row references the expected Doc subtype. Domain tables are canonical for domain invariants; graph bodies and metadata are read-oriented projections committed in the same transaction.
+The owning application remains the mutation authority. Discourse commits its extension rows and `context-thread`/`context-message` Doc projections atomically through `discourse.store`; generic artifact, document, lifecycle, and graph-link operations reject those owned subtypes and the `reply_to`/`discusses` relations. SQLite triggers additionally verify that each extension row references the expected Doc subtype. Domain tables are canonical for domain invariants; graph bodies and metadata are read-oriented projections committed in the same transaction.
 
 The authenticated CLI exposes the same operation for diagnostics and adapter parity:
 
@@ -59,7 +59,7 @@ Papyrus enforces four artifact kinds:
 - `doc` — knowledge: specifications, decisions, and research
 - `task` — work: desired outcomes, gates, checklists, and dependencies
 - `rule` — governance injected into the Pi system prompt
-- `skill` — a parameterized workflow bundle whose validated arguments render a connected collection of deterministic Tasks plus contextual Rules and Docs
+- `playbook` — a trigger and an ordered list of steps whose validated arguments render a connected collection of deterministic Tasks plus contextual Rules and Docs
 
 Each kind has an enforced status vocabulary. Every edge endpoint must exist, and every edge relation must be registered in `relation_names`. Relations are universal: any artifact kind can link to any other kind.
 
@@ -67,20 +67,17 @@ Each kind has an enforced status vocabulary. Every edge endpoint must exist, and
 
 Use `contains` and `part_of` for explicit parent/child structure; use `depends_on` for execution ordering. Dependency edges form an executable DAG: self-dependencies and cycles are rejected, fan-in waits for every prerequisite, and fan-out can expose several ready successors while active focus remains singular. Graph reads are cycle-safe and bounded by `depth` and `max_nodes` (defaults: depth 4, 100 nodes; hard ceilings: depth 20, 1,000 nodes). Executable task plans are additionally bounded to 1,000 tasks and 10,000 relationships.
 
-### Skills and compatibility templates
+### Playbooks
 
-A Papyrus Skill is distinct from a conventional prompt-only skill: its input API and blueprints define a connected Task/Rule/Doc workflow. `skills.run` validates and normalizes all arguments, safely renders placeholders in memory, validates the complete graph, then persists artifacts and edges in one transaction. Task dependencies, containment, gates, checklists, and context survive rendering. Run Rules are injected only while active focus belongs to that run. Docs retain invocation context and provenance; missing evidence references remain unknown and no gate runs during instantiation.
+A Playbook's steps are a plain prose string (a Task), or a structured object: `{kind:'doc',...}` creates a Doc, `{kind:'rule',...}` creates a Rule, `{kind:'call',...}` nests another Playbook's own run as a pipeline step. `playbooks.invoke` validates and normalizes all arguments, safely renders placeholders in memory, validates the complete graph, then persists artifacts and edges in one transaction. Task dependencies, containment, gates, checklists, and context survive rendering. Run Rules are injected only while active focus belongs to that run. Docs retain invocation context and provenance; missing evidence references remain unknown and no gate runs during instantiation.
 
-A run result has a stable schema: Skill ID, run ID, normalized arguments, created IDs grouped by kind, ready root task IDs, and the bounded execution plan. Explicit run IDs produce deterministic artifact IDs (`<run-id>-<blueprint-ref>`); collisions roll back the entire run.
+A run result has a stable schema: Playbook ID, run ID, normalized arguments, created IDs grouped by kind, ready root task IDs, and the bounded execution plan. Explicit run IDs produce deterministic artifact IDs (`<run-id>-<blueprint-ref>`); collisions roll back the entire run.
 
 ```bash
-papyrus skills run <skill-id> \
+papyrus playbooks invoke <playbook-id> \
   --arguments-json '{"project":"Papyrus"}' \
-  --run-id papyrus-001 \
   --json
 ```
-
-The existing `artifact-template` skill subtype remains a compatibility mechanism for one-artifact templates with metadata `{targetKind, defaults, required}`. Instantiate it via the `skills.instantiate` operation with `template_id`; defaults merge recursively, explicit arrays replace defaults, required paths such as `extra.owner` are validated, and target-kind mismatches are rejected.
 
 ### Removing an artifact
 
@@ -90,11 +87,11 @@ Once the deadline passes, the daemon's periodic sweep performs a real, cascading
 
 ### Naming vs. ids
 
-Every agent domain tool (tasks, docs, rules, skills, notes, discuss) addresses its artifacts by `name` (the exact title) wherever `id` would otherwise be required -- `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` (tasks), `target_name` (docs link, searches every kind since a link target can be any of them), `task_name` (rules gate, discuss block/unblock), `template_name` (skills instantiate), and `blocks_task_names` (discuss open) are the name-based equivalents of their `*_id` counterparts. Resolution is an exact, case-insensitive, trimmed title match scoped like a plain list call; an unmatched or ambiguous name fails with a clear error (ambiguous names list the real ids, since that's the one point disambiguation genuinely needs them). Results returned to the agent likewise lead with name and status, never id, unless two artifacts in the same result share a title -- id is a backend implementation detail, not a conversational handle. `id` itself still works exactly as before for every action, in every tool.
+Every agent domain tool (tasks, docs, rules, playbooks, notes, discuss) addresses its artifacts by `name` (the exact title) wherever `id` would otherwise be required -- `dependency_name`/`parent_name`/`child_name`/`root_task_name`/`depends_on_names` (tasks), `target_name` (docs link, searches every kind since a link target can be any of them), `task_name` (rules gate, discuss block/unblock), and `blocks_task_names` (discuss open) are the name-based equivalents of their `*_id` counterparts. Resolution is an exact, case-insensitive, trimmed title match scoped like a plain list call; an unmatched or ambiguous name fails with a clear error (ambiguous names list the real ids, since that's the one point disambiguation genuinely needs them). Results returned to the agent likewise lead with name and status, never id, unless two artifacts in the same result share a title -- id is a backend implementation detail, not a conversational handle. `id` itself still works exactly as before for every action, in every tool.
 
 ### Mutability
 
-Tasks, Docs, Rules, and Skills all support first-class `update` (title/body/labels, at least one required) alongside creation -- a Doc's body is no longer immutable once created. Every update is bounded the same way creation is (Rules keep their own stricter combined condition+action+body ceiling; Docs/Skills share Tasks' own length bounds) and recorded on the artifact's append-only mutation history, queryable via `graph.history`. An artifact carrying a `source:<system>` label (e.g. `source:web-spider` on an ingested page) is a read-only projection from a system Papyrus doesn't own the source of; updating one is refused with a clear error rather than silently forking it -- capture a correction as a new linked Doc instead until a write-back capability to that system exists. Notes stay behind their own facade for any content change, same as every other Notes mutation.
+Tasks, Docs, Rules, and Playbooks all support first-class `update` (title/body/labels, at least one required) alongside creation -- a Doc's body is no longer immutable once created. Every update is bounded the same way creation is (Rules keep their own stricter combined condition+action+body ceiling; Docs/Playbooks share Tasks' own length bounds) and recorded on the artifact's append-only mutation history, queryable via `graph.history`. An artifact carrying a `source:<system>` label (e.g. `source:web-spider` on an ingested page) is a read-only projection from a system Papyrus doesn't own the source of; updating one is refused with a clear error rather than silently forking it -- capture a correction as a new linked Doc instead until a write-back capability to that system exists. Notes stay behind their own facade for any content change, same as every other Notes mutation.
 
 Internally, application services depend on the `ArtifactStore` and `GateRunner` ports. SQLite and subprocess execution are adapters composed only by the daemon; task behavior is unit-tested against fakes without a database. Task visualization projects the same `TaskGraph` into semantic display graphs and sends them through a `GraphRenderer` port -- the Pi adapter (in `@danypops/pi-papyrus`) uses `beautiful-mermaid` for terminal Unicode output without leaking Mermaid syntax into the task domain.
 

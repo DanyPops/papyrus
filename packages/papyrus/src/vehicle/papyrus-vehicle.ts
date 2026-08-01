@@ -1,9 +1,8 @@
 /**
  * Composition root for every domain projected onto Vehicle -- one VehicleRegistry,
  * one HTTP mount (see service.ts's createApp). Operation names are already globally
- * unique via their own dotted prefix (notes.*, rules.*, docs.*, skills.*, playbooks.*,
- * artifact.*), so merging costs nothing and avoids a separate registry/mount/client
- * per domain.
+ * unique via their own dotted prefix (notes.*, rules.*, docs.*, playbooks.*, artifact.*),
+ * so merging costs nothing and avoids a separate registry/mount/client per domain.
  *
  * discuss still registers via pi-papyrus's own pi.registerTool() in domain-tools.ts,
  * not here -- see the papyrus Vehicle migration task for why.
@@ -23,7 +22,6 @@ import { registerDocsVehicleOperations } from "./docs-vehicle.ts";
 import { registerNotesVehicleOperations } from "./notes-vehicle.ts";
 import { registerPlaybooksVehicleOperations } from "./playbooks-vehicle.ts";
 import { registerRulesVehicleOperations } from "./rules-vehicle.ts";
-import { registerSkillsVehicleOperations } from "./skills-vehicle.ts";
 import { registerTasksVehicleOperations } from "./tasks-vehicle.ts";
 
 export interface PapyrusVehicleDeps {
@@ -42,7 +40,6 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 	registerNotesVehicleOperations(registry, deps.notes, deps.artifacts);
 	registerRulesVehicleOperations(registry, deps.artifacts, deps.scopes);
 	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority);
-	registerSkillsVehicleOperations(registry, { artifacts: deps.artifacts, events: deps.events, scopes: deps.taskScopes, artifactScopes: deps.scopes, authority: deps.authority, tasks: deps.tasks });
 	registerPlaybooksVehicleOperations(registry, { artifacts: deps.artifacts, events: deps.events, scopes: deps.taskScopes, artifactScopes: deps.scopes, tasks: deps.tasks, sessionIdentity: deps.sessionIdentity });
 	registerTasksVehicleOperations(registry, { tasks: deps.tasks, artifacts: deps.artifacts, sessionIdentity: deps.sessionIdentity });
 	registerArtifactTrashOperations(registry, deps.artifacts);

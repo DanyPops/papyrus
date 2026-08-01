@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 afterAll(cleanupTempDirs);
-import { runDiscussCli, runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runSkillCli, runTaskCli } from "../src/cli.ts";
+import { runDiscussCli, runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runTaskCli } from "../src/cli.ts";
 import { openDb } from "../src/db.ts";
 import { createArtifact, linkArtifacts } from "../src/ops.ts";
 import type { OperationName } from "../src/service.ts";
@@ -115,24 +115,6 @@ describe("Papyrus graph history CLI", () => {
 	it("requires a known action", async () => {
 		const client = new FakeClient({});
 		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, unlink, tree, status, or history");
-	});
-});
-
-describe("Papyrus Skill CLI", () => {
-	it("runs a workflow through the authenticated daemon client with stable JSON", async () => {
-		const result = {
-			runId: "run-001",
-			created: { tasks: ["run-001-task"], rules: [], docs: [] },
-			rootTaskIds: ["run-001-task"],
-		};
-		const client = new FakeClient(result);
-		expect(await runSkillCli([
-			"run", "skill-1", "--arguments-json", '{"project":"Papyrus"}', "--run-id", "run-001", "--json",
-		], client)).toBe(JSON.stringify(result));
-		expect(client.calls).toEqual([{
-			operation: "skills.run",
-			input: { id: "skill-1", arguments: { project: "Papyrus" }, project_root: PROJECT_ROOT, run_id: "run-001" },
-		}]);
 	});
 });
 

@@ -256,15 +256,13 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 		expect(tools).toContain("blocks_task_names:");
 	});
 
-	it("registers name-based equivalents server-side for rules/docs/skills/playbooks/tasks, migrated onto Vehicle -- target_name/task_name/template_name/parent_name/child_name/dependency_name/root_task_name/depends_on_names now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
+	it("registers name-based equivalents server-side for rules/docs/playbooks/tasks, migrated onto Vehicle -- target_name/task_name/parent_name/child_name/dependency_name/root_task_name/depends_on_names now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
 		const rulesVehicle = readFileSync(new URL("../../papyrus/src/vehicle/rules-vehicle.ts", import.meta.url), "utf8");
 		const docsVehicle = readFileSync(new URL("../../papyrus/src/vehicle/docs-vehicle.ts", import.meta.url), "utf8");
-		const skillsVehicle = readFileSync(new URL("../../papyrus/src/vehicle/skills-vehicle.ts", import.meta.url), "utf8");
 		const playbooksVehicle = readFileSync(new URL("../../papyrus/src/vehicle/playbooks-vehicle.ts", import.meta.url), "utf8");
 		const tasksVehicle = readFileSync(new URL("../../papyrus/src/vehicle/tasks-vehicle.ts", import.meta.url), "utf8");
 		expect(rulesVehicle).toContain("task_name");
 		expect(docsVehicle).toContain("target_name");
-		expect(skillsVehicle).toContain("template_name");
 		for (const field of ["parent_name", "child_name", "dependency_name"]) expect(playbooksVehicle).toContain(field);
 		for (const field of ["name:", "dependency_name:", "parent_name:", "child_name:", "root_task_name:", "depends_on_names:"]) expect(tasksVehicle).toContain(field);
 	});

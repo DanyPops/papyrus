@@ -23,7 +23,6 @@ import {
 	runPlaybooksCli,
 	runRulesCli,
 	runSessionIdentityCli,
-	runSkillCli,
 	runTaskCli,
 } from "../src/cli.ts";
 import { EXPECTED_OPERATION_NAMES, type OperationName } from "../src/service.ts";
@@ -131,17 +130,6 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "rules.gate", result: artifact, invoke: (c) => runRulesCli(["gate", "r1", "t1", "--json"], c) },
 	{ operation: "rules.assign_project", result: artifact, invoke: (c) => runRulesCli(["assign-project", "r1", "/workspace/papyrus", "--json"], c) },
 	{ operation: "rules.update", result: artifact, invoke: (c) => runRulesCli(["update", "r1", "--title", "T2", "--json"], c) },
-	{ operation: "skills.create", result: artifact, invoke: (c) => runSkillCli(["create", "--title", "T", "--json"], c) },
-	{ operation: "skills.create_template", result: artifact, invoke: (c) => runSkillCli(["create-template", "--title", "T", "--target-kind", "doc", "--json"], c) },
-	{ operation: "skills.list", result: artifactList, invoke: (c) => runSkillCli(["list", "--json"], c) },
-	{ operation: "skills.show", result: artifact, invoke: (c) => runSkillCli(["show", "a1", "--json"], c) },
-	{ operation: "skills.invoke", result: "invocation text", invoke: (c) => runSkillCli(["invoke", "a1", "--json"], c) },
-	{ operation: "skills.run", result: { runId: "r1", created: { tasks: [], rules: [], docs: [] }, rootTaskIds: [], execution: { nodes: [] } }, invoke: (c) => runSkillCli(["run", "a1", "--json"], c) },
-	{ operation: "skills.enable", result: artifact, invoke: (c) => runSkillCli(["enable", "a1", "--json"], c) },
-	{ operation: "skills.disable", result: artifact, invoke: (c) => runSkillCli(["disable", "a1", "--json"], c) },
-	{ operation: "skills.assign_project", result: artifact, invoke: (c) => runSkillCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c) },
-	{ operation: "skills.instantiate", result: artifact, invoke: (c) => runSkillCli(["instantiate", "a1", "--json"], c) },
-	{ operation: "skills.update", result: artifact, invoke: (c) => runSkillCli(["update", "a1", "--title", "T2", "--json"], c) },
 	{ operation: "playbooks.create", result: artifact, invoke: (c) => runPlaybooksCli(["create", "--title", "T", "--json"], c) },
 	{ operation: "playbooks.list", result: artifactList, invoke: (c) => runPlaybooksCli(["list", "--json"], c) },
 	{ operation: "playbooks.show", result: artifact, invoke: (c) => runPlaybooksCli(["show", "a1", "--json"], c) },
@@ -172,10 +160,20 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "discuss.list", result: [], invoke: (c) => runDiscussCli(["list", "--json"], c) },
 ];
 
+/**
+ * skills.* stays registered on the raw service (pi-papyrus's /skills TUI still calls it
+ * directly, not through the CLI or Vehicle) but is retired from the CLI on purpose --
+ * see modules/playbooks.ts. No CLI route is the correct, deliberate state, not a gap.
+ */
+const RETIRED_FROM_CLI = new Set<OperationName>([
+	"skills.create", "skills.create_template", "skills.list", "skills.show", "skills.invoke",
+	"skills.run", "skills.enable", "skills.disable", "skills.assign_project", "skills.instantiate", "skills.update",
+]);
+
 describe("Papyrus CLI \u2014 structural operation parity", () => {
-	it("has a CLI fixture for every EXPECTED_OPERATION_NAMES entry", () => {
+	it("has a CLI fixture for every EXPECTED_OPERATION_NAMES entry, except skills.* (deliberately retired from the CLI)", () => {
 		const covered = new Set(CLI_FIXTURES.map((fixture) => fixture.operation));
-		const missing = EXPECTED_OPERATION_NAMES.filter((name) => !covered.has(name));
+		const missing = EXPECTED_OPERATION_NAMES.filter((name) => !covered.has(name) && !RETIRED_FROM_CLI.has(name));
 		expect(missing).toEqual([]);
 	});
 
@@ -222,6 +220,12 @@ describe("playbooks --arguments-json (create: declares parameters, invoke: suppl
 		const client = new FakeClient("invocation text");
 		await runPlaybooksCli(["invoke", "a1", "--json"], client);
 		expect(client.calls[0]?.input["arguments"]).toBeUndefined();
+	});
+
+	it("threads --run-id into playbooks.invoke, matching skills run's own retired --run-id support", async () => {
+		const client = new FakeClient("invocation text");
+		await runPlaybooksCli(["invoke", "a1", "--run-id", "run-001", "--json"], client);
+		expect(client.calls[0]?.input["run_id"]).toBe("run-001");
 	});
 });
 

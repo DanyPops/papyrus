@@ -118,18 +118,8 @@ const USAGE = `Usage:
   papyrus rules injectable [--json]
   papyrus rules assign-project <id> [project-root] [--json]
   papyrus rules update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
-  papyrus skills run <id> [--arguments-json <json>] [--run-id <id>] [--json]
-  papyrus skills create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json>] [--tools-json <json>] [--definition-json <json>] [--labels-json <json>] [--extra-json <json>] [--project-root <path>] [--json]
-  papyrus skills create-template --title <title> --target-kind <kind> [--defaults-json <json>] [--required-json <json>] [--body <body>] [--labels-json <json>] [--project-root <path>] [--json]
-  papyrus skills list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
-  papyrus skills show <id> [--json]
-  papyrus skills invoke <id> [--json]
-  papyrus skills enable|disable <id> [--json]
-  papyrus skills instantiate <template-id> [--title <title>] [--body <body>] [--status <status>] [--labels-json <json>] [--extra-json <json>] [--json]
-  papyrus skills assign-project <id> [project-root] [--json]
-  papyrus skills update <id> [--title <title>] [--body <body>] [--labels-json <json>] [--json]
   papyrus playbooks create --title <title> [--body <body>] [--trigger <text>] [--steps-json <json array of strings and/or {kind:'doc'|'rule'|'call'|'task',...} objects>] [--tools-json <json>] [--labels-json <json>] [--extra-json <json>] [--arguments-json <json array, each optionally {type,enum,default}>] [--project-root <path>] [--json]
-  papyrus playbooks invoke <id> [--arguments-json <json object>] [--project-root <path>] [--json]  # materializes real tasks (contains/depends_on-wired) and focuses the entry task
+  papyrus playbooks invoke <id> [--arguments-json <json object>] [--run-id <id>] [--project-root <path>] [--json]  # materializes real tasks (contains/depends_on-wired) and focuses the entry task
   papyrus playbooks preview <id> [--arguments-json <json object>] [--json]  # renders text only, creates nothing
   papyrus playbooks list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus playbooks show <id> [--json]
@@ -375,160 +365,6 @@ export function runIdMigrationCli(args: string[]): string {
 	}
 
 	throw new Error("migrate-ids requires one of: mirror, validate, promote");
-}
-
-export async function runSkillCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let runId: string | undefined;
-	let arguments_: Record<string, unknown> = {};
-	let title: string | undefined;
-	let body: string | undefined;
-	let trigger: string | undefined;
-	let steps: string[] | undefined;
-	let tools: string[] | undefined;
-	let definition: unknown;
-	let labels: string[] | undefined;
-	let extra: Record<string, unknown> | undefined;
-	let targetKind: string | undefined;
-	let defaults: Record<string, unknown> | undefined;
-	let required: string[] | undefined;
-	let status: string | undefined;
-	let text: string | undefined;
-	let limit: number | undefined;
-	let skillProjectRoot: string | undefined;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (argument === "--run-id") { runId = args[++index]; if (!runId) throw new Error("--run-id requires a value"); continue; }
-		if (argument === "--arguments-json") { arguments_ = parseJsonObjectFlag(args[++index], "--arguments-json"); continue; }
-		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
-		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
-		if (argument === "--trigger") { trigger = args[++index]; if (trigger === undefined) throw new Error("--trigger requires a value"); continue; }
-		if (argument === "--steps-json") { steps = parseJsonStringArrayFlag(args[++index], "--steps-json"); continue; }
-		if (argument === "--tools-json") { tools = parseJsonStringArrayFlag(args[++index], "--tools-json"); continue; }
-		if (argument === "--definition-json") {
-			const value = args[++index];
-			if (!value) throw new Error("--definition-json requires a value");
-			definition = JSON.parse(value);
-			continue;
-		}
-		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
-		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
-		if (argument === "--target-kind") { targetKind = args[++index]; if (!targetKind) throw new Error("--target-kind requires a value"); continue; }
-		if (argument === "--defaults-json") { defaults = parseJsonObjectFlag(args[++index], "--defaults-json"); continue; }
-		if (argument === "--required-json") { required = parseJsonStringArrayFlag(args[++index], "--required-json"); continue; }
-		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
-		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
-		if (argument === "--project-root") { skillProjectRoot = args[++index]; if (!skillProjectRoot) throw new Error("--project-root requires a value"); continue; }
-		if (argument === "--limit") {
-			const value = args[++index];
-			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
-			limit = Number(value);
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown skills option ${argument}`);
-		positional.push(argument);
-	}
-	const [action, id, second] = positional;
-	if (action === "run") {
-		if (positional.length !== 2) throw new Error("skills requires `run <id>`");
-		const input: Record<string, unknown> = { id, arguments: arguments_, project_root: projectRoot };
-		if (runId) input["run_id"] = runId;
-		const result = await client.call<Record<string, unknown>, {
-			runId: string;
-			created: { tasks: string[]; rules: string[]; docs: string[] };
-			rootTaskIds: string[];
-			execution: TaskExecutionPlan;
-		}>("skills.run", input);
-		if (json) return JSON.stringify(result);
-		return [
-			`Created Skill run ${result.runId}: ${result.created.tasks.length} tasks, ${result.created.rules.length} rules, ${result.created.docs.length} docs`,
-			`Ready roots: ${result.rootTaskIds.join(", ") || "none"}`,
-			`Context docs: ${result.created.docs.join(", ") || "none"}`,
-			`Scoped rules: ${result.created.rules.join(", ") || "none"}`,
-			...result.execution.nodes.map((node) => `[${node.state}] ${node.id} ${node.title}`),
-		].join("\n");
-	}
-	let result: unknown;
-	let human: string;
-	switch (action) {
-		case "create": {
-			if (id) throw new Error("skills create accepts no positional arguments");
-			if (!title) throw new Error("skills create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.create", { title, body, trigger, steps, tools, definition, labels, extra, project_root: skillProjectRoot });
-			result = artifact;
-			human = `Created skill: ${artifactLabel(artifact)}`;
-			break;
-		}
-		case "create-template": {
-			if (id) throw new Error("skills create-template accepts no positional arguments");
-			if (!title || !targetKind) throw new Error("skills create-template requires --title and --target-kind");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.create_template", {
-				title, target_kind: targetKind, defaults, required, body, labels, project_root: skillProjectRoot,
-			});
-			result = artifact;
-			human = `Created template: ${artifactLabel(artifact)}`;
-			break;
-		}
-		case "list": {
-			if (id) throw new Error("skills list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("skills.list", { status, text, limit, project_root: skillProjectRoot });
-			result = rows;
-			human = rows.length === 0 ? "No skills found." : rows.map((row) => artifactLabel(row)).join("\n");
-			break;
-		}
-		case "assign-project": {
-			if (!id) throw new Error("skills assign-project requires <id> [project-root]");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.assign_project", { id, project_root: second });
-			result = artifact;
-			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
-			break;
-		}
-		case "show": {
-			if (!id) throw new Error("skills show requires exactly one skill id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.show", { id });
-			result = artifact;
-			human = `${artifactLabel(artifact)}\n\n${artifact.body ?? ""}`;
-			break;
-		}
-		case "invoke": {
-			if (!id) throw new Error("skills invoke requires exactly one skill id");
-			const invocation = await client.call<Record<string, unknown>, string>("skills.invoke", { id });
-			result = invocation;
-			human = invocation;
-			break;
-		}
-		case "enable":
-		case "disable": {
-			if (!id) throw new Error(`skills ${action} requires exactly one skill id`);
-			const operation = action === "enable" ? "skills.enable" : "skills.disable";
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>(operation, { id });
-			result = artifact;
-			human = `${artifactLabel(artifact)}`;
-			break;
-		}
-		case "instantiate": {
-			if (!id) throw new Error("skills instantiate requires exactly one template id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.instantiate", {
-				template_id: id, title, body, status, labels, extra, project_root: projectRoot,
-			});
-			result = artifact;
-			human = `Created: ${artifactLabel(artifact)}`;
-			break;
-		}
-		case "update": {
-			if (!id || second) throw new Error("skills update requires exactly one skill id");
-			if (title === undefined && body === undefined && labels === undefined) throw new Error("skills update requires --title, --body, or --labels-json");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("skills.update", { id, title, body, labels });
-			result = artifact;
-			human = `${artifactLabel(artifact)}`;
-			break;
-		}
-		default:
-			throw new Error("skills action must be run, create, create-template, list, show, invoke, enable, disable, instantiate, assign-project, or update");
-	}
-	return json ? JSON.stringify(result) : human;
 }
 
 export async function runGraphCli(args: string[], client: TaskCliClient): Promise<string> {
@@ -828,6 +664,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 	let labels: string[] | undefined;
 	let extra: Record<string, unknown> | undefined;
 	let playbookArguments: unknown;
+	let runId: string | undefined;
 	let status: string | undefined;
 	let text: string | undefined;
 	let limit: number | undefined;
@@ -843,6 +680,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
 		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
 		if (argument === "--arguments-json") { playbookArguments = parseJsonAnyFlag(args[++index], "--arguments-json"); continue; }
+		if (argument === "--run-id") { runId = args[++index]; if (!runId) throw new Error("--run-id requires a value"); continue; }
 		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
 		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
 		if (argument === "--project-root") { playbookProjectRoot = args[++index]; if (!playbookProjectRoot) throw new Error("--project-root requires a value"); continue; }
@@ -890,7 +728,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		}
 		case "invoke": {
 			if (!id || second) throw new Error("playbooks invoke requires exactly one playbook id");
-			const invocation = await client.call<Record<string, unknown>, { entryTaskId: string; missingArguments?: string[] }>("playbooks.invoke", { id, arguments: playbookArguments, project_root: playbookProjectRoot });
+			const invocation = await client.call<Record<string, unknown>, { entryTaskId: string; missingArguments?: string[] }>("playbooks.invoke", { id, arguments: playbookArguments, run_id: runId, project_root: playbookProjectRoot });
 			result = invocation;
 			human = invocation.missingArguments
 				? `Missing required argument(s): ${invocation.missingArguments.join(", ")}.`
@@ -1802,11 +1640,6 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
-		return;
-	}
-	if (command === "skills") {
-		const client = await connectPapyrusClient();
-		console.log(await runSkillCli(args.slice(1), client));
 		return;
 	}
 	if (command === "playbooks") {

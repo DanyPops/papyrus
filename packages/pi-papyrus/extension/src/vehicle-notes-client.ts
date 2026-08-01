@@ -17,6 +17,7 @@ import { registerVehicleTools } from "@danypops/vehicle-client-pi";
 import { currentVehicleClientTarget } from "./service-client.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
+import { papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
 const REGISTERED_PERMISSIONS = [
 	"notes:read", "notes:write", "rules:read", "rules:write", "docs:read", "docs:write",
@@ -35,6 +36,7 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 		await registerVehicleTools(pi, client, {
 			permissions: REGISTERED_PERMISSIONS,
 			principal: { id: "pi-papyrus" },
+			renderers: papyrusVehicleRenderers,
 			// playbooks.invoke's own module handler, and tasks.focus/pause/unpause/clear_focus's
 			// own module handlers, authorize an internal Task Focus write via
 			// sessionIdentity.assertAuthorized(session_id, session_secret) -- see

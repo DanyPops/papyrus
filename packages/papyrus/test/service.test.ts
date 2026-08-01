@@ -153,31 +153,25 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
-	it("runs workflow Skills atomically and injects run rules only for active run tasks", async () => {
+	it("runs Playbooks atomically and injects run rules only for active run tasks", async () => {
 		const { service } = fixture();
-		const skill = await service.execute("skills.create", {
+		const playbook = await service.execute("playbooks.create", {
 			title: "Scoped workflow",
-			definition: {
-				version: 1,
-				inputs: { project: { type: "string", required: true } },
-				blueprints: {
-					docs: [],
-					rules: [{ ref: "rule", title: "Scoped rule", body: "Only this run" }],
-					tasks: [{ ref: "task", title: "Work on {{project}}" }],
-				},
-				links: [],
-			},
+			steps: [
+				{ kind: "rule", title: "Scoped rule", body: "Only this run" },
+				"Work on {{project}}",
+			],
+			arguments: [{ name: "project", required: true }],
 		}) as { id: string };
-		const run = await service.execute("skills.run", {
-			id: skill.id,
+		const run = await service.execute("playbooks.invoke", {
+			id: playbook.id,
 			run_id: "service-run",
 			arguments: { project: "Papyrus" },
 			project_root: PROJECT_ROOT,
-		}) as { created: { tasks: string[]; rules: string[] }; rootTaskIds: string[] };
-		expect(run.rootTaskIds).toEqual(["service-run-task"]);
-		const runHistory = await service.execute("tasks.history", { id: run.created.tasks[0] }) as { events: Array<{ type: string; source: string }> };
-		expect(runHistory.events).toEqual([expect.objectContaining({ type: "created", source: "skill-run" })]);
-		await service.execute("tasks.focus", { id: run.created.tasks[0] });
+		}) as { created: { tasks: string[]; rules: string[] }; entryTaskId: string };
+		expect(run.entryTaskId).toBe("service-run-pb0-s1");
+		const runHistory = await service.execute("tasks.history", { id: run.entryTaskId }) as { events: Array<{ type: string; source: string }> };
+		expect(runHistory.events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "created", source: "playbook-run" })]));
 		expect(await service.execute("rules.injectable", { project_root: PROJECT_ROOT })).toEqual([
 			expect.objectContaining({ id: run.created.rules[0], title: "Scoped rule" }),
 		]);
@@ -316,9 +310,15 @@ describe("graph.status refuses to bypass a kind's own validated lifecycle transi
 		await expect(service.execute("graph.status", { id: rule.id, status: "deprecated" })).rejects.toThrow("rules.* operation");
 	});
 
+
+
+	// skills.create no longer produces kind=skill (see modules/playbooks.ts) -- constructed
+	// directly via artifact.create to prove the still-real 'skill' kind guard (createAuthorityRegistry's
+	// lifecycleAuthorityClaim("skills", "skill")) protects any kind=skill row that still exists,
+	// regardless of how it was created.
 	it("refuses on a Skill", async () => {
 		const { service } = fixture();
-		const skill = await service.execute("skills.create", { title: "Skill", actor: "agent" }) as { id: string; status: string };
+		const skill = await service.execute("artifact.create", { kind: "skill", title: "Skill", actor: "agent" }) as { id: string; status: string };
 		expect(skill.status).toBe("active");
 		await expect(service.execute("graph.status", { id: skill.id, status: "deprecated" })).rejects.toThrow("skills.* operation");
 	});

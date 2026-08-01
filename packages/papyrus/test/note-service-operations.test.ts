@@ -42,17 +42,20 @@ describe("Notes daemon operations", () => {
 		await expect(service.execute("docs.archive", { id: note.id })).rejects.toThrow("notes.* operation");
 		await expect(service.execute("graph.status", { id: note.id, status: "archived" })).rejects.toThrow("notes.* operation");
 		await expect(service.execute("artifact.create", { kind: "doc", subtype: "note", title: "Bypass" })).rejects.toThrow("notes.capture");
+	// skills.create_template, skills.instantiate, and skills.create's definition branch are now
+	// unconditionally retired (see modules/playbooks.ts) -- a stronger guarantee against a note
+	// bypass than the old note-specific check, since they throw for everyone, not just notes.
 		await expect(service.execute("skills.create_template", {
 			title: "Invalid Note template", target_kind: "doc", defaults: { subtype: "note" },
-		})).rejects.toThrow("notes.capture");
+		})).rejects.toThrow("artifact templates are retired");
 		const legacyTemplate = await service.execute("artifact.create", {
 			kind: "skill", subtype: "artifact-template", title: "Legacy Note template", extra: { targetKind: "doc", defaults: { subtype: "note" } },
 		}) as { id: string };
-		await expect(service.execute("skills.instantiate", { template_id: legacyTemplate.id, title: "Bypass" })).rejects.toThrow("notes.capture");
+		await expect(service.execute("skills.instantiate", { template_id: legacyTemplate.id, title: "Bypass" })).rejects.toThrow("artifact templates are retired");
 		await expect(service.execute("skills.create", {
 			title: "Invalid Note workflow",
 			definition: { version: 1, inputs: {}, blueprints: { docs: [{ ref: "note", title: "Bypass", subtype: "note" }], rules: [], tasks: [] } },
-		})).rejects.toThrow("notes.capture");
+		})).rejects.toThrow("workflow Skill definitions are retired");
 		service.close();
 	});
 });

@@ -11,8 +11,6 @@ import {
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 	PLAYBOOK_MAX_STEPS,
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
-	SKILL_INVOCATION_MAX_CALL_DEPTH,
-	SKILL_INVOCATION_MAX_LINKED_ARTIFACTS,
 	SKILL_MAX_ENUM_VALUES,
 } from "./constants.ts";
 import { requireLocallyOwnedContent, type Artifact, type CreateArtifactInput } from "./domain/artifact.ts";
@@ -21,7 +19,6 @@ import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import {
 	SKILL_INPUT_TYPES,
 	validateArgumentValue,
-	validateSkillDefinition,
 	type SkillArgumentValue,
 	type SkillInputType,
 } from "./domain/skill-definition.ts";
@@ -69,7 +66,7 @@ export interface ListFilter {
 }
 
 /**
- * Shared by listDocuments/listRules/listSkills: when filter.projectRoot is given, resolve
+ * Shared by listDocuments/listRules/listPlaybooks: when filter.projectRoot is given, resolve
  * via ArtifactScopeStore first and post-filter by kind/status/text (mirrors Tasks.list's
  * established scoped-listing shape); otherwise fall back to the existing unscoped query
  * path unchanged, so every caller that predates project scoping keeps working exactly as
@@ -93,7 +90,7 @@ function listScoped(artifacts: ArtifactStore, scopes: ArtifactScopeStore, kind: 
 		.slice(0, limit);
 }
 
-/** Shared by assignDocumentProject/assignRuleProject/assignSkillProject. */
+/** Shared by assignDocumentProject/assignRuleProject/assignPlaybookProject. */
 function assignArtifactProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, kind: string, projectRoot: string | undefined): Artifact {
 	requireKind(artifacts, id, kind);
 	scopes.assign(id, projectRoot === undefined ? undefined : normalizeProjectRoot(projectRoot), projectRoot === undefined ? "unscoped" : "explicit");
@@ -295,14 +292,21 @@ export function assignRuleProject(artifacts: ArtifactStore, scopes: ArtifactScop
 	return assignArtifactProject(artifacts, scopes, id, "rule", projectRoot);
 }
 
-/** Global rules always apply; scoped workflow rules apply only while their run owns active focus. */
+/**
+ * Global rules always apply; scoped workflow-run rules apply only while their run owns active
+ * focus. Both a workflow Skill's own run scope ("skill-run", written by workflow-execution.ts's
+ * runWorkflowSteps for a top-level Skill target) and a Playbook's own run scope ("playbook-run",
+ * same call for a Playbook target) are recognized -- confirmed live that only "skill-run" was
+ * ever checked here, silently breaking Playbook-run-scoped rule injection since Playbook gained
+ * its own doc/rule structured steps.
+ */
 export function listInjectableRules(artifacts: ArtifactStore, activeTaskId?: string): Artifact[] {
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
 		const scope = rule.extra["scope"];
 		if (scope === undefined) return true;
 		if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
 		const value = scope as Record<string, unknown>;
-		if (value["type"] !== "skill-run" || !Array.isArray(value["taskIds"])) return false;
+		if ((value["type"] !== "skill-run" && value["type"] !== "playbook-run") || !Array.isArray(value["taskIds"])) return false;
 		return activeTaskId !== undefined && value["taskIds"].some((id) => id === activeTaskId);
 	});
 }
@@ -350,185 +354,6 @@ export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskI
 	requireKind(artifacts, taskId, "task");
 	artifacts.link({ from: ruleId, relation: "gates", to: taskId }, context);
 	return showRule(artifacts, ruleId);
-}
-
-export interface CreateSkillInput {
-	title: string;
-	body?: string;
-	trigger?: string;
-	steps?: string[];
-	tools?: string[];
-	definition?: unknown;
-	labels?: string[];
-	extra?: Record<string, unknown>;
-	projectRoot?: string;
-}
-
-export interface CreateArtifactTemplateInput {
-	title: string;
-	targetKind: string;
-	defaults?: Record<string, unknown>;
-	required?: string[];
-	body?: string;
-	labels?: string[];
-	projectRoot?: string;
-}
-
-export type SkillTransition = "enable" | "disable";
-
-export function createSkill(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreateSkillInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	if (input.definition !== undefined && (input.trigger !== undefined || input.steps !== undefined || input.tools !== undefined)) {
-		throw new Error("workflow Skill definition cannot be mixed with legacy trigger, steps, or tools");
-	}
-	const definition = input.definition === undefined ? undefined : validateSkillDefinition(input.definition);
-	if (definition?.blueprints.docs.some((document) => document.subtype === NOTE_SUBTYPE)) requireNotesFacade(authority, "skills");
-	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
-	const skill = artifacts.create({
-		kind: "skill",
-		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
-		subtype: definition ? "workflow" : undefined,
-		title: input.title,
-		body: input.body,
-		labels: input.labels,
-		extra: {
-			...(input.extra ?? {}),
-			...(definition ? { definition } : {}),
-			...(input.trigger ? { trigger: input.trigger } : {}),
-			...(input.steps ? { steps: input.steps } : {}),
-			...(input.tools ? { tools: input.tools } : {}),
-		},
-	}, context);
-	scopes.assign(skill.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
-	return skill;
-}
-
-export function createArtifactTemplate(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreateArtifactTemplateInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	if (input.targetKind === "doc" && input.defaults?.["subtype"] === NOTE_SUBTYPE) requireNotesFacade(authority, "skills");
-	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
-	const template = artifacts.create({
-		kind: "skill",
-		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
-		subtype: "artifact-template",
-		title: input.title,
-		body: input.body,
-		labels: input.labels,
-		extra: {
-			targetKind: input.targetKind,
-			defaults: input.defaults ?? {},
-			required: input.required ?? ["title"],
-		},
-	}, context);
-	scopes.assign(template.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
-	return template;
-}
-
-export function instantiateTemplate(artifacts: ArtifactStore, templateId: string, input: CreateArtifactInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
-	if (rejectsNoteTemplate(artifacts, templateId, input.subtype)) requireNotesFacade(authority, "skills");
-	return artifacts.create({ ...input, templateId }, context);
-}
-
-export function listSkills(artifacts: ArtifactStore, scopes: ArtifactScopeStore, filter: ListFilter): Artifact[] {
-	return listScoped(artifacts, scopes, "skill", filter);
-}
-
-export function assignSkillProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, projectRoot: string | undefined): Artifact {
-	return assignArtifactProject(artifacts, scopes, id, "skill", projectRoot);
-}
-
-export function showSkill(artifacts: ArtifactStore, id: string): Artifact {
-	requireKind(artifacts, id, "skill");
-	return artifacts.get(id, { tree: true })!;
-}
-
-export type UpdateSkillInput = UpdateContentInput;
-
-export function updateSkill(artifacts: ArtifactStore, id: string, input: UpdateSkillInput, context?: ArtifactEventContext): Artifact {
-	requireContentUpdateFields(input);
-	assertTitleBounds(input.title);
-	assertBodyBounds(input.body);
-	assertLabelsBounds(input.labels);
-	const skill = requireLocallyOwnedContent(requireKind(artifacts, id, "skill"));
-	const updated = artifacts.updateContent(skill.id, input, context);
-	if (!updated) throw new Error(`skill "${id}" not found`);
-	return updated;
-}
-
-function skillInvocationBody(skill: Artifact): string {
-	if (skill.subtype === "artifact-template") {
-		return `Create an artifact using Papyrus template "${skill.title}".\ntemplate_name: ${skill.title}\nAsk for or infer all required template fields, then call the skills domain tool instantiate action.`;
-	}
-	if (skill.subtype === "workflow") {
-		const definition = validateSkillDefinition(skill.extra["definition"]);
-		const required = Object.entries(definition.inputs)
-			.filter(([, input]) => input.required && input.default === undefined)
-			.map(([name]) => name);
-		return [
-			`Run Papyrus workflow Skill "${skill.title}".`,
-			`Required arguments: ${required.length > 0 ? required.join(", ") : "none"}.`,
-			"Call the skills domain tool with action=run and arguments after collecting required values.",
-		].join("\n");
-	}
-	const trigger = typeof skill.extra["trigger"] === "string" ? skill.extra["trigger"] : "manual invocation";
-	const steps = Array.isArray(skill.extra["steps"]) ? skill.extra["steps"].filter((step): step is string => typeof step === "string") : [];
-	const tools = Array.isArray(skill.extra["tools"]) ? skill.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
-	return [
-		`Apply Papyrus skill "${skill.title}".`,
-		`Trigger: ${trigger}`,
-		...(skill.body ? [`Context: ${skill.body}`] : []),
-		...(steps.length ? ["Steps:", ...steps.map((step, index) => `${index + 1}. ${step}`)] : []),
-		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
-	].join("\n");
-}
-
-/**
- * Skills are special: invoking one queries Papyrus for the skill's real outgoing graph edges
- * -- not just its own static body/extra fields -- so a Skill linked to existing Tasks, Rules,
- * or Docs surfaces that linked context on invocation. A Skill can also link to and invoke
- * OTHER Skills (any relation whose target is itself a Skill, e.g. the same "triggers" relation
- * workflow execution already uses for skill-to-task edges): invoking the parent recursively
- * composes the linked skill's own invocation. Bounded and cycle-safe -- a skill-calls-skill
- * edge cycle degrades to a marker instead of infinite-looping, matching the cycle-safety
- * discipline established by task dependency graphs and the (since-removed; see Doc
- * "ConversationJournal design record") ConversationJournal domain's own reply chains.
- * `visited` and `depth` are recursion-internal; callers should not pass them.
- */
-export function skillInvocation(artifacts: ArtifactStore, id: string, visited: Set<string> = new Set(), depth = 0): string {
-	const skill = requireKind(artifacts, id, "skill");
-	visited.add(id);
-	const sections = [skillInvocationBody(skill)];
-
-	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, SKILL_INVOCATION_MAX_LINKED_ARTIFACTS);
-	const linkedArtifactLines: string[] = [];
-	const linkedSkillSections: string[] = [];
-	for (const edge of edges) {
-		const target = artifacts.get(edge.to);
-		if (!target) continue; // dangling edge -- defensive, should not happen
-		if (target.kind !== "skill") {
-			linkedArtifactLines.push(`- ${edge.relation} ${target.kind} "${target.title}"`);
-			continue;
-		}
-		if (visited.has(target.id)) {
-			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" -- already invoked above in this chain, not repeated.`);
-		} else if (depth + 1 > SKILL_INVOCATION_MAX_CALL_DEPTH) {
-			linkedSkillSections.push(`Also linked via ${edge.relation} to skill "${target.title}" -- call depth limit reached, invoke it separately.`);
-		} else {
-			const nested = skillInvocation(artifacts, target.id, visited, depth + 1);
-			linkedSkillSections.push(`Also invoke linked skill (${edge.relation}) "${target.title}":\n${nested}`);
-		}
-	}
-	if (linkedArtifactLines.length > 0) {
-		sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedArtifactLines].join("\n"));
-	}
-	for (const section of linkedSkillSections) sections.push(section);
-	return sections.join("\n\n");
-}
-
-export function transitionSkill(artifacts: ArtifactStore, id: string, action: SkillTransition, context?: ArtifactEventContext): Artifact {
-	const skill = requireLocallyOwnedContent(requireKind(artifacts, id, "skill"));
-	const expected = action === "enable" ? "deprecated" : "active";
-	const target = action === "enable" ? "active" : "deprecated";
-	if (skill.status !== expected) throw new Error(`cannot ${action} skill from ${skill.status}`);
-	return artifacts.setStatus(id, target, context)!;
 }
 
 /**
@@ -830,8 +655,8 @@ function playbookInvocationBody(playbook: Artifact, provided: Record<string, unk
  * "run as part of this one". `depends_on` chains a prerequisite -- its full steps render BEFORE
  * this playbook's own, as "complete this first". Every other relation (references, relates_to,
  * etc.) still gets the flat one-line "Linked context" pointer, unchanged. Bounded and
- * cycle-safe -- a composition cycle degrades to a marker instead of infinite-looping, matching
- * skillInvocation's own cycle-safety discipline.
+ * cycle-safe -- a composition cycle degrades to a marker instead of infinite-looping, the same
+ * cycle-safety discipline task dependency graphs already established.
  * `provided` is the caller's already-known argument values (e.g. from the conversation so far);
  * any declared *required* argument missing from it is called out explicitly, directing the agent
  * to discuss (live:true) rather than guess or silently proceed. `visited` and `depth` are

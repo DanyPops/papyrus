@@ -97,18 +97,15 @@ export const SKILL_MAX_LINKS = 500;
 export const SKILL_MAX_RENDERED_BYTES = 1_048_576;
 
 /**
- * Skills are special: invoking one queries Papyrus for whatever it's actually graph-linked
- * to (existing Tasks/Rules/Docs via ordinary edges, not just its own static body/extra
- * fields), and a Skill can link to and invoke other Skills. Both traversals are bounded and
- * cycle-safe -- a skill-calls-skill edge cycle must not infinite-loop invocation, matching
- * the same cycle-safety discipline established by task dependency graphs and the
+ * Invoking a Playbook queries Papyrus for whatever it's actually graph-linked to (existing
+ * Tasks/Rules/Docs via ordinary edges, not just its own static body/extra fields), and a
+ * Playbook can link to and invoke other Playbooks. Both traversals are bounded and
+ * cycle-safe -- a playbook-calls-playbook edge cycle must not infinite-loop invocation,
+ * matching the same cycle-safety discipline established by task dependency graphs and the
  * (since-removed; see Doc "ConversationJournal design record") ConversationJournal domain's
  * own reply chains.
  */
-export const SKILL_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
-export const SKILL_INVOCATION_MAX_CALL_DEPTH = 4;
 export const PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS = 20;
-/** Mirrors SKILL_INVOCATION_MAX_CALL_DEPTH: a playbook-calls-playbook edge chain is bounded the same way a skill-calls-skill chain is. */
 export const PLAYBOOK_INVOCATION_MAX_CALL_DEPTH = 4;
 export const PLAYBOOK_ARGUMENT_MAX_COUNT = 20;
 export const PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH = 64;

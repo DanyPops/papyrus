@@ -8,7 +8,7 @@ import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { docsOperations, DOCS_OPERATION_NAMES } from "../src/modules/docs.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "../src/modules/rules.ts";
-import { skillsOperations, SKILLS_OPERATION_NAMES } from "../src/modules/skills.ts";
+import { skillsOperations, SKILLS_OPERATION_NAMES } from "../src/modules/playbooks.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

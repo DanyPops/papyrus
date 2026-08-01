@@ -39,8 +39,7 @@ import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./m
 import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
 import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
-import { instantiateSkillOrTemplate, skillsOperations, SKILLS_OPERATION_NAMES } from "./modules/skills.ts";
-import { playbooksOperations, PLAYBOOKS_OPERATION_NAMES } from "./modules/playbooks.ts";
+import { instantiateSkillOrTemplate, playbooksOperations, skillsOperations, PLAYBOOKS_OPERATION_NAMES, SKILLS_OPERATION_NAMES } from "./modules/playbooks.ts";
 import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
 import { discussOperations, DISCUSS_OPERATION_NAMES } from "./modules/discuss.ts";
 import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";

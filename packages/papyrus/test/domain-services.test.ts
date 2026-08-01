@@ -24,14 +24,6 @@ import {
 	gateTaskWithRule,
 	assignRuleProject,
 	updateRule,
-	createSkill,
-	createArtifactTemplate,
-	instantiateTemplate,
-	listSkills,
-	skillInvocation,
-	transitionSkill,
-	assignSkillProject,
-	updateSkill,
 	createPlaybook,
 	listPlaybooks,
 	showPlaybook,
@@ -162,90 +154,6 @@ describe("rules domain service", () => {
 		expect(() => transitionRule(artifacts, rule.id, "disable")).toThrow(/read-only projection from some-external-system/);
 		const task = tasks.create({ title: "Gated task" });
 		expect(() => gateTaskWithRule(artifacts, rule.id, task.id)).toThrow(/read-only projection from some-external-system/);
-		db.close();
-	});
-});
-
-describe("skills domain service", () => {
-	it("owns skill lifecycle and invocation projection", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const skill = createSkill(artifacts, scopes, { title: "TDD workflow", trigger: "writing code", steps: ["Write failing test", "Implement"], tools: ["bun test"] }, authority);
-		expect(skillInvocation(artifacts, skill.id)).toContain("1. Write failing test");
-		expect(transitionSkill(artifacts, skill.id, "disable").status).toBe("deprecated");
-		expect(transitionSkill(artifacts, skill.id, "enable").status).toBe("active");
-		expect(listSkills(artifacts, scopes, {})).toHaveLength(1);
-		db.close();
-	});
-
-	it("updates a skill's title/body/labels, refuses an empty update, and refuses an external projection", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const skill = createSkill(artifacts, scopes, { title: "TDD workflow" }, authority);
-		const updated = updateSkill(artifacts, skill.id, { title: "TDD workflow v2", body: "revised", labels: ["stable"] });
-		expect(updated.title).toBe("TDD workflow v2");
-		expect(updated.body).toBe("revised");
-		expect(() => updateSkill(artifacts, skill.id, {})).toThrow("update requires title, body, or labels");
-
-		const projected = createSkill(artifacts, scopes, { title: "Imported workflow", labels: ["source:some-external-system"] }, authority);
-		expect(() => updateSkill(artifacts, projected.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
-		db.close();
-	});
-
-	it("refuses to change lifecycle on a Skill that is a read-only projection -- update is not the only way to mutate one", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const projected = createSkill(artifacts, scopes, { title: "Imported workflow", labels: ["source:some-external-system"] }, authority);
-		expect(() => transitionSkill(artifacts, projected.id, "disable")).toThrow(/read-only projection from some-external-system/);
-		db.close();
-	});
-
-	it("creates and instantiates artifact templates", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const template = createArtifactTemplate(artifacts, scopes, {
-			title: "Research document", targetKind: "doc", defaults: { subtype: "research", labels: ["research"] }, required: ["title", "body"],
-		}, authority);
-		const document = instantiateTemplate(artifacts, template.id, { title: "Findings", body: "Verified evidence" }, authority);
-		expect(document.kind).toBe("doc");
-		expect(document.subtype).toBe("research");
-		db.close();
-	});
-
-	it("skills are special: invoking one queries Papyrus for its real linked artifacts, not just its own static extra fields", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const spec = createDocument(artifacts, scopes, { title: "API spec", subtype: "design" }, authority);
-		const skill = createSkill(artifacts, scopes, { title: "Implement endpoint", trigger: "adding an endpoint", steps: ["Write test"] }, authority);
-		artifacts.link({ from: skill.id, relation: "references", to: spec.id });
-
-		const invocation = skillInvocation(artifacts, skill.id);
-		expect(invocation).toContain("Linked context (query Papyrus for full detail before proceeding):");
-		expect(invocation).toContain('- references doc "API spec"');
-		expect(invocation).not.toContain(spec.id);
-		expect(invocation).not.toContain(skill.id);
-	});
-
-	it("skills can call other skills: invoking the caller recursively composes the linked skill's own invocation", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const inner = createSkill(artifacts, scopes, { title: "Inner skill", trigger: "never directly", steps: ["Do the inner thing"] }, authority);
-		const outer = createSkill(artifacts, scopes, { title: "Outer skill", trigger: "starting work", steps: ["Do the outer thing"] }, authority);
-		artifacts.link({ from: outer.id, relation: "triggers", to: inner.id });
-
-		const invocation = skillInvocation(artifacts, outer.id);
-		expect(invocation).toContain('Apply Papyrus skill "Outer skill"');
-		expect(invocation).toContain('Also invoke linked skill (triggers) "Inner skill":');
-		expect(invocation).toContain('Apply Papyrus skill "Inner skill"');
-		expect(invocation).not.toContain(outer.id);
-		expect(invocation).not.toContain(inner.id);
-		expect(invocation).toContain("Do the inner thing");
-		db.close();
-	});
-
-	it("degrades a skill-calls-skill cycle to a marker instead of infinite-looping the invocation preview", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const a = createSkill(artifacts, scopes, { title: "A", trigger: "x", steps: [] }, authority);
-		const b = createSkill(artifacts, scopes, { title: "B", trigger: "x", steps: [] }, authority);
-		artifacts.link({ from: a.id, relation: "triggers", to: b.id });
-		artifacts.link({ from: b.id, relation: "triggers", to: a.id });
-
-		const invocation = skillInvocation(artifacts, a.id); // must return, not hang or throw
-		expect(invocation).toContain("already invoked above in this chain, not repeated");
 		db.close();
 	});
 });
@@ -410,8 +318,8 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 	});
 
 	it("rejects playbook actions against another artifact kind, including a real Skill", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const skill = createSkill(artifacts, scopes, { title: "Not a playbook", trigger: "x", steps: [] }, authority);
+		const { db, artifacts } = fixture();
+		const skill = artifacts.create({ kind: "skill", status: "active", title: "Not a playbook" });
 		expect(() => showPlaybook(artifacts, skill.id)).toThrow("is not a playbook");
 		expect(() => transitionPlaybook(artifacts, skill.id, "disable")).toThrow("is not a playbook");
 		db.close();
@@ -562,17 +470,6 @@ describe("Docs/Rules/Skills project scoping (papyrus-defect-docs-and-likely-rule
 		db.close();
 	});
 
-	it("scopes, lists, and reassigns a Skill's and an artifact template's project the same way", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		const skill = createSkill(artifacts, scopes, { title: "Scoped skill", projectRoot: "/workspace/papyrus" }, authority);
-		const template = createArtifactTemplate(artifacts, scopes, { title: "Scoped template", targetKind: "doc", projectRoot: "/workspace/papyrus" }, authority);
-		createSkill(artifacts, scopes, { title: "Unscoped skill" }, authority);
-		expect(listSkills(artifacts, scopes, { projectRoot: "/workspace/papyrus" }).map((s) => s.id).sort()).toEqual([skill.id, template.id].sort());
-		assignSkillProject(artifacts, scopes, skill.id, "/workspace/other");
-		expect(listSkills(artifacts, scopes, { projectRoot: "/workspace/papyrus" }).map((s) => s.id)).toEqual([template.id]);
-		db.close();
-	});
-
 	it("rejects a non-absolute project_root, matching Tasks' own validation", () => {
 		const { db, artifacts, scopes, authority } = fixture();
 		expect(() => createDocument(artifacts, scopes, { title: "Bad", projectRoot: "relative/path" }, authority)).toThrow("project_root must be an absolute path");
@@ -616,11 +513,10 @@ describe("artifact creation is immune to status seed/row order for every kind, n
 		db.close();
 	});
 
-	it("creates a Skill and an artifact template as active even when another skill status is rowid-first", () => {
-		const { db, artifacts, scopes, authority } = fixture();
-		adversariallyReorderStatuses(db, "skill", "active");
-		expect(createSkill(artifacts, scopes, { title: "Adversarial" }, authority).status).toBe("active");
-		expect(createArtifactTemplate(artifacts, scopes, { title: "Adversarial template", targetKind: "doc" }, authority).status).toBe("active");
+	it("creates a Playbook as active even when another playbook status is rowid-first", () => {
+		const { db, artifacts, scopes } = fixture();
+		adversariallyReorderStatuses(db, "playbook", "active");
+		expect(createPlaybook(artifacts, scopes, { title: "Adversarial" }).status).toBe("active");
 		db.close();
 	});
 });

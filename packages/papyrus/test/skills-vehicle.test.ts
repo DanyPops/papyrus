@@ -9,16 +9,6 @@ afterAll(cleanupTempDirs);
 const PROJECT = "/tmp/example-project";
 const PERMS = { permissions: ["skills:read", "skills:write", "artifact:read", "artifact:write"] };
 
-const WORKFLOW_DEFINITION = {
-	version: 1,
-	inputs: { project: { type: "string", required: true } },
-	blueprints: {
-		docs: [{ ref: "context", title: "{{project}} context", body: "Context for {{project}}" }],
-		rules: [{ ref: "safety", title: "Protect {{project}}", condition: "changing {{project}}", action: "Use reviewed changes" }],
-		tasks: [{ ref: "verify", title: "Verify {{project}}" }],
-	},
-};
-
 function harness() {
 	const directory = tempDir("papyrus-skills-vehicle-");
 	const service = createPapyrusService(join(directory, "papyrus.db"));
@@ -83,70 +73,48 @@ describe("registerSkillsVehicleOperations (wired through createPapyrusService)",
 		service.close();
 	});
 
-	it("run instantiates a workflow: docs/rules/tasks are created, and the output carries its own model-facing content summary instead of the raw execution DAG", async () => {
+	// skills.create's definition-based path, skills.create_template, skills.instantiate, and
+	// skills.run are all retired -- workflow richness now lives entirely on Playbook (structured
+	// doc/rule/call steps), and the artifact-template compatibility mechanism had zero real
+	// production usage, ever, in any environment checked. See modules/playbooks.ts.
+	// VehicleRegistry wraps the real domain error in a generic "handler failed" VehicleError,
+	// with the original preserved as .cause -- see playbooks-vehicle.test.ts's own precedent.
+	async function rejectionCause(promise: Promise<unknown>): Promise<string> {
+		const rejection = await promise.catch((error: unknown) => error);
+		expect(rejection).toBeInstanceOf(Error);
+		expect((rejection as { cause?: unknown }).cause).toBeInstanceOf(Error);
+		return ((rejection as { cause: Error }).cause).message;
+	}
+
+	it("skills.create rejects a workflow Skill definition -- retired, use playbooks.create's structured steps instead", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("skills.create", 1, { title: "Deploy workflow", definition: WORKFLOW_DEFINITION, project_root: PROJECT }, PERMS)) as { id: string };
-
-		const run = (await registry.invoke("skills.run", 1, { id: created.id, run_id: "run-1", arguments: { project: "Papyrus" }, project_root: PROJECT }, PERMS)) as {
-			runId: string;
-			created: { docs: string[]; rules: string[]; tasks: string[] };
-			content: Array<{ type: string; text: string }>;
-		};
-		expect(run.created.docs).toHaveLength(1);
-		expect(run.created.rules).toHaveLength(1);
-		expect(run.created.tasks).toHaveLength(1);
-
-		expect(run.content).toHaveLength(1);
-		expect(run.content[0]!.type).toBe("text");
-		expect(run.content[0]!.text).toContain(`Created Skill run ${run.runId}: 1 tasks, 1 rules, 1 docs.`);
-		expect(run.content[0]!.text).toContain("Ready roots:");
-		expect(run.content[0]!.text).toContain("Papyrus context");
-		expect(run.content[0]!.text).toContain("Protect Papyrus");
-		expect(run.content[0]!.text).not.toContain('"layers"');
-		expect(run.content[0]!.text).not.toContain('"cycleIds"');
+		const message = await rejectionCause(registry.invoke("skills.create", 1, { title: "Old-style workflow", definition: { version: 1, inputs: {}, blueprints: { docs: [], rules: [], tasks: [] } }, project_root: PROJECT }, PERMS));
+		expect(message).toContain("workflow Skill definitions are retired");
 		service.close();
 	});
 
-	it("run resolves the skill by name and requires project_root explicitly (no ambient cwd server-side)", async () => {
+	it("skills.create_template is retired -- zero real production usage, ever", async () => {
 		const { registry, service } = harness();
-		await registry.invoke("skills.create", 1, { title: "Named workflow", definition: WORKFLOW_DEFINITION, project_root: PROJECT }, PERMS);
-
-		await expect(registry.invoke("skills.run", 1, { name: "Named workflow", arguments: { project: "Papyrus" } }, PERMS)).rejects.toThrow(/invalid input/);
+		const message = await rejectionCause(registry.invoke("skills.create_template", 1, { title: "Doc template", target_kind: "doc", project_root: PROJECT }, PERMS));
+		expect(message).toContain("artifact templates are retired");
 		service.close();
 	});
 
-	it("instantiate: a non-task-target template creates a plain artifact", async () => {
+	it("skills.instantiate is retired -- zero real production usage, ever", async () => {
 		const { registry, service } = harness();
-		const template = (await registry.invoke("skills.create_template", 1, { title: "Doc template", target_kind: "doc", project_root: PROJECT }, PERMS)) as { id: string };
-
-		const artifact = (await registry.invoke("skills.instantiate", 1, {
-			template_id: template.id, title: "Generated doc", kind: "doc", project_root: PROJECT,
-		}, PERMS)) as { id: string; kind: string; title: string };
-		expect(artifact.kind).toBe("doc");
-		expect(artifact.title).toBe("Generated doc");
+		const legacyTemplate = (await service.execute("artifact.create", {
+			kind: "skill", subtype: "artifact-template", title: "Legacy template", extra: { targetKind: "doc", defaults: {} },
+		})) as { id: string };
+		const message = await rejectionCause(registry.invoke("skills.instantiate", 1, { template_id: legacyTemplate.id, title: "Bypass", project_root: PROJECT }, PERMS));
+		expect(message).toContain("artifact templates are retired");
 		service.close();
 	});
 
-	it("instantiate: a task-target template calls tasks.create() directly", async () => {
+	it("skills.run is retired -- author a Playbook with structured steps and call playbooks.invoke instead", async () => {
 		const { registry, service } = harness();
-		const template = (await registry.invoke("skills.create_template", 1, { title: "Task template", target_kind: "task", project_root: PROJECT }, PERMS)) as { id: string };
-
-		const task = (await registry.invoke("skills.instantiate", 1, {
-			template_id: template.id, title: "Generated task", project_root: PROJECT,
-		}, PERMS)) as { id: string; kind: string; title: string };
-		expect(task.kind).toBe("task");
-		expect(task.title).toBe("Generated task");
-		service.close();
-	});
-
-	it("instantiate resolves the template by name", async () => {
-		const { registry, service } = harness();
-		await registry.invoke("skills.create_template", 1, { title: "Named template", target_kind: "doc", project_root: PROJECT }, PERMS);
-
-		const artifact = (await registry.invoke("skills.instantiate", 1, {
-			template_name: "Named template", title: "From named template", project_root: PROJECT,
-		}, PERMS)) as { id: string; title: string };
-		expect(artifact.title).toBe("From named template");
+		const created = (await registry.invoke("skills.create", 1, { title: "Not runnable", project_root: PROJECT }, PERMS)) as { id: string };
+		const message = await rejectionCause(registry.invoke("skills.run", 1, { id: created.id, project_root: PROJECT }, PERMS));
+		expect(message).toContain("workflow Skill execution is retired");
 		service.close();
 	});
 

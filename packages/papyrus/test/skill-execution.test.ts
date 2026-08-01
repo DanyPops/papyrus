@@ -1,10 +1,22 @@
 import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
-import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
-import { createSkill } from "../src/domain-services.ts";
+import type { ArtifactStore } from "../src/ports/artifact-store.ts";
+import type { ArtifactScopeStore } from "../src/ports/artifact-scope-store.ts";
 import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
+
+/**
+ * skills.create (the operation) is retired for definition-based workflow Skills -- see
+ * modules/playbooks.ts. This constructs the kind=skill/subtype=workflow artifact shape
+ * directly, the way createSkill used to, since these tests exercise instantiateSkillWorkflow
+ * (workflow-execution.ts, the shared engine, not retired), not the retired creation path.
+ */
+function createWorkflowSkillFixture(artifacts: ArtifactStore, scopes: ArtifactScopeStore, title: string, definition: unknown): { id: string } {
+	const skill = artifacts.create({ kind: "skill", status: "active", subtype: "workflow", title, extra: { definition } });
+	scopes.assign(skill.id, undefined, "unscoped");
+	return skill;
+}
 
 const definition = {
 	version: 1,
@@ -39,7 +51,7 @@ const definition = {
 function fixture() {
 	const db = openDb(":memory:");
 	const artifacts = new SQLiteArtifactStore(db);
-	const skill = createSkill(artifacts, new SQLiteArtifactScopeStore(db), { title: "Project change", definition }, new AuthorityRegistry());
+	const skill = createWorkflowSkillFixture(artifacts, new SQLiteArtifactScopeStore(db), "Project change", definition);
 	return { db, artifacts, skill };
 }
 

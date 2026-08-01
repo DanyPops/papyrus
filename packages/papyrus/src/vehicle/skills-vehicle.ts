@@ -12,8 +12,8 @@
 import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import { listSkills } from "../domain-services.ts";
-import { instantiateSkillOrTemplate, skillsOperations } from "../modules/skills.ts";
+import { listPlaybooks } from "../domain-services.ts";
+import { instantiateSkillOrTemplate, skillsOperations } from "../modules/playbooks.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
@@ -35,13 +35,16 @@ export interface SkillsVehicleDeps {
 	tasks: Tasks;
 }
 
+// Resolves against kind=playbook now, not kind=skill: skills.create (below) creates a real
+// Playbook artifact under the skills.* operation name -- see modules/playbooks.ts's own doc
+// comment for why. listPlaybooks, not the retired listSkills, is the real underlying data.
 function resolveSkillId(artifacts: ArtifactStore, scopes: ArtifactScopeStore, projectRoot: string | undefined, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
 	return resolveArtifactIdWidened(
 		name,
-		() => listSkills(artifacts, scopes, { text: name, projectRoot }),
-		projectRoot === undefined ? undefined : () => listSkills(artifacts, scopes, { text: name }),
+		() => listPlaybooks(artifacts, scopes, { text: name, projectRoot }),
+		projectRoot === undefined ? undefined : () => listPlaybooks(artifacts, scopes, { text: name }),
 	);
 }
 
@@ -50,8 +53,8 @@ function resolveTemplateId(artifacts: ArtifactStore, scopes: ArtifactScopeStore,
 	if (typeof name !== "string" || name.length === 0) return undefined;
 	return resolveArtifactIdWidened(
 		name,
-		() => listSkills(artifacts, scopes, { text: name, projectRoot }),
-		projectRoot === undefined ? undefined : () => listSkills(artifacts, scopes, { text: name }),
+		() => listPlaybooks(artifacts, scopes, { text: name, projectRoot }),
+		projectRoot === undefined ? undefined : () => listPlaybooks(artifacts, scopes, { text: name }),
 	);
 }
 

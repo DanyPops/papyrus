@@ -656,6 +656,22 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 			}
 		},
 	},
+	{
+		version: 22,
+		name: "skill-to-playbook-data-migration",
+		// Part of the Skill→Playbook consolidation. Migration 18 already moved subtype-less Skill
+		// rows to kind=playbook; this moves everything still left under kind=skill (workflow and
+		// artifact-template rows alike, plus any bare stragglers), preserving subtype and status so
+		// a later task can still tell which authoring shape each migrated row came from. The
+		// 'skill'/'artifact-template' kinds/statuses type rows themselves are deliberately NOT
+		// dropped here: src/modules/skills.ts's createSkill (and the CLI/Vehicle/TUI surfaces still
+		// wired to it) still writes kind='skill' rows in its own live, not-yet-retired test suite --
+		// dropping the kinds row now would break that FK-enforced write path before its own
+		// retirement task removes it. Dropping the type rows is that later task's job.
+		up: (db) => {
+			db.exec(`UPDATE artifacts SET kind = 'playbook' WHERE kind = 'skill'`);
+		},
+	},
 ];
 
 /**

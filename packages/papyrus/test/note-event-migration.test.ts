@@ -39,7 +39,7 @@ describe("note-events migration: existing extra.noteHistory blobs are preserved,
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(20);
 		const result = migrateDb(db);
 		expect(result.from).toBe(20);
-		expect(result.applied).toEqual(["note-events"]);
+		expect(result.applied).toEqual(["note-events", "skill-to-playbook-data-migration"]);
 
 		const events = new SQLiteNoteEventStore(db).history("note-1", { direction: "asc" });
 		expect(events.events).toEqual([

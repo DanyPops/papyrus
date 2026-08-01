@@ -4,7 +4,12 @@ import { migrateDb, openDb } from "../src/db.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 afterAll(cleanupTempDirs);
 
-/** Legacy trigger/steps/tools skills (subtype-less) move to their own "playbook" kind; artifact-template and workflow skills stay put. */
+/**
+ * Legacy trigger/steps/tools skills (subtype-less) move to their own "playbook" kind at v18;
+ * artifact-template and workflow skills stay put at that version -- but migrateDb always runs to
+ * the current schema, so v22's later skill-to-playbook-data-migration moves everything else left
+ * under kind=skill too. See skill-kind-retirement-migration.test.ts for that migration in isolation.
+ */
 function legacySkillDatabase(path: string): void {
 	const db = openDb(path); // bootstraps at the full current schema, including kind "skill" support
 	db.exec(`
@@ -28,10 +33,12 @@ describe("playbook-kind migration", () => {
 		expect(result.from).toBe(17);
 		expect(result.applied).toContain("playbook-kind");
 
+		expect(result.applied).toContain("skill-to-playbook-data-migration");
+
 		const rows = db.prepare("SELECT id, kind, subtype, status FROM artifacts ORDER BY id").all() as Array<{ id: string; kind: string; subtype: string | null; status: string }>;
 		expect(rows).toEqual([
-			{ id: "a-template", kind: "skill", subtype: "artifact-template", status: "active" },
-			{ id: "a-workflow", kind: "skill", subtype: "workflow", status: "active" },
+			{ id: "a-template", kind: "playbook", subtype: "artifact-template", status: "active" },
+			{ id: "a-workflow", kind: "playbook", subtype: "workflow", status: "active" },
 			{ id: "legacy-playbook", kind: "playbook", subtype: "", status: "active" },
 			{ id: "null-subtype-playbook", kind: "playbook", subtype: null, status: "deprecated" },
 		]);

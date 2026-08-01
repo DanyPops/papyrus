@@ -91,7 +91,7 @@ describe("registerNotesVehicle survives a daemon restart without a Pi extension 
 		const tool = registeredTools.get("test_ping");
 		expect(tool).toBeDefined();
 
-		const execute = tool!.execute as (
+		const execute = tool!.execute as unknown as (
 			toolCallId: string,
 			input: unknown,
 			signal: AbortSignal,

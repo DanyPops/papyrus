@@ -8,14 +8,13 @@ import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
 import { SKILL_WORKFLOW_MAX_NESTING_DEPTH } from "../src/constants.ts";
 
 /**
- * skills.create (the operation) is retired for definition-based workflow Skills -- see
- * modules/playbooks.ts. This constructs the kind=skill/subtype=workflow artifact shape
- * directly, the way createSkill used to, since these tests exercise instantiateSkillWorkflow's
- * nested-pipeline resolution (workflow-execution.ts, the shared engine, not retired), not the
- * retired creation path.
+ * Skill-the-kind is fully retired. A definition-shaped workflow target is now a kind=playbook
+ * row with subtype=workflow (see workflow-execution.ts's requireWorkflowSkill) -- constructed
+ * directly here since these tests exercise instantiateSkillWorkflow's nested-pipeline resolution
+ * (the shared execution engine, not retired), not Playbook's own steps/trigger authoring surface.
  */
 function createWorkflowSkillFixture(artifacts: ArtifactStore, scopes: ArtifactScopeStore, title: string, definition: unknown): { id: string } {
-	const skill = artifacts.create({ kind: "skill", status: "active", subtype: "workflow", title, extra: { definition } });
+	const skill = artifacts.create({ kind: "playbook", status: "active", subtype: "workflow", title, extra: { definition } });
 	scopes.assign(skill.id, undefined, "unscoped");
 	return skill;
 }

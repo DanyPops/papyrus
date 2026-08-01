@@ -75,7 +75,9 @@ function resolveCreateInput(db: Db, input: CreateInput): ResolvedCreateInput {
 
 	const template = getArtifact(db, input.templateId);
 	if (!template) throw new Error(`template "${input.templateId}" not found`);
-	if (template.kind !== "skill" || template.subtype !== "artifact-template") {
+	// A template is any artifact carrying subtype=artifact-template metadata -- its own kind is
+	// irrelevant to its function as a defaults/required carrier for the *target* kind.
+	if (template.subtype !== "artifact-template") {
 		throw new Error(`artifact "${input.templateId}" is not an artifact template`);
 	}
 

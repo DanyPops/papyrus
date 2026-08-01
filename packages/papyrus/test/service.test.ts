@@ -46,8 +46,7 @@ describe("Papyrus operation service", () => {
 		expect(EXPECTED_OPERATION_NAMES).toContain("tasks.cancel");
 		expect(EXPECTED_OPERATION_NAMES).toContain("docs.archive");
 		expect(EXPECTED_OPERATION_NAMES).toContain("rules.preview");
-		expect(EXPECTED_OPERATION_NAMES).toContain("skills.instantiate");
-		expect(EXPECTED_OPERATION_NAMES).toContain("skills.run");
+		expect(EXPECTED_OPERATION_NAMES).toContain("playbooks.invoke");
 		expect(EXPECTED_OPERATION_NAMES).toContain("system.migrate");
 		service.close();
 	});
@@ -75,14 +74,14 @@ describe("Papyrus operation service", () => {
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 22, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 1, required: 23, migrationRequired: true });
 		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate schema");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 22,
-			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration"],
+			to: 23,
+			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"],
 		});
-		expect(service.schemaState()).toEqual({ current: 22, required: 22, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 23, required: 23, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
 		service.close();
 	});
@@ -261,7 +260,7 @@ describe("Papyrus operation service", () => {
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: VERSION,
-			schema: { current: 22, required: 22, migrationRequired: false },
+			schema: { current: 23, required: 23, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", { title: "Client task", project_root: PROJECT_ROOT });
 		expect(task.kind).toBe("task");
@@ -308,19 +307,6 @@ describe("graph.status refuses to bypass a kind's own validated lifecycle transi
 		const rule = await service.execute("rules.create", { title: "Rule", actor: "agent" }) as { id: string; status: string };
 		expect(rule.status).toBe("active");
 		await expect(service.execute("graph.status", { id: rule.id, status: "deprecated" })).rejects.toThrow("rules.* operation");
-	});
-
-
-
-	// skills.create no longer produces kind=skill (see modules/playbooks.ts) -- constructed
-	// directly via artifact.create to prove the still-real 'skill' kind guard (createAuthorityRegistry's
-	// lifecycleAuthorityClaim("skills", "skill")) protects any kind=skill row that still exists,
-	// regardless of how it was created.
-	it("refuses on a Skill", async () => {
-		const { service } = fixture();
-		const skill = await service.execute("artifact.create", { kind: "skill", title: "Skill", actor: "agent" }) as { id: string; status: string };
-		expect(skill.status).toBe("active");
-		await expect(service.execute("graph.status", { id: skill.id, status: "deprecated" })).rejects.toThrow("skills.* operation");
 	});
 
 	it("refuses on a Playbook", async () => {

@@ -1,6 +1,6 @@
 /**
- * Registers every Vehicle-projected domain (notes.*, rules.*, docs.*, skills.*,
- * playbooks.*, tasks.*, artifact.*) as real Pi tools -- see @danypops/papyrus's
+ * Registers every Vehicle-projected domain (notes.*, rules.*, docs.*, playbooks.*,
+ * tasks.*, artifact.*) as real Pi tools -- see @danypops/papyrus's
  * src/vehicle/papyrus-vehicle.ts.
  *
  * Fails silently on a stale/unreachable daemon handle instead of aborting extension

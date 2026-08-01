@@ -17,11 +17,11 @@ import { requireLocallyOwnedContent, type Artifact, type CreateArtifactInput } f
 import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import {
-	SKILL_INPUT_TYPES,
+	BLUEPRINT_INPUT_TYPES,
 	validateArgumentValue,
-	type SkillArgumentValue,
-	type SkillInputType,
-} from "./domain/skill-definition.ts";
+	type BlueprintArgumentValue,
+	type BlueprintInputType,
+} from "./domain/blueprint-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { ArtifactScopeStore } from "./ports/artifact-scope-store.ts";
 import { NOTE_SUBTYPE } from "./note-service.ts";
@@ -294,11 +294,11 @@ export function assignRuleProject(artifacts: ArtifactStore, scopes: ArtifactScop
 
 /**
  * Global rules always apply; scoped workflow-run rules apply only while their run owns active
- * focus. Both a workflow Skill's own run scope ("skill-run", written by workflow-execution.ts's
- * runWorkflowSteps for a top-level Skill target) and a Playbook's own run scope ("playbook-run",
- * same call for a Playbook target) are recognized -- confirmed live that only "skill-run" was
- * ever checked here, silently breaking Playbook-run-scoped rule injection since Playbook gained
- * its own doc/rule structured steps.
+ * focus. Both a workflow-definition target's own run scope ("skill-run", written by
+ * workflow-execution.ts's runWorkflowSteps for that target kind) and a Playbook's own run scope
+ * ("playbook-run", same call for a Playbook target) are recognized -- confirmed live that only
+ * "skill-run" was ever checked here, silently breaking Playbook-run-scoped rule injection since
+ * Playbook gained its own doc/rule structured steps.
  */
 export function listInjectableRules(artifacts: ArtifactStore, activeTaskId?: string): Artifact[] {
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
@@ -357,11 +357,10 @@ export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskI
 }
 
 /**
- * Playbooks: a trigger and an ordered list of steps -- authored as prose, a completely
- * different beast from Skills at that level. But playbooks.invoke (playbook-execution.ts)
- * recycles the exact same materialization engine workflow Skills use: it compiles a Playbook
- * into a SkillDefinition and mechanically instantiates real Tasks from it, same as a Skill's
- * own artifact-template/workflow blueprint. `playbookInvocation` below is the OTHER, older
+ * Playbooks: a trigger and an ordered list of steps -- authored as prose. But playbooks.invoke
+ * (playbook-execution.ts) recycles the shared blueprint materialization engine: it compiles a
+ * Playbook into a BlueprintDefinition and mechanically instantiates real Tasks from it.
+ * `playbookInvocation` below is the OTHER, older
  * path -- rendered text with no side effects, now exposed as the `preview` action for a human
  * who wants to just read a playbook before invoking it, not the primary way of running one.
  * Like Tasks, a Playbook can be nested or chained with another Playbook: `contains`/`part_of`
@@ -379,10 +378,10 @@ export interface PlaybookArgument {
 	description?: string;
 	/** Defaults true: naming an argument at all is a signal it matters, so an author must opt out explicitly to make one optional. */
 	required: boolean;
-	/** Defaults "string" (unchanged behavior for every argument declared before typed arguments existed). Validated the exact same way a workflow Skill's own SkillInputDefinition is (domain/skill-definition.ts), not re-derived here. */
-	type: SkillInputType;
-	enum?: SkillArgumentValue[];
-	default?: SkillArgumentValue;
+	/** Defaults "string" (unchanged behavior for every argument declared before typed arguments existed). Validated the exact same way a workflow-definition target's own BlueprintInputDefinition is (domain/blueprint-definition.ts), not re-derived here. */
+	type: BlueprintInputType;
+	enum?: BlueprintArgumentValue[];
+	default?: BlueprintArgumentValue;
 }
 
 /** Rejects malformed input rather than silently dropping a bad entry -- the same posture creation validation already takes everywhere else. */
@@ -407,8 +406,8 @@ function validatePlaybookArguments(value: unknown): PlaybookArgument[] | undefin
 		const required = record["required"];
 		if (required !== undefined && typeof required !== "boolean") throw new Error(`argument "${name}" required must be a boolean`);
 		const type = record["type"] === undefined ? "string" : record["type"];
-		if (!SKILL_INPUT_TYPES.has(type as SkillInputType)) throw new Error(`argument "${name}" has unsupported type`);
-		const result: PlaybookArgument = { name, required: required !== false, type: type as SkillInputType };
+		if (!BLUEPRINT_INPUT_TYPES.has(type as BlueprintInputType)) throw new Error(`argument "${name}" has unsupported type`);
+		const result: PlaybookArgument = { name, required: required !== false, type: type as BlueprintInputType };
 		if (description !== undefined) result.description = description as string;
 		if (record["default"] !== undefined) result.default = validateArgumentValue(name, result.type, record["default"]);
 		if (record["enum"] !== undefined) {
@@ -425,7 +424,7 @@ function validatePlaybookArguments(value: unknown): PlaybookArgument[] | undefin
 	});
 }
 
-/** A plain string step is an ordinary prose task -- unchanged since Playbooks first existed. A structured step declares one of the other three Blueprint kinds a workflow Skill can already produce (domain/skill-definition.ts): a Doc, a Rule, or a nested pipeline call into another Playbook (or, until Skill retires, a workflow Skill). No `ref` field -- refs are compiler-assigned (playbook-definition.ts); a Playbook author never sees them, keeping the common case exactly as prose-simple as a plain string. */
+/** A plain string step is an ordinary prose task -- unchanged since Playbooks first existed. A structured step declares one of the other three Blueprint kinds (domain/blueprint-definition.ts): a Doc, a Rule, or a nested pipeline call into another Playbook (or a workflow-definition target). No `ref` field -- refs are compiler-assigned (playbook-definition.ts); a Playbook author never sees them, keeping the common case exactly as prose-simple as a plain string. */
 export type PlaybookStep =
 	| string
 	| { kind: "task"; title?: string; body: string }

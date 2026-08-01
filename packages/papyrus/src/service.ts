@@ -39,7 +39,7 @@ import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./m
 import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
 import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
 import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
-import { instantiateSkillOrTemplate, playbooksOperations, skillsOperations, PLAYBOOKS_OPERATION_NAMES, SKILLS_OPERATION_NAMES } from "./modules/playbooks.ts";
+import { playbooksOperations, PLAYBOOKS_OPERATION_NAMES } from "./modules/playbooks.ts";
 import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
 import { discussOperations, DISCUSS_OPERATION_NAMES } from "./modules/discuss.ts";
 import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
@@ -50,9 +50,8 @@ import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-s
  * Operations with no registered module: the generic, cross-cutting kernel surface
  * (artifact create/query/show, graph link/unlink/tree/status/history, gates run --
  * no domain owns creation/linking/traversal for every kind, the same way system.migrate
- * has no owning module) and two permanent composition-root exceptions (rules.injectable
- * needs tasks.active(); skills.instantiate branches into tasks.create()) -- see
- * src/modules/rules.ts and src/modules/skills.ts's module comments. Discourse's own
+ * has no owning module) and one permanent composition-root exception (rules.injectable
+ * needs tasks.active()) -- see src/modules/rules.ts's own module comment. Discourse's own
  * Papyrus-embedded storage (discourse.store) was removed entirely -- zero real callers
  * were ever confirmed against it; Discourse's real home is the standalone
  * @danypops/discourse package plus host adapters.
@@ -61,7 +60,7 @@ const COMPOSITION_ROOT_OPERATION_NAMES = [
 	"system.migrate", "artifact.create", "artifact.query", "artifact.show",
 	"artifact.remove", "artifact.remove_subtree", "artifact.restore", "artifact.trash_status", "artifact.trash_list",
 	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
-	"rules.injectable", "skills.instantiate",
+	"rules.injectable",
 ] as const;
 
 /**
@@ -79,7 +78,6 @@ export const EXPECTED_OPERATION_NAMES = [
 	...DOCS_OPERATION_NAMES,
 	...NOTES_OPERATION_NAMES,
 	...RULES_OPERATION_NAMES,
-	...SKILLS_OPERATION_NAMES,
 	...PLAYBOOKS_OPERATION_NAMES,
 	...GRAPH_PROJECTION_OPERATION_NAMES,
 	...LOGS_OPERATION_NAMES,
@@ -169,11 +167,11 @@ const tasksAuthorityClaim: AuthorityClaim = {
 
 /**
  * The same status-bypass protection Tasks and Notes already have, extended to every other kind
- * with its own validated transition set (Doc's draft/active/archived, Rule/Skill/Playbook's
+ * with its own validated transition set (Doc's draft/active/archived, Rule/Playbook's
  * active/deprecated) -- graph.status previously let a caller jump straight to any status string,
  * skipping e.g. Doc's draft-must-go-through-active-before-archived rule entirely.
  */
-function lifecycleAuthorityClaim(owner: "docs" | "rules" | "skills" | "playbooks", kind: string): AuthorityClaim {
+function lifecycleAuthorityClaim(owner: "docs" | "rules" | "playbooks", kind: string): AuthorityClaim {
 	return {
 		owner,
 		matchesArtifact: (candidateKind, subtype) => candidateKind === kind && !(kind === "doc" && subtype === NOTE_SUBTYPE),
@@ -189,7 +187,6 @@ export function createAuthorityRegistry(): AuthorityRegistry {
 		tasksAuthorityClaim,
 		lifecycleAuthorityClaim("docs", "doc"),
 		lifecycleAuthorityClaim("rules", "rule"),
-		lifecycleAuthorityClaim("skills", "skill"),
 		lifecycleAuthorityClaim("playbooks", "playbook"),
 	]);
 	return authority;
@@ -407,16 +404,6 @@ function handlers(
 		"rules.gate": forwardToModule("rules.gate"),
 		"rules.assign_project": forwardToModule("rules.assign_project"),
 		"rules.update": forwardToModule("rules.update"),
-		"skills.create": forwardToModule("skills.create"),
-		"skills.create_template": forwardToModule("skills.create_template"),
-		"skills.list": forwardToModule("skills.list"),
-		"skills.show": forwardToModule("skills.show"),
-		"skills.invoke": forwardToModule("skills.invoke"),
-		"skills.run": forwardToModule("skills.run"),
-		"skills.enable": forwardToModule("skills.enable"),
-		"skills.disable": forwardToModule("skills.disable"),
-		"skills.assign_project": forwardToModule("skills.assign_project"),
-		"skills.update": forwardToModule("skills.update"),
 		"playbooks.create": forwardToModule("playbooks.create"),
 		"playbooks.list": forwardToModule("playbooks.list"),
 		"playbooks.show": forwardToModule("playbooks.show"),
@@ -430,7 +417,6 @@ function handlers(
 		"playbooks.uncontain": forwardToModule("playbooks.uncontain"),
 		"playbooks.depend": forwardToModule("playbooks.depend"),
 		"playbooks.undepend": forwardToModule("playbooks.undepend"),
-		"skills.instantiate": (input) => instantiateSkillOrTemplate({ artifacts, tasks, authority }, input, eventContextFor(input, "template-instantiation")),
 		"graph_projection.apply": forwardToModule("graph_projection.apply"),
 		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 		"logs.append": forwardToModule("logs.append"),
@@ -476,7 +462,6 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
-	moduleRegistry.registerAll(skillsOperations({ artifacts, events, scopes, artifactScopes, authority }));
 	moduleRegistry.registerAll(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db), moduleRegistry, authority);

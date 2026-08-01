@@ -51,17 +51,17 @@ describe("papyrus: four-kind model", () => {
 		const doc = createArtifact(db, { kind: "doc", title: "Architecture overview", subtype: "design" });
 		const task = createArtifact(db, { kind: "task", title: "Implement SQLite layer" });
 		const rule = createArtifact(db, { kind: "rule", title: "Run tests before commit", extra: { condition: "git commit", action: "bun test", severity: "block" } });
-		const skill = createArtifact(db, { kind: "skill", title: "TDD workflow", extra: { trigger: "writing code", steps: ["write test", "implement", "refactor"], tools: ["bun test", "tsc"] } });
+		const playbook = createArtifact(db, { kind: "playbook", title: "TDD workflow", extra: { trigger: "writing code", steps: ["write test", "implement", "refactor"], tools: ["bun test", "tsc"] } });
 
 		expect(doc.kind).toBe("doc");
 		expect(task.kind).toBe("task");
 		expect(rule.kind).toBe("rule");
-		expect(skill.kind).toBe("skill");
+		expect(playbook.kind).toBe("playbook");
 
 		expect(queryArtifacts(db, { kind: "doc" })).toHaveLength(1);
 		expect(queryArtifacts(db, { kind: "task" })).toHaveLength(1);
 		expect(queryArtifacts(db, { kind: "rule" })).toHaveLength(1);
-		expect(queryArtifacts(db, { kind: "skill" })).toHaveLength(1);
+		expect(queryArtifacts(db, { kind: "playbook" })).toHaveLength(1);
 		db.close();
 	});
 
@@ -70,7 +70,7 @@ describe("papyrus: four-kind model", () => {
 		expect(createArtifact(db, { kind: "doc", title: "D" }).status).toBe("draft");
 		expect(createArtifact(db, { kind: "task", title: "T" }).status).toBe("todo");
 		expect(createArtifact(db, { kind: "rule", title: "R" }).status).toBe("active");
-		expect(createArtifact(db, { kind: "skill", title: "S" }).status).toBe("active");
+		expect(createArtifact(db, { kind: "playbook", title: "P" }).status).toBe("active");
 		db.close();
 	});
 
@@ -81,7 +81,7 @@ describe("papyrus: four-kind model", () => {
 		// that adversarial row order directly for every kind and assert the documented default
 		// still wins regardless of physical row order.
 		const { db } = tmpDb();
-		for (const [kind, correctDefault] of [["doc", "draft"], ["task", "todo"], ["rule", "active"], ["skill", "active"]] as const) {
+		for (const [kind, correctDefault] of [["doc", "draft"], ["task", "todo"], ["rule", "active"], ["playbook", "active"]] as const) {
 			const rows = db.prepare("SELECT name FROM statuses WHERE kind = ?").all(kind) as Array<{ name: string }>;
 			db.prepare("DELETE FROM statuses WHERE kind = ?").run(kind);
 			for (const row of rows) if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
@@ -98,18 +98,18 @@ describe("papyrus: four-kind model", () => {
 		const doc = createArtifact(db, { kind: "doc", title: "Spec" });
 		const task = createArtifact(db, { kind: "task", title: "Do it" });
 		const rule = createArtifact(db, { kind: "rule", title: "Test first" });
-		const skill = createArtifact(db, { kind: "skill", title: "TDD" });
+		const playbook = createArtifact(db, { kind: "playbook", title: "TDD" });
 
 		// task follows rule
 		linkArtifacts(db, task.id!, "follows", rule.id!);
 		// task implements doc
 		linkArtifacts(db, task.id!, "implements", doc.id!);
-		// skill triggers task
-		linkArtifacts(db, skill.id!, "triggers", task.id!);
+		// playbook triggers task
+		linkArtifacts(db, playbook.id!, "triggers", task.id!);
 		// rule gates task
 		linkArtifacts(db, rule.id!, "gates", task.id!);
-		// doc documents skill
-		linkArtifacts(db, doc.id!, "documents", skill.id!);
+		// doc documents playbook
+		linkArtifacts(db, doc.id!, "documents", playbook.id!);
 		// doc references doc (chaining)
 		const doc2 = createArtifact(db, { kind: "doc", title: "Related spec" });
 		linkArtifacts(db, doc.id!, "references", doc2.id!);
@@ -285,15 +285,15 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
-	it("skill with trigger/steps/tools in extra", () => {
+	it("playbook with trigger/steps/tools in extra", () => {
 		const { db } = tmpDb();
-		const skill = createArtifact(db, {
-			kind: "skill",
+		const playbook = createArtifact(db, {
+			kind: "playbook",
 			title: "TDD cycle",
 			extra: { trigger: "writing new code", steps: ["write failing test", "implement", "refactor"], tools: ["bun test", "tsc"] },
 		});
-		expect((skill.extra["steps"] as string[]).length).toBe(3);
-		expect((skill.extra["tools"] as string[]).length).toBe(2);
+		expect((playbook.extra["steps"] as string[]).length).toBe(3);
+		expect((playbook.extra["tools"] as string[]).length).toBe(2);
 		db.close();
 	});
 
@@ -367,7 +367,7 @@ describe("papyrus: four-kind model", () => {
 	it("instantiates an artifact template with deep defaults", () => {
 		const { db } = tmpDb();
 		const template = createArtifact(db, {
-			kind: "skill",
+			kind: "doc",
 			subtype: "artifact-template",
 			title: "Frontend task template",
 			extra: {
@@ -402,7 +402,7 @@ describe("papyrus: four-kind model", () => {
 	it("rejects missing template requirements and target-kind mismatches", () => {
 		const { db } = tmpDb();
 		const template = createArtifact(db, {
-			kind: "skill",
+			kind: "doc",
 			subtype: "artifact-template",
 			title: "Owned task",
 			extra: { targetKind: "task", required: ["title", "extra.owner"] },

@@ -7,7 +7,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 22;
+export const SQLITE_SCHEMA_VERSION = 23;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -294,52 +294,19 @@ export function dbPath(): string {
 }
 
 /**
- * Four purpose-built kinds — the enforced vocabulary.
- *
- * doc   = Knowledge — descriptive ("here is what the architecture looks like")
- * task  = Work — prescriptive action items with gates and checklists
- * rule  = Governance — context injection ("when doing X, follow Y").
- *         Maps to AGENTS.md semantics: active rules with inject:true are
- *         appended to the system prompt on before_agent_start.
- * skill = Parameterized workflow bundle — validated inputs render connected Task, Rule, and Doc collections.
- */
-export const SEED_KINDS = [
-	{ name: "doc", description: "Knowledge — descriptive reference (specs, decisions, research, designs)" },
-	{ name: "task", description: "Work — action items with gates, checklists, and dependencies" },
-	{ name: "rule", description: "Governance — context injection (when doing X, follow Y). Maps to AGENTS.md" },
-	{ name: "skill", description: "Parameterized workflow bundle — inputs and templates load deterministic tasks plus contextual rules and docs" },
-] as const;
-
-export const SEED_STATUSES = [
-	{ name: "draft", kind: "doc" },
-	{ name: "active", kind: "doc" },
-	{ name: "archived", kind: "doc" },
-	{ name: "todo", kind: "task" },
-	{ name: "in-progress", kind: "task" },
-	{ name: "review", kind: "task" },
-	{ name: "rejected", kind: "task" },
-	{ name: "done", kind: "task" },
-	{ name: "canceled", kind: "task" },
-	{ name: "active", kind: "rule" },
-	{ name: "deprecated", kind: "rule" },
-	{ name: "active", kind: "skill" },
-	{ name: "deprecated", kind: "skill" },
-] as const;
-
-/**
  * The initial status a newly created artifact of a kind gets when no caller-supplied
  * status is given. This must be an explicit, named mapping — never derived from row order
- * in the `statuses` table (SEED_STATUSES' listed order, or a migration's insertion order,
- * is not a semantic guarantee; a migrated database can freely have a different physical
- * row order for the same logical status set). Deriving "the default" from "whichever row
- * happens to be first by rowid" was the root cause of a real production defect where
- * migrated databases created new Tasks as done instead of todo.
+ * in the `statuses` table (a migration's insertion order is not a semantic guarantee; a
+ * migrated database can freely have a different physical row order for the same logical
+ * status set). Deriving "the default" from "whichever row happens to be first by rowid"
+ * was the root cause of a real production defect where migrated databases created new
+ * Tasks as done instead of todo.
  */
 export const DEFAULT_STATUS_BY_KIND: Readonly<Record<string, string>> = {
 	doc: "draft",
 	task: "todo",
 	rule: "active",
-	skill: "active",
+	playbook: "active",
 };
 
 /**
@@ -347,14 +314,14 @@ export const DEFAULT_STATUS_BY_KIND: Readonly<Record<string, string>> = {
  *
  * references:  source material (doc→doc, doc→task, doc→rule)
  * implements:  this work satisfies that (task→doc, task→rule)
- * follows:     this work obeys that (task→rule, task→skill)
- * depends_on:  DAG ordering (task→task)
- * documents:   describes (doc→task, doc→rule, doc→skill)
+ * follows:     this work obeys that (task→rule, task→playbook)
+ * depends_on:  DAG ordering (task→task, playbook→playbook)
+ * documents:   describes (doc→task, doc→rule, doc→playbook)
  * blocks:      blocking relationship (task→task)
  * supersedes:  replaces (doc→doc, rule→rule)
  * relates_to:  catch-all (any→any)
  * gates:       this rule gates that task (rule→task)
- * triggers:    this skill applies to that work (skill→task)
+ * triggers:    this playbook run applies to that work (playbook→task)
  */
 export const SEED_RELATIONS = [
 	"references", "implements", "follows", "depends_on",

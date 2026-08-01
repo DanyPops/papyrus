@@ -1,10 +1,10 @@
 /**
  * playbook-definition.ts — compiles a Playbook's own steps/trigger/tools/arguments, plus its
  * `contains` (nested) and `depends_on` (prerequisite) whole-artifact composition tree, into
- * an in-memory SkillDefinition. Rather than a second graph-materialization engine, a Playbook
- * becomes a definition that compiles down to the exact Blueprint shape a workflow Skill
- * already uses, then hands off to workflow-execution.ts's shared materializeWorkflowDefinition
- * for the actual artifact creation.
+ * an in-memory BlueprintDefinition. Rather than a second graph-materialization engine, a
+ * Playbook becomes a definition that compiles down to the exact Blueprint shape a
+ * workflow-definition target already uses, then hands off to workflow-execution.ts's shared
+ * materializeWorkflowDefinition for the actual artifact creation.
  *
  * One task blueprint per playbook-node root (a container, never itself gated) plus one per
  * step (chained by sequential dependsOn); `contains`-linked playbooks nest their own root
@@ -12,11 +12,11 @@
  * after the parent's own steps); `depends_on`-linked playbooks compile as independent
  * subtrees whose tails gate this node's first step ("complete this FIRST"). That whole-artifact
  * composition tree is fully known and owned at compile time and is always inlined directly
- * (no SkillCallBlueprint indirection). A step-level `call` (one step within a single playbook
+ * (no CallBlueprint indirection). A step-level `call` (one step within a single playbook
  * node, not the composition tree above) is the one place this compiler DOES emit a
- * SkillCallBlueprint -- a finer-grained, in-blueprint nested-run reference resolved and
- * executed independently by workflow-execution.ts, exactly like a workflow Skill's own nested
- * pipeline step, since its target's own definition is not knowable at this compile time.
+ * CallBlueprint -- a finer-grained, in-blueprint nested-run reference resolved and executed
+ * independently by workflow-execution.ts, exactly like a workflow-definition target's own
+ * nested pipeline step, since its target's own definition is not knowable at this compile time.
  */
 import {
 	PLAYBOOK_INVOCATION_MAX_CALL_DEPTH,
@@ -24,8 +24,8 @@ import {
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
-import type { SkillCallBlueprint, SkillDefinition, SkillDocBlueprint, SkillInputDefinition, SkillRuleBlueprint, SkillTaskBlueprint } from "./domain/skill-definition.ts";
-import { validateSkillDefinition } from "./domain/skill-definition.ts";
+import type { CallBlueprint, BlueprintDefinition, DocBlueprint, BlueprintInputDefinition, RuleBlueprint, TaskBlueprint } from "./domain/blueprint-definition.ts";
+import { validateBlueprintDefinition } from "./domain/blueprint-definition.ts";
 import type { PlaybookArgument, PlaybookStep } from "./domain-services.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 
@@ -39,7 +39,7 @@ export interface PlaybookExternalLink {
 }
 
 export interface CompiledPlaybook {
-	definition: SkillDefinition;
+	definition: BlueprintDefinition;
 	/** The very first real leaf task in the whole tree's reading order -- what a caller should focus once materialized. */
 	entryRef: string;
 	externalLinks: PlaybookExternalLink[];
@@ -90,11 +90,11 @@ function stepTitle(step: string): string {
 }
 
 interface CompileContext {
-	docs: SkillDocBlueprint[];
-	rules: SkillRuleBlueprint[];
-	tasks: SkillTaskBlueprint[];
-	skills: SkillCallBlueprint[];
-	inputs: Record<string, SkillInputDefinition>;
+	docs: DocBlueprint[];
+	rules: RuleBlueprint[];
+	tasks: TaskBlueprint[];
+	skills: CallBlueprint[];
+	inputs: Record<string, BlueprintInputDefinition>;
 	externalLinks: PlaybookExternalLink[];
 	refCounter: { n: number };
 }
@@ -108,7 +108,7 @@ interface CompileNodeResult {
 }
 
 /** A composition tree can declare the same argument name from more than one node (e.g. two prerequisite playbooks both need a `target`); required OR-accumulates the same way it always did, but the type must agree everywhere -- silently picking one node's type over another's would compile a definition whose placeholder substitution disagrees with what one of the two authors actually declared. */
-function mergeArgument(inputs: Record<string, SkillInputDefinition>, argument: PlaybookArgument): void {
+function mergeArgument(inputs: Record<string, BlueprintInputDefinition>, argument: PlaybookArgument): void {
 	const existing = inputs[argument.name];
 	if (existing && existing.type !== argument.type) {
 		throw new Error(`playbook composition declares conflicting types for argument "${argument.name}" (${existing.type} vs ${argument.type})`);
@@ -138,7 +138,7 @@ function compileNode(
 	for (const argument of argumentsOf(playbook)) mergeArgument(ctx.inputs, argument);
 
 	const rootRef = `pb${ctx.refCounter.n++}`;
-	const rootBlueprint: SkillTaskBlueprint = { ref: rootRef, title: playbook.title, body: rootTaskBody(playbook), ...(parentRef ? { parent: parentRef } : {}) };
+	const rootBlueprint: TaskBlueprint = { ref: rootRef, title: playbook.title, body: rootTaskBody(playbook), ...(parentRef ? { parent: parentRef } : {}) };
 	ctx.tasks.push(rootBlueprint);
 	if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS) throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
 
@@ -163,11 +163,10 @@ function compileNode(
 		if (headRef === undefined) headRef = result.headRef;
 	}
 
-	// Doc/rule steps are not gated tasks (SkillDocBlueprint/SkillRuleBlueprint have no
-	// dependsOn/parent of their own -- workflow-execution.ts always creates them unconditionally
-	// alongside the run) -- they do not touch cursorPrecedingRefs/headRef/tailRef at all. A task
-	// or call step DOES occupy a position in the sequential chain, exactly as a plain-string step
-	// always did.
+	// Doc/rule steps are not gated tasks (DocBlueprint/RuleBlueprint have no dependsOn/parent of
+	// their own -- workflow-execution.ts always creates them unconditionally alongside the run)
+	// -- they do not touch cursorPrecedingRefs/headRef/tailRef at all. A task or call step DOES
+	// occupy a position in the sequential chain, exactly as a plain-string step always did.
 	let cursorPrecedingRefs = [...incomingPrecedingRefs, ...prerequisiteTailRefs];
 	let tailRef = rootRef;
 	for (const [index, step] of stepsOf(playbook).entries()) {
@@ -195,11 +194,11 @@ function compileNode(
 				...(step.labels ? { labels: step.labels } : {}),
 			});
 		} else {
-			// kind === "call": nests another Playbook's (or, until Skill retires, a workflow Skill's)
-			// run as a pipeline step -- shares the same dependsOn chain as a task step, resolved
+			// kind === "call": nests another Playbook's (or a workflow-definition target's) run as
+			// a pipeline step -- shares the same dependsOn chain as a task step, resolved
 			// polymorphically at execution time by workflow-execution.ts based on the target's kind.
 			const stepRef = `${rootRef}-c${index}`;
-			ctx.skills.push({ ref: stepRef, title: step.title, skillId: step.playbookId, ...(step.arguments ? { arguments: step.arguments } : {}), parent: rootRef, dependsOn: cursorPrecedingRefs });
+			ctx.skills.push({ ref: stepRef, title: step.title, targetId: step.playbookId, ...(step.arguments ? { arguments: step.arguments } : {}), parent: rootRef, dependsOn: cursorPrecedingRefs });
 			if (headRef === undefined) headRef = stepRef;
 			cursorPrecedingRefs = [stepRef];
 			tailRef = stepRef;
@@ -221,7 +220,7 @@ function compileNode(
 export function compilePlaybookDefinition(artifacts: ArtifactStore, playbookId: string): CompiledPlaybook {
 	const ctx: CompileContext = { docs: [], rules: [], tasks: [], skills: [], inputs: {}, externalLinks: [], refCounter: { n: 0 } };
 	const { headRef } = compileNode(artifacts, playbookId, ctx, new Set(), 0, undefined, []);
-	const definition = validateSkillDefinition({
+	const definition = validateBlueprintDefinition({
 		version: 1,
 		inputs: ctx.inputs,
 		blueprints: { docs: ctx.docs, rules: ctx.rules, tasks: ctx.tasks, skills: ctx.skills },

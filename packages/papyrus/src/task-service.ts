@@ -462,7 +462,7 @@ export class Tasks {
 
 	/**
 	 * Cancels a task and every task in its containment subtree (`contains` edges, transitively) --
-	 * a whole materialized playbook/skill run can be torn down in one call instead of enumerating
+	 * a whole materialized playbook run can be torn down in one call instead of enumerating
 	 * every task id by hand. A task already in a terminal state (done/canceled) is skipped, not
 	 * treated as an error, matching how a mixed-status subtree is the normal case (some steps
 	 * genuinely finished before the rest needed to be abandoned). Does not follow `depends_on` --

@@ -1,6 +1,6 @@
 /**
  * Generic, kind-agnostic mutation event log — the "who did what, when" answer
- * shared by every artifact kind (doc, task, rule, skill), not reinvented per domain.
+ * shared by every artifact kind (doc, task, rule, playbook), not reinvented per domain.
  *
  * Modeled after scribe's parchment.Event/EventFilter/GetEvents shape, but avoids its
  * known gap: there, the Actor column is defined and filterable yet never populated by

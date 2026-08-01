@@ -9,7 +9,7 @@
  * surfaces severity and notes.ts surfaces history count, both also not the row glyph.
  *
  * Creating a new Discussion is left to the agent (the discuss tool), matching docs.ts/rules.ts/
- * skills.ts precedent -- Notes is the one kind with a human-facing creation command (/note),
+ * playbooks.ts precedent -- Notes is the one kind with a human-facing creation command (/note),
  * because Notes exists specifically as a human-authored inbox.
  */
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";

@@ -160,20 +160,10 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "discuss.list", result: [], invoke: (c) => runDiscussCli(["list", "--json"], c) },
 ];
 
-/**
- * skills.* stays registered on the raw service (pi-papyrus's /skills TUI still calls it
- * directly, not through the CLI or Vehicle) but is retired from the CLI on purpose --
- * see modules/playbooks.ts. No CLI route is the correct, deliberate state, not a gap.
- */
-const RETIRED_FROM_CLI = new Set<OperationName>([
-	"skills.create", "skills.create_template", "skills.list", "skills.show", "skills.invoke",
-	"skills.run", "skills.enable", "skills.disable", "skills.assign_project", "skills.instantiate", "skills.update",
-]);
-
 describe("Papyrus CLI \u2014 structural operation parity", () => {
-	it("has a CLI fixture for every EXPECTED_OPERATION_NAMES entry, except skills.* (deliberately retired from the CLI)", () => {
+	it("has a CLI fixture for every EXPECTED_OPERATION_NAMES entry", () => {
 		const covered = new Set(CLI_FIXTURES.map((fixture) => fixture.operation));
-		const missing = EXPECTED_OPERATION_NAMES.filter((name) => !covered.has(name) && !RETIRED_FROM_CLI.has(name));
+		const missing = EXPECTED_OPERATION_NAMES.filter((name) => !covered.has(name));
 		expect(missing).toEqual([]);
 	});
 

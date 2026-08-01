@@ -68,9 +68,9 @@ const genericMatrix: Array<{ name: string; operation: OperationName; input?: Rec
 	{ name: "document", operation: "docs.show", value: artifact() },
 	{ name: "note", operation: "notes.show", input: { project_root: "/workspace/papyrus" }, value: artifact({ subtype: "note", status: "draft" }) },
 	{ name: "rule", operation: "rules.show", value: artifact({ kind: "rule", subtype: "", extra: { severity: "block", condition: "before release" } }) },
-	{ name: "legacy skill", operation: "skills.show", value: artifact({ kind: "skill", subtype: "", extra: { trigger: "manual", steps: ["one", "two"] } }) },
-	{ name: "template", operation: "skills.show", value: artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "doc", required: ["title"] } }) },
-	{ name: "workflow", operation: "skills.show", value: artifact({ kind: "skill", subtype: "workflow", extra: { definition: { inputs: {}, blueprints: { tasks: [], docs: [], rules: [] } } } }) },
+	{ name: "playbook", operation: "playbooks.show", value: artifact({ kind: "playbook", subtype: "", extra: { trigger: "manual", steps: ["one", "two"] } }) },
+	{ name: "template", operation: "playbooks.show", value: artifact({ kind: "playbook", subtype: "artifact-template", extra: { targetKind: "doc", required: ["title"] } }) },
+	{ name: "workflow", operation: "playbooks.show", value: artifact({ kind: "playbook", subtype: "workflow", extra: { definition: { inputs: {}, blueprints: { tasks: [], docs: [], rules: [] } } } }) },
 	{ name: "discussion", operation: "docs.show", value: artifact({ subtype: "discussion", status: "active", extra: { discussion: { state: "active", roundCount: 2 } } }) },
 ];
 

@@ -1,13 +1,13 @@
 /**
  * playbook-execution.ts — playbooks.invoke's real implementation: compile the Playbook's
- * composition tree (playbook-definition.ts) into a SkillDefinition, materialize it through
+ * composition tree (playbook-definition.ts) into a BlueprintDefinition, materialize it through
  * workflow-execution.ts's shared engine, mirror any pre-existing Rule/Doc links onto the
  * generated root task, and report which task to focus. No text is rendered here -- every
  * step is its own Task, and only the currently-focused one is ever surfaced to an agent
  * (via the existing Task Focus system-prompt pointer), which is what actually avoids the
  * old text-dump problem: one page at a time, not the whole book at once.
  */
-import type { SkillArgumentValue } from "./domain/skill-definition.ts";
+import type { BlueprintArgumentValue } from "./domain/blueprint-definition.ts";
 import { compilePlaybookDefinition } from "./playbook-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
@@ -22,7 +22,7 @@ export interface InvokePlaybookInput {
 export interface PlaybookInvocationResult {
 	playbookId: string;
 	runId: string;
-	arguments: Record<string, SkillArgumentValue>;
+	arguments: Record<string, BlueprintArgumentValue>;
 	created: { docs: string[]; rules: string[]; tasks: string[] };
 	rootTaskIds: string[];
 	/** The one task to focus -- the first real leaf in the whole composition tree's reading order (deepest prerequisite's own first step, or this playbook's own first step, or its first nested child's, or the container task itself when there is nothing else). */
@@ -36,7 +36,7 @@ export interface PlaybookMissingArguments {
 	missingArguments: string[];
 }
 
-function missingRequiredInputs(inputs: Record<string, { required?: boolean; default?: SkillArgumentValue }>, provided: Record<string, unknown>): string[] {
+function missingRequiredInputs(inputs: Record<string, { required?: boolean; default?: BlueprintArgumentValue }>, provided: Record<string, unknown>): string[] {
 	return Object.entries(inputs)
 		.filter(([name, input]) => input.required && provided[name] === undefined && input.default === undefined)
 		.map(([name]) => name);

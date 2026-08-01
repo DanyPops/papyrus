@@ -9,10 +9,17 @@ afterAll(cleanupTempDirs);
  * left behind under kind=skill (workflow and artifact-template rows) moves to kind=playbook too,
  * preserving subtype and status. Fixture starts at v21 (right before this migration exists) so
  * only this one migration's effect is under test, rather than compounding with v18's.
+ *
+ * Today's SEED_SQL (a fresh v23+ bootstrap) no longer seeds kind=skill at all, so this fixture
+ * inserts it explicitly first -- simulating what a real v21 database's schema actually had,
+ * before the kind was retired at v23.
  */
 function skillDatabaseAtV21(path: string): void {
-	const db = openDb(path); // bootstraps at the full current schema, including kind "skill" support
+	const db = openDb(path); // bootstraps at the full current schema
 	db.exec(`
+		INSERT OR IGNORE INTO kinds VALUES ('skill', 'legacy, pre-retirement');
+		INSERT OR IGNORE INTO statuses VALUES ('active', 'skill');
+		INSERT OR IGNORE INTO statuses VALUES ('deprecated', 'skill');
 		INSERT INTO artifacts (id, kind, subtype, title, status, created_at, updated_at) VALUES
 			('live-verify-leaf', 'skill', 'workflow', 'live-verify-leaf', 'deprecated', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
 			('a-template', 'skill', 'artifact-template', 'Bug report template', 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
@@ -42,23 +49,24 @@ describe("skill-to-playbook-data-migration (v22)", () => {
 		expect(remainingSkillRows.n).toBe(0);
 		db.close();
 	});
+});
 
-	it("deliberately leaves the 'skill' kind/statuses type rows in place -- src/modules/skills.ts still writes kind=skill until its own retirement task lands", () => {
+describe("retire-skill-kind (v23)", () => {
+	it("drops the 'skill' kind/statuses rows once no data or code depends on them anymore", () => {
 		const path = join(tempDir("papyrus-skill-kind-retirement-"), "papyrus.db");
 		skillDatabaseAtV21(path);
 
 		const db = openDb(path);
-		migrateDb(db);
+		const result = migrateDb(db);
+		expect(result.applied).toContain("retire-skill-kind");
 
-		const kinds = (db.prepare("SELECT name FROM kinds WHERE name = 'skill'").all() as Array<{ name: string }>).map((row) => row.name);
-		expect(kinds).toEqual(["skill"]);
-		const statuses = (db.prepare("SELECT name FROM statuses WHERE kind = 'skill' ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name);
-		expect(statuses).toEqual(["active", "deprecated"]);
+		expect(db.prepare("SELECT name FROM kinds WHERE name = 'skill'").get()).toBeNull();
+		expect(db.prepare("SELECT name FROM statuses WHERE kind = 'skill'").get()).toBeNull();
 
-		// The write path is still live: a fresh kind=skill insert must still succeed (FK intact).
-		db.prepare("INSERT INTO artifacts (id, kind, subtype, title, status, created_at, updated_at) VALUES ('still-writable', 'skill', 'workflow', 'x', 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')").run();
-		const row = db.prepare("SELECT kind FROM artifacts WHERE id = 'still-writable'").get() as { kind: string };
-		expect(row.kind).toBe("skill");
+		// The write path is genuinely gone: a fresh kind=skill insert now fails the FK constraint.
+		expect(() => db.prepare(
+			"INSERT INTO artifacts (id, kind, subtype, title, status, created_at, updated_at) VALUES ('should-fail', 'skill', 'workflow', 'x', 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+		).run()).toThrow();
 		db.close();
 	});
 });

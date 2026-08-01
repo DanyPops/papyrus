@@ -118,7 +118,7 @@ export function matchArtifactByName(candidates: Artifact[], name: string): strin
 /**
  * tasks.list is the one list operation that requires `project_root` and separately supports a
  * `scope` ("project" | "graph" | "all") to widen or narrow the search. Every other list operation
- * (docs.list, rules.list, skills.list, playbooks.list, artifact.query, ...) instead treats an
+ * (docs.list, rules.list, playbooks.list, artifact.query, ...) instead treats an
  * omitted `project_root` as an unscoped/global search (domain-services.ts's listScoped) and has
  * no `scope` concept at all -- so "search everywhere" means something different for each.
  */
@@ -133,7 +133,7 @@ function widenedRequest(listOperation: OperationName, baseRequest: Record<string
 
 /**
  * Resolves a name to its id via `listOperation` (whichever kind's list call is the right search
- * scope -- tasks.list, docs.list, rules.list, skills.list, notes.list, discuss.list, or the
+ * scope -- tasks.list, docs.list, rules.list, playbooks.list, notes.list, discuss.list, or the
  * kind-agnostic artifact.query for a cross-kind reference like a link target). `baseRequest`
  * should mirror whatever scoping (project_root, etc.) that operation's own "list" action already
  * uses, so resolution never searches a wider or narrower scope than a plain list call would.
@@ -195,7 +195,7 @@ async function resolveNameArrayField(
 }
 
 /**
- * Shared "remove"/"restore" dispatch for every domain tool (tasks/docs/rules/skills) --
+ * Shared "remove"/"restore" dispatch for every domain tool (tasks/docs/rules/playbooks) --
  * artifact.remove/restore are kind-agnostic composition-root operations (see service.ts),
  * not owned by any one domain module, so every domain tool exposes the same two actions
  * over the same two operations rather than reinventing trash semantics four times.
@@ -234,7 +234,7 @@ async function handleArtifactRemoveRestore(action: unknown, params: Record<strin
 	return null;
 }
 
-// notes.*, rules.*, docs.*, skills.*, playbooks.*, tasks.*, and the shared artifact.* are
+// notes.*, rules.*, docs.*, playbooks.*, tasks.*, and the shared artifact.* are
 // registered as Vehicles (see ../vehicle-notes-client.ts and @danypops/papyrus's
 // src/vehicle/papyrus-vehicle.ts), not pi.registerTool()s in this file.
 
@@ -341,7 +341,7 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 }
 
 /** Thin orchestrator: each domain's tool is independently navigable/testable via its own registerXTool function. */
-// notes, rules, docs, skills, playbooks, and tasks are no longer registered here -- all migrated
+// notes, rules, docs, playbooks, and tasks are no longer registered here -- all migrated
 // onto Vehicle (registerNotesVehicle in vehicle-notes-client.ts, wired at session_start in
 // index.ts), replacing their own pi.registerTool() mega-tools. See @danypops/papyrus's
 // src/vehicle/papyrus-vehicle.ts for the server side. discuss remains here -- live:true needs an

@@ -317,11 +317,11 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		db.close();
 	});
 
-	it("rejects playbook actions against another artifact kind, including a real Skill", () => {
+	it("rejects playbook actions against another artifact kind", () => {
 		const { db, artifacts } = fixture();
-		const skill = artifacts.create({ kind: "skill", status: "active", title: "Not a playbook" });
-		expect(() => showPlaybook(artifacts, skill.id)).toThrow("is not a playbook");
-		expect(() => transitionPlaybook(artifacts, skill.id, "disable")).toThrow("is not a playbook");
+		const rule = artifacts.create({ kind: "rule", status: "active", title: "Not a playbook" });
+		expect(() => showPlaybook(artifacts, rule.id)).toThrow("is not a playbook");
+		expect(() => transitionPlaybook(artifacts, rule.id, "disable")).toThrow("is not a playbook");
 		db.close();
 	});
 });

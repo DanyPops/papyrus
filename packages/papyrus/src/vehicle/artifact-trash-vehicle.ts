@@ -55,7 +55,7 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 
 	define(
 		"show",
-		"Shows any artifact (doc, task, rule, skill, playbook) by id, regardless of kind.",
+		"Shows any artifact (doc, task, rule, playbook) by id, regardless of kind.",
 		"read",
 		{ id: stringProp, tree: { type: "boolean" } as unknown as { type: string }, depth: numberProp, max_nodes: numberProp },
 		["id"],

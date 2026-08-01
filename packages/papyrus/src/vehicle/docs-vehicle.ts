@@ -25,7 +25,7 @@ function resolveDocId(artifacts: ArtifactStore, scopes: ArtifactScopeStore, proj
 	);
 }
 
-/** Cross-kind resolution for a link target -- can be a doc, task, rule, or skill. Unscoped, matching the exact behavior of the artifact.query-backed resolution it replaces. */
+/** Cross-kind resolution for a link target -- can be a doc, task, rule, or playbook. Unscoped, matching the exact behavior of the artifact.query-backed resolution it replaces. */
 function resolveTargetId(artifacts: ArtifactStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw new Error("target_id or target_name is required");
@@ -114,7 +114,7 @@ export function registerDocsVehicleOperations(registry: VehicleRegistry, artifac
 
 	define(
 		"link",
-		"Links a Doc to another artifact via a typed relation. Prefer target_name over target_id -- resolved server-side, searching every kind since a link target can be a doc, task, rule, or skill.",
+		"Links a Doc to another artifact via a typed relation. Prefer target_name over target_id -- resolved server-side, searching every kind since a link target can be a doc, task, rule, or playbook.",
 		"local-write",
 		{ id: stringProp, name: stringProp, relation: { type: "string", enum: ["references", "documents", "supersedes", "relates_to", "contains", "part_of"] }, target_id: stringProp, target_name: stringProp, project_root: stringProp },
 		["relation"],

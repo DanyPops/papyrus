@@ -1,7 +1,7 @@
 /**
  * modules/logs.ts — the `log` domain as a registered Papyrus-native module.
  *
- * Deliberately self-contained: does not import artifact/task/rule/skill infrastructure --
+ * Deliberately self-contained: does not import artifact/task/rule/playbook infrastructure --
  * logs never touch the Artifact graph directly (see src/domain/log-entry.ts's own module
  * comment on why `log` is not an Artifact kind).
  */

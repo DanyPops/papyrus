@@ -1,7 +1,7 @@
 /**
  * pi-papyrus — native Pi extension for the Papyrus graph store.
  *
- * Tools: papyrus_query/graph/show (low-level), plus one native tool per domain (docs/rules/skills/playbooks/tasks/discuss/notes).
+ * Tools: papyrus_query/graph/show (low-level), plus one native tool per domain (docs/rules/playbooks/tasks/discuss/notes).
  * Command: /tasks (interactive task panel).
  * Widget: persistent task status above editor (rpiv-todo pattern).
  * Injection: active rules + open tasks appended to system prompt every turn.
@@ -327,7 +327,7 @@ export default async function (pi: ExtensionAPI) {
 	const contextInjectionProducerId = randomUUID();
 	let previousContextInjectionFingerprint: string | undefined;
 	let logTurnSequence = 0;
-	// Papyrus's own Context Hub contribution (rules/tasks/skills, bundled into one segment --
+	// Papyrus's own Context Hub contribution (rules/tasks/Pi's own skill catalog, bundled into one segment --
 	// see context-hub-contribution.ts) re-emits every turn alongside the existing injection
 	// observation, its own independent monotonic sequence, same cadence and shape as
 	// contextInjectionSequence but on a different channel/schema.
@@ -438,7 +438,7 @@ export default async function (pi: ExtensionAPI) {
 			"ACTIONS: link (from+relation+to), unlink (from+relation+to — idempotent, no error if already absent; for Task depends_on/contains prefer the tasks tool's undepend/uncontain), " +
 			"tree (id → bounded BFS subgraph), " +
 			"history (who did what, when — requires id, actor, or session_id). " +
-			"status (id+status) exists at the protocol level but is refused for every kind with its own lifecycle (Doc/Rule/Skill/Playbook/Task/Note all reject it) -- use that kind's own domain tool for status changes (docs.activate, rules.enable, tasks.start, etc), never this. " +
+			"status (id+status) exists at the protocol level but is refused for every kind with its own lifecycle (Doc/Rule/Playbook/Task/Note all reject it) -- use that kind's own domain tool for status changes (docs.activate, rules.enable, tasks.start, etc), never this. " +
 			"PREFER `from_name`/`to_name` over `from`/`to` for link/unlink -- both are backend implementation details, resolved from name automatically, searching across every kind since either end of an edge can be any artifact.",
 		parameters: Type.Object({
 			action: Type.String({ description: "link | unlink | tree | status | history" }),
@@ -462,7 +462,7 @@ export default async function (pi: ExtensionAPI) {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
 				if (params.action === "link" || params.action === "unlink") {
-					// Kind-agnostic: either end of an edge can be a task, doc, rule, skill, or playbook.
+					// Kind-agnostic: either end of an edge can be a task, doc, rule, or playbook.
 					await resolveNameFields(params, [
 						{ nameKey: "from_name", idKey: "from", listOperation: "artifact.query", baseRequest: {} },
 						{ nameKey: "to_name", idKey: "to", listOperation: "artifact.query", baseRequest: {} },

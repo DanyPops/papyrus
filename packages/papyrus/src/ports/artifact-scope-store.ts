@@ -1,7 +1,7 @@
 import type { TaskScopeSource } from "../domain/task-scope.ts";
 
 /**
- * Project scoping for Docs/Rules/Skills, mirroring TaskScopeStore's shape (task_scopes) but
+ * Project scoping for Docs/Rules/Playbooks, mirroring TaskScopeStore's shape (task_scopes) but
  * kept as its own table/port rather than folding non-Task kinds into Task-named
  * infrastructure. TaskScopeSource ("cwd" | "explicit" | "unscoped") is already kind-agnostic
  * and reused as-is -- no reason to redefine the same three values under a new name.

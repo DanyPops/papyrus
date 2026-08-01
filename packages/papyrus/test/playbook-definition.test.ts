@@ -107,7 +107,7 @@ describe("playbook-definition: structured steps (full-richness Blueprint absorpt
 		const compiled = compilePlaybookDefinition(artifacts, playbook.id);
 		expect(compiled.definition.blueprints.skills).toHaveLength(1);
 		const call = compiled.definition.blueprints.skills[0]!;
-		expect(call).toMatchObject({ title: "Run Target", skillId: target.id, arguments: { x: "1" } });
+		expect(call).toMatchObject({ title: "Run Target", targetId: target.id, arguments: { x: "1" } });
 		const before = compiled.definition.blueprints.tasks.find((task) => task.body === "Before")!;
 		const after = compiled.definition.blueprints.tasks.find((task) => task.body === "After")!;
 		expect(call.dependsOn).toEqual([before.ref]);

@@ -45,7 +45,7 @@ describe("Papyrus tool render contracts", () => {
 			createTransitionDetails("tasks.start", artifact({ status: "in-progress" }), "todo", "in-progress"),
 			createGraphDetails("tasks.graph", [artifact()], [{ from: "task-1", relation: "depends_on", to: "task-2" }]),
 			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
-			createInvocationDetails("skills.run", "run-1", { tasks: ["task-1"], docs: [], rules: [], roots: ["task-1"] }),
+			createInvocationDetails("playbooks.invoke", "run-1", { tasks: ["task-1"], docs: [], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task was not found."),
 		];

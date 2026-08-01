@@ -2,28 +2,13 @@
  * modules/playbooks.ts — Playbooks as a Papyrus-native registered module.
  *
  * A Playbook is prose-first, whole-artifact composition (contains/depends_on between real
- * Playbook artifacts) rather than a raw JSON blueprint -- but its own step list can now also
- * declare Doc/Rule blueprints and typed arguments and nested pipeline calls, the same
- * Blueprint richness a workflow Skill's JSON definition always had. playbooks.invoke recycles
- * the exact same materialization engine workflow Skills use (playbook-execution.ts compiles a
- * Playbook's steps and composition tree into a SkillDefinition, then hands off to
+ * Playbook artifacts) rather than a raw JSON blueprint -- but its own step list can also
+ * declare Doc/Rule blueprints and typed arguments and nested pipeline calls. playbooks.invoke
+ * recycles the shared blueprint materialization engine (playbook-execution.ts compiles a
+ * Playbook's steps and composition tree into a BlueprintDefinition, then hands off to
  * workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
  * playbook-definition.ts for the full rationale.
- *
- * Also home to skills.* (below): Skill-the-kind is retired (domain-services.ts's own
- * createSkill/createArtifactTemplate/instantiateTemplate/listSkills/assignSkillProject/
- * showSkill/updateSkill/skillInvocation/transitionSkill are gone), but the skills.* operation
- * NAMES stay registered and functional for skills-vehicle.ts/the CLI/the TUI, none of which
- * are retired yet -- they now delegate straight to the same Playbook domain-services functions
- * playbooks.* itself uses. A workflow Skill's raw `definition` field and the artifact-template
- * compatibility mechanism (confirmed zero real production usage, either one, ever) are not
- * carried forward: both throw a clear, actionable error instead. skills.instantiate is
- * intentionally NOT registered here even for its still-live callers -- same composition-root
- * reason as ever, see instantiateSkillOrTemplate's own doc comment below.
  */
-import type { AuthorityRegistry } from "../authority-registry.ts";
-import type { Artifact } from "../domain/artifact.ts";
-import type { ArtifactEventContext } from "../domain/artifact-event.ts";
 import {
 	assignPlaybookProject,
 	containPlaybook,
@@ -145,76 +130,4 @@ export function playbooksOperations({ artifacts, events, scopes, artifactScopes,
 	];
 }
 
-/** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. skills.instantiate is deliberately absent -- see instantiateSkillOrTemplate's own doc comment below. */
-export const SKILLS_OPERATION_NAMES = [
-	"skills.create", "skills.create_template", "skills.list", "skills.show", "skills.invoke", "skills.run", "skills.enable", "skills.disable", "skills.assign_project", "skills.update",
-] as const;
 
-export interface SkillsModuleDeps {
-	artifacts: ArtifactStore;
-	/**
-	 * events/scopes/authority are no longer read by any skills.* operation below -- Skill's own
-	 * creation/lifecycle functions were retired in favor of Playbook's equivalents, none of which
-	 * need them. Kept in the deps shape only so service.ts's and skills-vehicle.ts's existing
-	 * construction call sites don't need touching before their own retirement tasks land.
-	 */
-	events: TaskEventStore;
-	scopes: TaskScopeStore;
-	artifactScopes: ArtifactScopeStore;
-	authority: AuthorityRegistry;
-}
-
-/**
- * skills.instantiate's own branching logic (compatibility-template creation vs. a
- * task-target template's tasks.create() call) -- shared between service.ts's raw RPC
- * forwarder and skills-vehicle.ts's Vehicle operation, the two real callers, instead
- * of reimplemented in each. Retired: the artifact-template compatibility mechanism
- * (createArtifactTemplate/instantiateTemplate) had zero real production rows, ever, in any
- * environment checked. Kept registered (rather than deleted outright) purely so those two
- * still-live callers don't break at wiring time before their own retirement tasks remove
- * this operation from the surface entirely.
- */
-export interface InstantiateSkillDeps {
-	artifacts: ArtifactStore;
-	tasks: Tasks;
-	authority: AuthorityRegistry;
-}
-
-export function instantiateSkillOrTemplate(_deps: InstantiateSkillDeps, _input: OperationInput, _context?: ArtifactEventContext): Artifact {
-	throw new Error("artifact templates are retired (zero real production usage, confirmed live) -- create the target artifact directly (e.g. docs.create, tasks.create, playbooks.create) instead of skills.instantiate");
-}
-
-/** Registers every skills.* operation except skills.instantiate (see module comment). skills.create/create_template/run reject the workflow-Skill-definition and artifact-template paths outright -- see the module doc comment above. */
-export function skillsOperations({ artifacts, artifactScopes }: SkillsModuleDeps): OperationDefinition[] {
-	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
-		name, moduleId: MODULE_ID, execute,
-	});
-	return [
-		define("skills.create", (input: OperationInput) => {
-			if (input["definition"] !== undefined) {
-				throw new Error("workflow Skill definitions are retired (zero real production usage, confirmed live) -- author a Playbook with structured (doc/rule/call) steps and typed arguments instead: see playbooks.create");
-			}
-			return createPlaybook(artifacts, artifactScopes, {
-				title: string(input, "title"), body: optionalString(input, "body"), trigger: optionalString(input, "trigger"),
-				steps: input["steps"], tools: input["tools"] as string[] | undefined,
-				labels: input["labels"] as string[] | undefined, extra: input["extra"] as Record<string, unknown> | undefined,
-				projectRoot: optionalString(input, "project_root"),
-			}, eventContext(input));
-		}),
-		define("skills.create_template", () => {
-			throw new Error("artifact templates are retired (zero real production usage, confirmed live) -- create the target artifact directly (e.g. docs.create, tasks.create, playbooks.create) instead of skills.create_template");
-		}),
-		define("skills.list", (input: OperationInput) => listPlaybooks(artifacts, artifactScopes, artifactFilter(input))),
-		define("skills.show", (input: OperationInput) => showPlaybook(artifacts, string(input, "id"))),
-		define("skills.invoke", (input: OperationInput) => playbookInvocation(artifacts, string(input, "id"))),
-		define("skills.run", () => {
-			throw new Error("workflow Skill execution is retired (zero real production usage, confirmed live) -- author a Playbook with structured (doc/rule/call) steps and typed arguments, then call playbooks.invoke instead");
-		}),
-		define("skills.enable", (input: OperationInput) => transitionPlaybook(artifacts, string(input, "id"), "enable", eventContext(input))),
-		define("skills.disable", (input: OperationInput) => transitionPlaybook(artifacts, string(input, "id"), "disable", eventContext(input))),
-		define("skills.assign_project", (input: OperationInput) => assignPlaybookProject(artifacts, artifactScopes, string(input, "id"), optionalString(input, "project_root"))),
-		define("skills.update", (input: OperationInput) => updatePlaybook(artifacts, string(input, "id"), {
-			title: optionalString(input, "title"), body: optionalString(input, "body"), labels: input["labels"] as string[] | undefined,
-		}, eventContext(input))),
-	];
-}

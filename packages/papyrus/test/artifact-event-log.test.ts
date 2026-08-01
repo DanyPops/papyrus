@@ -47,15 +47,15 @@ describe("generic mutation event log — every kind, one shared log", () => {
 		return { db, artifacts: new SQLiteArtifactStore(db) };
 	}
 
-	it("records a create event for a Doc, a Rule, and a Skill — not just Task/Note", () => {
+	it("records a create event for a Doc, a Rule, and a Playbook — not just Task/Note", () => {
 		const { artifacts } = fixture();
 		const doc = artifacts.create({ kind: "doc", title: "Design note" });
 		const rule = artifacts.create({ kind: "rule", title: "A rule" });
-		const skill = artifacts.create({ kind: "skill", title: "A skill" });
+		const playbook = artifacts.create({ kind: "playbook", title: "A playbook" });
 
 		expect(artifacts.events({ artifactId: doc.id }).events.map((e) => e.type)).toEqual(["created"]);
 		expect(artifacts.events({ artifactId: rule.id }).events.map((e) => e.type)).toEqual(["created"]);
-		expect(artifacts.events({ artifactId: skill.id }).events.map((e) => e.type)).toEqual(["created"]);
+		expect(artifacts.events({ artifactId: playbook.id }).events.map((e) => e.type)).toEqual(["created"]);
 	});
 
 	it("stamps caller-supplied actor/source/sessionId on create, and defaults when omitted", () => {
@@ -141,11 +141,11 @@ describe("generic mutation event log — daemon operation layer", () => {
 		return createPapyrusService(":memory:");
 	}
 
-	it("stamps caller-supplied actor/source/sessionId through docs.create, rules.create, skills.create, and graph.link", async () => {
+	it("stamps caller-supplied actor/source/sessionId through docs.create, rules.create, playbooks.create, and graph.link", async () => {
 		const service = serviceFixture();
 		const doc = await service.execute("docs.create", { title: "Doc", actor: "agent-a", source: "pi", session_id: "ses-1" }) as { id: string };
 		const rule = await service.execute("rules.create", { title: "Rule", actor: "agent-a", source: "pi", session_id: "ses-1" }) as { id: string };
-		const skill = await service.execute("skills.create", { title: "Skill", actor: "agent-a", source: "pi", session_id: "ses-1" }) as { id: string };
+		const skill = await service.execute("playbooks.create", { title: "Playbook", actor: "agent-a", source: "pi", session_id: "ses-1" }) as { id: string };
 		await service.execute("graph.link", { from: doc.id, relation: "relates_to", to: rule.id, actor: "agent-a", source: "pi", session_id: "ses-1" });
 
 		for (const id of [doc.id, rule.id, skill.id]) {
@@ -161,7 +161,7 @@ describe("generic mutation event log — daemon operation layer", () => {
 		const service = serviceFixture();
 		await service.execute("docs.create", { title: "Doc A", actor: "agent-a", session_id: "ses-1" });
 		await service.execute("rules.create", { title: "Rule B", actor: "agent-b", session_id: "ses-2" });
-		await service.execute("skills.create", { title: "Skill A", actor: "agent-a", session_id: "ses-1" });
+		await service.execute("playbooks.create", { title: "Playbook A", actor: "agent-a", session_id: "ses-1" });
 
 		const byActor = await service.execute("graph.history", { actor: "agent-a" }) as { events: ArtifactEvent[] };
 		expect(byActor.events.length).toBe(2);
@@ -183,7 +183,7 @@ describe("generic mutation event log — explicit migration", () => {
 			PRAGMA user_version = 6;
 		`);
 
-		expect(migrateDb(db)).toEqual({ from: 6, to: 22, applied: ["artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration"] });
+		expect(migrateDb(db)).toEqual({ from: 6, to: 23, applied: ["artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"] });
 		expect(db.prepare("SELECT COUNT(*) AS count FROM artifact_events").get()).toEqual({ count: 0 });
 
 		const artifacts = new SQLiteArtifactStore(db);

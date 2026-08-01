@@ -25,7 +25,7 @@ function resolveNoteId(notes: Notes, projectRoot: string, id: unknown, name: unk
 	return resolveArtifactIdWidened(name, () => notes.list({ projectRoot, text: name }));
 }
 
-/** Cross-kind equivalent for a promotion target -- a target can be a task, doc, rule, or skill, not just a note. Unscoped by project, matching the exact behavior of the artifact.query-backed resolution it replaces. */
+/** Cross-kind equivalent for a promotion target -- a target can be a task, doc, rule, or playbook, not just a note. Unscoped by project, matching the exact behavior of the artifact.query-backed resolution it replaces. */
 function resolveArtifactId(artifacts: ArtifactStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw new Error("target_id or target_name is required");
@@ -113,7 +113,7 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 
 	define(
 		"promote",
-		"Links a note to the Task, Doc, Rule, or Skill it was promoted into, then archives it.",
+		"Links a note to the Task, Doc, Rule, or Playbook it was promoted into, then archives it.",
 		"local-write",
 		{
 			id: stringProp,

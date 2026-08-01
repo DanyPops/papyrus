@@ -291,7 +291,6 @@ const SEED_SQL = `
 INSERT OR IGNORE INTO kinds VALUES ('doc','Knowledge — what we know (specs, decisions, research, designs)');
 INSERT OR IGNORE INTO kinds VALUES ('task','Work — what we are doing (objectives, steps, checklists)');
 INSERT OR IGNORE INTO kinds VALUES ('rule','Governance — when doing X, follow Y');
-INSERT OR IGNORE INTO kinds VALUES ('skill','Parameterized workflow bundle — inputs and templates load tasks, rules, and docs');
 INSERT OR IGNORE INTO kinds VALUES ('playbook','Reusable procedure — a trigger and an ordered list of steps an agent reads and follows, not a mechanically instantiated blueprint');
 INSERT OR IGNORE INTO statuses VALUES ('draft','doc');
 INSERT OR IGNORE INTO statuses VALUES ('active','doc');
@@ -304,20 +303,18 @@ INSERT OR IGNORE INTO statuses VALUES ('done','task');
 INSERT OR IGNORE INTO statuses VALUES ('canceled','task');
 INSERT OR IGNORE INTO statuses VALUES ('active','rule');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','rule');
-INSERT OR IGNORE INTO statuses VALUES ('active','skill');
-INSERT OR IGNORE INTO statuses VALUES ('deprecated','skill');
 INSERT OR IGNORE INTO statuses VALUES ('active','playbook');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','playbook');
 INSERT OR IGNORE INTO relation_names VALUES ('references','Source material (doc→doc, doc→task, doc→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('implements','This work satisfies that (task→doc, task→rule)');
-INSERT OR IGNORE INTO relation_names VALUES ('follows','This work obeys that (task→rule, task→skill)');
-INSERT OR IGNORE INTO relation_names VALUES ('depends_on','DAG ordering (task→task)');
-INSERT OR IGNORE INTO relation_names VALUES ('documents','Describes (doc→task, doc→rule, doc→skill)');
+INSERT OR IGNORE INTO relation_names VALUES ('follows','This work obeys that (task→rule, task→playbook)');
+INSERT OR IGNORE INTO relation_names VALUES ('depends_on','DAG ordering (task→task, playbook→playbook)');
+INSERT OR IGNORE INTO relation_names VALUES ('documents','Describes (doc→task, doc→rule, doc→playbook)');
 INSERT OR IGNORE INTO relation_names VALUES ('blocks','Blocking relationship (task→task, or an active Discussion doc→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('supersedes','Replaces (doc→doc, rule→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('relates_to','Catch-all (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task (rule→task)');
-INSERT OR IGNORE INTO relation_names VALUES ('triggers','This skill applies to that work (skill→task)');
+INSERT OR IGNORE INTO relation_names VALUES ('triggers','This playbook run applies to that work (playbook→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('contains','Parent contains a nested artifact (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a parent artifact (any→any)');
 CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
@@ -670,6 +667,20 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 		// retirement task removes it. Dropping the type rows is that later task's job.
 		up: (db) => {
 			db.exec(`UPDATE artifacts SET kind = 'playbook' WHERE kind = 'skill'`);
+		},
+	},
+	{
+		version: 23,
+		name: "retire-skill-kind",
+		// Final step of the Skill→Playbook consolidation. Every module/CLI/Vehicle/TUI surface
+		// that wrote kind='skill' is now retired (confirmed live: zero real callers anywhere), and
+		// migration 22 already moved every existing row off kind=skill. The type rows themselves
+		// are now genuinely dead -- safe to drop.
+		up: (db) => {
+			db.exec(`
+				DELETE FROM statuses WHERE kind = 'skill';
+				DELETE FROM kinds WHERE name = 'skill';
+			`);
 		},
 	},
 ];

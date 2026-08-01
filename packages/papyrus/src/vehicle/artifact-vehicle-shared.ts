@@ -98,12 +98,10 @@ export interface WorkflowRunNarrativeInput {
 }
 
 /**
- * Shared between skills.run and playbooks.invoke's Vehicle operations -- both produce the
- * same shaped narrative (ready roots, context docs, scoped rules, an execution tree), only
- * the headline and whether an "entry task focused" line is present differ. Builds the model-
- * facing `content` text directly, so the model reads a summary instead of the raw execution
- * DAG -- the same shape pi-papyrus's own hand-rolled skills/playbooks tools built client-side,
- * now built once here where the run result is actually produced.
+ * Builds the model-facing `content` text for a workflow run result (ready roots, context docs,
+ * scoped rules, an execution tree) directly, so the model reads a summary instead of the raw
+ * execution DAG -- the same shape pi-papyrus's own hand-rolled playbooks tool built
+ * client-side, now built once here where the run result is actually produced.
  */
 export function buildWorkflowRunContent(artifacts: ArtifactStore, headline: string, input: WorkflowRunNarrativeInput, extraLines: readonly string[] = []): VehicleContentBlock {
 	const nodeById = new Map(input.execution.nodes.map((node) => [node.id, node]));

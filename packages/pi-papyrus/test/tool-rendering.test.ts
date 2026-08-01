@@ -70,7 +70,7 @@ describe("Papyrus native tool rendering", () => {
 			createTransitionDetails("tasks.start", { ...artifact(), status: "in-progress" }, "todo", "in-progress"),
 			createGraphDetails("tasks.graph", [artifact(1), artifact(2)], [{ from: "task-1", relation: "contains", to: "task-2" }]),
 			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
-			createInvocationDetails("skills.run", "run-1", { tasks: ["task-1"], docs: ["doc-1"], rules: [], roots: ["task-1"] }),
+			createInvocationDetails("playbooks.invoke", "run-1", { tasks: ["task-1"], docs: ["doc-1"], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task not found."),
 		];

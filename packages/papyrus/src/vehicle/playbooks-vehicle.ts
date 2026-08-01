@@ -29,7 +29,15 @@ import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
 import type { Tasks } from "../task-service.ts";
-import { buildWorkflowRunContent, looseObjectSchema, normalizeJsonEncodedField, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
+import {
+	buildWorkflowRunContent,
+	looseObjectSchema,
+	normalizeJsonEncodedField,
+	numberProp,
+	passthroughOutput,
+	resolveArtifactIdWidened,
+	stringProp,
+} from "./artifact-vehicle-shared.ts";
 
 const OWNER = "playbooks";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
@@ -52,7 +60,9 @@ function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore,
 
 export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, deps: PlaybooksVehicleDeps): void {
 	const { artifacts, events, scopes, artifactScopes, tasks, sessionIdentity } = deps;
-	const moduleOperations = new Map(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }).map((op) => [op.name, op]));
+	const moduleOperations = new Map(
+		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }).map((op) => [op.name, op]),
+	);
 	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
 
 	const define = (
@@ -75,14 +85,34 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
 			limits: LIMITS,
 		});
-		registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => (execute ?? ((input: Record<string, unknown>) => call(`playbooks.${action}`, input)))(resolve(context.input), context)));
+		registry.register(
+			OWNER,
+			bindVehicleOperation(
+				operation,
+				() => async (context) =>
+					(execute ?? ((input: Record<string, unknown>) => call(`playbooks.${action}`, input)))(resolve(context.input), context),
+			),
+		);
 	};
 
 	define(
 		"create",
 		"Creates a Playbook -- a trigger and an ordered list of steps. Each step is either a plain prose string (a task), or a structured object: {kind:'doc',title,body?,subtype?,labels?} creates a Doc, {kind:'rule',title,body?,condition?,action?,severity?,labels?} creates a Rule, {kind:'call',title,playbookId,arguments?} nests another Playbook's own run as a pipeline step gated in the same sequence, {kind:'task',title?,body} is an explicit task step. `arguments` declares named inputs: [{name, description?, required?, type?('string'|'number'|'boolean', default 'string'), enum?, default?}] (required defaults true), referenced in step text/call arguments as {{name}}. project_root is optional (omitted = unscoped).",
 		"local-write",
-		{ title: stringProp, body: stringProp, trigger: stringProp, steps: { type: "array" }, tools: { type: "array" }, arguments: { type: "array" }, labels: { type: "array" }, extra: { type: "object" }, project_root: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		{
+			title: stringProp,
+			body: stringProp,
+			trigger: stringProp,
+			steps: { type: "array" },
+			tools: { type: "array" },
+			arguments: { type: "array" },
+			labels: { type: "array" },
+			extra: { type: "object" },
+			project_root: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
 		["title"],
 		(input) => {
 			normalizeJsonEncodedField(input, "arguments");
@@ -99,14 +129,10 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		(input) => input,
 	);
 
-	define(
-		"show",
-		"Shows one Playbook by id or title.",
-		"read",
-		{ id: stringProp, name: stringProp },
-		[],
-		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
-	);
+	define("show", "Shows one Playbook by id or title.", "read", { id: stringProp, name: stringProp }, [], (input) => ({
+		...input,
+		id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
+	}));
 
 	define(
 		"preview",
@@ -147,7 +173,9 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 				artifacts,
 				`Invoked playbook run ${invocation.runId}: ${invocation.created.tasks.length} task(s), ${invocation.created.rules.length} rule(s), ${invocation.created.docs.length} doc(s) created.`,
 				invocation,
-				[`Entry task now focused: ${entryLabel}. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`],
+				[
+					`Entry task now focused: ${entryLabel}. Drive it forward with the tasks tool (start/submit/complete) -- contains/depends_on wiring auto-focuses each next step.`,
+				],
 			);
 			return { ...invocation, content: [content] };
 		},
@@ -184,7 +212,16 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"update",
 		"Changes a Playbook's title/body/labels (at least one required). Refused for a read-only external projection.",
 		"local-write",
-		{ id: stringProp, name: stringProp, title: stringProp, body: stringProp, labels: { type: "array" }, actor: stringProp, source: stringProp, session_id: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			title: stringProp,
+			body: stringProp,
+			labels: { type: "array" },
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
 	);
@@ -193,7 +230,15 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"contain",
 		"Nests a child Playbook inside a parent -- the child's steps run AFTER the parent's own. Prefer parent_name/child_name over parent_id/child_id -- resolved server-side.",
 		"local-write",
-		{ parent_id: stringProp, parent_name: stringProp, child_id: stringProp, child_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		{
+			parent_id: stringProp,
+			parent_name: stringProp,
+			child_id: stringProp,
+			child_name: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => ({
 			...input,
@@ -206,7 +251,15 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"uncontain",
 		"Removes a parent/child Playbook nesting. Idempotent -- a no-op if the edge is already absent.",
 		"local-write",
-		{ parent_id: stringProp, parent_name: stringProp, child_id: stringProp, child_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		{
+			parent_id: stringProp,
+			parent_name: stringProp,
+			child_id: stringProp,
+			child_name: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => ({
 			...input,
@@ -219,7 +272,15 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"depend",
 		"Chains a prerequisite Playbook before another -- it must fully complete FIRST. Prefer dependency_name over dependency_id.",
 		"local-write",
-		{ id: stringProp, name: stringProp, dependency_id: stringProp, dependency_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			dependency_id: stringProp,
+			dependency_name: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => ({
 			...input,
@@ -232,7 +293,15 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"undepend",
 		"Removes a Playbook dependency. Idempotent -- a no-op if the edge is already absent.",
 		"local-write",
-		{ id: stringProp, name: stringProp, dependency_id: stringProp, dependency_name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			dependency_id: stringProp,
+			dependency_name: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => ({
 			...input,

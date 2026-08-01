@@ -49,12 +49,8 @@ export function renderMarkdownBody(
 	activeTheme: ActiveTheme,
 	activeMarkdownTheme: ActiveMarkdownTheme = activePiMarkdownTheme,
 ): string[] {
-	const markdown = new Markdown(
-		body || "(no body)",
-		0,
-		0,
-		createPapyrusMarkdownTheme(activeTheme, activeMarkdownTheme),
-		{ color: (text) => activeTheme().fg("text", text) },
-	);
+	const markdown = new Markdown(body || "(no body)", 0, 0, createPapyrusMarkdownTheme(activeTheme, activeMarkdownTheme), {
+		color: (text) => activeTheme().fg("text", text),
+	});
 	return markdown.render(Math.max(1, width));
 }

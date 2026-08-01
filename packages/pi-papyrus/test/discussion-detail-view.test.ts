@@ -1,7 +1,7 @@
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "bun:test";
-import { showDiscussionDetailView } from "../extension/src/discussion-detail-view.ts";
 import type { Artifact, DiscussionRound } from "@danypops/papyrus";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import { showDiscussionDetailView } from "../extension/src/discussion-detail-view.ts";
 
 const theme = {
 	bold: (text: string) => text,
@@ -29,8 +29,22 @@ function discussion(overrides: Partial<Artifact> = {}): Artifact {
 
 function rounds(): DiscussionRound[] {
 	return [
-		{ id: 1, discussionId: "discussion-1", roundNumber: 1, actor: "alice", content: "Should we rename this?", occurredAt: "2026-01-01T00:00:00.000Z" },
-		{ id: 2, discussionId: "discussion-1", roundNumber: 2, actor: "bob", content: "Yes, I think so.", occurredAt: "2026-01-01T00:05:00.000Z" },
+		{
+			id: 1,
+			discussionId: "discussion-1",
+			roundNumber: 1,
+			actor: "alice",
+			content: "Should we rename this?",
+			occurredAt: "2026-01-01T00:00:00.000Z",
+		},
+		{
+			id: 2,
+			discussionId: "discussion-1",
+			roundNumber: 2,
+			actor: "bob",
+			content: "Yes, I think so.",
+			occurredAt: "2026-01-01T00:05:00.000Z",
+		},
 	];
 }
 
@@ -43,14 +57,13 @@ function tuiContext() {
 		hasUI: true,
 		cwd: "/workspace/papyrus",
 		ui: {
-			notify(message: string, level?: string) { notifications.push({ message, level }); },
+			notify(message: string, level?: string) {
+				notifications.push({ message, level });
+			},
 			async custom(factory: any) {
-				const component = await factory(
-					{ terminal: { rows: 24 }, requestRender() {} },
-					theme,
-					{},
-					() => { closed = true; },
-				);
+				const component = await factory({ terminal: { rows: 24 }, requestRender() {} }, theme, {}, () => {
+					closed = true;
+				});
 				renders.push(component.render(80));
 				component.handleInput?.("\x1b[B"); // down
 				renders.push(component.render(80));
@@ -101,8 +114,25 @@ describe("Discussion transcript view", () => {
 	it("shows what was posed and what was picked, per round", async () => {
 		const harness = tuiContext();
 		const posedRounds: DiscussionRound[] = [
-			{ id: 1, discussionId: "discussion-1", roundNumber: 1, actor: "alice", content: "A or B?", occurredAt: "2026-01-01T00:00:00.000Z", options: ["A", "B"], optionsMode: "single" },
-			{ id: 2, discussionId: "discussion-1", roundNumber: 2, actor: "bob", content: "Going with B", occurredAt: "2026-01-01T00:05:00.000Z", selected: ["B"] },
+			{
+				id: 1,
+				discussionId: "discussion-1",
+				roundNumber: 1,
+				actor: "alice",
+				content: "A or B?",
+				occurredAt: "2026-01-01T00:00:00.000Z",
+				options: ["A", "B"],
+				optionsMode: "single",
+			},
+			{
+				id: 2,
+				discussionId: "discussion-1",
+				roundNumber: 2,
+				actor: "bob",
+				content: "Going with B",
+				occurredAt: "2026-01-01T00:05:00.000Z",
+				selected: ["B"],
+			},
 		];
 		await showDiscussionDetailView(harness.ctx, discussion(), posedRounds);
 		const rendered = harness.renders[0]!.join("\n");
@@ -115,7 +145,11 @@ describe("Discussion transcript view", () => {
 		const ctx = {
 			mode: "cli",
 			hasUI: false,
-			ui: { notify: (message: string, level?: string) => { notifications.push({ message, level }); } },
+			ui: {
+				notify: (message: string, level?: string) => {
+					notifications.push({ message, level });
+				},
+			},
 		} as unknown as ExtensionCommandContext;
 		await showDiscussionDetailView(ctx, discussion(), rounds());
 		expect(notifications).toHaveLength(1);

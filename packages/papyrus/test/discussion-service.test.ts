@@ -7,11 +7,12 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteDiscussionRoundStore } from "../src/adapters/sqlite-discussion-round-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
-import { openDb } from "../src/db.ts";
 import { DISCUSSION_ROUNDS_DEFAULT_LIMIT } from "../src/constants.ts";
-import { Discussions, DiscussionError } from "../src/discussion-service.ts";
+import { openDb } from "../src/db.ts";
+import { DiscussionError, Discussions } from "../src/discussion-service.ts";
 import { Tasks } from "../src/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 function fixture() {
@@ -30,7 +31,7 @@ describe("Discussions.open", () => {
 		expect(discussion.kind).toBe("task");
 		expect(discussion.subtype).toBe("discussion");
 		expect(discussion.status).toBe("in-progress");
-		expect(discussion.extra["discussion"]).toEqual({ state: "active", roundCount: 1 });
+		expect(discussion.extra.discussion).toEqual({ state: "active", roundCount: 1 });
 		expect(rounds).toHaveLength(1);
 		expect(rounds[0]).toMatchObject({ roundNumber: 1, actor: "alice", content: "Should we rename this?" });
 	});
@@ -48,7 +49,10 @@ describe("Discussions.open", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "Long negotiation", actor: "alice", content: "Round 1" });
 		for (let round = 2; round <= DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5; round++) {
-			discussions.reply(discussion.id, { actor: round === DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5 ? "human" : "alice", content: `Round ${round}` });
+			discussions.reply(discussion.id, {
+				actor: round === DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5 ? "human" : "alice",
+				content: `Round ${round}`,
+			});
 		}
 		const shown = discussions.show(discussion.id);
 		expect(shown.rounds).toHaveLength(DISCUSSION_ROUNDS_DEFAULT_LIMIT + 5);
@@ -70,15 +74,14 @@ describe("Discussions.open", () => {
 	});
 });
 
-
 describe("Discussions.reply", () => {
 	it("appends successive rounds and increments roundCount", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		const first = discussions.reply(discussion.id, { actor: "bob", content: "response 1" });
-		expect(first.discussion.extra["discussion"]).toMatchObject({ roundCount: 2 });
+		expect(first.discussion.extra.discussion).toMatchObject({ roundCount: 2 });
 		const second = discussions.reply(discussion.id, { actor: "alice", content: "response 2" });
-		expect(second.discussion.extra["discussion"]).toMatchObject({ roundCount: 3 });
+		expect(second.discussion.extra.discussion).toMatchObject({ roundCount: 3 });
 		expect(second.rounds[0]).toMatchObject({ roundNumber: 3, actor: "alice", content: "response 2" });
 	});
 
@@ -102,9 +105,9 @@ describe("Discussions.defer / resume", () => {
 		const { discussions } = fixture();
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		const deferred = discussions.defer(discussion.id, "circle back next sprint");
-		expect(deferred.extra["discussion"]).toMatchObject({ state: "deferred", deferredReason: "circle back next sprint" });
+		expect(deferred.extra.discussion).toMatchObject({ state: "deferred", deferredReason: "circle back next sprint" });
 		const resumed = discussions.resume(discussion.id);
-		expect(resumed.extra["discussion"]).toMatchObject({ state: "active" });
+		expect(resumed.extra.discussion).toMatchObject({ state: "active" });
 	});
 
 	it("refuses to defer an already-deferred or settled discussion", () => {
@@ -129,8 +132,8 @@ describe("Discussions.settle", () => {
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		const settled = discussions.settle(discussion.id, "we agreed on plan A");
 		expect(settled.status).toBe("done");
-		expect(settled.extra["discussion"]).toMatchObject({ state: "settled", settlement: "we agreed on plan A" });
-		expect((settled.extra["discussion"] as { settledAt: string }).settledAt).toBeTruthy();
+		expect(settled.extra.discussion).toMatchObject({ state: "settled", settlement: "we agreed on plan A" });
+		expect((settled.extra.discussion as { settledAt: string }).settledAt).toBeTruthy();
 	});
 
 	it("settles from deferred too", () => {
@@ -138,7 +141,7 @@ describe("Discussions.settle", () => {
 		const { discussion } = discussions.open({ title: "T", actor: "alice", content: "opening" });
 		discussions.defer(discussion.id);
 		const settled = discussions.settle(discussion.id, "resolved offline");
-		expect(settled.extra["discussion"]).toMatchObject({ state: "settled" });
+		expect(settled.extra.discussion).toMatchObject({ state: "settled" });
 	});
 
 	it("refuses to settle an already-settled discussion", () => {
@@ -181,7 +184,11 @@ describe("Discuss blocking a real Task's completion (task-service.ts integration
 		const task = readyTaskForCompletion(tasks, "Ship it");
 		const { discussion } = discussions.open({ title: "Needs sign-off", actor: "alice", content: "hold on", blocksTaskIds: [task.id] });
 		let caught: Error | undefined;
-		try { tasks.complete(task.id); } catch (error) { caught = error as Error; }
+		try {
+			tasks.complete(task.id);
+		} catch (error) {
+			caught = error as Error;
+		}
 		expect(caught?.message).toBe('task "Ship it" is blocked by 1 active Discussion(s): "Needs sign-off"');
 		expect(caught?.message).not.toContain(discussion.id);
 		expect(caught?.message).not.toContain(task.id);
@@ -224,37 +231,66 @@ describe("Discuss: structured options (single/multi-select questions)", () => {
 	it("open() poses a single-select choice on round 1 and records it as pending", () => {
 		const { discussions } = fixture();
 		const { discussion, rounds } = discussions.open({
-			title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single",
+			title: "Pick one",
+			actor: "alice",
+			content: "A or B?",
+			options: ["A", "B"],
+			optionsMode: "single",
 		});
-		expect(discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionsMode: "single" });
+		expect(discussion.extra.discussion).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionsMode: "single" });
 		expect(rounds[0]).toMatchObject({ options: ["A", "B"], optionsMode: "single" });
 	});
 
 	it("reply() answers a pending single-select choice, clearing it, and records the selection on the round", () => {
 		const { discussions } = fixture();
-		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		const { discussion } = discussions.open({
+			title: "Pick one",
+			actor: "alice",
+			content: "A or B?",
+			options: ["A", "B"],
+			optionsMode: "single",
+		});
 		const result = discussions.reply(discussion.id, { actor: "bob", content: "Going with B", selected: ["B"] });
-		expect(result.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
-		expect(result.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionsMode");
+		expect(result.discussion.extra.discussion).not.toHaveProperty("pendingOptions");
+		expect(result.discussion.extra.discussion).not.toHaveProperty("pendingOptionsMode");
 		expect(result.rounds[0]).toMatchObject({ selected: ["B"] });
 	});
 
 	it("refuses more than one selection when the pending choice is single-select", () => {
 		const { discussions } = fixture();
-		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		const { discussion } = discussions.open({
+			title: "Pick one",
+			actor: "alice",
+			content: "A or B?",
+			options: ["A", "B"],
+			optionsMode: "single",
+		});
 		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "Both!", selected: ["A", "B"] })).toThrow(/pick exactly one/);
 	});
 
 	it("allows several selections when the pending choice is multi-select", () => {
 		const { discussions } = fixture();
-		const { discussion } = discussions.open({ title: "Pick some", actor: "alice", content: "Which apply?", options: ["A", "B", "C"], optionsMode: "multi", optionDescriptions: ["first", "second", "third"] });
+		const { discussion } = discussions.open({
+			title: "Pick some",
+			actor: "alice",
+			content: "Which apply?",
+			options: ["A", "B", "C"],
+			optionsMode: "multi",
+			optionDescriptions: ["first", "second", "third"],
+		});
 		const result = discussions.reply(discussion.id, { actor: "bob", content: "A and C", selected: ["A", "C"] });
 		expect(result.rounds[0]).toMatchObject({ selected: ["A", "C"] });
 	});
 
 	it("refuses a selection that was never offered", () => {
 		const { discussions } = fixture();
-		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
+		const { discussion } = discussions.open({
+			title: "Pick one",
+			actor: "alice",
+			content: "A or B?",
+			options: ["A", "B"],
+			optionsMode: "single",
+		});
 		expect(() => discussions.reply(discussion.id, { actor: "bob", content: "C!", selected: ["C"] })).toThrow(/not offered/);
 	});
 
@@ -266,22 +302,38 @@ describe("Discuss: structured options (single/multi-select questions)", () => {
 
 	it("a reply can pose a new choice for the next round, replacing whatever was previously pending", () => {
 		const { discussions } = fixture();
-		const { discussion } = discussions.open({ title: "Pick one", actor: "alice", content: "A or B?", options: ["A", "B"], optionsMode: "single" });
-		const answered = discussions.reply(discussion.id, {
-			actor: "bob", content: "B -- and now, should we also rename it?", selected: ["B"], options: ["Yes", "No"], optionsMode: "single",
+		const { discussion } = discussions.open({
+			title: "Pick one",
+			actor: "alice",
+			content: "A or B?",
+			options: ["A", "B"],
+			optionsMode: "single",
 		});
-		expect(answered.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["Yes", "No"], pendingOptionsMode: "single" });
+		const answered = discussions.reply(discussion.id, {
+			actor: "bob",
+			content: "B -- and now, should we also rename it?",
+			selected: ["B"],
+			options: ["Yes", "No"],
+			optionsMode: "single",
+		});
+		expect(answered.discussion.extra.discussion).toMatchObject({ pendingOptions: ["Yes", "No"], pendingOptionsMode: "single" });
 		expect(answered.rounds[0]).toMatchObject({ selected: ["B"], options: ["Yes", "No"], optionsMode: "single" });
 		// The next reply answers the NEW pending question, not the original A/B one.
 		const final = discussions.reply(discussion.id, { actor: "alice", content: "Yes", selected: ["Yes"] });
-		expect(final.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
+		expect(final.discussion.extra.discussion).not.toHaveProperty("pendingOptions");
 	});
 
 	it("rejects malformed options at open time: too few, duplicates, wrong mode", () => {
 		const { discussions } = fixture();
-		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["only-one"], optionsMode: "single" })).toThrow(/between 2 and/);
-		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "A"], optionsMode: "single" })).toThrow(/not repeat/);
-		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "quorum" as never })).toThrow(/options_mode must be/);
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["only-one"], optionsMode: "single" })).toThrow(
+			/between 2 and/,
+		);
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "A"], optionsMode: "single" })).toThrow(
+			/not repeat/,
+		);
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "quorum" as never })).toThrow(
+			/options_mode must be/,
+		);
 	});
 });
 
@@ -289,46 +341,97 @@ describe("Discuss: per-option descriptions (pros/cons)", () => {
 	it("persists descriptions with the round and as the pending choice, index-aligned with the options themselves", () => {
 		const { discussions } = fixture();
 		const { discussion, rounds } = discussions.open({
-			title: "Ship or slip?", actor: "alice", content: "Ship Friday or slip to Monday?",
-			options: ["Ship Friday", "Slip to Monday"], optionsMode: "single",
+			title: "Ship or slip?",
+			actor: "alice",
+			content: "Ship Friday or slip to Monday?",
+			options: ["Ship Friday", "Slip to Monday"],
+			optionsMode: "single",
 			optionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"],
 		});
-		expect(rounds[0]).toMatchObject({ options: ["Ship Friday", "Slip to Monday"], optionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"] });
-		expect(discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["Ship Friday", "Slip to Monday"], pendingOptionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"] });
+		expect(rounds[0]).toMatchObject({
+			options: ["Ship Friday", "Slip to Monday"],
+			optionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"],
+		});
+		expect(discussion.extra.discussion).toMatchObject({
+			pendingOptions: ["Ship Friday", "Slip to Monday"],
+			pendingOptionDescriptions: ["Faster, but skips the security review", "Adds review time, delays launch 3 days"],
+		});
 	});
 
-	it("an empty-string description means \"none for this option\", not an error, and self-evident choices need no descriptions at all", () => {
+	it('an empty-string description means "none for this option", not an error, and self-evident choices need no descriptions at all', () => {
 		const { discussions } = fixture();
 		const withPartial = discussions.open({
-			title: "Ship?", actor: "alice", content: "Ship or not?", options: ["Yes", "No"], optionsMode: "single",
+			title: "Ship?",
+			actor: "alice",
+			content: "Ship or not?",
+			options: ["Yes", "No"],
+			optionsMode: "single",
 			optionDescriptions: ["", "Blocks the release entirely"],
 		});
 		expect(withPartial.rounds[0]?.optionDescriptions).toEqual(["", "Blocks the release entirely"]);
 
-		const withNone = discussions.open({ title: "Ship?", actor: "alice", content: "Ship or not?", options: ["Yes", "No"], optionsMode: "single" });
+		const withNone = discussions.open({
+			title: "Ship?",
+			actor: "alice",
+			content: "Ship or not?",
+			options: ["Yes", "No"],
+			optionsMode: "single",
+		});
 		expect(withNone.rounds[0]?.optionDescriptions).toBeUndefined();
-		expect(withNone.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionDescriptions");
+		expect(withNone.discussion.extra.discussion).not.toHaveProperty("pendingOptionDescriptions");
 	});
 
 	it("rejects a description array whose length doesn't match the options array 1:1", () => {
 		const { discussions } = fixture();
-		expect(() => discussions.open({
-			title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "single", optionDescriptions: ["only one"],
-		})).toThrow(/exactly one entry per option/);
+		expect(() =>
+			discussions.open({
+				title: "T",
+				actor: "a",
+				content: "c",
+				options: ["A", "B"],
+				optionsMode: "single",
+				optionDescriptions: ["only one"],
+			}),
+		).toThrow(/exactly one entry per option/);
 	});
 
 	it("rejects a description over the max length", () => {
 		const { discussions } = fixture();
-		expect(() => discussions.open({
-			title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "single", optionDescriptions: ["x".repeat(1000), ""],
-		})).toThrow(/at most .* characters/);
+		expect(() =>
+			discussions.open({
+				title: "T",
+				actor: "a",
+				content: "c",
+				options: ["A", "B"],
+				optionsMode: "single",
+				optionDescriptions: ["x".repeat(1000), ""],
+			}),
+		).toThrow(/at most .* characters/);
 	});
 
 	it("requires a non-empty description for every option once 3 or more are posed", () => {
 		const { discussions } = fixture();
-		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single" })).toThrow(/option_descriptions is required/);
-		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single", optionDescriptions: ["has one", "", "has one"] })).toThrow(/option_descriptions is required/);
-		const ok = discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single", optionDescriptions: ["d1", "d2", "d3"] });
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", options: ["A", "B", "C"], optionsMode: "single" })).toThrow(
+			/option_descriptions is required/,
+		);
+		expect(() =>
+			discussions.open({
+				title: "T",
+				actor: "a",
+				content: "c",
+				options: ["A", "B", "C"],
+				optionsMode: "single",
+				optionDescriptions: ["has one", "", "has one"],
+			}),
+		).toThrow(/option_descriptions is required/);
+		const ok = discussions.open({
+			title: "T",
+			actor: "a",
+			content: "c",
+			options: ["A", "B", "C"],
+			optionsMode: "single",
+			optionDescriptions: ["d1", "d2", "d3"],
+		});
 		expect(ok.rounds[0]?.optionDescriptions).toEqual(["d1", "d2", "d3"]);
 	});
 
@@ -344,20 +447,31 @@ describe("Discuss: per-option descriptions (pros/cons)", () => {
 	it("a re-pose that omits descriptions clears the previous pose's stale pendingOptionDescriptions", () => {
 		const { discussions } = fixture();
 		const opened = discussions.open({
-			title: "T", actor: "a", content: "first", options: ["A", "B"], optionsMode: "single",
+			title: "T",
+			actor: "a",
+			content: "first",
+			options: ["A", "B"],
+			optionsMode: "single",
 			optionDescriptions: ["pro A", "pro B"],
 		});
 		const replied = discussions.reply(opened.discussion.id, {
-			actor: "a", content: "actually, reconsider", options: ["C", "D"], optionsMode: "single",
+			actor: "a",
+			content: "actually, reconsider",
+			options: ["C", "D"],
+			optionsMode: "single",
 		});
-		expect(replied.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["C", "D"] });
-		expect(replied.discussion.extra["discussion"]).not.toHaveProperty("pendingOptionDescriptions");
+		expect(replied.discussion.extra.discussion).toMatchObject({ pendingOptions: ["C", "D"] });
+		expect(replied.discussion.extra.discussion).not.toHaveProperty("pendingOptionDescriptions");
 	});
 
 	it("round-trips through a real SQLite DiscussionRoundStore (not just in-memory)", () => {
 		const { db, discussions } = fixture();
 		const opened = discussions.open({
-			title: "Ship or slip?", actor: "alice", content: "q", options: ["Ship", "Slip"], optionsMode: "single",
+			title: "Ship or slip?",
+			actor: "alice",
+			content: "q",
+			options: ["Ship", "Slip"],
+			optionsMode: "single",
 			optionDescriptions: ["Fast, riskier", "Slower, safer"],
 		});
 		const roundStore = new SQLiteDiscussionRoundStore(db);

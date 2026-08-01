@@ -106,23 +106,29 @@ describe("session-scoped Task Focus — bounded scopes", () => {
 describe("session-scoped Task Focus — daemon operation layer", () => {
 	it("scopes tasks.active/focused/graph and context injection by session_id end to end", async () => {
 		const service = createPapyrusService(":memory:");
-		const taskA = await service.execute("tasks.create", { title: "Alice's task", project_root: PROJECT_ROOT }) as { id: string };
-		const taskB = await service.execute("tasks.create", { title: "Bob's task", project_root: PROJECT_ROOT }) as { id: string };
+		const taskA = (await service.execute("tasks.create", { title: "Alice's task", project_root: PROJECT_ROOT })) as { id: string };
+		const taskB = (await service.execute("tasks.create", { title: "Bob's task", project_root: PROJECT_ROOT })) as { id: string };
 
 		await service.execute("tasks.focus", { id: taskA.id, session_id: "ses-alice" });
 		await service.execute("tasks.focus", { id: taskB.id, session_id: "ses-bob" });
 
-		const aliceActive = await service.execute("tasks.active", { project_root: PROJECT_ROOT, session_id: "ses-alice" }) as { id: string } | null;
-		const bobActive = await service.execute("tasks.active", { project_root: PROJECT_ROOT, session_id: "ses-bob" }) as { id: string } | null;
+		const aliceActive = (await service.execute("tasks.active", { project_root: PROJECT_ROOT, session_id: "ses-alice" })) as {
+			id: string;
+		} | null;
+		const bobActive = (await service.execute("tasks.active", { project_root: PROJECT_ROOT, session_id: "ses-bob" })) as {
+			id: string;
+		} | null;
 		expect(aliceActive?.id).toBe(taskA.id);
 		expect(bobActive?.id).toBe(taskB.id);
 
-		const aliceContext = await service.execute("tasks.context", { project_root: PROJECT_ROOT, session_id: "ses-alice" }) as string;
-		const bobContext = await service.execute("tasks.context", { project_root: PROJECT_ROOT, session_id: "ses-bob" }) as string;
+		const aliceContext = (await service.execute("tasks.context", { project_root: PROJECT_ROOT, session_id: "ses-alice" })) as string;
+		const bobContext = (await service.execute("tasks.context", { project_root: PROJECT_ROOT, session_id: "ses-bob" })) as string;
 		expect(aliceContext).toContain("Alice's task");
 		expect(bobContext).toContain("Bob's task");
 
-		const aliceGraph = await service.execute("tasks.graph", { project_root: PROJECT_ROOT, session_id: "ses-alice" }) as { nodes: Array<{ task: { id: string }; active: boolean }> };
+		const aliceGraph = (await service.execute("tasks.graph", { project_root: PROJECT_ROOT, session_id: "ses-alice" })) as {
+			nodes: Array<{ task: { id: string }; active: boolean }>;
+		};
 		const aliceNodeForB = aliceGraph.nodes.find((node) => node.task.id === taskB.id);
 		expect(aliceNodeForB?.active).toBe(false); // Bob's focus never shows as active in Alice's session-scoped graph
 		service.close();
@@ -141,7 +147,28 @@ describe("session-scoped Task Focus — explicit migration", () => {
 			PRAGMA user_version = 7;
 		`);
 
-		expect(migrateDb(db)).toEqual({ from: 7, to: 23, applied: ["task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"] });
+		expect(migrateDb(db)).toEqual({
+			from: 7,
+			to: 23,
+			applied: [
+				"task-focus-session-scope",
+				"graph-projection-protocol",
+				"docs-rules-skills-project-scope",
+				"log-domain",
+				"remove-discourse",
+				"session-identity",
+				"artifact-trash",
+				"discuss-native",
+				"discuss-options",
+				"discussion-task-kind",
+				"playbook-kind",
+				"discuss-option-descriptions",
+				"task-leases",
+				"note-events",
+				"skill-to-playbook-data-migration",
+				"retire-skill-kind",
+			],
+		});
 
 		const focusStore = new SQLiteTaskFocusStore(db);
 		const artifacts = new SQLiteArtifactStore(db);

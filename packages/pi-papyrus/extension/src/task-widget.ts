@@ -1,4 +1,4 @@
-import { TASK_WIDGET_OPEN_LIMIT, type Artifact, type TaskGraph } from "@danypops/papyrus";
+import { type Artifact, TASK_WIDGET_OPEN_LIMIT, type TaskGraph } from "@danypops/papyrus";
 
 export interface TaskWidgetRow {
 	task: Artifact;
@@ -32,10 +32,7 @@ function isOpen(task: Artifact): boolean {
 }
 
 /** Keep bounded actionable work in containment order while always retaining active focus. */
-export function buildTaskWidgetProjection(
-	graph: TaskGraph,
-	openLimit = TASK_WIDGET_OPEN_LIMIT,
-): TaskWidgetProjection {
+export function buildTaskWidgetProjection(graph: TaskGraph, openLimit = TASK_WIDGET_OPEN_LIMIT): TaskWidgetProjection {
 	const byId = new Map(graph.nodes.map((node) => [node.task.id, node]));
 	const visited = new Set<string>();
 	const ordered: TaskWidgetRow[] = [];
@@ -46,7 +43,15 @@ export function buildTaskWidgetProjection(
 		if (!node) return;
 		visited.add(id);
 		const open = isOpen(node.task);
-		if (open) ordered.push({ task: node.task, depth: openDepth, hasOpenChildren: false, active: node.active === true, focusStatus: node.focusStatus, parentCount: node.parentIds.length });
+		if (open)
+			ordered.push({
+				task: node.task,
+				depth: openDepth,
+				hasOpenChildren: false,
+				active: node.active === true,
+				focusStatus: node.focusStatus,
+				parentCount: node.parentIds.length,
+			});
 		const childDepth = open ? openDepth + 1 : openDepth;
 		for (const childId of node.childIds) visit(childId, childDepth);
 	};
@@ -61,8 +66,7 @@ export function buildTaskWidgetProjection(
 	let rows = ordered.slice(0, limit);
 	const active = ordered.find((row) => row.active);
 	if (active && !rows.some((row) => row.task.id === active.task.id) && limit > 0) {
-		rows = [...rows.slice(0, Math.max(0, limit - 1)), active]
-			.sort((left, right) => ordered.indexOf(left) - ordered.indexOf(right));
+		rows = [...rows.slice(0, Math.max(0, limit - 1)), active].sort((left, right) => ordered.indexOf(left) - ordered.indexOf(right));
 	}
 	return { rows, openTotal: ordered.length, total: graph.nodes.length, scopeLabel: graph.scope?.label ?? "All projects" };
 }

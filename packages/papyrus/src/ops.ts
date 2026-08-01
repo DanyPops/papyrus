@@ -3,36 +3,40 @@
  * Enforces the schema protocol (kinds, statuses, relations) via FK + app validation.
  */
 import { createRequire } from "node:module";
+import { ARTIFACT_TRASH_RETENTION_MS, DEFAULT_STATUS_BY_KIND } from "./constants.ts";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
-import { ARTIFACT_TRASH_RETENTION_MS, DEFAULT_STATUS_BY_KIND } from "./constants.ts";
 import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
 import type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
+
 export type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
-import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
+
 import {
-	normalizeArtifactEventQuery,
-	resolveArtifactEvent,
 	type AppendArtifactEvent,
 	type ArtifactEvent,
 	type ArtifactEventContext,
 	type ArtifactEventPage,
 	type ArtifactEventQuery,
 	type ArtifactEventType,
+	normalizeArtifactEventQuery,
+	resolveArtifactEvent,
 } from "./domain/artifact-event.ts";
+import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
+
 export type { Artifact } from "./domain/artifact.ts";
 export type { Gate, GateResult } from "./domain/gate.ts";
 export type CreateInput = CreateArtifactInput;
+
 import {
 	DEFAULT_GRAPH_DEPTH,
 	DEFAULT_GRAPH_MAX_NODES,
+	GATE_COMMAND_TIMEOUT_MS,
+	GATE_FILE_MAX_BYTES,
+	GATE_MAX_BUFFER_BYTES,
+	GATE_OUTPUT_LIMIT,
+	GATE_TEST_TIMEOUT_MS,
 	MAX_GRAPH_DEPTH,
 	MAX_GRAPH_NODES,
-	GATE_COMMAND_TIMEOUT_MS,
-	GATE_TEST_TIMEOUT_MS,
-	GATE_OUTPUT_LIMIT,
-	GATE_MAX_BUFFER_BYTES,
-	GATE_FILE_MAX_BYTES,
 } from "./constants.ts";
 
 const require_ = createRequire(import.meta.url);
@@ -58,8 +62,7 @@ function deepMerge(base: unknown, override: unknown): unknown {
 }
 
 function valueAtPath(value: unknown, path: string): unknown {
-	return path.split(".").reduce<unknown>((current, segment) =>
-		isRecord(current) ? current[segment] : undefined, value);
+	return path.split(".").reduce<unknown>((current, segment) => (isRecord(current) ? current[segment] : undefined), value);
 }
 
 function isPresent(value: unknown): boolean {
@@ -81,7 +84,7 @@ function resolveCreateInput(db: Db, input: CreateInput): ResolvedCreateInput {
 		throw new Error(`artifact "${input.templateId}" is not an artifact template`);
 	}
 
-	const targetKind = template.extra["targetKind"];
+	const targetKind = template.extra.targetKind;
 	if (typeof targetKind !== "string" || targetKind.length === 0) {
 		throw new Error(`template "${input.templateId}" has no targetKind`);
 	}
@@ -89,13 +92,13 @@ function resolveCreateInput(db: Db, input: CreateInput): ResolvedCreateInput {
 		throw new Error(`template "${input.templateId}" targets kind "${targetKind}", not "${input.kind}"`);
 	}
 
-	const defaults = isRecord(template.extra["defaults"]) ? template.extra["defaults"] : {};
+	const defaults = isRecord(template.extra.defaults) ? template.extra.defaults : {};
 	const { templateId: _templateId, ...overrides } = input;
 	const merged = deepMerge(defaults, overrides) as CreateInput;
 	merged.kind = targetKind;
 
-	const required = Array.isArray(template.extra["required"])
-		? template.extra["required"].filter((field): field is string => typeof field === "string")
+	const required = Array.isArray(template.extra.required)
+		? template.extra.required.filter((field): field is string => typeof field === "string")
 		: ["title"];
 	for (const field of required) {
 		if (!isPresent(valueAtPath(merged, field))) {
@@ -118,16 +121,16 @@ function defaultStatusFor(db: Db, kind: string): string {
 
 function rowToArtifact(row: Record<string, unknown>): Artifact {
 	return {
-		id: row["id"] as string,
-		kind: row["kind"] as string,
-		title: row["title"] as string,
-		status: row["status"] as string,
-		subtype: (row["subtype"] as string) ?? "",
-		body: (row["body"] as string) ?? "",
-		labels: JSON.parse((row["labels"] as string) ?? "[]"),
-		extra: JSON.parse((row["extra"] as string) ?? "{}"),
-		created_at: row["created_at"] as string,
-		updated_at: row["updated_at"] as string,
+		id: row.id as string,
+		kind: row.kind as string,
+		title: row.title as string,
+		status: row.status as string,
+		subtype: (row.subtype as string) ?? "",
+		body: (row.body as string) ?? "",
+		labels: JSON.parse((row.labels as string) ?? "[]"),
+		extra: JSON.parse((row.extra as string) ?? "{}"),
+		created_at: row.created_at as string,
+		updated_at: row.updated_at as string,
 	};
 }
 
@@ -143,23 +146,25 @@ export function appendArtifactEvent(db: Db, input: AppendArtifactEvent): Artifac
 	const now = new Date().toISOString();
 	let id: number | bigint = 0;
 	inTransaction(db, () => {
-		const result = db.prepare(`
+		const result = db
+			.prepare(`
 			INSERT INTO artifact_events (
 				artifact_id, occurred_at, event_type, actor, source, session_id,
 				from_status, to_status, relation, related_id, event_schema_version
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-		`).run(
-			event.artifactId,
-			now,
-			event.type,
-			event.actor,
-			event.source,
-			event.sessionId ?? null,
-			event.fromStatus ?? null,
-			event.toStatus ?? null,
-			event.relation ?? null,
-			event.relatedId ?? null,
-		);
+		`)
+			.run(
+				event.artifactId,
+				now,
+				event.type,
+				event.actor,
+				event.source,
+				event.sessionId ?? null,
+				event.fromStatus ?? null,
+				event.toStatus ?? null,
+				event.relation ?? null,
+				event.relatedId ?? null,
+			);
 		id = result.lastInsertRowid;
 	});
 	return {
@@ -215,19 +220,36 @@ export function queryArtifactEvents(db: Db, query: ArtifactEventQuery): Artifact
 	const { artifactId, actor, sessionId, since, limit, direction, cursor } = normalizeArtifactEventQuery(query);
 	const conditions: string[] = [];
 	const params: unknown[] = [];
-	if (artifactId) { conditions.push("(artifact_id = ? OR related_id = ?)"); params.push(artifactId, artifactId); }
-	if (actor) { conditions.push("actor = ?"); params.push(actor); }
-	if (sessionId) { conditions.push("session_id = ?"); params.push(sessionId); }
-	if (since) { conditions.push("occurred_at >= ?"); params.push(since); }
+	if (artifactId) {
+		conditions.push("(artifact_id = ? OR related_id = ?)");
+		params.push(artifactId, artifactId);
+	}
+	if (actor) {
+		conditions.push("actor = ?");
+		params.push(actor);
+	}
+	if (sessionId) {
+		conditions.push("session_id = ?");
+		params.push(sessionId);
+	}
+	if (since) {
+		conditions.push("occurred_at >= ?");
+		params.push(since);
+	}
 	const comparator = direction === "desc" ? "<" : ">";
-	if (cursor !== undefined) { conditions.push(`id ${comparator} ?`); params.push(cursor); }
+	if (cursor !== undefined) {
+		conditions.push(`id ${comparator} ?`);
+		params.push(cursor);
+	}
 	const order = direction === "desc" ? "DESC" : "ASC";
-	const rows = db.prepare(`
+	const rows = db
+		.prepare(`
 		SELECT * FROM artifact_events
 		WHERE ${conditions.join(" AND ")}
 		ORDER BY occurred_at ${order}, id ${order}
 		LIMIT ?
-	`).all(...params, limit + 1) as ArtifactEventRow[];
+	`)
+		.all(...params, limit + 1) as ArtifactEventRow[];
 	const hasMore = rows.length > limit;
 	const events = rows.slice(0, limit).map(mapArtifactEventRow);
 	return { events, ...(hasMore ? { nextCursor: events.at(-1)!.id } : {}) };
@@ -262,7 +284,11 @@ export function getArtifact(db: Db, id: string, opts?: { tree?: boolean; depth?:
 		const depthLimit = Math.min(MAX_GRAPH_DEPTH, Math.max(0, Math.floor(opts.depth ?? DEFAULT_GRAPH_DEPTH)));
 		const nodeLimit = Math.min(MAX_GRAPH_NODES, Math.max(1, Math.floor(opts.maxNodes ?? DEFAULT_GRAPH_MAX_NODES)));
 		const queue: Array<{ id: string; depth: number }> = [{ id, depth: 0 }];
-		const allEdges = db.prepare('SELECT from_id AS "from", relation, to_id AS "to" FROM edges').all() as { from: string; relation: string; to: string }[];
+		const allEdges = db.prepare('SELECT from_id AS "from", relation, to_id AS "to" FROM edges').all() as {
+			from: string;
+			relation: string;
+			to: string;
+		}[];
 		const reachable = new Set<string>([id]);
 		const adj = new Map<string, { from: string; relation: string; to: string }[]>();
 		for (const edge of allEdges) {
@@ -297,16 +323,31 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 		conditions.push(`id IN (${filter.ids.map(() => "?").join(", ")})`);
 		params.push(...filter.ids);
 	}
-	if (filter.kind) { conditions.push("kind = ?"); params.push(filter.kind); }
-	if (filter.status) { conditions.push("status = ?"); params.push(filter.status); }
+	if (filter.kind) {
+		conditions.push("kind = ?");
+		params.push(filter.kind);
+	}
+	if (filter.status) {
+		conditions.push("status = ?");
+		params.push(filter.status);
+	}
 	if (filter.statuses) {
 		if (filter.statuses.length === 0) return [];
 		conditions.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
 		params.push(...filter.statuses);
 	}
-	if (filter.subtype) { conditions.push("subtype = ?"); params.push(filter.subtype); }
-	if (filter.excludeSubtype) { conditions.push("subtype != ?"); params.push(filter.excludeSubtype); }
-	if (filter.text) { conditions.push("(title LIKE ? OR body LIKE ?)"); params.push(`%${filter.text}%`, `%${filter.text}%`); }
+	if (filter.subtype) {
+		conditions.push("subtype = ?");
+		params.push(filter.subtype);
+	}
+	if (filter.excludeSubtype) {
+		conditions.push("subtype != ?");
+		params.push(filter.excludeSubtype);
+	}
+	if (filter.text) {
+		conditions.push("(title LIKE ? OR body LIKE ?)");
+		params.push(`%${filter.text}%`, `%${filter.text}%`);
+	}
 	for (const label of filter.labels ?? []) {
 		conditions.push("EXISTS (SELECT 1 FROM json_each(artifacts.labels) WHERE value = ?)");
 		params.push(label);
@@ -316,7 +357,7 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 		conditions.push("json_extract(extra, ?) = ?");
 		params.push(`$.${key}`, value);
 	}
-	if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
+	if (conditions.length) sql += ` WHERE ${conditions.join(" AND ")}`;
 	sql += " ORDER BY updated_at DESC";
 	if (filter.limit !== undefined) {
 		if (!Number.isInteger(filter.limit) || filter.limit < 1) throw new Error("artifact query limit must be a positive integer");
@@ -329,20 +370,25 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 
 function rowToTrashRecord(row: Record<string, unknown>): ArtifactTrashRecord {
 	return {
-		artifactId: row["artifact_id"] as string,
-		trashedAt: row["trashed_at"] as string,
-		purgeAfter: row["purge_after"] as string,
-		...(row["reason"] == null ? {} : { reason: row["reason"] as string }),
+		artifactId: row.artifact_id as string,
+		trashedAt: row.trashed_at as string,
+		purgeAfter: row.purge_after as string,
+		...(row.reason == null ? {} : { reason: row.reason as string }),
 	};
 }
 
 export function getArtifactTrash(db: Db, id: string): ArtifactTrashRecord | null {
-	const row = db.prepare("SELECT artifact_id, trashed_at, purge_after, reason FROM artifact_trash WHERE artifact_id = ?").get(id) as Record<string, unknown> | null;
+	const row = db.prepare("SELECT artifact_id, trashed_at, purge_after, reason FROM artifact_trash WHERE artifact_id = ?").get(id) as Record<
+		string,
+		unknown
+	> | null;
 	return row ? rowToTrashRecord(row) : null;
 }
 
 export function listArtifactTrash(db: Db): ArtifactTrashRecord[] {
-	const rows = db.prepare("SELECT artifact_id, trashed_at, purge_after, reason FROM artifact_trash ORDER BY purge_after ASC").all() as Record<string, unknown>[];
+	const rows = db
+		.prepare("SELECT artifact_id, trashed_at, purge_after, reason FROM artifact_trash ORDER BY purge_after ASC")
+		.all() as Record<string, unknown>[];
 	return rows.map(rowToTrashRecord);
 }
 
@@ -359,11 +405,16 @@ export function listArtifactTrash(db: Db): ArtifactTrashRecord[] {
  * caller is not necessarily looking at right now. No other kind has an analogous "currently
  * in use" signal to check.
  */
-export function trashArtifact(db: Db, id: string, options?: { reason?: string; now?: () => string; context?: ArtifactEventContext }): ArtifactTrashRecord {
+export function trashArtifact(
+	db: Db,
+	id: string,
+	options?: { reason?: string; now?: () => string; context?: ArtifactEventContext },
+): ArtifactTrashRecord {
 	const artifact = getArtifact(db, id);
 	if (!artifact) throw new Error(`artifact "${id}" not found`);
 	const focusedScope = db.prepare("SELECT scope FROM task_focus WHERE task_id = ? LIMIT 1").get(id) as { scope: string } | null;
-	if (focusedScope) throw new Error(`artifact "${id}" is the active Task Focus in scope "${focusedScope.scope}"; clear focus before removing it`);
+	if (focusedScope)
+		throw new Error(`artifact "${id}" is the active Task Focus in scope "${focusedScope.scope}"; clear focus before removing it`);
 	const now = options?.now ?? (() => new Date().toISOString());
 	const trashedAt = now();
 	const purgeAfter = new Date(new Date(trashedAt).getTime() + ARTIFACT_TRASH_RETENTION_MS).toISOString();
@@ -409,7 +460,9 @@ export function restoreArtifact(db: Db, id: string, context?: ArtifactEventConte
  */
 export function purgeDueArtifacts(db: Db, now: () => string = () => new Date().toISOString()): number {
 	const nowIso = now();
-	const due = (db.prepare("SELECT artifact_id FROM artifact_trash WHERE purge_after <= ?").all(nowIso) as Array<{ artifact_id: string }>).map((row) => row.artifact_id);
+	const due = (
+		db.prepare("SELECT artifact_id FROM artifact_trash WHERE purge_after <= ?").all(nowIso) as Array<{ artifact_id: string }>
+	).map((row) => row.artifact_id);
 	let purged = 0;
 	for (const id of due) {
 		inTransaction(db, () => {
@@ -502,7 +555,10 @@ export function updateExtra(db: Db, id: string, extra: Record<string, unknown>, 
 
 /** Active rules with inject metadata — for before_agent_start system prompt injection. */
 export function injectableRules(db: Db): Array<{ id: string; title: string; body: string; extra: Record<string, unknown> }> {
-	const rows = db.prepare("SELECT * FROM artifacts WHERE kind = 'rule' AND status = 'active' ORDER BY updated_at DESC").all() as Record<string, unknown>[];
+	const rows = db.prepare("SELECT * FROM artifacts WHERE kind = 'rule' AND status = 'active' ORDER BY updated_at DESC").all() as Record<
+		string,
+		unknown
+	>[];
 	return rows.map((row) => {
 		const art = rowToArtifact(row);
 		return { id: art.id, title: art.title, body: art.body, extra: art.extra };
@@ -538,15 +594,19 @@ function runProcessGateSync(gate: Gate, cwd?: string): GateResult {
 	if (result.error) return { gate, passed: false, output: result.error.message.slice(0, GATE_OUTPUT_LIMIT) };
 	const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
 	const passed = result.status === 0 && (gate.expect ? combined.includes(gate.expect) : true);
-	return { gate, passed, output: combined.slice(0, GATE_OUTPUT_LIMIT) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`) };
+	return {
+		gate,
+		passed,
+		output: combined.slice(0, GATE_OUTPUT_LIMIT) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`),
+	};
 }
 
 export function runGates(db: Db, artifactId: string, options: GateRunOptions = {}): GateResult[] {
 	const art = getArtifact(db, artifactId);
 	if (!art) throw new Error("artifact not found");
-	const gates = (art.extra["gates"] as Gate[]) ?? [];
+	const gates = (art.extra.gates as Gate[]) ?? [];
 	const cwd = options.cwd;
-	return gates.map((gate) => (gate.type === "command" || gate.type === "test") ? runProcessGateSync(gate, cwd) : runNonProcessGate(gate));
+	return gates.map((gate) => (gate.type === "command" || gate.type === "test" ? runProcessGateSync(gate, cwd) : runNonProcessGate(gate)));
 }
 
 /**
@@ -560,7 +620,11 @@ export function runGates(db: Db, artifactId: string, options: GateRunOptions = {
  *      indefinitely after Papyrus considers the gate "timed out". Spawning detached (its own
  *      process group) and killing the negated pid on our own timer reaches the whole tree.
  */
-function executeGateCommand(command: string, timeout: number, cwd?: string): Promise<{ passed: boolean; output: string; matchable: string }> {
+function executeGateCommand(
+	command: string,
+	timeout: number,
+	cwd?: string,
+): Promise<{ passed: boolean; output: string; matchable: string }> {
 	// `spawn(..., { shell: true, detached: true })` instead of the `exec()` convenience wrapper:
 	// `detached` (needed to make the shell the leader of its own process group, so the negated pid
 	// below reaches every descendant, not just the shell) is not part of Node's `exec()`/
@@ -636,7 +700,7 @@ function runNonProcessGate(gate: Gate): GateResult {
 export async function runGatesAsync(db: Db, artifactId: string, options: GateRunOptions = {}): Promise<GateResult[]> {
 	const art = getArtifact(db, artifactId);
 	if (!art) throw new Error("artifact not found");
-	const gates = (art.extra["gates"] as Gate[]) ?? [];
+	const gates = (art.extra.gates as Gate[]) ?? [];
 	const results: GateResult[] = [];
 	for (const gate of gates) {
 		const remainingMs = options.deadlineMs === undefined ? undefined : options.deadlineMs - Date.now();
@@ -659,4 +723,3 @@ export async function runGatesAsync(db: Db, artifactId: string, options: GateRun
 	}
 	return results;
 }
-

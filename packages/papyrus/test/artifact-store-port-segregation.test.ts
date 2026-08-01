@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import type { Artifact, ArtifactEdge, ArtifactLink, ArtifactQuery, CreateArtifactInput, RelationshipQuery, UpdateArtifactInput } from "../src/domain/artifact.ts";
+import type {
+	Artifact,
+	ArtifactEdge,
+	ArtifactLink,
+	ArtifactQuery,
+	CreateArtifactInput,
+	RelationshipQuery,
+	UpdateArtifactInput,
+} from "../src/domain/artifact.ts";
 import { Notes } from "../src/note-service.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 
@@ -17,23 +25,35 @@ class InMemoryArtifactStore implements ArtifactStore {
 	create(input: CreateArtifactInput): Artifact {
 		const id = input.id ?? `fake-${++this.counter}`;
 		const artifact: Artifact = {
-			id, kind: input.kind ?? "doc", title: input.title ?? "", status: input.status ?? "draft",
-			subtype: input.subtype ?? "", body: input.body ?? "", labels: input.labels ?? [], extra: input.extra ?? {},
-			created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+			id,
+			kind: input.kind ?? "doc",
+			title: input.title ?? "",
+			status: input.status ?? "draft",
+			subtype: input.subtype ?? "",
+			body: input.body ?? "",
+			labels: input.labels ?? [],
+			extra: input.extra ?? {},
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
 		};
 		this.rows.set(id, artifact);
 		return artifact;
 	}
-	get(id: string): Artifact | null { return this.rows.get(id) ?? null; }
+	get(id: string): Artifact | null {
+		return this.rows.get(id) ?? null;
+	}
 	query(filter: ArtifactQuery): Artifact[] {
-		return [...this.rows.values()].filter((row) =>
-			(!filter.kind || row.kind === filter.kind) &&
-			(!filter.subtype || row.subtype === filter.subtype) &&
-			(!filter.extraEquals || Object.entries(filter.extraEquals).every(([key, value]) => row.extra[key] === value)),
+		return [...this.rows.values()].filter(
+			(row) =>
+				(!filter.kind || row.kind === filter.kind) &&
+				(!filter.subtype || row.subtype === filter.subtype) &&
+				(!filter.extraEquals || Object.entries(filter.extraEquals).every(([key, value]) => row.extra[key] === value)),
 		);
 	}
 	link(_link: ArtifactLink): void {}
-	unlink(_link: ArtifactLink): boolean { return false; }
+	unlink(_link: ArtifactLink): boolean {
+		return false;
+	}
 	setStatus(id: string, status: string): Artifact | null {
 		const row = this.rows.get(id);
 		if (!row) return null;
@@ -54,7 +74,9 @@ class InMemoryArtifactStore implements ArtifactStore {
 		if (input.labels !== undefined) row.labels = input.labels;
 		return row;
 	}
-	relationships(_filter?: RelationshipQuery): ArtifactEdge[] { return []; }
+	relationships(_filter?: RelationshipQuery): ArtifactEdge[] {
+		return [];
+	}
 }
 
 describe("ArtifactStore port segregation: a domain service works against the narrow store alone", () => {

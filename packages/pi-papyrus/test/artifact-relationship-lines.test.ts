@@ -4,8 +4,16 @@ import { buildArtifactRelationshipLines } from "../extension/src/artifact-relati
 
 function doc(id: string, title: string, overrides: Partial<Artifact> = {}): Artifact {
 	return {
-		id, kind: "doc", title, status: "active", subtype: "", body: "", labels: [], extra: {},
-		created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+		id,
+		kind: "doc",
+		title,
+		status: "active",
+		subtype: "",
+		body: "",
+		labels: [],
+		extra: {},
+		created_at: "2026-01-01T00:00:00.000Z",
+		updated_at: "2026-01-01T00:00:00.000Z",
 		...overrides,
 	};
 }

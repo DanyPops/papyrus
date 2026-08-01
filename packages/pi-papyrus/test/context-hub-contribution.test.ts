@@ -1,14 +1,25 @@
 import { describe, expect, it } from "bun:test";
 import { validateContextSegment } from "@danypops/jittor";
-import { papyrusContextSegment } from "../extension/src/context-hub-contribution.ts";
 import type { ContextBudget } from "../extension/src/context-budget.ts";
+import { papyrusContextSegment } from "../extension/src/context-hub-contribution.ts";
 
 function ruleBudget(entries: ContextBudget["rules"]["entries"] = []): ContextBudget["rules"] {
-	return { entries, totalCharacters: entries.reduce((sum, e) => sum + e.characters, 0), totalEstimatedTokens: entries.reduce((sum, e) => sum + e.estimatedTokens, 0) };
+	return {
+		entries,
+		totalCharacters: entries.reduce((sum, e) => sum + e.characters, 0),
+		totalEstimatedTokens: entries.reduce((sum, e) => sum + e.estimatedTokens, 0),
+	};
 }
 
-function skills(entries: import("../extension/src/skill-catalog-footprint.ts").SkillCatalogEntry[] = []): import("../extension/src/skill-catalog-footprint.ts").SkillCatalogFootprint {
-	return { entries, totalCharacters: entries.reduce((sum, e) => sum + e.characters, 0), totalEstimatedTokens: entries.reduce((sum, e) => sum + e.estimatedTokens, 0), scannedDirectories: [] };
+function skills(
+	entries: import("../extension/src/skill-catalog-footprint.ts").SkillCatalogEntry[] = [],
+): import("../extension/src/skill-catalog-footprint.ts").SkillCatalogFootprint {
+	return {
+		entries,
+		totalCharacters: entries.reduce((sum, e) => sum + e.characters, 0),
+		totalEstimatedTokens: entries.reduce((sum, e) => sum + e.estimatedTokens, 0),
+		scannedDirectories: [],
+	};
 }
 
 describe("papyrusContextSegment", () => {
@@ -38,7 +49,7 @@ describe("papyrusContextSegment", () => {
 	it("sums the WHOLE task tree for the Tasks group total, not just top-level items", () => {
 		const nestedTasks = [{ label: "Parent", estimatedTokens: 20, children: [{ label: "Child", estimatedTokens: 5 }] }];
 		const segment = papyrusContextSegment(ruleBudget(), nestedTasks, skills());
-		expect(segment.items?.[0]!.estimatedTokens).toBe(25);
+		expect(segment.items?.[0]?.estimatedTokens).toBe(25);
 	});
 
 	it("round-trips through Jittor's own validateContextSegment -- the exact shape the Context Hub expects", () => {

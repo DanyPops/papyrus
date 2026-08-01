@@ -1,15 +1,16 @@
-import { afterAll, describe, it, expect } from "bun:test";
-import { openDb, type Db } from "../src/db.ts";
-import { createArtifact, queryArtifacts, linkArtifacts, getArtifact, runGates, runGatesAsync } from "../src/ops.ts";
-import { dbPath } from "../src/constants.ts";
+import { afterAll, describe, expect, it } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { dbPath } from "../src/constants.ts";
+import { type Db, openDb } from "../src/db.ts";
+import { createArtifact, getArtifact, linkArtifacts, queryArtifacts, runGates, runGatesAsync } from "../src/ops.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 function tmpDb(): { db: Db; dir: string } {
 	const dir = tempDir("papyrus-");
-	process.env["XDG_DATA_HOME"] = dir;
+	process.env.XDG_DATA_HOME = dir;
 	const db = openDb(dbPath());
 	return { db, dir };
 }
@@ -50,8 +51,16 @@ describe("papyrus: four-kind model", () => {
 		const { db } = tmpDb();
 		const doc = createArtifact(db, { kind: "doc", title: "Architecture overview", subtype: "design" });
 		const task = createArtifact(db, { kind: "task", title: "Implement SQLite layer" });
-		const rule = createArtifact(db, { kind: "rule", title: "Run tests before commit", extra: { condition: "git commit", action: "bun test", severity: "block" } });
-		const playbook = createArtifact(db, { kind: "playbook", title: "TDD workflow", extra: { trigger: "writing code", steps: ["write test", "implement", "refactor"], tools: ["bun test", "tsc"] } });
+		const rule = createArtifact(db, {
+			kind: "rule",
+			title: "Run tests before commit",
+			extra: { condition: "git commit", action: "bun test", severity: "block" },
+		});
+		const playbook = createArtifact(db, {
+			kind: "playbook",
+			title: "TDD workflow",
+			extra: { trigger: "writing code", steps: ["write test", "implement", "refactor"], tools: ["bun test", "tsc"] },
+		});
 
 		expect(doc.kind).toBe("doc");
 		expect(task.kind).toBe("task");
@@ -81,10 +90,16 @@ describe("papyrus: four-kind model", () => {
 		// that adversarial row order directly for every kind and assert the documented default
 		// still wins regardless of physical row order.
 		const { db } = tmpDb();
-		for (const [kind, correctDefault] of [["doc", "draft"], ["task", "todo"], ["rule", "active"], ["playbook", "active"]] as const) {
+		for (const [kind, correctDefault] of [
+			["doc", "draft"],
+			["task", "todo"],
+			["rule", "active"],
+			["playbook", "active"],
+		] as const) {
 			const rows = db.prepare("SELECT name FROM statuses WHERE kind = ?").all(kind) as Array<{ name: string }>;
 			db.prepare("DELETE FROM statuses WHERE kind = ?").run(kind);
-			for (const row of rows) if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
+			for (const row of rows)
+				if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
 			db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(correctDefault, kind); // documented default now rowid-last
 			const rowidFirst = db.prepare("SELECT name FROM statuses WHERE kind = ? ORDER BY rowid LIMIT 1").get(kind) as { name: string };
 			expect(rowidFirst.name).not.toBe(correctDefault); // sanity: the adversarial condition actually holds
@@ -127,11 +142,13 @@ describe("papyrus: four-kind model", () => {
 		const task = createArtifact(db, {
 			kind: "task",
 			title: "Gated task",
-			extra: { gates: [
-				{ type: "file-exists", target },
-				{ type: "contains", target, expect: "hello" },
-				{ type: "contains", target, expect: "missing" },
-			] },
+			extra: {
+				gates: [
+					{ type: "file-exists", target },
+					{ type: "contains", target, expect: "hello" },
+					{ type: "contains", target, expect: "missing" },
+				],
+			},
 		});
 		const results = runGates(db, task.id!);
 		expect(results).toHaveLength(3);
@@ -149,7 +166,11 @@ describe("papyrus: four-kind model", () => {
 	it("runGates (sync): a command gate runs in the given cwd, not the process's own working directory", () => {
 		const { db, dir } = tmpDb();
 		writeFileSync(join(dir, "marker.txt"), "present");
-		const task = createArtifact(db, { kind: "task", title: "CWD gate", extra: { gates: [{ type: "command", target: "ls", expect: "marker.txt" }] } });
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "CWD gate",
+			extra: { gates: [{ type: "command", target: "ls", expect: "marker.txt" }] },
+		});
 
 		const withoutCwd = runGates(db, task.id!);
 		expect(withoutCwd[0]?.passed).toBe(false);
@@ -162,7 +183,11 @@ describe("papyrus: four-kind model", () => {
 	it("runGatesAsync: a command gate runs in the given cwd, not the process's own working directory", async () => {
 		const { db, dir } = tmpDb();
 		writeFileSync(join(dir, "marker.txt"), "present");
-		const task = createArtifact(db, { kind: "task", title: "CWD gate async", extra: { gates: [{ type: "command", target: "ls", expect: "marker.txt" }] } });
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "CWD gate async",
+			extra: { gates: [{ type: "command", target: "ls", expect: "marker.txt" }] },
+		});
 
 		const withoutCwd = await runGatesAsync(db, task.id!);
 		expect(withoutCwd[0]?.passed).toBe(false);
@@ -203,7 +228,11 @@ describe("papyrus: four-kind model", () => {
 	// gate.expect match, regardless of whether the command truly passed.
 	it("runGates (sync): a command gate's expect match sees stderr output too, not stdout only", () => {
 		const { db } = tmpDb();
-		const task = createArtifact(db, { kind: "task", title: "stderr gate", extra: { gates: [{ type: "command", target: "echo only-on-stderr 1>&2", expect: "only-on-stderr" }] } });
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "stderr gate",
+			extra: { gates: [{ type: "command", target: "echo only-on-stderr 1>&2", expect: "only-on-stderr" }] },
+		});
 		const results = runGates(db, task.id!);
 		expect(results[0]?.passed).toBe(true);
 		db.close();
@@ -211,7 +240,11 @@ describe("papyrus: four-kind model", () => {
 
 	it("runGatesAsync: a command gate's expect match sees stderr output too, not stdout only", async () => {
 		const { db } = tmpDb();
-		const task = createArtifact(db, { kind: "task", title: "stderr gate async", extra: { gates: [{ type: "command", target: "echo only-on-stderr 1>&2", expect: "only-on-stderr" }] } });
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "stderr gate async",
+			extra: { gates: [{ type: "command", target: "echo only-on-stderr 1>&2", expect: "only-on-stderr" }] },
+		});
 		const results = await runGatesAsync(db, task.id!);
 		expect(results[0]?.passed).toBe(true);
 		db.close();
@@ -232,7 +265,11 @@ describe("papyrus: four-kind model", () => {
 		it("runGates (sync): fails when the test passes but gate.expect does not appear in the output", () => {
 			const { db, dir } = tmpDb();
 			const target = writeVitestFile(dir, `it("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
-			const task = createArtifact(db, { kind: "task", title: "test gate", extra: { gates: [{ type: "test", target, expect: "this string never appears" }] } });
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "test gate",
+				extra: { gates: [{ type: "test", target, expect: "this string never appears" }] },
+			});
 			const results = runGates(db, task.id!, { cwd: dir });
 			expect(results[0]?.passed).toBe(false);
 			db.close();
@@ -241,7 +278,11 @@ describe("papyrus: four-kind model", () => {
 		it("runGatesAsync: fails when the test passes but gate.expect does not appear in the output (same target as the sync case)", async () => {
 			const { db, dir } = tmpDb();
 			const target = writeVitestFile(dir, `it("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
-			const task = createArtifact(db, { kind: "task", title: "test gate async", extra: { gates: [{ type: "test", target, expect: "this string never appears" }] } });
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "test gate async",
+				extra: { gates: [{ type: "test", target, expect: "this string never appears" }] },
+			});
 			const results = await runGatesAsync(db, task.id!, { cwd: dir });
 			expect(results[0]?.passed).toBe(false);
 			db.close();
@@ -250,7 +291,11 @@ describe("papyrus: four-kind model", () => {
 		it("runGates (sync): passes when the test passes and gate.expect does appear in the output", () => {
 			const { db, dir } = tmpDb();
 			const target = writeVitestFile(dir, `it("passes", () => { console.log("a marker string"); expect(1).toBe(1); });`);
-			const task = createArtifact(db, { kind: "task", title: "test gate ok", extra: { gates: [{ type: "test", target, expect: "a marker string" }] } });
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "test gate ok",
+				extra: { gates: [{ type: "test", target, expect: "a marker string" }] },
+			});
 			const results = runGates(db, task.id!, { cwd: dir });
 			expect(results[0]?.passed).toBe(true);
 			db.close();
@@ -266,7 +311,15 @@ describe("papyrus: four-kind model", () => {
 		const task = createArtifact(db, {
 			kind: "task",
 			title: "long output gate",
-			extra: { gates: [{ type: "command", target: "node -e \"console.log('x'.repeat(500)); console.log('FOUND-AT-THE-END')\"", expect: "FOUND-AT-THE-END" }] },
+			extra: {
+				gates: [
+					{
+						type: "command",
+						target: "node -e \"console.log('x'.repeat(500)); console.log('FOUND-AT-THE-END')\"",
+						expect: "FOUND-AT-THE-END",
+					},
+				],
+			},
 		});
 		const results = await runGatesAsync(db, task.id!);
 		expect(results[0]?.passed).toBe(true);
@@ -280,8 +333,8 @@ describe("papyrus: four-kind model", () => {
 			title: "Always run tsc before commit",
 			extra: { condition: "before git commit", action: "bun x tsc --noEmit", severity: "block" },
 		});
-		expect(rule.extra["condition"]).toBe("before git commit");
-		expect(rule.extra["severity"]).toBe("block");
+		expect(rule.extra.condition).toBe("before git commit");
+		expect(rule.extra.severity).toBe("block");
 		db.close();
 	});
 
@@ -292,8 +345,8 @@ describe("papyrus: four-kind model", () => {
 			title: "TDD cycle",
 			extra: { trigger: "writing new code", steps: ["write failing test", "implement", "refactor"], tools: ["bun test", "tsc"] },
 		});
-		expect((playbook.extra["steps"] as string[]).length).toBe(3);
-		expect((playbook.extra["tools"] as string[]).length).toBe(2);
+		expect((playbook.extra.steps as string[]).length).toBe(3);
+		expect((playbook.extra.tools as string[]).length).toBe(2);
 		db.close();
 	});
 
@@ -315,7 +368,11 @@ describe("papyrus: four-kind model", () => {
 		const b = createArtifact(db, { kind: "task", title: "B" });
 		createArtifact(db, { kind: "task", title: "C" });
 
-		expect(queryArtifacts(db, { ids: [a.id, b.id] }).map((row) => row.id).sort()).toEqual([a.id, b.id].sort());
+		expect(
+			queryArtifacts(db, { ids: [a.id, b.id] })
+				.map((row) => row.id)
+				.sort(),
+		).toEqual([a.id, b.id].sort());
 		expect(queryArtifacts(db, { ids: [] })).toEqual([]);
 		db.close();
 	});
@@ -393,9 +450,9 @@ describe("papyrus: four-kind model", () => {
 		expect(task.kind).toBe("task");
 		expect(task.body).toBe("Deliver an interactive frontend.");
 		expect(task.labels).toEqual(["frontend"]);
-		expect(task.extra["owner"]).toBe("agent");
-		expect(task.extra["checklist"]).toEqual(["Override first"]);
-		expect(task.extra["gates"]).toEqual([{ type: "command", target: "bun test" }]);
+		expect(task.extra.owner).toBe("agent");
+		expect(task.extra.checklist).toEqual(["Override first"]);
+		expect(task.extra.gates).toEqual([{ type: "command", target: "bun test" }]);
 		db.close();
 	});
 
@@ -409,7 +466,9 @@ describe("papyrus: four-kind model", () => {
 		});
 
 		expect(() => createArtifact(db, { templateId: template.id, title: "No owner" })).toThrow("missing required template field");
-		expect(() => createArtifact(db, { templateId: template.id, kind: "doc", title: "Wrong kind", extra: { owner: "agent" } })).toThrow("targets kind");
+		expect(() => createArtifact(db, { templateId: template.id, kind: "doc", title: "Wrong kind", extra: { owner: "agent" } })).toThrow(
+			"targets kind",
+		);
 		db.close();
 	});
 });

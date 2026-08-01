@@ -6,27 +6,46 @@ import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from ".
 afterEach(resetPapyrusClientForTests);
 
 function mockPlaybooksList(playbooks: unknown[], invocationResult: unknown = { entryTaskId: "t1", created: { tasks: ["t1"] } }): void {
-	setPapyrusClientConnectorForTests(async () => ({
-		async call(operation: string, input: any) {
-			if (operation === "playbooks.list") {
-				expect(input).toMatchObject({ status: "active" });
-				return playbooks;
-			}
-			if (operation === "playbooks.invoke") return invocationResult;
-			throw new Error(`unexpected operation ${operation}`);
-		},
-	}) as any);
+	setPapyrusClientConnectorForTests(
+		async () =>
+			({
+				async call(operation: string, input: any) {
+					if (operation === "playbooks.list") {
+						expect(input).toMatchObject({ status: "active" });
+						return playbooks;
+					}
+					if (operation === "playbooks.invoke") return invocationResult;
+					throw new Error(`unexpected operation ${operation}`);
+				},
+			}) as any,
+	);
 }
 
-const PLAYBOOK = { id: "p1", kind: "playbook", subtype: "", title: "New Project", status: "active", body: "", labels: [], extra: { trigger: "starting from scratch", steps: ["Frame the problem", "State the goal"], tools: ["discuss"] }, created_at: "x", updated_at: "x" };
+const PLAYBOOK = {
+	id: "p1",
+	kind: "playbook",
+	subtype: "",
+	title: "New Project",
+	status: "active",
+	body: "",
+	labels: [],
+	extra: { trigger: "starting from scratch", steps: ["Frame the problem", "State the goal"], tools: ["discuss"] },
+	created_at: "x",
+	updated_at: "x",
+};
 
-interface RegisteredCommand { description?: string; handler: (args: string, ctx: any) => Promise<void> | void; }
+interface RegisteredCommand {
+	description?: string;
+	handler: (args: string, ctx: any) => Promise<void> | void;
+}
 
 function fakePi(): { pi: ExtensionAPI; commands: Map<string, RegisteredCommand> } {
 	const commands = new Map<string, RegisteredCommand>();
 	const handlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
 	const pi = {
-		registerCommand: (name: string, options: RegisteredCommand) => { commands.set(name, options); },
+		registerCommand: (name: string, options: RegisteredCommand) => {
+			commands.set(name, options);
+		},
 		on: (event: string, handler: (...args: unknown[]) => unknown) => {
 			const list = handlers.get(event) ?? [];
 			list.push(handler);
@@ -76,7 +95,12 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
 		const notifications: Array<{ message: string; type?: string }> = [];
 		const setTexts: string[] = [];
-		const ctx = { ui: { setEditorText: (text: string) => setTexts.push(text), notify: (message: string, type?: string) => notifications.push({ message, type }) } };
+		const ctx = {
+			ui: {
+				setEditorText: (text: string) => setTexts.push(text),
+				notify: (message: string, type?: string) => notifications.push({ message, type }),
+			},
+		};
 		await commands.get("playbook:new-project")!.handler("", ctx);
 		expect(setTexts).toEqual(['Run the "New Project" playbook -- work on the currently focused task.']);
 		expect(notifications).toEqual([{ message: '"New Project" invoked: entry task t1 focused', type: "info" }]);
@@ -89,12 +113,15 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
 
 		// The playbook is gone by the time the (still-registered) command is actually invoked.
-		setPapyrusClientConnectorForTests(async () => ({
-			async call(operation: string) {
-				if (operation === "playbooks.invoke") throw new Error('artifact "p1" not found');
-				throw new Error(`unexpected operation ${operation}`);
-			},
-		}) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call(operation: string) {
+						if (operation === "playbooks.invoke") throw new Error('artifact "p1" not found');
+						throw new Error(`unexpected operation ${operation}`);
+					},
+				}) as any,
+		);
 		const notifications: Array<{ message: string; type?: string }> = [];
 		const ctx = { ui: { setEditorText: () => {}, notify: (message: string, type?: string) => notifications.push({ message, type }) } };
 		await commands.get("playbook:new-project")!.handler("", ctx);
@@ -102,7 +129,14 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 	});
 
 	it("a Papyrus daemon hiccup during refresh degrades to no new/updated commands, never throws", async () => {
-		setPapyrusClientConnectorForTests(async () => ({ async call() { throw new Error("daemon unreachable"); } }) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						throw new Error("daemon unreachable");
+					},
+				}) as any,
+		);
 		const { pi, commands } = fakePi();
 		registerPlaybookBridge(pi);
 		await expect((pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover()).resolves.toBeUndefined();

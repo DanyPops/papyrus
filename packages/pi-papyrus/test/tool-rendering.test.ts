@@ -1,12 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
+import type { Artifact } from "@danypops/papyrus";
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import {
-	type PapyrusToolRenderContext,
-	renderPapyrusToolCall,
-	renderPapyrusToolResult,
-} from "../extension/src/tool-rendering/index.ts";
+import { type PapyrusToolRenderContext, renderPapyrusToolCall, renderPapyrusToolResult } from "../extension/src/tool-rendering/index.ts";
 import {
 	createArtifactDetails,
 	createArtifactListDetails,
@@ -17,7 +14,6 @@ import {
 	createPreviewDetails,
 	createTransitionDetails,
 } from "../extension/src/tool-rendering/render-model.ts";
-import type { Artifact } from "@danypops/papyrus";
 
 const theme = {
 	bold: (text: string) => text,
@@ -69,13 +65,20 @@ describe("Papyrus native tool rendering", () => {
 			createArtifactListDetails("tasks.list", [artifact(1), artifact(2)]),
 			createTransitionDetails("tasks.start", { ...artifact(), status: "in-progress" }, "todo", "in-progress"),
 			createGraphDetails("tasks.graph", [artifact(1), artifact(2)], [{ from: "task-1", relation: "contains", to: "task-2" }]),
-			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
+			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [
+				{ passed: true, type: "command", target: "bun test", output: "ok" },
+			]),
 			createInvocationDetails("playbooks.invoke", "run-1", { tasks: ["task-1"], docs: ["doc-1"], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task not found."),
 		];
 		for (const details of outcomes) {
-			const component = renderPapyrusToolResult(result(details, "MODEL_ONLY_SENTINEL"), { expanded: true, isPartial: false }, theme, context());
+			const component = renderPapyrusToolResult(
+				result(details, "MODEL_ONLY_SENTINEL"),
+				{ expanded: true, isPartial: false },
+				theme,
+				context(),
+			);
 			const lines = component.render(40);
 			expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
 			expect(lines.join("\n")).not.toContain("MODEL_ONLY_SENTINEL");
@@ -83,7 +86,11 @@ describe("Papyrus native tool rendering", () => {
 	});
 
 	it("prefers name over id in the compact call header, since id is a backend detail", () => {
-		const byName = renderPapyrusToolCall("Tasks", { action: "show", name: "Fix the thing", id: "1307c008-7326-47fa-9551-9529aff1592c" }, theme);
+		const byName = renderPapyrusToolCall(
+			"Tasks",
+			{ action: "show", name: "Fix the thing", id: "1307c008-7326-47fa-9551-9529aff1592c" },
+			theme,
+		);
 		expect(byName.render(60).join("\n")).toContain("Fix the thing");
 		expect(byName.render(60).join("\n")).not.toContain("1307c008");
 
@@ -94,12 +101,16 @@ describe("Papyrus native tool rendering", () => {
 
 	it("never echoes a raw artifact id in gate-run or transition summary text -- title only", () => {
 		const gateRun = createGateRunDetails("tasks.run_gates", "6c6c7445-9c2a-41db-9b40-809d07432430", "Ship the diagnostics", []);
-		const gateRunOutput = renderPapyrusToolResult(result(gateRun), { expanded: true, isPartial: false }, theme, context()).render(60).join("\n");
+		const gateRunOutput = renderPapyrusToolResult(result(gateRun), { expanded: true, isPartial: false }, theme, context())
+			.render(60)
+			.join("\n");
 		expect(gateRunOutput).toContain("Ship the diagnostics");
 		expect(gateRunOutput).not.toContain("6c6c7445");
 
 		const transition = createTransitionDetails("tasks.start", artifact(), "todo", "in-progress");
-		const transitionOutput = renderPapyrusToolResult(result(transition), { expanded: true, isPartial: false }, theme, context()).render(60).join("\n");
+		const transitionOutput = renderPapyrusToolResult(result(transition), { expanded: true, isPartial: false }, theme, context())
+			.render(60)
+			.join("\n");
 		expect(transitionOutput).toContain(transition.artifact.title);
 		expect(transitionOutput).not.toContain(transition.artifact.id);
 	});
@@ -113,19 +124,39 @@ describe("Papyrus native tool rendering", () => {
 	});
 
 	it("reuses artifact components and falls back safely for legacy details", () => {
-		const first = renderPapyrusToolResult(result(createArtifactDetails("tasks.show", artifact())), { expanded: false, isPartial: false }, theme, context());
-		const second = renderPapyrusToolResult(result(createArtifactDetails("tasks.show", artifact())), { expanded: true, isPartial: false }, theme, context(first));
+		const first = renderPapyrusToolResult(
+			result(createArtifactDetails("tasks.show", artifact())),
+			{ expanded: false, isPartial: false },
+			theme,
+			context(),
+		);
+		const second = renderPapyrusToolResult(
+			result(createArtifactDetails("tasks.show", artifact())),
+			{ expanded: true, isPartial: false },
+			theme,
+			context(first),
+		);
 		expect(second).toBe(first);
 		expect(second.render(80).join("\n")).toContain("Context mesh details");
 
-		const fallback = renderPapyrusToolResult(result({ legacy: true }, "legacy compact fallback"), { expanded: false, isPartial: false }, theme, context());
+		const fallback = renderPapyrusToolResult(
+			result({ legacy: true }, "legacy compact fallback"),
+			{ expanded: false, isPartial: false },
+			theme,
+			context(),
+		);
 		expect(fallback.render(80).join("\n")).toContain("legacy compact fallback");
 	});
 
 	it("renders partial and error states through their native channels", () => {
 		const partial = renderPapyrusToolResult(result(undefined), { expanded: false, isPartial: true }, theme, context(undefined, true));
 		expect(partial.render(80).join("\n")).toContain("Working");
-		const error = renderPapyrusToolResult(result(createErrorDetails("tasks.show", "FAILED", "Unable to show task.")), { expanded: false, isPartial: false }, theme, context(undefined, false, true));
+		const error = renderPapyrusToolResult(
+			result(createErrorDetails("tasks.show", "FAILED", "Unable to show task.")),
+			{ expanded: false, isPartial: false },
+			theme,
+			context(undefined, false, true),
+		);
 		expect(error.render(80).join("\n")).toContain("Unable to show task");
 	});
 

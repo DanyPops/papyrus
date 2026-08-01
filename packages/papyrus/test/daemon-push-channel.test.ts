@@ -10,12 +10,21 @@ import { join } from "node:path";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { createApp, createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 const PROJECT_ROOT = "/workspace/papyrus";
 const TASK_READ_ONLY_OPERATIONS = new Set([
-	"tasks.active", "tasks.context", "tasks.event_feed", "tasks.focused",
-	"tasks.graph", "tasks.history", "tasks.list", "tasks.plan", "tasks.scope", "tasks.show",
+	"tasks.active",
+	"tasks.context",
+	"tasks.event_feed",
+	"tasks.focused",
+	"tasks.graph",
+	"tasks.history",
+	"tasks.list",
+	"tasks.plan",
+	"tasks.scope",
+	"tasks.show",
 ]);
 
 function startFixtureDaemon(token: string) {
@@ -46,17 +55,28 @@ function startFixtureDaemon(token: string) {
 function waitForMessage(ws: WebSocket): Promise<{ topic: string; payload: unknown }> {
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => reject(new Error("timed out waiting for a push message")), 5_000);
-		ws.addEventListener("message", (event) => {
-			clearTimeout(timeout);
-			resolve(JSON.parse(String(event.data)));
-		}, { once: true });
+		ws.addEventListener(
+			"message",
+			(event) => {
+				clearTimeout(timeout);
+				resolve(JSON.parse(String(event.data)));
+			},
+			{ once: true },
+		);
 	});
 }
 
 function waitForOpen(ws: WebSocket): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => reject(new Error("timed out waiting for the socket to open")), 5_000);
-		ws.addEventListener("open", () => { clearTimeout(timeout); resolve(); }, { once: true });
+		ws.addEventListener(
+			"open",
+			() => {
+				clearTimeout(timeout);
+				resolve();
+			},
+			{ once: true },
+		);
 	});
 }
 
@@ -87,7 +107,9 @@ describe("daemon PushChannel wiring, end to end", () => {
 
 			// A read-only operation must not trigger a second push.
 			let sawSecondMessage = false;
-			ws.addEventListener("message", () => { sawSecondMessage = true; });
+			ws.addEventListener("message", () => {
+				sawSecondMessage = true;
+			});
 			await call(port, token, "tasks.show", { id: created.id });
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			expect(sawSecondMessage).toBe(false);

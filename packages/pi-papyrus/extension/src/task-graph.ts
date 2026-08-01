@@ -1,15 +1,15 @@
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, sliceByColumn, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import {
+	type GraphRenderer,
+	projectTaskGraph,
 	TASK_GRAPH_HORIZONTAL_PAN_COLUMNS,
 	TASK_GRAPH_MAX_VISIBLE_LINES,
 	TASK_GRAPH_MIN_VISIBLE_LINES,
 	TASK_GRAPH_RESERVED_ROWS,
-	projectTaskGraph,
-	type GraphRenderer,
 	type TaskGraph,
 	type TaskGraphView,
 } from "@danypops/papyrus";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import { matchesKey, sliceByColumn, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
 import { TASK_STATUS_PRESENTATION } from "./task-presentation.ts";
 
@@ -53,22 +53,27 @@ export class TaskGraphViewport {
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.graphLines.length - this.viewportHeight));
 		const end = Math.min(this.graphLines.length, this.offsetY + this.viewportHeight);
 		const border = this.theme.fg("borderMuted", "─".repeat(contentWidth));
-		const position = graphWidth > contentWidth || this.graphLines.length > this.viewportHeight
-			? ` · column ${this.offsetX + 1}/${Math.max(contentWidth, graphWidth)} · row ${this.offsetY + 1}/${this.graphLines.length}`
-			: "";
+		const position =
+			graphWidth > contentWidth || this.graphLines.length > this.viewportHeight
+				? ` · column ${this.offsetX + 1}/${Math.max(contentWidth, graphWidth)} · row ${this.offsetY + 1}/${this.graphLines.length}`
+				: "";
 		return [
 			border,
 			truncateToWidth(this.theme.bold(`Task graph · ${GRAPH_VIEWS[this.viewIndex]}`), contentWidth, ""),
 			truncateToWidth(this.theme.fg("dim", `Tab switch · arrows pan · Esc back${position}`), contentWidth, ""),
 			border,
-			...this.graphLines.slice(this.offsetY, end).map((line) =>
-				colorizeTaskGraphLine(this.theme, sliceByColumn(line, this.offsetX, contentWidth, true))),
+			...this.graphLines
+				.slice(this.offsetY, end)
+				.map((line) => colorizeTaskGraphLine(this.theme, sliceByColumn(line, this.offsetX, contentWidth, true))),
 			border,
 		];
 	}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.close(); return; }
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+			this.close();
+			return;
+		}
 		if (matchesKey(data, "tab")) this.switchView();
 		else if (matchesKey(data, "up")) this.offsetY = Math.max(0, this.offsetY - 1);
 		else if (matchesKey(data, "down")) this.offsetY = Math.min(Math.max(0, this.graphLines.length - this.viewportHeight), this.offsetY + 1);
@@ -112,6 +117,5 @@ export async function showTaskGraph(
 		ctx.ui.notify(rendered.lines.join("\n") || "No tasks in the execution graph", "info");
 		return;
 	}
-	await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-		new TaskGraphViewport(tui, theme, graph, renderer, done));
+	await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new TaskGraphViewport(tui, theme, graph, renderer, done));
 }

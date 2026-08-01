@@ -22,10 +22,13 @@ describe("nested artifact metadata formatter", () => {
 	});
 
 	it("renders template defaults and truncates at a configured depth", () => {
-		const lines = formatMetadata({
-			targetKind: "task",
-			defaults: { extra: { policy: { nested: "hidden" } } },
-		}, { maxDepth: 2 });
+		const lines = formatMetadata(
+			{
+				targetKind: "task",
+				defaults: { extra: { policy: { nested: "hidden" } } },
+			},
+			{ maxDepth: 2 },
+		);
 
 		expect(lines).toContain("targetKind: task");
 		expect(lines).toContain("defaults:");

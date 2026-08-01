@@ -1,11 +1,11 @@
+import { type Artifact, NOTE_DISPOSITIONS, NOTE_LIST_MAX_LIMIT } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { NOTE_DISPOSITIONS, NOTE_LIST_MAX_LIMIT, type Artifact } from "@danypops/papyrus";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { NOTE_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 
 export function noteRowMeta(note: Artifact): string {
-	const history = Array.isArray(note.extra["noteHistory"]) ? note.extra["noteHistory"].length : 0;
+	const history = Array.isArray(note.extra.noteHistory) ? note.extra.noteHistory.length : 0;
 	return `${history} event${history === 1 ? "" : "s"}`;
 }
 
@@ -52,12 +52,7 @@ export async function showNotes(ctx: ExtensionCommandContext): Promise<void> {
 		statusOrder: ["draft", "active", "archived"],
 		presentation: NOTE_STATUS_PRESENTATION,
 		rowMeta: noteRowMeta,
-		actions: (note) => [
-			"Show details",
-			...(note.status === "draft" ? ["Consume"] : []),
-			"Promote",
-			"Archive",
-		],
+		actions: (note) => ["Show details", ...(note.status === "draft" ? ["Consume"] : []), "Promote", "Archive"],
 		handleAction: async (choice, note, commandCtx) => {
 			if (choice === "Show details") {
 				await showArtifactDetails(commandCtx, note.id, "notes.show", { project_root: commandCtx.cwd });

@@ -12,13 +12,13 @@
 import { describe, expect, it } from "bun:test";
 import {
 	runArtifactCli,
+	runDiscussCli,
 	runDocsCli,
 	runGatesCli,
 	runGraphCli,
 	runGraphProjectionCli,
 	runLogCli,
 	runMigrationCli,
-	runDiscussCli,
 	runNoteCli,
 	runPlaybooksCli,
 	runRulesCli,
@@ -47,11 +47,23 @@ interface Fixture {
 
 const CLI_FIXTURES: Fixture[] = [
 	{ operation: "system.migrate", result: { from: 1, to: 2, applied: ["x"] }, invoke: (c) => runMigrationCli(["schema", "--json"], c) },
-	{ operation: "artifact.create", result: artifact, invoke: (c) => runArtifactCli(["create", "--kind", "doc", "--title", "T", "--json"], c) },
+	{
+		operation: "artifact.create",
+		result: artifact,
+		invoke: (c) => runArtifactCli(["create", "--kind", "doc", "--title", "T", "--json"], c),
+	},
 	{ operation: "artifact.query", result: artifactList, invoke: (c) => runArtifactCli(["query", "--json"], c) },
 	{ operation: "artifact.show", result: artifact, invoke: (c) => runArtifactCli(["show", "a1", "--json"], c) },
-	{ operation: "artifact.remove", result: { artifactId: "a1", trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" }, invoke: (c) => runArtifactCli(["remove", "a1", "--json"], c) },
-	{ operation: "artifact.remove_subtree", result: { removed: ["a1"], skipped: [] }, invoke: (c) => runArtifactCli(["remove-subtree", "a1", "--json"], c) },
+	{
+		operation: "artifact.remove",
+		result: { artifactId: "a1", trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" },
+		invoke: (c) => runArtifactCli(["remove", "a1", "--json"], c),
+	},
+	{
+		operation: "artifact.remove_subtree",
+		result: { removed: ["a1"], skipped: [] },
+		invoke: (c) => runArtifactCli(["remove-subtree", "a1", "--json"], c),
+	},
 	{ operation: "artifact.restore", result: { restored: true }, invoke: (c) => runArtifactCli(["restore", "a1", "--json"], c) },
 	{ operation: "artifact.trash_status", result: null, invoke: (c) => runArtifactCli(["trash-status", "a1", "--json"], c) },
 	{ operation: "artifact.trash_list", result: [], invoke: (c) => runArtifactCli(["trash-list", "--json"], c) },
@@ -63,10 +75,31 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "gates.run", result: [], invoke: (c) => runGatesCli(["run", "a1", "--json"], c) },
 	{
 		operation: "graph_projection.apply",
-		result: { producerId: "p1", batchId: "b1", sequence: 1, artifactsUpserted: 0, artifactsCreated: 0, edgesUpserted: 0, alreadyApplied: false },
-		invoke: (c) => runGraphProjectionCli(["apply", "--batch-json", '{"schema_version":"papyrus.graph-projection/v1","producer_id":"p1","batch_id":"b1","sequence":1,"artifacts":[],"edges":[]}', "--json"], c),
+		result: {
+			producerId: "p1",
+			batchId: "b1",
+			sequence: 1,
+			artifactsUpserted: 0,
+			artifactsCreated: 0,
+			edgesUpserted: 0,
+			alreadyApplied: false,
+		},
+		invoke: (c) =>
+			runGraphProjectionCli(
+				[
+					"apply",
+					"--batch-json",
+					'{"schema_version":"papyrus.graph-projection/v1","producer_id":"p1","batch_id":"b1","sequence":1,"artifacts":[],"edges":[]}',
+					"--json",
+				],
+				c,
+			),
 	},
-	{ operation: "graph_projection.checkpoint", result: null, invoke: (c) => runGraphProjectionCli(["checkpoint", "--producer-id", "p1", "--json"], c) },
+	{
+		operation: "graph_projection.checkpoint",
+		result: null,
+		invoke: (c) => runGraphProjectionCli(["checkpoint", "--producer-id", "p1", "--json"], c),
+	},
 	{ operation: "rules.injectable", result: artifactList, invoke: (c) => runRulesCli(["injectable", "--json"], c) },
 	{ operation: "tasks.create", result: artifact, invoke: (c) => runTaskCli(["create", "--title", "T", "--json"], c) },
 	{ operation: "tasks.update", result: artifact, invoke: (c) => runTaskCli(["update", "a1", "--title", "T2", "--json"], c) },
@@ -76,7 +109,11 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.show", result: artifact, invoke: (c) => runTaskCli(["show", "a1", "--json"], c) },
 	{ operation: "tasks.history", result: { events: [] }, invoke: (c) => runTaskCli(["history", "a1", "--json"], c) },
 	{ operation: "tasks.scope", result: { mode: "project", label: "papyrus" }, invoke: (c) => runTaskCli(["scope", "--json"], c) },
-	{ operation: "tasks.set_scope", result: { mode: "all", label: "All projects" }, invoke: (c) => runTaskCli(["scope", "all", "--json"], c) },
+	{
+		operation: "tasks.set_scope",
+		result: { mode: "all", label: "All projects" },
+		invoke: (c) => runTaskCli(["scope", "all", "--json"], c),
+	},
 	{ operation: "tasks.assign_project", result: artifact, invoke: (c) => runTaskCli(["assign-project", "a1", "--json"], c) },
 	{ operation: "tasks.active", result: artifact, invoke: (c) => runTaskCli(["active", "--json"], c) },
 	{ operation: "tasks.focused", result: { artifact, status: "active" }, invoke: (c) => runTaskCli(["focused", "--json"], c) },
@@ -86,22 +123,46 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.clear_focus", result: { cleared: true }, invoke: (c) => runTaskCli(["clear-focus", "--json"], c) },
 	{ operation: "tasks.start", result: artifact, invoke: (c) => runTaskCli(["start", "a1", "--json"], c) },
 	{ operation: "tasks.submit", result: artifact, invoke: (c) => runTaskCli(["submit", "a1", "--json"], c) },
-	{ operation: "tasks.complete", result: { artifact, gates: [], checklist: [], blocked: [], completed: true }, invoke: (c) => runTaskCli(["complete", "a1", "--json"], c) },
+	{
+		operation: "tasks.complete",
+		result: { artifact, gates: [], checklist: [], blocked: [], completed: true },
+		invoke: (c) => runTaskCli(["complete", "a1", "--json"], c),
+	},
 	{ operation: "tasks.run_gates", result: [], invoke: (c) => runTaskCli(["run-gates", "a1", "--json"], c) },
-	{ operation: "tasks.set_checklist", result: artifact, invoke: (c) => runTaskCli(["set-checklist", "a1", "--checklist-json", "{}", "--json"], c) },
+	{
+		operation: "tasks.set_checklist",
+		result: artifact,
+		invoke: (c) => runTaskCli(["set-checklist", "a1", "--checklist-json", "{}", "--json"], c),
+	},
 	{ operation: "tasks.set_gates", result: artifact, invoke: (c) => runTaskCli(["set-gates", "a1", "--gates-json", "[]", "--json"], c) },
 	{ operation: "tasks.context", result: "Progress: 0/0 done", invoke: (c) => runTaskCli(["context", "--json"], c) },
 	{ operation: "tasks.reject", result: artifact, invoke: (c) => runTaskCli(["reject", "a1", "--json"], c) },
 	{ operation: "tasks.retry", result: artifact, invoke: (c) => runTaskCli(["retry", "a1", "--json"], c) },
 	{ operation: "tasks.cancel", result: artifact, invoke: (c) => runTaskCli(["cancel", "a1", "--json"], c) },
-	{ operation: "tasks.cancel_subtree", result: { canceled: ["a1"], skipped: [] }, invoke: (c) => runTaskCli(["cancel-subtree", "a1", "--json"], c) },
+	{
+		operation: "tasks.cancel_subtree",
+		result: { canceled: ["a1"], skipped: [] },
+		invoke: (c) => runTaskCli(["cancel-subtree", "a1", "--json"], c),
+	},
 	{ operation: "tasks.depend", result: artifact, invoke: (c) => runTaskCli(["depend", "a1", "a2", "--json"], c) },
 	{ operation: "tasks.undepend", result: artifact, invoke: (c) => runTaskCli(["undepend", "a1", "a2", "--json"], c) },
 	{ operation: "tasks.contain", result: artifact, invoke: (c) => runTaskCli(["contain", "p1", "c1", "--json"], c) },
 	{ operation: "tasks.uncontain", result: artifact, invoke: (c) => runTaskCli(["uncontain", "p1", "c1", "--json"], c) },
-	{ operation: "tasks.claim", result: { taskId: "a1", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" }, invoke: (c) => runTaskCli(["claim", "a1", "--owner", "worker-a", "--json"], c) },
-	{ operation: "tasks.heartbeat_lease", result: { taskId: "a1", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" }, invoke: (c) => runTaskCli(["heartbeat-lease", "a1", "--owner", "worker-a", "--token", "tok", "--json"], c) },
-	{ operation: "tasks.release_lease", result: { released: true }, invoke: (c) => runTaskCli(["release-lease", "a1", "--owner", "worker-a", "--token", "tok", "--json"], c) },
+	{
+		operation: "tasks.claim",
+		result: { taskId: "a1", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" },
+		invoke: (c) => runTaskCli(["claim", "a1", "--owner", "worker-a", "--json"], c),
+	},
+	{
+		operation: "tasks.heartbeat_lease",
+		result: { taskId: "a1", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" },
+		invoke: (c) => runTaskCli(["heartbeat-lease", "a1", "--owner", "worker-a", "--token", "tok", "--json"], c),
+	},
+	{
+		operation: "tasks.release_lease",
+		result: { released: true },
+		invoke: (c) => runTaskCli(["release-lease", "a1", "--owner", "worker-a", "--token", "tok", "--json"], c),
+	},
 	{ operation: "tasks.lease", result: null, invoke: (c) => runTaskCli(["lease", "a1", "--json"], c) },
 	{ operation: "tasks.reap_stale_leases", result: { removed: 0 }, invoke: (c) => runTaskCli(["reap-stale-leases", "--json"], c) },
 	{ operation: "tasks.event_feed", result: { events: [] }, invoke: (c) => runTaskCli(["event-feed", "--json"], c) },
@@ -112,7 +173,11 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "docs.archive", result: artifact, invoke: (c) => runDocsCli(["archive", "a1", "--json"], c) },
 	{ operation: "docs.reopen", result: artifact, invoke: (c) => runDocsCli(["reopen", "a1", "--json"], c) },
 	{ operation: "docs.link", result: artifact, invoke: (c) => runDocsCli(["link", "a1", "relates_to", "a2", "--json"], c) },
-	{ operation: "docs.assign_project", result: artifact, invoke: (c) => runDocsCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c) },
+	{
+		operation: "docs.assign_project",
+		result: artifact,
+		invoke: (c) => runDocsCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c),
+	},
 	{ operation: "docs.update", result: artifact, invoke: (c) => runDocsCli(["update", "a1", "--title", "T2", "--json"], c) },
 	{ operation: "notes.capture", result: artifact, invoke: (c) => runNoteCli(["capture", "a request", "--json"], c) },
 	{ operation: "notes.list", result: artifactList, invoke: (c) => runNoteCli(["list", "--json"], c) },
@@ -128,7 +193,11 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "rules.enable", result: artifact, invoke: (c) => runRulesCli(["enable", "a1", "--json"], c) },
 	{ operation: "rules.disable", result: artifact, invoke: (c) => runRulesCli(["disable", "a1", "--json"], c) },
 	{ operation: "rules.gate", result: artifact, invoke: (c) => runRulesCli(["gate", "r1", "t1", "--json"], c) },
-	{ operation: "rules.assign_project", result: artifact, invoke: (c) => runRulesCli(["assign-project", "r1", "/workspace/papyrus", "--json"], c) },
+	{
+		operation: "rules.assign_project",
+		result: artifact,
+		invoke: (c) => runRulesCli(["assign-project", "r1", "/workspace/papyrus", "--json"], c),
+	},
 	{ operation: "rules.update", result: artifact, invoke: (c) => runRulesCli(["update", "r1", "--title", "T2", "--json"], c) },
 	{ operation: "playbooks.create", result: artifact, invoke: (c) => runPlaybooksCli(["create", "--title", "T", "--json"], c) },
 	{ operation: "playbooks.list", result: artifactList, invoke: (c) => runPlaybooksCli(["list", "--json"], c) },
@@ -137,24 +206,56 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "playbooks.preview", result: "invocation text", invoke: (c) => runPlaybooksCli(["preview", "a1", "--json"], c) },
 	{ operation: "playbooks.enable", result: artifact, invoke: (c) => runPlaybooksCli(["enable", "a1", "--json"], c) },
 	{ operation: "playbooks.disable", result: artifact, invoke: (c) => runPlaybooksCli(["disable", "a1", "--json"], c) },
-	{ operation: "playbooks.assign_project", result: artifact, invoke: (c) => runPlaybooksCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c) },
+	{
+		operation: "playbooks.assign_project",
+		result: artifact,
+		invoke: (c) => runPlaybooksCli(["assign-project", "a1", "/workspace/papyrus", "--json"], c),
+	},
 	{ operation: "playbooks.update", result: artifact, invoke: (c) => runPlaybooksCli(["update", "a1", "--title", "T2", "--json"], c) },
 	{ operation: "playbooks.contain", result: artifact, invoke: (c) => runPlaybooksCli(["contain", "a1", "a2", "--json"], c) },
 	{ operation: "playbooks.uncontain", result: artifact, invoke: (c) => runPlaybooksCli(["uncontain", "a1", "a2", "--json"], c) },
 	{ operation: "playbooks.depend", result: artifact, invoke: (c) => runPlaybooksCli(["depend", "a1", "a2", "--json"], c) },
 	{ operation: "playbooks.undepend", result: artifact, invoke: (c) => runPlaybooksCli(["undepend", "a1", "a2", "--json"], c) },
-	{ operation: "logs.append", result: { entry: { id: "e1" }, replayed: false }, invoke: (c) => runLogCli(["append", "--source", "s1", "--level", "info", "--message", "m", "--operation-id", "op-1", "--json"], c) },
-	{ operation: "logs.query", result: { entries: [], truncated: false }, invoke: (c) => runLogCli(["query", "--source", "s1", "--json"], c) },
+	{
+		operation: "logs.append",
+		result: { entry: { id: "e1" }, replayed: false },
+		invoke: (c) => runLogCli(["append", "--source", "s1", "--level", "info", "--message", "m", "--operation-id", "op-1", "--json"], c),
+	},
+	{
+		operation: "logs.query",
+		result: { entries: [], truncated: false },
+		invoke: (c) => runLogCli(["query", "--source", "s1", "--json"], c),
+	},
 	{ operation: "tasks.reap_stale_focus", result: { removed: 0 }, invoke: (c) => runTaskCli(["reap-stale-focus", "--json"], c) },
-	{ operation: "session.register", result: { sessionId: "s1", secret: "abc" }, invoke: (c) => runSessionIdentityCli(["register", "--session-id", "s1", "--json"], c) },
-	{ operation: "session.release", result: { released: true }, invoke: (c) => runSessionIdentityCli(["release", "--session-id", "s1", "--session-secret", "abc", "--json"], c) },
-	{ operation: "discuss.open", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["open", "--title", "T", "--actor", "a", "--content", "c", "--json"], c) },
-	{ operation: "discuss.reply", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["reply", "a1", "--actor", "a", "--content", "c", "--json"], c) },
+	{
+		operation: "session.register",
+		result: { sessionId: "s1", secret: "abc" },
+		invoke: (c) => runSessionIdentityCli(["register", "--session-id", "s1", "--json"], c),
+	},
+	{
+		operation: "session.release",
+		result: { released: true },
+		invoke: (c) => runSessionIdentityCli(["release", "--session-id", "s1", "--session-secret", "abc", "--json"], c),
+	},
+	{
+		operation: "discuss.open",
+		result: { discussion: artifact, rounds: [] },
+		invoke: (c) => runDiscussCli(["open", "--title", "T", "--actor", "a", "--content", "c", "--json"], c),
+	},
+	{
+		operation: "discuss.reply",
+		result: { discussion: artifact, rounds: [] },
+		invoke: (c) => runDiscussCli(["reply", "a1", "--actor", "a", "--content", "c", "--json"], c),
+	},
 	{ operation: "discuss.defer", result: artifact, invoke: (c) => runDiscussCli(["defer", "a1", "--json"], c) },
 	{ operation: "discuss.resume", result: artifact, invoke: (c) => runDiscussCli(["resume", "a1", "--json"], c) },
 	{ operation: "discuss.settle", result: artifact, invoke: (c) => runDiscussCli(["settle", "a1", "--settlement", "done", "--json"], c) },
 	{ operation: "discuss.block", result: { blocked: true }, invoke: (c) => runDiscussCli(["block", "a1", "--task-id", "t1", "--json"], c) },
-	{ operation: "discuss.unblock", result: { unblocked: true }, invoke: (c) => runDiscussCli(["unblock", "a1", "--task-id", "t1", "--json"], c) },
+	{
+		operation: "discuss.unblock",
+		result: { unblocked: true },
+		invoke: (c) => runDiscussCli(["unblock", "a1", "--task-id", "t1", "--json"], c),
+	},
 	{ operation: "discuss.show", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["show", "a1", "--json"], c) },
 	{ operation: "discuss.rounds", result: [], invoke: (c) => runDiscussCli(["rounds", "a1", "--json"], c) },
 	{ operation: "discuss.list", result: [], invoke: (c) => runDiscussCli(["list", "--json"], c) },
@@ -193,29 +294,26 @@ describe("Papyrus CLI \u2014 structural operation parity", () => {
 describe("playbooks --arguments-json (create: declares parameters, invoke: supplies values)", () => {
 	it("threads a declared-arguments array into playbooks.create", async () => {
 		const client = new FakeClient(artifact);
-		await runPlaybooksCli(
-			["create", "--title", "T", "--arguments-json", '[{"name":"project_root","required":true}]', "--json"],
-			client,
-		);
-		expect(client.calls[0]?.input["arguments"]).toEqual([{ name: "project_root", required: true }]);
+		await runPlaybooksCli(["create", "--title", "T", "--arguments-json", '[{"name":"project_root","required":true}]', "--json"], client);
+		expect(client.calls[0]?.input.arguments).toEqual([{ name: "project_root", required: true }]);
 	});
 
 	it("threads a supplied-values map into playbooks.invoke", async () => {
 		const client = new FakeClient("invocation text");
 		await runPlaybooksCli(["invoke", "a1", "--arguments-json", '{"project_root":"/tmp/proj"}', "--json"], client);
-		expect(client.calls[0]?.input["arguments"]).toEqual({ project_root: "/tmp/proj" });
+		expect(client.calls[0]?.input.arguments).toEqual({ project_root: "/tmp/proj" });
 	});
 
 	it("invoke without --arguments-json still works, passing arguments through as undefined", async () => {
 		const client = new FakeClient("invocation text");
 		await runPlaybooksCli(["invoke", "a1", "--json"], client);
-		expect(client.calls[0]?.input["arguments"]).toBeUndefined();
+		expect(client.calls[0]?.input.arguments).toBeUndefined();
 	});
 
 	it("threads --run-id into playbooks.invoke, matching skills run's own retired --run-id support", async () => {
 		const client = new FakeClient("invocation text");
 		await runPlaybooksCli(["invoke", "a1", "--run-id", "run-001", "--json"], client);
-		expect(client.calls[0]?.input["run_id"]).toBe("run-001");
+		expect(client.calls[0]?.input.run_id).toBe("run-001");
 	});
 });
 
@@ -230,6 +328,10 @@ describe("playbooks --steps-json accepts a mix of plain strings and structured s
 		const client = new FakeClient(artifact);
 		const stepsJson = JSON.stringify(["Plain step", { kind: "doc", title: "A doc" }, { kind: "call", title: "Nested", playbookId: "p1" }]);
 		await runPlaybooksCli(["create", "--title", "T", "--steps-json", stepsJson, "--json"], client);
-		expect(client.calls[0]?.input["steps"]).toEqual(["Plain step", { kind: "doc", title: "A doc" }, { kind: "call", title: "Nested", playbookId: "p1" }]);
+		expect(client.calls[0]?.input.steps).toEqual([
+			"Plain step",
+			{ kind: "doc", title: "A doc" },
+			{ kind: "call", title: "Nested", playbookId: "p1" },
+		]);
 	});
 });

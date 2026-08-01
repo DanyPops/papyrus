@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
+
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
@@ -56,7 +58,13 @@ describe("append-only task lifecycle history", () => {
 		await tasks.runGates(task.id);
 		const history = tasks.history(task.id, { direction: "asc", limit: 10 }).events;
 		expect(history.map((event) => event.type)).toEqual([
-			"created", "started", "submitted", "completion_attempted", "review_rejected", "retried", "gates_evaluated",
+			"created",
+			"started",
+			"submitted",
+			"completion_attempted",
+			"review_rejected",
+			"retried",
+			"gates_evaluated",
 		]);
 		expect(history.find((event) => event.type === "review_rejected")?.evidence?.result).toBe("rejected");
 		expect(history.find((event) => event.type === "gates_evaluated")?.evidence?.result).toBe("failed");
@@ -99,7 +107,33 @@ describe("append-only task lifecycle history", () => {
 
 		db = openDb(path);
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
-		expect(migrateDb(db)).toEqual({ from: 2, to: 23, applied: ["task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"] });
+		expect(migrateDb(db)).toEqual({
+			from: 2,
+			to: 23,
+			applied: [
+				"task-history",
+				"task-project-scope",
+				"task-focus-continuation",
+				"discourse-context-mesh",
+				"artifact-event-log",
+				"task-focus-session-scope",
+				"graph-projection-protocol",
+				"docs-rules-skills-project-scope",
+				"log-domain",
+				"remove-discourse",
+				"session-identity",
+				"artifact-trash",
+				"discuss-native",
+				"discuss-options",
+				"discussion-task-kind",
+				"playbook-kind",
+				"discuss-option-descriptions",
+				"task-leases",
+				"note-events",
+				"skill-to-playbook-data-migration",
+				"retire-skill-kind",
+			],
+		});
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);
 		db.close();
 	});

@@ -31,9 +31,9 @@ describe("SQLiteSessionIdentityStore (via SessionIdentity)", () => {
 		const db = openDb(":memory:");
 		const identity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 		identity.register("session-a");
-		const row = db.prepare("SELECT session_id, secret_hash, registered_at, last_seen_at FROM session_identities WHERE session_id = ?").get("session-a") as
-			| { session_id: string; secret_hash: string; registered_at: string; last_seen_at: string }
-			| null;
+		const row = db
+			.prepare("SELECT session_id, secret_hash, registered_at, last_seen_at FROM session_identities WHERE session_id = ?")
+			.get("session-a") as { session_id: string; secret_hash: string; registered_at: string; last_seen_at: string } | null;
 		expect(row).not.toBeNull();
 		expect(row!.secret_hash).toMatch(/^[a-f0-9]{64}$/);
 		// the plaintext secret is never persisted, only its hash
@@ -67,7 +67,9 @@ describe("SQLiteSessionIdentityStore (via SessionIdentity)", () => {
 		const db = openDb(":memory:");
 		const identity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 		for (let index = 0; index < SESSION_IDENTITY_MAX_ROWS; index++) identity.register(`session-${index}`);
-		expect((db.prepare("SELECT COUNT(*) AS count FROM session_identities").get() as { count: number }).count).toBe(SESSION_IDENTITY_MAX_ROWS);
+		expect((db.prepare("SELECT COUNT(*) AS count FROM session_identities").get() as { count: number }).count).toBe(
+			SESSION_IDENTITY_MAX_ROWS,
+		);
 
 		identity.register("session-overflow");
 		const count = (db.prepare("SELECT COUNT(*) AS count FROM session_identities").get() as { count: number }).count;

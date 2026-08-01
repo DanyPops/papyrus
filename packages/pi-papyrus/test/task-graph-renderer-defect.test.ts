@@ -1,21 +1,31 @@
 import { describe, expect, it } from "bun:test";
+import type { GraphRenderer, TaskGraph } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { BeautifulMermaidRenderer } from "../extension/src/beautiful-mermaid-renderer.ts";
 import { TaskGraphViewport } from "../extension/src/task-graph.ts";
-import type { GraphRenderer, TaskGraph } from "@danypops/papyrus";
 
 const graph: TaskGraph = {
-	nodes: [{
-		task: {
-			id: "task", kind: "task", title: "Task", status: "todo", subtype: "", body: "", labels: [], extra: {},
-			created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+	nodes: [
+		{
+			task: {
+				id: "task",
+				kind: "task",
+				title: "Task",
+				status: "todo",
+				subtype: "",
+				body: "",
+				labels: [],
+				extra: {},
+				created_at: "2026-01-01T00:00:00.000Z",
+				updated_at: "2026-01-01T00:00:00.000Z",
+			},
+			active: true,
+			parentIds: [],
+			childIds: [],
+			dependencyIds: [],
 		},
-		active: true,
-		parentIds: [],
-		childIds: [],
-		dependencyIds: [],
-	}],
+	],
 	rootIds: ["task"],
 };
 

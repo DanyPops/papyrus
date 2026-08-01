@@ -2,7 +2,9 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
+
 import { runDiscussCli, runGraphCli, runIdMigrationCli, runLogCli, runMigrationCli, runNoteCli, runTaskCli } from "../src/cli.ts";
 import { openDb } from "../src/db.ts";
 import { createArtifact, linkArtifacts } from "../src/ops.ts";
@@ -22,11 +24,13 @@ class FakeClient {
 describe("Papyrus migration CLI", () => {
 	it("routes the explicit task focus migration through the daemon", async () => {
 		const client = new FakeClient({ from: 5, to: 6, applied: ["task-focus-continuation"] });
-		expect(await runMigrationCli(["schema", "--json"], client)).toBe(JSON.stringify({
-			from: 5,
-			to: 6,
-			applied: ["task-focus-continuation"],
-		}));
+		expect(await runMigrationCli(["schema", "--json"], client)).toBe(
+			JSON.stringify({
+				from: 5,
+				to: 6,
+				applied: ["task-focus-continuation"],
+			}),
+		);
 		expect(client.calls).toEqual([{ operation: "system.migrate", input: {} }]);
 	});
 });
@@ -88,7 +92,9 @@ describe("Papyrus migrate-ids CLI: mirror, then validate, then promote -- never 
 		expect(() => runIdMigrationCli(["promote", "--mirror", mirror, "--db", source, "--force", "--json"])).toThrow(/failed validation/);
 		// Production is untouched by the refused promotion.
 		const stillOriginal = openDb(source);
-		const stillOriginalTitles = (stillOriginal.prepare("SELECT title FROM artifacts ORDER BY title").all() as Array<{ title: string }>).map((row) => row.title);
+		const stillOriginalTitles = (stillOriginal.prepare("SELECT title FROM artifacts ORDER BY title").all() as Array<{ title: string }>).map(
+			(row) => row.title,
+		);
 		stillOriginal.close();
 		expect(stillOriginalTitles).toEqual(["A", "B"]);
 	});
@@ -96,7 +102,19 @@ describe("Papyrus migrate-ids CLI: mirror, then validate, then promote -- never 
 
 describe("Papyrus graph history CLI", () => {
 	it("routes bounded who-did-what-when queries through the authenticated daemon with stable JSON", async () => {
-		const page = { events: [{ id: 1, artifactId: "doc-1", occurredAt: "2026-01-01T00:00:00.000Z", type: "created", actor: "agent", source: "pi", schemaVersion: 1 }] };
+		const page = {
+			events: [
+				{
+					id: 1,
+					artifactId: "doc-1",
+					occurredAt: "2026-01-01T00:00:00.000Z",
+					type: "created",
+					actor: "agent",
+					source: "pi",
+					schemaVersion: 1,
+				},
+			],
+		};
 		const client = new FakeClient(page);
 		expect(await runGraphCli(["history", "--id", "doc-1", "--json"], client)).toBe(JSON.stringify(page));
 		expect(client.calls).toEqual([{ operation: "graph.history", input: { id: "doc-1" } }]);
@@ -105,11 +123,18 @@ describe("Papyrus graph history CLI", () => {
 	it("parses actor, session, and pagination flags, and renders human-readable output", async () => {
 		const page = { events: [] as unknown[] };
 		const client = new FakeClient(page);
-		expect(await runGraphCli(["history", "--actor", "agent-a", "--session-id", "ses-1", "--limit", "10", "--cursor", "3", "--direction", "asc"], client)).toBe("No recorded events.");
-		expect(client.calls).toEqual([{
-			operation: "graph.history",
-			input: { actor: "agent-a", session_id: "ses-1", limit: 10, cursor: 3, direction: "asc" },
-		}]);
+		expect(
+			await runGraphCli(
+				["history", "--actor", "agent-a", "--session-id", "ses-1", "--limit", "10", "--cursor", "3", "--direction", "asc"],
+				client,
+			),
+		).toBe("No recorded events.");
+		expect(client.calls).toEqual([
+			{
+				operation: "graph.history",
+				input: { actor: "agent-a", session_id: "ses-1", limit: 10, cursor: 3, direction: "asc" },
+			},
+		]);
 	});
 
 	it("requires a known action", async () => {
@@ -122,32 +147,71 @@ describe("Papyrus log CLI", () => {
 	it("appends a log entry through the authenticated daemon, defaulting to the caller's project scope", async () => {
 		const appended = { entry: { id: "e1", sourceId: "pi-session-context", message: "turn settled" }, replayed: false };
 		const client = new FakeClient(appended);
-		expect(await runLogCli(["append", "--source", "pi-session-context", "--level", "info", "--message", "turn settled", "--operation-id", "s1:1", "--json"], client)).toBe(JSON.stringify(appended));
-		expect(client.calls).toEqual([{
-			operation: "logs.append",
-			input: { source_id: "pi-session-context", project_root: PROJECT_ROOT, level: "info", message: "turn settled", operation_id: "s1:1" },
-		}]);
+		expect(
+			await runLogCli(
+				["append", "--source", "pi-session-context", "--level", "info", "--message", "turn settled", "--operation-id", "s1:1", "--json"],
+				client,
+			),
+		).toBe(JSON.stringify(appended));
+		expect(client.calls).toEqual([
+			{
+				operation: "logs.append",
+				input: {
+					source_id: "pi-session-context",
+					project_root: PROJECT_ROOT,
+					level: "info",
+					message: "turn settled",
+					operation_id: "s1:1",
+				},
+			},
+		]);
 	});
 
 	it("passes through structured fields, session id, and an explicit historical timestamp", async () => {
 		const client = new FakeClient({ entry: { id: "e1" }, replayed: false });
-		await runLogCli([
-			"append", "--source", "s", "--level", "warning", "--message", "m", "--operation-id", "op-1",
-			"--fields-json", '{"totalTokens":123}', "--session-id", "ses-1", "--occurred-at", "2020-01-01T00:00:00.000Z",
-		], client);
-		expect(client.calls).toEqual([{
-			operation: "logs.append",
-			input: {
-				source_id: "s", project_root: PROJECT_ROOT, level: "warning", message: "m", operation_id: "op-1",
-				fields: { totalTokens: 123 }, session_id: "ses-1", occurred_at: "2020-01-01T00:00:00.000Z",
+		await runLogCli(
+			[
+				"append",
+				"--source",
+				"s",
+				"--level",
+				"warning",
+				"--message",
+				"m",
+				"--operation-id",
+				"op-1",
+				"--fields-json",
+				'{"totalTokens":123}',
+				"--session-id",
+				"ses-1",
+				"--occurred-at",
+				"2020-01-01T00:00:00.000Z",
+			],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{
+				operation: "logs.append",
+				input: {
+					source_id: "s",
+					project_root: PROJECT_ROOT,
+					level: "warning",
+					message: "m",
+					operation_id: "op-1",
+					fields: { totalTokens: 123 },
+					session_id: "ses-1",
+					occurred_at: "2020-01-01T00:00:00.000Z",
+				},
 			},
-		}]);
+		]);
 	});
 
 	it("omits project_root when --global is passed, for a source that is not tied to one project", async () => {
 		const client = new FakeClient({ entry: { id: "e1" }, replayed: false });
 		await runLogCli(["append", "--source", "s", "--level", "info", "--message", "m", "--operation-id", "op-1", "--global"], client);
-		expect(client.calls).toEqual([{ operation: "logs.append", input: { source_id: "s", level: "info", message: "m", operation_id: "op-1" } }]);
+		expect(client.calls).toEqual([
+			{ operation: "logs.append", input: { source_id: "s", level: "info", message: "m", operation_id: "op-1" } },
+		]);
 	});
 
 	it("rejects append missing any required flag", async () => {
@@ -161,8 +225,13 @@ describe("Papyrus log CLI", () => {
 	it("queries entries with since/level/limit filters and renders a human-readable page", async () => {
 		const page = { entries: [{ id: "e1", message: "m1" }], truncated: true };
 		const client = new FakeClient(page);
-		const output = await runLogCli(["query", "--source", "s", "--since", "2024-01-01T00:00:00.000Z", "--level", "warning", "--limit", "10"], client);
-		expect(client.calls).toEqual([{ operation: "logs.query", input: { source_id: "s", since: "2024-01-01T00:00:00.000Z", level: "warning", limit: 10 } }]);
+		const output = await runLogCli(
+			["query", "--source", "s", "--since", "2024-01-01T00:00:00.000Z", "--level", "warning", "--limit", "10"],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{ operation: "logs.query", input: { source_id: "s", since: "2024-01-01T00:00:00.000Z", level: "warning", limit: 10 } },
+		]);
 		expect(output).toContain("truncated");
 	});
 
@@ -178,10 +247,12 @@ describe("Papyrus Notes CLI", () => {
 		const note = { id: "note-1", title: "Review later", status: "draft" };
 		const client = new FakeClient(note);
 		expect(await runNoteCli(["capture", "Review later", "--json"], client)).toBe(JSON.stringify(note));
-		expect(client.calls).toEqual([{
-			operation: "notes.capture",
-			input: { body: "Review later", project_root: PROJECT_ROOT, actor: "human", source: "cli" },
-		}]);
+		expect(client.calls).toEqual([
+			{
+				operation: "notes.capture",
+				input: { body: "Review later", project_root: PROJECT_ROOT, actor: "human", source: "cli" },
+			},
+		]);
 	});
 
 	it("lists, consumes, promotes, and archives project Notes", async () => {
@@ -191,56 +262,115 @@ describe("Papyrus Notes CLI", () => {
 
 		const consumed = new FakeClient({ id: "note-1", title: "Review later", status: "active" });
 		await runNoteCli(["consume", "note-1"], consumed);
-		expect(consumed.calls).toEqual([{ operation: "notes.consume", input: { id: "note-1", project_root: PROJECT_ROOT, actor: "agent", source: "cli" } }]);
+		expect(consumed.calls).toEqual([
+			{ operation: "notes.consume", input: { id: "note-1", project_root: PROJECT_ROOT, actor: "agent", source: "cli" } },
+		]);
 
 		const promoted = new FakeClient({ id: "note-1", title: "Review later", status: "archived" });
 		await runNoteCli(["promote", "note-1", "task-1", "--reason", "Task created"], promoted);
-		expect(promoted.calls).toEqual([{ operation: "notes.promote", input: { id: "note-1", target_id: "task-1", project_root: PROJECT_ROOT, actor: "agent", source: "cli", reason: "Task created" } }]);
+		expect(promoted.calls).toEqual([
+			{
+				operation: "notes.promote",
+				input: { id: "note-1", target_id: "task-1", project_root: PROJECT_ROOT, actor: "agent", source: "cli", reason: "Task created" },
+			},
+		]);
 
 		const archived = new FakeClient({ id: "note-2", title: "Skip", status: "archived" });
 		await runNoteCli(["archive", "note-2", "declined", "--reason", "Not useful"], archived);
-		expect(archived.calls).toEqual([{ operation: "notes.archive", input: { id: "note-2", disposition: "declined", project_root: PROJECT_ROOT, actor: "human", source: "cli", reason: "Not useful" } }]);
+		expect(archived.calls).toEqual([
+			{
+				operation: "notes.archive",
+				input: { id: "note-2", disposition: "declined", project_root: PROJECT_ROOT, actor: "human", source: "cli", reason: "Not useful" },
+			},
+		]);
 	});
 });
 
 describe("Papyrus Discuss CLI", () => {
 	it("translates --options-json/--options-mode into discuss.open", async () => {
 		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
-		await runDiscussCli([
-			"open", "--title", "Pick one", "--actor", "alice", "--content", "A or B?",
-			"--options-json", '["A","B"]', "--options-mode", "single", "--json",
-		], client);
-		expect(client.calls).toEqual([{
-			operation: "discuss.open",
-			input: {
-				title: "Pick one", actor: "alice", content: "A or B?", body: undefined, labels: undefined,
-				blocks_task_ids: undefined, options: ["A", "B"], options_mode: "single",
+		await runDiscussCli(
+			[
+				"open",
+				"--title",
+				"Pick one",
+				"--actor",
+				"alice",
+				"--content",
+				"A or B?",
+				"--options-json",
+				'["A","B"]',
+				"--options-mode",
+				"single",
+				"--json",
+			],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{
+				operation: "discuss.open",
+				input: {
+					title: "Pick one",
+					actor: "alice",
+					content: "A or B?",
+					body: undefined,
+					labels: undefined,
+					blocks_task_ids: undefined,
+					options: ["A", "B"],
+					options_mode: "single",
+				},
 			},
-		}]);
+		]);
 	});
 
 	it("translates --option-descriptions-json into discuss.open, index-aligned with --options-json", async () => {
 		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
-		await runDiscussCli([
-			"open", "--title", "Pick one", "--actor", "alice", "--content", "A or B?",
-			"--options-json", '["A","B"]', "--options-mode", "single", "--option-descriptions-json", '["pro A","pro B"]', "--json",
-		], client);
-		expect(client.calls).toEqual([{
-			operation: "discuss.open",
-			input: {
-				title: "Pick one", actor: "alice", content: "A or B?", body: undefined, labels: undefined,
-				blocks_task_ids: undefined, options: ["A", "B"], options_mode: "single", option_descriptions: ["pro A", "pro B"],
+		await runDiscussCli(
+			[
+				"open",
+				"--title",
+				"Pick one",
+				"--actor",
+				"alice",
+				"--content",
+				"A or B?",
+				"--options-json",
+				'["A","B"]',
+				"--options-mode",
+				"single",
+				"--option-descriptions-json",
+				'["pro A","pro B"]',
+				"--json",
+			],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{
+				operation: "discuss.open",
+				input: {
+					title: "Pick one",
+					actor: "alice",
+					content: "A or B?",
+					body: undefined,
+					labels: undefined,
+					blocks_task_ids: undefined,
+					options: ["A", "B"],
+					options_mode: "single",
+					option_descriptions: ["pro A", "pro B"],
+				},
 			},
-		}]);
+		]);
 	});
 
 	it("translates --selected-json into discuss.reply, answering a pending choice", async () => {
 		const client = new FakeClient({ discussion: { id: "d1" }, rounds: [] });
 		await runDiscussCli(["reply", "d1", "--actor", "bob", "--content", "Going with B", "--selected-json", '["B"]', "--json"], client);
-		expect(client.calls).toEqual([{
-			operation: "discuss.reply",
-			input: { id: "d1", actor: "bob", content: "Going with B", selected: ["B"], options: undefined, options_mode: undefined },
-		}]);
+		expect(client.calls).toEqual([
+			{
+				operation: "discuss.reply",
+				input: { id: "d1", actor: "bob", content: "Going with B", selected: ["B"], options: undefined, options_mode: undefined },
+			},
+		]);
 	});
 });
 
@@ -263,7 +393,18 @@ describe("Papyrus task CLI", () => {
 	});
 
 	it("reads bounded task history through the daemon", async () => {
-		const page = { events: [{ occurredAt: "2026-01-01T00:00:00.000Z", type: "started", fromStatus: "todo", toStatus: "in-progress", actor: "agent", source: "pi-tool" }] };
+		const page = {
+			events: [
+				{
+					occurredAt: "2026-01-01T00:00:00.000Z",
+					type: "started",
+					fromStatus: "todo",
+					toStatus: "in-progress",
+					actor: "agent",
+					source: "pi-tool",
+				},
+			],
+		};
 		const client = new FakeClient(page);
 		expect(await runTaskCli(["history", "task", "--json"], client)).toBe(JSON.stringify(page));
 		expect(client.calls).toEqual([{ operation: "tasks.history", input: { id: "task", direction: "desc" } }]);
@@ -278,7 +419,9 @@ describe("Papyrus task CLI", () => {
 		expect(all.calls).toEqual([{ operation: "tasks.set_scope", input: { project_root: PROJECT_ROOT, scope: "all" } }]);
 		const graph = new FakeClient({ mode: "graph", label: "papyrus · Epic", projectRoot: PROJECT_ROOT, rootTaskId: "epic" });
 		await runTaskCli(["scope", "graph", "epic"], graph);
-		expect(graph.calls).toEqual([{ operation: "tasks.set_scope", input: { project_root: PROJECT_ROOT, scope: "graph", root_task_id: "epic" } }]);
+		expect(graph.calls).toEqual([
+			{ operation: "tasks.set_scope", input: { project_root: PROJECT_ROOT, scope: "graph", root_task_id: "epic" } },
+		]);
 	});
 
 	it("prints stable JSON for machine consumers", async () => {
@@ -311,7 +454,9 @@ describe("Papyrus task CLI", () => {
 
 		const focus = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
 		await runTaskCli(["focus", "task", "--session-id", "ses-alice"], focus);
-		expect(focus.calls).toEqual([{ operation: "tasks.focus", input: { id: "task", actor: "user", source: "cli", session_id: "ses-alice" } }]);
+		expect(focus.calls).toEqual([
+			{ operation: "tasks.focus", input: { id: "task", actor: "user", source: "cli", session_id: "ses-alice" } },
+		]);
 
 		const pause = new FakeClient({ artifact: { id: "task", title: "Task", status: "in-progress" }, status: "paused" });
 		await runTaskCli(["pause", "--session-id", "ses-alice"], pause);
@@ -321,10 +466,12 @@ describe("Papyrus task CLI", () => {
 	it("routes dependency and start mutations through authenticated task operations", async () => {
 		const dependencyClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
 		await runTaskCli(["depend", "task", "prerequisite", "--json"], dependencyClient);
-		expect(dependencyClient.calls).toEqual([{
-			operation: "tasks.depend",
-			input: { id: "task", dependency_id: "prerequisite", actor: "user", source: "cli" },
-		}]);
+		expect(dependencyClient.calls).toEqual([
+			{
+				operation: "tasks.depend",
+				input: { id: "task", dependency_id: "prerequisite", actor: "user", source: "cli" },
+			},
+		]);
 
 		const startClient = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
 		expect(await runTaskCli(["start", "task"], startClient)).toBe("Started: task Task");
@@ -332,14 +479,20 @@ describe("Papyrus task CLI", () => {
 
 		const updateClient = new FakeClient({ id: "task", title: "Updated", status: "in-progress" });
 		expect(await runTaskCli(["update", "task", "--title", "Updated", "--body", "New body"], updateClient)).toBe("Updated: task Updated");
-		expect(updateClient.calls).toEqual([{ operation: "tasks.update", input: { id: "task", title: "Updated", body: "New body", actor: "user", source: "cli" } }]);
+		expect(updateClient.calls).toEqual([
+			{ operation: "tasks.update", input: { id: "task", title: "Updated", body: "New body", actor: "user", source: "cli" } },
+		]);
 
 		const recoveryClient = new FakeClient({ id: "task", title: "Recovered", status: "todo" });
-		expect(await runTaskCli(["update", "task", "--status", "todo", "--reason", "legacy default"], recoveryClient)).toBe("Updated: task Recovered");
-		expect(recoveryClient.calls).toEqual([{
-			operation: "tasks.update",
-			input: { id: "task", status: "todo", reason: "legacy default", actor: "user", source: "cli" },
-		}]);
+		expect(await runTaskCli(["update", "task", "--status", "todo", "--reason", "legacy default"], recoveryClient)).toBe(
+			"Updated: task Recovered",
+		);
+		expect(recoveryClient.calls).toEqual([
+			{
+				operation: "tasks.update",
+				input: { id: "task", status: "todo", reason: "legacy default", actor: "user", source: "cli" },
+			},
+		]);
 
 		const pauseClient = new FakeClient({ artifact: { id: "task", title: "Task", status: "in-progress" }, status: "paused" });
 		expect(await runTaskCli(["pause"], pauseClient)).toBe("Focused (paused): task Task");
@@ -366,33 +519,64 @@ describe("Papyrus task CLI", () => {
 
 	it("creates a task through the daemon client -- the daemon operation already supports this; only the CLI route was missing", async () => {
 		const client = new FakeClient({ id: "new-task", title: "New task", status: "todo" });
-		const output = await runTaskCli([
-			"create", "--title", "New task", "--body", "Body text", "--status", "todo",
-			"--labels-json", '["a","b"]', "--extra-json", '{"k":"v"}',
-			"--gates-json", '[{"type":"command","target":"bun test"}]',
-			"--checklist-json", '{"done":{"proof":[{"type":"artifact","target":"x"}]}}',
-			"--template-id", "tmpl-1", "--parent-id", "epic-1", "--depends-on-json", '["prereq-1"]',
-		], client);
-		expect(client.calls).toEqual([{
-			operation: "tasks.create",
-			input: {
-				title: "New task", body: "Body text", status: "todo", labels: ["a", "b"], extra: { k: "v" },
-				gates: [{ type: "command", target: "bun test" }],
-				checklist: { done: { proof: [{ type: "artifact", target: "x" }] } },
-				template_id: "tmpl-1", parent_id: "epic-1", depends_on: ["prereq-1"],
-				project_root: PROJECT_ROOT, actor: "user", source: "cli",
+		const output = await runTaskCli(
+			[
+				"create",
+				"--title",
+				"New task",
+				"--body",
+				"Body text",
+				"--status",
+				"todo",
+				"--labels-json",
+				'["a","b"]',
+				"--extra-json",
+				'{"k":"v"}',
+				"--gates-json",
+				'[{"type":"command","target":"bun test"}]',
+				"--checklist-json",
+				'{"done":{"proof":[{"type":"artifact","target":"x"}]}}',
+				"--template-id",
+				"tmpl-1",
+				"--parent-id",
+				"epic-1",
+				"--depends-on-json",
+				'["prereq-1"]',
+			],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{
+				operation: "tasks.create",
+				input: {
+					title: "New task",
+					body: "Body text",
+					status: "todo",
+					labels: ["a", "b"],
+					extra: { k: "v" },
+					gates: [{ type: "command", target: "bun test" }],
+					checklist: { done: { proof: [{ type: "artifact", target: "x" }] } },
+					template_id: "tmpl-1",
+					parent_id: "epic-1",
+					depends_on: ["prereq-1"],
+					project_root: PROJECT_ROOT,
+					actor: "user",
+					source: "cli",
+				},
 			},
-		}]);
+		]);
 		expect(output).toBe("Created task: new-task New task");
 	});
 
 	it("creates a task with only the required --title, defaulting everything else", async () => {
 		const client = new FakeClient({ id: "t", title: "T", status: "todo" });
 		await runTaskCli(["create", "--title", "T", "--json"], client);
-		expect(client.calls).toEqual([{
-			operation: "tasks.create",
-			input: { title: "T", project_root: PROJECT_ROOT, actor: "user", source: "cli" },
-		}]);
+		expect(client.calls).toEqual([
+			{
+				operation: "tasks.create",
+				input: { title: "T", project_root: PROJECT_ROOT, actor: "user", source: "cli" },
+			},
+		]);
 	});
 
 	it("rejects tasks create with no --title rather than silently sending an invalid request", async () => {
@@ -402,13 +586,18 @@ describe("Papyrus task CLI", () => {
 	});
 
 	it("lists tasks through the daemon client", async () => {
-		const rows = [{ id: "a", title: "A", status: "todo" }, { id: "b", title: "B", status: "done" }];
+		const rows = [
+			{ id: "a", title: "A", status: "todo" },
+			{ id: "b", title: "B", status: "done" },
+		];
 		const client = new FakeClient(rows);
 		const output = await runTaskCli(["list", "--status", "todo", "--text", "query", "--limit", "10"], client);
-		expect(client.calls).toEqual([{
-			operation: "tasks.list",
-			input: { status: "todo", text: "query", limit: 10, project_root: PROJECT_ROOT },
-		}]);
+		expect(client.calls).toEqual([
+			{
+				operation: "tasks.list",
+				input: { status: "todo", text: "query", limit: 10, project_root: PROJECT_ROOT },
+			},
+		]);
 		expect(output).toBe("a A\nb B");
 
 		const emptyClient = new FakeClient([]);
@@ -418,17 +607,21 @@ describe("Papyrus task CLI", () => {
 	it("filters tasks and the execution graph by label through the daemon client", async () => {
 		const listClient = new FakeClient([]);
 		await runTaskCli(["list", "--labels-json", '["urgent","blocked"]'], listClient);
-		expect(listClient.calls).toEqual([{
-			operation: "tasks.list",
-			input: { labels: ["urgent", "blocked"], project_root: PROJECT_ROOT },
-		}]);
+		expect(listClient.calls).toEqual([
+			{
+				operation: "tasks.list",
+				input: { labels: ["urgent", "blocked"], project_root: PROJECT_ROOT },
+			},
+		]);
 
 		const graphClient = new FakeClient({ nodes: [], rootIds: [] });
 		await runTaskCli(["graph", "--labels-json", '["urgent"]', "--scope", "project"], graphClient);
-		expect(graphClient.calls).toEqual([{
-			operation: "tasks.graph",
-			input: { limit: 1001, labels: ["urgent"], project_root: PROJECT_ROOT, scope: "project" },
-		}]);
+		expect(graphClient.calls).toEqual([
+			{
+				operation: "tasks.graph",
+				input: { limit: 1001, labels: ["urgent"], project_root: PROJECT_ROOT, scope: "project" },
+			},
+		]);
 	});
 
 	it("shows one task through the daemon client", async () => {

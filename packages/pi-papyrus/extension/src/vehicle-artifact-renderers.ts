@@ -11,10 +11,11 @@
  * Falls back to the generic Vehicle renderer for any other output shape
  * (progress, transitions, gate runs, errors).
  */
-import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
+
+import type { Artifact } from "@danypops/papyrus";
 import type { VehicleToolRenderers } from "@danypops/vehicle-client-pi";
 import { renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
-import type { Artifact } from "@danypops/papyrus";
+import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import { ArtifactCard } from "./tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "./tool-rendering/artifact-list.ts";
 import { createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
@@ -22,15 +23,17 @@ import { createArtifactDetails, createArtifactListDetails } from "./tool-renderi
 function isArtifact(value: unknown): value is Artifact {
 	if (typeof value !== "object" || value === null) return false;
 	const row = value as Record<string, unknown>;
-	return typeof row.id === "string"
-		&& typeof row.kind === "string"
-		&& typeof row.title === "string"
-		&& typeof row.status === "string"
-		&& typeof row.subtype === "string"
-		&& typeof row.body === "string"
-		&& Array.isArray(row.labels)
-		&& typeof row.created_at === "string"
-		&& typeof row.updated_at === "string";
+	return (
+		typeof row.id === "string" &&
+		typeof row.kind === "string" &&
+		typeof row.title === "string" &&
+		typeof row.status === "string" &&
+		typeof row.subtype === "string" &&
+		typeof row.body === "string" &&
+		Array.isArray(row.labels) &&
+		typeof row.created_at === "string" &&
+		typeof row.updated_at === "string"
+	);
 }
 
 function isArtifactArray(value: unknown): value is Artifact[] {

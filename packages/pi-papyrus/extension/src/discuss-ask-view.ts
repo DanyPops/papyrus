@@ -13,8 +13,8 @@
 import type { AgentToolUpdateCallback, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
-	Container,
 	type Component,
+	Container,
 	CURSOR_MARKER,
 	decodeKittyPrintable,
 	Editor,
@@ -33,7 +33,7 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { renderSingleSelectRows, type AskOption } from "./discuss-ask-layout.ts";
+import { type AskOption, renderSingleSelectRows } from "./discuss-ask-layout.ts";
 
 /** See pi-ask-user's identical safeMarkdownTheme() comment: a broken theme Proxy throws only on
  * property access, not construction, so a bare try/catch around getMarkdownTheme() alone would
@@ -87,9 +87,7 @@ export interface AskAnswer {
 	selected?: string[];
 }
 
-type AskResponse =
-	| { kind: "selection"; selections: string[]; comment?: string }
-	| { kind: "freeform"; text: string };
+type AskResponse = { kind: "selection"; selections: string[]; comment?: string } | { kind: "freeform"; text: string };
 
 function normalizeOptionalComment(text: string | null | undefined): string | undefined {
 	const trimmed = text?.trim();
@@ -99,9 +97,18 @@ function normalizeOptionalComment(text: string | null | undefined): string | und
 function parseBooleanPreference(value: string | undefined): boolean | undefined {
 	if (value === undefined) return undefined;
 	switch (value.trim().toLowerCase()) {
-		case "1": case "true": case "yes": case "on": return true;
-		case "0": case "false": case "no": case "off": return false;
-		default: return undefined;
+		case "1":
+		case "true":
+		case "yes":
+		case "on":
+			return true;
+		case "0":
+		case "false":
+		case "no":
+		case "off":
+			return false;
+		default:
+			return undefined;
 	}
 }
 
@@ -114,7 +121,9 @@ function createSelectionResponse(selections: string[], comment?: string | null):
 	const normalizedSelections = selections.map((selection) => selection.trim()).filter(Boolean);
 	if (normalizedSelections.length === 0) return null;
 	const normalizedComment = normalizeOptionalComment(comment);
-	return normalizedComment ? { kind: "selection", selections: normalizedSelections, comment: normalizedComment } : { kind: "selection", selections: normalizedSelections };
+	return normalizedComment
+		? { kind: "selection", selections: normalizedSelections, comment: normalizedComment }
+		: { kind: "selection", selections: normalizedSelections };
 }
 
 function toAskAnswer(response: AskResponse): AskAnswer {
@@ -133,7 +142,10 @@ function buildCommentPrompt(prompt: string, selections: string[]): string {
 }
 
 function parseDialogSelections(input: string): string[] {
-	return input.split(",").map((selection) => selection.trim()).filter(Boolean);
+	return input
+		.split(",")
+		.map((selection) => selection.trim())
+		.filter(Boolean);
 }
 
 function isCancelledInput(value: unknown): value is null | undefined {
@@ -159,7 +171,11 @@ const BOX_BORDER_RIGHT = " │";
 const BOX_BORDER_OVERHEAD = BOX_BORDER_LEFT.length + BOX_BORDER_RIGHT.length;
 
 class BoxBorderTop implements Component {
-	constructor(private color: (s: string) => string, private title?: string, private titleColor?: (s: string) => string) {}
+	constructor(
+		private color: (s: string) => string,
+		private title?: string,
+		private titleColor?: (s: string) => string,
+	) {}
 	invalidate(): void {}
 	render(width: number): string[] {
 		const inner = Math.max(0, width - 2);
@@ -192,7 +208,9 @@ function literalHint(theme: Theme, key: string, description: string): string {
 	return `${theme.fg("dim", key)}${theme.fg("muted", ` ${description}`)}`;
 }
 
-type ResolvedShortcut = { disabled: false; spec: string; matches: (data: string) => boolean } | { disabled: true; spec: null; matches: (data: string) => false };
+type ResolvedShortcut =
+	| { disabled: false; spec: string; matches: (data: string) => boolean }
+	| { disabled: true; spec: null; matches: (data: string) => false };
 
 const DISABLED_SHORTCUT: ResolvedShortcut = { disabled: true, spec: null, matches: (() => false) as (data: string) => false };
 const SHORTCUT_DISABLE_VALUES = new Set(["off", "none", "disabled", ""]);
@@ -285,18 +303,35 @@ class MultiSelectList implements Component {
 		private commentToggle: ResolvedShortcut,
 	) {}
 
-	public isCommentEnabled(): boolean { return this.commentEnabled; }
-	invalidate(): void { this.cachedWidth = undefined; this.cachedLines = undefined; }
+	public isCommentEnabled(): boolean {
+		return this.commentEnabled;
+	}
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
 
-	private getItemCount(): number { return this.options.length + (this.allowComment ? 1 : 0) + (this.allowFreeform ? 1 : 0); }
-	private getCommentToggleIndex(): number | null { return this.allowComment ? this.options.length : null; }
-	private getFreeformIndex(): number { return this.options.length + (this.allowComment ? 1 : 0); }
-	private isCommentToggleRow(index: number): boolean { const i = this.getCommentToggleIndex(); return i !== null && index === i; }
-	private isFreeformRow(index: number): boolean { return this.allowFreeform && index === this.getFreeformIndex(); }
+	private getItemCount(): number {
+		return this.options.length + (this.allowComment ? 1 : 0) + (this.allowFreeform ? 1 : 0);
+	}
+	private getCommentToggleIndex(): number | null {
+		return this.allowComment ? this.options.length : null;
+	}
+	private getFreeformIndex(): number {
+		return this.options.length + (this.allowComment ? 1 : 0);
+	}
+	private isCommentToggleRow(index: number): boolean {
+		const i = this.getCommentToggleIndex();
+		return i !== null && index === i;
+	}
+	private isFreeformRow(index: number): boolean {
+		return this.allowFreeform && index === this.getFreeformIndex();
+	}
 
 	private toggle(index: number): void {
 		if (index < 0 || index >= this.options.length) return;
-		if (this.checked.has(index)) this.checked.delete(index); else this.checked.add(index);
+		if (this.checked.has(index)) this.checked.delete(index);
+		else this.checked.add(index);
 	}
 
 	private toggleComment(): void {
@@ -306,36 +341,73 @@ class MultiSelectList implements Component {
 	}
 
 	handleInput(data: string): void {
-		if (this.keybindings.matches(data, "tui.select.cancel")) { this.onCancel?.(); return; }
+		if (this.keybindings.matches(data, "tui.select.cancel")) {
+			this.onCancel?.();
+			return;
+		}
 		const count = this.getItemCount();
-		if (count === 0) { this.onCancel?.(); return; }
-		if (this.allowComment && !this.commentToggle.disabled && this.commentToggle.matches(data)) { this.toggleComment(); return; }
+		if (count === 0) {
+			this.onCancel?.();
+			return;
+		}
+		if (this.allowComment && !this.commentToggle.disabled && this.commentToggle.matches(data)) {
+			this.toggleComment();
+			return;
+		}
 
-		if (matchesSelectUp(data, this.keybindings)) { this.selectedIndex = this.selectedIndex === 0 ? count - 1 : this.selectedIndex - 1; this.invalidate(); return; }
-		if (matchesSelectDown(data, this.keybindings)) { this.selectedIndex = this.selectedIndex === count - 1 ? 0 : this.selectedIndex + 1; this.invalidate(); return; }
+		if (matchesSelectUp(data, this.keybindings)) {
+			this.selectedIndex = this.selectedIndex === 0 ? count - 1 : this.selectedIndex - 1;
+			this.invalidate();
+			return;
+		}
+		if (matchesSelectDown(data, this.keybindings)) {
+			this.selectedIndex = this.selectedIndex === count - 1 ? 0 : this.selectedIndex + 1;
+			this.invalidate();
+			return;
+		}
 
 		const numMatch = data.match(/^[1-9]$/);
 		if (numMatch) {
 			const idx = Number.parseInt(numMatch[0], 10) - 1;
-			if (idx >= 0 && idx < this.options.length) { this.toggle(idx); this.selectedIndex = Math.min(idx, count - 1); this.invalidate(); }
+			if (idx >= 0 && idx < this.options.length) {
+				this.toggle(idx);
+				this.selectedIndex = Math.min(idx, count - 1);
+				this.invalidate();
+			}
 			return;
 		}
 
 		if (matchesKey(data, Key.space)) {
-			if (this.isCommentToggleRow(this.selectedIndex)) { this.toggleComment(); return; }
-			if (this.isFreeformRow(this.selectedIndex)) { this.onEnterFreeform?.(); return; }
+			if (this.isCommentToggleRow(this.selectedIndex)) {
+				this.toggleComment();
+				return;
+			}
+			if (this.isFreeformRow(this.selectedIndex)) {
+				this.onEnterFreeform?.();
+				return;
+			}
 			this.toggle(this.selectedIndex);
 			this.invalidate();
 			return;
 		}
 
 		if (this.keybindings.matches(data, "tui.select.confirm")) {
-			if (this.isCommentToggleRow(this.selectedIndex)) { this.toggleComment(); return; }
-			if (this.isFreeformRow(this.selectedIndex)) { this.onEnterFreeform?.(); return; }
-			const selectedTitles = [...this.checked].sort((a, b) => a - b).map((i) => this.options[i]?.title).filter((t): t is string => !!t);
+			if (this.isCommentToggleRow(this.selectedIndex)) {
+				this.toggleComment();
+				return;
+			}
+			if (this.isFreeformRow(this.selectedIndex)) {
+				this.onEnterFreeform?.();
+				return;
+			}
+			const selectedTitles = [...this.checked]
+				.sort((a, b) => a - b)
+				.map((i) => this.options[i]?.title)
+				.filter((t): t is string => !!t);
 			const fallback = this.options[this.selectedIndex]?.title;
 			const result = selectedTitles.length > 0 ? selectedTitles : fallback ? [fallback] : [];
-			if (result.length > 0) this.onSubmit?.(result); else this.onCancel?.();
+			if (result.length > 0) this.onSubmit?.(result);
+			else this.onCancel?.();
 		}
 	}
 
@@ -344,7 +416,11 @@ class MultiSelectList implements Component {
 		const theme = this.theme;
 		const count = this.getItemCount();
 		const maxVisible = Math.min(count, 10);
-		if (count === 0) { this.cachedLines = [theme.fg("warning", "No options")]; this.cachedWidth = width; return this.cachedLines; }
+		if (count === 0) {
+			this.cachedLines = [theme.fg("warning", "No options")];
+			this.cachedWidth = width;
+			return this.cachedLines;
+		}
 
 		const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), count - maxVisible));
 		const endIndex = Math.min(startIndex + maxVisible, count);
@@ -356,7 +432,9 @@ class MultiSelectList implements Component {
 
 			if (this.isCommentToggleRow(i)) {
 				const checkbox = this.commentEnabled ? theme.fg("success", "[✓]") : theme.fg("dim", "[ ]");
-				const label = isSelected ? theme.fg("accent", theme.bold(COMMENT_TOGGLE_LABEL)) : theme.fg("text", theme.bold(COMMENT_TOGGLE_LABEL));
+				const label = isSelected
+					? theme.fg("accent", theme.bold(COMMENT_TOGGLE_LABEL))
+					: theme.fg("text", theme.bold(COMMENT_TOGGLE_LABEL));
 				lines.push(truncateToWidth(`${prefix}   ${checkbox} ${label}`, width, ""));
 				continue;
 			}
@@ -374,11 +452,13 @@ class MultiSelectList implements Component {
 			lines.push(truncateToWidth(`${prefix} ${num} ${checkbox} ${title}`, width, ""));
 			if (option.description) {
 				const indent = "      ";
-				for (const w of wrapTextWithAnsi(option.description, Math.max(10, width - indent.length))) lines.push(truncateToWidth(indent + theme.fg("muted", w), width, ""));
+				for (const w of wrapTextWithAnsi(option.description, Math.max(10, width - indent.length)))
+					lines.push(truncateToWidth(indent + theme.fg("muted", w), width, ""));
 			}
 		}
 
-		if (startIndex > 0 || endIndex < count) lines.push(theme.fg("dim", truncateToWidth(`  (${this.selectedIndex + 1}/${count})`, width, "")));
+		if (startIndex > 0 || endIndex < count)
+			lines.push(theme.fg("dim", truncateToWidth(`  (${this.selectedIndex + 1}/${count})`, width, "")));
 		this.cachedWidth = width;
 		this.cachedLines = lines;
 		return lines;
@@ -406,26 +486,44 @@ class WrappedSingleSelectList implements Component {
 		private commentToggle: ResolvedShortcut,
 	) {}
 
-	public isCommentEnabled(): boolean { return this.commentEnabled; }
+	public isCommentEnabled(): boolean {
+		return this.commentEnabled;
+	}
 	setMaxVisibleRows(rows: number): void {
 		const next = Math.max(1, Math.floor(rows));
-		if (next !== this.maxVisibleRows) { this.maxVisibleRows = next; this.invalidate(); }
+		if (next !== this.maxVisibleRows) {
+			this.maxVisibleRows = next;
+			this.invalidate();
+		}
 	}
-	invalidate(): void { this.cachedWidth = undefined; this.cachedLines = undefined; }
+	invalidate(): void {
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
 
 	private getFilteredOptions(): AskOption[] {
 		return fuzzyFilter(this.options, this.searchQuery, (option) => `${option.title} ${option.description ?? ""}`);
 	}
-	private getItemCount(filteredOptions: AskOption[]): number { return filteredOptions.length + (this.allowComment ? 1 : 0) + (this.allowFreeform ? 1 : 0); }
-	private isCommentToggleRow(index: number, filteredOptions: AskOption[]): boolean { return this.allowComment && index === filteredOptions.length; }
-	private isFreeformRow(index: number, filteredOptions: AskOption[]): boolean { return this.allowFreeform && index === filteredOptions.length + (this.allowComment ? 1 : 0); }
+	private getItemCount(filteredOptions: AskOption[]): number {
+		return filteredOptions.length + (this.allowComment ? 1 : 0) + (this.allowFreeform ? 1 : 0);
+	}
+	private isCommentToggleRow(index: number, filteredOptions: AskOption[]): boolean {
+		return this.allowComment && index === filteredOptions.length;
+	}
+	private isFreeformRow(index: number, filteredOptions: AskOption[]): boolean {
+		return this.allowFreeform && index === filteredOptions.length + (this.allowComment ? 1 : 0);
+	}
 
 	private toggleComment(): void {
 		if (!this.allowComment) return;
 		this.commentEnabled = !this.commentEnabled;
 		this.invalidate();
 	}
-	private setSearchQuery(query: string): void { this.searchQuery = query; this.selectedIndex = 0; this.invalidate(); }
+	private setSearchQuery(query: string): void {
+		this.searchQuery = query;
+		this.selectedIndex = 0;
+		this.invalidate();
+	}
 	private popSearchCharacter(): void {
 		if (!this.searchQuery) return;
 		const characters = [...this.searchQuery];
@@ -469,15 +567,22 @@ class WrappedSingleSelectList implements Component {
 		const count = this.getItemCount(filteredOptions);
 		const searchValue = this.searchQuery ? this.theme.fg("text", this.searchQuery) : this.theme.fg("dim", "type to filter");
 		lines.push(truncateToWidth(`${this.theme.fg("accent", "Filter:")} ${searchValue}`, width, ""));
-		if (this.searchQuery && filteredOptions.length === 0) lines.push(truncateToWidth(this.theme.fg("warning", "No matching options"), width, ""));
+		if (this.searchQuery && filteredOptions.length === 0)
+			lines.push(truncateToWidth(this.theme.fg("warning", "No matching options"), width, ""));
 		if (count === 0) {
 			if (!this.searchQuery) lines.push(truncateToWidth(this.theme.fg("warning", "No options"), width, ""));
 			return lines.slice(0, this.maxVisibleRows);
 		}
 		const maxRows = Math.max(1, this.maxVisibleRows - lines.length);
 		const optionRows = renderSingleSelectRows({
-			options: filteredOptions, selectedIndex: this.selectedIndex, width, allowFreeform: this.allowFreeform,
-			allowComment: this.allowComment, commentEnabled: this.commentEnabled, maxRows, hideDescriptions,
+			options: filteredOptions,
+			selectedIndex: this.selectedIndex,
+			width,
+			allowFreeform: this.allowFreeform,
+			allowComment: this.allowComment,
+			commentEnabled: this.commentEnabled,
+			maxRows,
+			hideDescriptions,
 		});
 		lines.push(...optionRows.map((row) => this.styleListLine(row.line, width, row.selected)));
 		return lines.slice(0, this.maxVisibleRows);
@@ -521,33 +626,67 @@ class WrappedSingleSelectList implements Component {
 	}
 
 	handleInput(data: string): void {
-		if (this.searchQuery && matchesKey(data, Key.escape)) { this.setSearchQuery(""); return; }
-		if (this.keybindings.matches(data, "tui.select.cancel")) { this.onCancel?.(); return; }
-		if (this.allowComment && !this.commentToggle.disabled && this.commentToggle.matches(data)) { this.toggleComment(); return; }
+		if (this.searchQuery && matchesKey(data, Key.escape)) {
+			this.setSearchQuery("");
+			return;
+		}
+		if (this.keybindings.matches(data, "tui.select.cancel")) {
+			this.onCancel?.();
+			return;
+		}
+		if (this.allowComment && !this.commentToggle.disabled && this.commentToggle.matches(data)) {
+			this.toggleComment();
+			return;
+		}
 
 		const filteredOptions = this.getFilteredOptions();
 		const count = this.getItemCount(filteredOptions);
 
-		if (matchesSelectUp(data, this.keybindings) && count > 0) { this.selectedIndex = this.selectedIndex === 0 ? count - 1 : this.selectedIndex - 1; this.invalidate(); return; }
-		if (matchesSelectDown(data, this.keybindings) && count > 0) { this.selectedIndex = this.selectedIndex === count - 1 ? 0 : this.selectedIndex + 1; this.invalidate(); return; }
+		if (matchesSelectUp(data, this.keybindings) && count > 0) {
+			this.selectedIndex = this.selectedIndex === 0 ? count - 1 : this.selectedIndex - 1;
+			this.invalidate();
+			return;
+		}
+		if (matchesSelectDown(data, this.keybindings) && count > 0) {
+			this.selectedIndex = this.selectedIndex === count - 1 ? 0 : this.selectedIndex + 1;
+			this.invalidate();
+			return;
+		}
 
 		const numMatch = data.match(/^[1-9]$/);
 		if (numMatch && filteredOptions.length > 0) {
 			const idx = Number.parseInt(numMatch[0], 10) - 1;
-			if (idx >= 0 && idx < filteredOptions.length) { this.selectedIndex = idx; this.invalidate(); return; }
+			if (idx >= 0 && idx < filteredOptions.length) {
+				this.selectedIndex = idx;
+				this.invalidate();
+				return;
+			}
 		}
 
-		if (matchesKey(data, Key.space) && count > 0 && this.isCommentToggleRow(this.selectedIndex, filteredOptions)) { this.toggleComment(); return; }
-
-		if (this.keybindings.matches(data, "tui.select.confirm") && count > 0) {
-			if (this.isCommentToggleRow(this.selectedIndex, filteredOptions)) { this.toggleComment(); return; }
-			if (this.isFreeformRow(this.selectedIndex, filteredOptions)) { this.onEnterFreeform?.(); return; }
-			const result = filteredOptions[this.selectedIndex]?.title;
-			if (result) this.onSubmit?.(result); else this.onCancel?.();
+		if (matchesKey(data, Key.space) && count > 0 && this.isCommentToggleRow(this.selectedIndex, filteredOptions)) {
+			this.toggleComment();
 			return;
 		}
 
-		if (this.keybindings.matches(data, "tui.editor.deleteCharBackward") || matchesKey(data, Key.backspace)) { this.popSearchCharacter(); return; }
+		if (this.keybindings.matches(data, "tui.select.confirm") && count > 0) {
+			if (this.isCommentToggleRow(this.selectedIndex, filteredOptions)) {
+				this.toggleComment();
+				return;
+			}
+			if (this.isFreeformRow(this.selectedIndex, filteredOptions)) {
+				this.onEnterFreeform?.();
+				return;
+			}
+			const result = filteredOptions[this.selectedIndex]?.title;
+			if (result) this.onSubmit?.(result);
+			else this.onCancel?.();
+			return;
+		}
+
+		if (this.keybindings.matches(data, "tui.editor.deleteCharBackward") || matchesKey(data, Key.backspace)) {
+			this.popSearchCharacter();
+			return;
+		}
 
 		const printableInput = this.getPrintableInput(data);
 		if (printableInput) this.setSearchQuery(this.searchQuery + printableInput);
@@ -568,7 +707,11 @@ class WrappedSingleSelectList implements Component {
 			const previewLines = this.buildPreviewLines(splitPane.right, filteredOptions, this.maxVisibleRows);
 			const rowCount = Math.min(this.maxVisibleRows, Math.max(listLines.length, previewLines.length));
 			const separator = this.theme.fg("dim", SPLIT_PANE_SEPARATOR);
-			lines = Array.from({ length: rowCount }, (_, index) => `${truncateToWidth(listLines[index] ?? "", splitPane.left, "", true)}${separator}${truncateToWidth(previewLines[index] ?? "", splitPane.right, "")}`);
+			lines = Array.from(
+				{ length: rowCount },
+				(_, index) =>
+					`${truncateToWidth(listLines[index] ?? "", splitPane.left, "", true)}${separator}${truncateToWidth(previewLines[index] ?? "", splitPane.right, "")}`,
+			);
 		}
 		this.cachedWidth = width;
 		this.cachedLines = lines;
@@ -601,7 +744,9 @@ class AskComponent extends Container {
 	private editor?: Editor;
 
 	private _focused = false;
-	get focused(): boolean { return this._focused; }
+	get focused(): boolean {
+		return this._focused;
+	}
 	set focused(value: boolean) {
 		this._focused = value;
 		if (this.editor && (this.mode === "freeform" || this.mode === "comment")) (this.editor as any).focused = value;
@@ -622,7 +767,13 @@ class AskComponent extends Container {
 		private onDone: (result: AskResponse | null) => void,
 	) {
 		super();
-		this.addChild(new BoxBorderTop((s) => theme.fg("accent", s), "discuss", (s) => theme.fg("dim", theme.bold(s))));
+		this.addChild(
+			new BoxBorderTop(
+				(s) => theme.fg("accent", s),
+				"discuss",
+				(s) => theme.fg("dim", theme.bold(s)),
+			),
+		);
 		this.addChild(new Spacer(1));
 		this.titleText = new Text("", 1, 0);
 		this.addChild(this.titleText);
@@ -653,7 +804,11 @@ class AskComponent extends Container {
 		else this.showSelectMode();
 	}
 
-	override invalidate(): void { super.invalidate(); this.updateStaticText(); this.updateHelpText(); }
+	override invalidate(): void {
+		super.invalidate();
+		this.updateStaticText();
+		this.updateHelpText();
+	}
 
 	override render(width: number): string[] {
 		const innerWidth = Math.max(1, width - BOX_BORDER_OVERHEAD);
@@ -702,7 +857,10 @@ class AskComponent extends Container {
 			modeBudget = Math.min(this.getPreferredModeRows(), contentRows);
 			modeBudget = Math.max(Math.min(this.getMinimumModeRows(), contentRows), modeBudget);
 			promptBudget = Math.max(0, contentRows - modeBudget);
-			if (promptBudget > 0 && modeBudget > 0) { separatorRows = 1; promptBudget = Math.max(0, promptBudget - separatorRows); }
+			if (promptBudget > 0 && modeBudget > 0) {
+				separatorRows = 1;
+				promptBudget = Math.max(0, promptBudget - separatorRows);
+			}
 		}
 
 		const modeLines = this.renderModeLines(innerWidth, modeBudget);
@@ -720,7 +878,11 @@ class AskComponent extends Container {
 	}
 
 	private buildPromptLines(width: number): string[] {
-		return [...this.titleText.render(width), ...this.questionText.render(width), ...(this.contextComponent ? ["", ...this.contextComponent.render(width)] : [])];
+		return [
+			...this.titleText.render(width),
+			...this.questionText.render(width),
+			...(this.contextComponent ? ["", ...this.contextComponent.render(width)] : []),
+		];
 	}
 
 	private getHelpBudget(bodyCapacity: number, renderedHelpRows: number): number {
@@ -790,26 +952,46 @@ class AskComponent extends Container {
 		const maxStart = Math.max(0, contentLines.length - contentBudget);
 		const start = cursorLineIndex >= 0 ? Math.max(0, Math.min(cursorLineIndex - contentBudget + 1, maxStart)) : maxStart;
 		const visibleContentLines = contentLines.slice(start, start + contentBudget);
-		const markedContentLines = this.applyPromptOverflowMarkers(visibleContentLines, width, start > 0, start + contentBudget < contentLines.length);
+		const markedContentLines = this.applyPromptOverflowMarkers(
+			visibleContentLines,
+			width,
+			start > 0,
+			start + contentBudget < contentLines.length,
+		);
 		return [topBorder, ...markedContentLines, bottomBorder];
 	}
 
 	private renderPromptPane(promptLines: string[], budget: number, width: number): string[] {
 		const viewportRows = Math.max(0, Math.floor(budget));
 		this.promptViewportRows = viewportRows;
-		if (viewportRows <= 0 || promptLines.length === 0) { this.promptMaxScrollOffset = 0; this.promptScrollOffset = 0; return []; }
+		if (viewportRows <= 0 || promptLines.length === 0) {
+			this.promptMaxScrollOffset = 0;
+			this.promptScrollOffset = 0;
+			return [];
+		}
 		this.promptMaxScrollOffset = Math.max(0, promptLines.length - viewportRows);
 		this.promptScrollOffset = Math.max(0, Math.min(this.promptScrollOffset, this.promptMaxScrollOffset));
 		const visibleLines = promptLines.slice(this.promptScrollOffset, this.promptScrollOffset + viewportRows);
-		return this.applyPromptOverflowMarkers(visibleLines, width, this.promptScrollOffset > 0, this.promptScrollOffset + viewportRows < promptLines.length);
+		return this.applyPromptOverflowMarkers(
+			visibleLines,
+			width,
+			this.promptScrollOffset > 0,
+			this.promptScrollOffset + viewportRows < promptLines.length,
+		);
 	}
 
 	private applyPromptOverflowMarkers(lines: string[], width: number, hasHiddenAbove: boolean, hasHiddenBelow: boolean): string[] {
 		if (lines.length === 0) return lines;
 		const marked = [...lines];
-		if (hasHiddenAbove && hasHiddenBelow && marked.length === 1) { marked[0] = this.addPromptOverflowMarker(marked[0] ?? "", "↕", width); return marked; }
+		if (hasHiddenAbove && hasHiddenBelow && marked.length === 1) {
+			marked[0] = this.addPromptOverflowMarker(marked[0] ?? "", "↕", width);
+			return marked;
+		}
 		if (hasHiddenAbove) marked[0] = this.addPromptOverflowMarker(marked[0] ?? "", "↑", width);
-		if (hasHiddenBelow) { const lastIndex = marked.length - 1; marked[lastIndex] = this.addPromptOverflowMarker(marked[lastIndex] ?? "", "↓", width); }
+		if (hasHiddenBelow) {
+			const lastIndex = marked.length - 1;
+			marked[lastIndex] = this.addPromptOverflowMarker(marked[lastIndex] ?? "", "↓", width);
+		}
 		return marked;
 	}
 
@@ -827,7 +1009,13 @@ class AskComponent extends Container {
 	}
 
 	private renderTopBorder(width: number): string {
-		return new BoxBorderTop((s) => this.theme.fg("accent", s), "discuss", (s) => this.theme.fg("dim", this.theme.bold(s))).render(width)[0] ?? "";
+		return (
+			new BoxBorderTop(
+				(s) => this.theme.fg("accent", s),
+				"discuss",
+				(s) => this.theme.fg("dim", this.theme.bold(s)),
+			).render(width)[0] ?? ""
+		);
 	}
 
 	private renderBottomBorder(width: number): string {
@@ -838,7 +1026,9 @@ class AskComponent extends Container {
 		const borderColor = (s: string) => this.theme.fg("accent", s);
 		return [
 			this.renderTopBorder(width),
-			...bodyLines.map((line) => `${borderColor(BOX_BORDER_LEFT)}${truncateToWidth(line, innerWidth, "", true)}${borderColor(BOX_BORDER_RIGHT)}`),
+			...bodyLines.map(
+				(line) => `${borderColor(BOX_BORDER_LEFT)}${truncateToWidth(line, innerWidth, "", true)}${borderColor(BOX_BORDER_RIGHT)}`,
+			),
 			this.renderBottomBorder(width),
 		];
 	}
@@ -849,7 +1039,9 @@ class AskComponent extends Container {
 		// normally, or "Optional comment" while in comment mode. A generic "Question" header above the
 		// real question text added nothing beyond what the question itself already says, and read
 		// confusingly like the question text WAS the header.
-		this.titleText.setText(this.mode === "comment" ? theme.fg("accent", theme.bold("Optional comment")) : this.subtitle ? theme.fg("dim", this.subtitle) : "");
+		this.titleText.setText(
+			this.mode === "comment" ? theme.fg("accent", theme.bold("Optional comment")) : this.subtitle ? theme.fg("dim", this.subtitle) : "",
+		);
 		this.questionText.setText(theme.fg("text", theme.bold(this.question)));
 		if (this.contextComponent && this.context) {
 			if (this.contextComponent instanceof Markdown) (this.contextComponent as Markdown).setText(`**Context:**\n${this.context}`);
@@ -860,7 +1052,10 @@ class AskComponent extends Container {
 	private updateHelpText(): void {
 		const theme = this.theme;
 		const promptScrollHint = literalHint(theme, "PgUp/PgDn", "prompt");
-		const commentHint = this.allowComment && !this.shortcuts.commentToggle.disabled ? literalHint(theme, this.shortcuts.commentToggle.spec, "toggle context") : null;
+		const commentHint =
+			this.allowComment && !this.shortcuts.commentToggle.disabled
+				? literalHint(theme, this.shortcuts.commentToggle.spec, "toggle context")
+				: null;
 
 		if (this.mode === "freeform" || this.mode === "comment") {
 			const alternateCancelKeys = this.keybindings.getKeys("tui.select.cancel").filter((key) => key !== "escape" && key !== "esc");
@@ -870,35 +1065,53 @@ class AskComponent extends Container {
 				keybindingHint(theme, this.keybindings, "tui.input.newLine", "newline"),
 				literalHint(theme, "esc", canGoBack ? "back" : "cancel"),
 				canGoBack && alternateCancelKeys.length > 0 ? literalHint(theme, formatKeyList(alternateCancelKeys), "cancel") : null,
-			].filter((hint): hint is string => !!hint).join(" • ");
+			]
+				.filter((hint): hint is string => !!hint)
+				.join(" • ");
 			this.helpText.setText(theme.fg("dim", hints));
 			return;
 		}
 
 		if (this.allowMultiple) {
 			const hints = [
-				literalHint(theme, "↑↓", "navigate"), literalHint(theme, "space", "toggle"), commentHint, promptScrollHint,
+				literalHint(theme, "↑↓", "navigate"),
+				literalHint(theme, "space", "toggle"),
+				commentHint,
+				promptScrollHint,
 				keybindingHint(theme, this.keybindings, "tui.select.confirm", "submit"),
 				keybindingHint(theme, this.keybindings, "tui.select.cancel", "cancel"),
-			].filter((hint): hint is string => !!hint).join(" • ");
+			]
+				.filter((hint): hint is string => !!hint)
+				.join(" • ");
 			this.helpText.setText(theme.fg("dim", hints));
 		} else {
 			const alternateCancelKeys = this.keybindings.getKeys("tui.select.cancel").filter((key) => key !== "escape" && key !== "esc");
 			const hints = [
-				literalHint(theme, "type", "filter"), commentHint, promptScrollHint,
+				literalHint(theme, "type", "filter"),
+				commentHint,
+				promptScrollHint,
 				keybindingHint(theme, this.keybindings, "tui.editor.deleteCharBackward", "erase"),
 				literalHint(theme, "↑↓", "navigate"),
 				keybindingHint(theme, this.keybindings, "tui.select.confirm", "select"),
 				literalHint(theme, "esc", "clear/cancel"),
 				alternateCancelKeys.length > 0 ? literalHint(theme, formatKeyList(alternateCancelKeys), "cancel") : null,
-			].filter((hint): hint is string => !!hint).join(" • ");
+			]
+				.filter((hint): hint is string => !!hint)
+				.join(" • ");
 			this.helpText.setText(theme.fg("dim", hints));
 		}
 	}
 
 	private ensureSingleSelectList(): WrappedSingleSelectList {
 		if (this.singleSelectList) return this.singleSelectList;
-		const list = new WrappedSingleSelectList(this.options, this.allowFreeform, this.allowComment, this.theme, this.keybindings, this.shortcuts.commentToggle);
+		const list = new WrappedSingleSelectList(
+			this.options,
+			this.allowFreeform,
+			this.allowComment,
+			this.theme,
+			this.keybindings,
+			this.shortcuts.commentToggle,
+		);
 		list.onSubmit = (result) => this.handleSelectionSubmit([result], list.isCommentEnabled());
 		list.onCancel = () => this.onDone(null);
 		list.onEnterFreeform = () => this.showFreeformMode();
@@ -908,7 +1121,14 @@ class AskComponent extends Container {
 
 	private ensureMultiSelectList(): MultiSelectList {
 		if (this.multiSelectList) return this.multiSelectList;
-		const list = new MultiSelectList(this.options, this.allowFreeform, this.allowComment, this.theme, this.keybindings, this.shortcuts.commentToggle);
+		const list = new MultiSelectList(
+			this.options,
+			this.allowFreeform,
+			this.allowComment,
+			this.theme,
+			this.keybindings,
+			this.shortcuts.commentToggle,
+		);
 		list.onCancel = () => this.onDone(null);
 		list.onSubmit = (result) => this.handleSelectionSubmit(result, list.isCommentEnabled());
 		list.onEnterFreeform = () => this.showFreeformMode();
@@ -941,13 +1161,24 @@ class AskComponent extends Container {
 	}
 
 	private handleSelectionSubmit(selections: string[], wantsComment: boolean): void {
-		if (this.allowComment && wantsComment) { this.pendingSelections = selections; this.commentDraft = ""; this.showCommentMode(); return; }
+		if (this.allowComment && wantsComment) {
+			this.pendingSelections = selections;
+			this.commentDraft = "";
+			this.showCommentMode();
+			return;
+		}
 		this.onDone(createSelectionResponse(selections));
 	}
 
 	private handleEditorSubmit(text: string): void {
-		if (this.mode === "freeform") { this.onDone(createFreeformResponse(text)); return; }
-		if (this.mode === "comment") { this.commentDraft = text; this.onDone(createSelectionResponse(this.pendingSelections, text)); }
+		if (this.mode === "freeform") {
+			this.onDone(createFreeformResponse(text));
+			return;
+		}
+		if (this.mode === "comment") {
+			this.commentDraft = text;
+			this.onDone(createSelectionResponse(this.pendingSelections, text));
+		}
 	}
 
 	private showSelectMode(): void {
@@ -1011,26 +1242,58 @@ class AskComponent extends Container {
 		if (this.mode !== "select") return false;
 		const pageRows = Math.max(1, this.promptViewportRows - 1);
 		const halfPageRows = Math.max(1, Math.floor(this.promptViewportRows / 2));
-		if (matchesKey(data, PROMPT_SCROLL_PAGE_UP_KEY)) { this.setPromptScrollOffset(this.promptScrollOffset - pageRows); return true; }
-		if (matchesKey(data, PROMPT_SCROLL_PAGE_DOWN_KEY)) { this.setPromptScrollOffset(this.promptScrollOffset + pageRows); return true; }
-		if (matchesKey(data, PROMPT_SCROLL_HOME_KEY)) { this.setPromptScrollOffset(0); return true; }
-		if (matchesKey(data, PROMPT_SCROLL_END_KEY)) { this.setPromptScrollOffset(this.promptMaxScrollOffset); return true; }
-		if (matchesKey(data, PROMPT_SCROLL_HALF_PAGE_UP_KEY)) { this.setPromptScrollOffset(this.promptScrollOffset - halfPageRows); return true; }
-		if (matchesKey(data, PROMPT_SCROLL_HALF_PAGE_DOWN_KEY)) { this.setPromptScrollOffset(this.promptScrollOffset + halfPageRows); return true; }
+		if (matchesKey(data, PROMPT_SCROLL_PAGE_UP_KEY)) {
+			this.setPromptScrollOffset(this.promptScrollOffset - pageRows);
+			return true;
+		}
+		if (matchesKey(data, PROMPT_SCROLL_PAGE_DOWN_KEY)) {
+			this.setPromptScrollOffset(this.promptScrollOffset + pageRows);
+			return true;
+		}
+		if (matchesKey(data, PROMPT_SCROLL_HOME_KEY)) {
+			this.setPromptScrollOffset(0);
+			return true;
+		}
+		if (matchesKey(data, PROMPT_SCROLL_END_KEY)) {
+			this.setPromptScrollOffset(this.promptMaxScrollOffset);
+			return true;
+		}
+		if (matchesKey(data, PROMPT_SCROLL_HALF_PAGE_UP_KEY)) {
+			this.setPromptScrollOffset(this.promptScrollOffset - halfPageRows);
+			return true;
+		}
+		if (matchesKey(data, PROMPT_SCROLL_HALF_PAGE_DOWN_KEY)) {
+			this.setPromptScrollOffset(this.promptScrollOffset + halfPageRows);
+			return true;
+		}
 		return false;
 	}
 
 	handleInput(data: string): void {
-		if (this.handlePromptScrollInput(data)) { this.tui.requestRender(); return; }
+		if (this.handlePromptScrollInput(data)) {
+			this.tui.requestRender();
+			return;
+		}
 		if (this.mode === "freeform" || this.mode === "comment") {
 			// A freeform-only ask has no select mode to go back to -- escape cancels outright.
-			if (matchesKey(data, Key.escape)) { if (this.options.length > 0) this.showSelectMode(); else this.onDone(null); return; }
-			if (this.keybindings.matches(data, "tui.select.cancel")) { this.onDone(null); return; }
+			if (matchesKey(data, Key.escape)) {
+				if (this.options.length > 0) this.showSelectMode();
+				else this.onDone(null);
+				return;
+			}
+			if (this.keybindings.matches(data, "tui.select.cancel")) {
+				this.onDone(null);
+				return;
+			}
 			this.ensureEditor().handleInput(data);
 			this.tui.requestRender();
 			return;
 		}
-		if (this.allowMultiple) { this.ensureMultiSelectList().handleInput?.(data); this.tui.requestRender(); return; }
+		if (this.allowMultiple) {
+			this.ensureMultiSelectList().handleInput?.(data);
+			this.tui.requestRender();
+			return;
+		}
 		this.ensureSingleSelectList().handleInput?.(data);
 		this.tui.requestRender();
 	}
@@ -1038,7 +1301,7 @@ class AskComponent extends Container {
 
 /** Plain dialog fallback (select/input) for a UI mode without setEditorComponent support. */
 async function askViaDialogs(
-	ui: { select: Function; input: Function },
+	ui: ExtensionContext["ui"],
 	question: string,
 	context: string | undefined,
 	options: AskOption[],
@@ -1056,12 +1319,18 @@ async function askViaDialogs(
 	}
 
 	if (allowMultiple) {
-		const rawSelections = (await ui.input(`${prompt}\n\nOptions (select one or more):\n${formatOptionsForMessage(options)}`, "Type your selection(s)...", dialogOpts)) as string | undefined;
+		const rawSelections = (await ui.input(
+			`${prompt}\n\nOptions (select one or more):\n${formatOptionsForMessage(options)}`,
+			"Type your selection(s)...",
+			dialogOpts,
+		)) as string | undefined;
 		if (isCancelledInput(rawSelections)) return null;
 		const selections = parseDialogSelections(rawSelections);
 		if (selections.length === 0) return null;
 		if (!allowComment) return createSelectionResponse(selections);
-		const comment = (await ui.input(buildCommentPrompt(prompt, selections), "Optional comment (press Enter to skip)...", dialogOpts)) as string | undefined;
+		const comment = (await ui.input(buildCommentPrompt(prompt, selections), "Optional comment (press Enter to skip)...", dialogOpts)) as
+			| string
+			| undefined;
 		return createSelectionResponse(selections, comment);
 	}
 
@@ -1076,7 +1345,9 @@ async function askViaDialogs(
 	}
 
 	if (!allowComment) return createSelectionResponse([selected]);
-	const comment = (await ui.input(buildCommentPrompt(prompt, [selected]), "Optional comment (press Enter to skip)...", dialogOpts)) as string | undefined;
+	const comment = (await ui.input(buildCommentPrompt(prompt, [selected]), "Optional comment (press Enter to skip)...", dialogOpts)) as
+		| string
+		| undefined;
 	return createSelectionResponse([selected], comment);
 }
 
@@ -1108,7 +1379,12 @@ let typingCourtesyQuietFloorMs = DISCUSS_TYPING_COURTESY_DEFAULT_QUIET_FLOOR_MS;
 let typingCourtesyDecayHorizonMs = DISCUSS_TYPING_COURTESY_DEFAULT_DECAY_HORIZON_MS;
 
 /** Test-only: the real decay curve runs over seconds, too slow to exercise at its real scale in a unit test. */
-export function setTypingCourtesyTimingForTests(overrides?: { pollMs?: number; initialQuietMs?: number; floorMs?: number; decayHorizonMs?: number }): void {
+export function setTypingCourtesyTimingForTests(overrides?: {
+	pollMs?: number;
+	initialQuietMs?: number;
+	floorMs?: number;
+	decayHorizonMs?: number;
+}): void {
 	typingCourtesyPollMs = overrides?.pollMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_POLL_MS;
 	typingCourtesyInitialQuietMs = overrides?.initialQuietMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_INITIAL_QUIET_MS;
 	typingCourtesyQuietFloorMs = overrides?.floorMs ?? DISCUSS_TYPING_COURTESY_DEFAULT_QUIET_FLOOR_MS;
@@ -1116,14 +1392,24 @@ export function setTypingCourtesyTimingForTests(overrides?: { pollMs?: number; i
 }
 
 function isTypingCourtesyEnabled(): boolean {
-	return parseBooleanPreference(process.env["PAPYRUS_DISCUSS_TYPING_COURTESY"]) ?? true;
+	return parseBooleanPreference(process.env.PAPYRUS_DISCUSS_TYPING_COURTESY) ?? true;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve) => {
-		if (signal?.aborted) { resolve(); return; }
+		if (signal?.aborted) {
+			resolve();
+			return;
+		}
 		const timer = setTimeout(resolve, ms);
-		signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				resolve();
+			},
+			{ once: true },
+		);
 	});
 }
 
@@ -1153,7 +1439,10 @@ let trackedUi: ExtensionContext["ui"] | undefined;
 export function ensureTypingCourtesyTracking(ui: ExtensionContext["ui"]): void {
 	if (typeof ui.onTerminalInput !== "function" || trackedUi === ui) return;
 	trackedUi = ui;
-	ui.onTerminalInput(() => { lastKeystrokeAt = Date.now(); return undefined; });
+	ui.onTerminalInput(() => {
+		lastKeystrokeAt = Date.now();
+		return undefined;
+	});
 }
 
 /** Test-only: clears the ambient keystroke clock so one test's simulated typing can't bleed into another's. */
@@ -1185,7 +1474,10 @@ export async function waitForTypingCourtesy(params: Pick<AskQuestionParams, "onU
 	while (lastKeystrokeAt > 0 && !params.signal?.aborted) {
 		const elapsed = Date.now() - startedAt;
 		if (Date.now() - lastKeystrokeAt >= requiredQuietMsAt(elapsed)) return;
-		if (!announced) { announced = true; params.onUpdate?.({ content: [{ type: "text", text: "Waiting for you to finish typing before asking..." }], details: undefined }); }
+		if (!announced) {
+			announced = true;
+			params.onUpdate?.({ content: [{ type: "text", text: "Waiting for you to finish typing before asking..." }], details: undefined });
+		}
 		await sleep(typingCourtesyPollMs, params.signal);
 	}
 }
@@ -1205,7 +1497,7 @@ async function askQuestionUnguarded(ctx: ExtensionContext, params: AskQuestionPa
 	const options = params.options ?? [];
 	const allowMultiple = params.allowMultiple ?? false;
 	const allowFreeform = params.allowFreeform ?? true;
-	const allowComment = params.allowComment ?? parseBooleanPreference(process.env["PAPYRUS_DISCUSS_ALLOW_COMMENT"]) ?? false;
+	const allowComment = params.allowComment ?? parseBooleanPreference(process.env.PAPYRUS_DISCUSS_ALLOW_COMMENT) ?? false;
 	const normalizedContext = params.context?.trim() || undefined;
 
 	if (isTypingCourtesyEnabled()) ensureTypingCourtesyTracking(ctx.ui);
@@ -1238,11 +1530,19 @@ class DiscussEditorHost implements EditorComponent {
 		private readonly ask: AskComponent,
 		private readonly preservedText: string,
 	) {}
-	getText(): string { return this.preservedText; }
+	getText(): string {
+		return this.preservedText;
+	}
 	setText(_text: string): void {}
-	render(width: number): string[] { return this.ask.render(width); }
-	handleInput(data: string): void { this.ask.handleInput(data); }
-	invalidate(): void { this.ask.invalidate(); }
+	render(width: number): string[] {
+		return this.ask.render(width);
+	}
+	handleInput(data: string): void {
+		this.ask.handleInput(data);
+	}
+	invalidate(): void {
+		this.ask.invalidate();
+	}
 }
 
 async function askViaEditorSwap(
@@ -1272,7 +1572,20 @@ async function askViaEditorSwap(
 		if (params.signal) params.signal.addEventListener("abort", () => finish(null), { once: true });
 		if (params.timeout && params.timeout > 0) setTimeout(() => finish(null), params.timeout);
 		ctx.ui.setEditorComponent((tui: TUI, _editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
-			const ask = new AskComponent(params.question, normalizedContext, params.subtitle, options, allowMultiple, allowFreeform, allowComment, tui, theme, keybindings, shortcuts, finish);
+			const ask = new AskComponent(
+				params.question,
+				normalizedContext,
+				params.subtitle,
+				options,
+				allowMultiple,
+				allowFreeform,
+				allowComment,
+				tui,
+				theme,
+				keybindings,
+				shortcuts,
+				finish,
+			);
 			return new DiscussEditorHost(ask, preservedText);
 		});
 	});
@@ -1288,14 +1601,27 @@ async function askQuestionBlocking(
 	normalizedContext: string | undefined,
 ): Promise<AskAnswer | undefined> {
 	const shortcuts: ResolvedAskShortcuts = {
-		commentToggle: resolveShortcut(undefined, process.env["PAPYRUS_DISCUSS_COMMENT_TOGGLE_KEY"], DEFAULT_COMMENT_TOGGLE_KEY),
+		commentToggle: resolveShortcut(undefined, process.env.PAPYRUS_DISCUSS_COMMENT_TOGGLE_KEY, DEFAULT_COMMENT_TOGGLE_KEY),
 	};
 
 	// Falls to the plain dialog fallback if setEditorComponent isn't available in this UI mode.
-	if (typeof ctx.ui.setEditorComponent === "function" && typeof ctx.ui.getEditorComponent === "function" && typeof ctx.ui.getEditorText === "function") {
+	if (
+		typeof ctx.ui.setEditorComponent === "function" &&
+		typeof ctx.ui.getEditorComponent === "function" &&
+		typeof ctx.ui.getEditorText === "function"
+	) {
 		const response = await askViaEditorSwap(ctx, params, options, allowMultiple, allowFreeform, allowComment, normalizedContext, shortcuts);
 		return response ? toAskAnswer(response) : undefined;
 	}
-	const response = await askViaDialogs(ctx.ui, params.question, normalizedContext, options, allowMultiple, allowFreeform, allowComment, params.timeout);
+	const response = await askViaDialogs(
+		ctx.ui,
+		params.question,
+		normalizedContext,
+		options,
+		allowMultiple,
+		allowFreeform,
+		allowComment,
+		params.timeout,
+	);
 	return response ? toAskAnswer(response) : undefined;
 }

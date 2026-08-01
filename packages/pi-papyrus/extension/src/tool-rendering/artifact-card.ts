@@ -96,10 +96,7 @@ export class ArtifactCard implements Component {
 			if (metadata) lines.push(truncateToWidth(this.theme.fg("muted", metadata), safeWidth));
 			if (artifact.body) lines.push(...wrapTextWithAnsi(artifact.body, safeWidth));
 			if (this.details.completeness.truncated) {
-				lines.push(truncateToWidth(
-					this.theme.fg("warning", `[truncated ${this.details.completeness.omitted} characters]`),
-					safeWidth,
-				));
+				lines.push(truncateToWidth(this.theme.fg("warning", `[truncated ${this.details.completeness.omitted} characters]`), safeWidth));
 			}
 		} else if (artifact.body || artifact.labels.length > 0) {
 			lines.push(truncateToWidth(this.theme.fg("dim", expandHint()), safeWidth));

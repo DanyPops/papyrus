@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import type { Artifact, TaskGraph } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { showTaskDetails, taskDetailsText } from "../extension/src/tasks.ts";
-import type { Artifact, TaskGraph } from "@danypops/papyrus";
 
 const task: Artifact = {
 	id: "build-router-n23w",
@@ -23,7 +23,9 @@ const graph: TaskGraph = {
 		{ task: { ...task, edges: undefined }, parentIds: [], childIds: [], dependencyIds: ["telemetry-2dlj"] },
 		{
 			task: { ...task, id: "telemetry-2dlj", title: "Telemetry collection", edges: undefined },
-			parentIds: [], childIds: [], dependencyIds: [],
+			parentIds: [],
+			childIds: [],
+			dependencyIds: [],
 		},
 	],
 	rootIds: ["build-router-n23w", "telemetry-2dlj"],
@@ -36,17 +38,20 @@ const theme = {
 
 describe("task details", () => {
 	it("renders checklist proofs and validation gates as first-class sections", () => {
-		const text = taskDetailsText({
-			...task,
-			extra: {
-				checklist: {
-					"Write failing tests": { proof: [{ type: "test", target: "test/skills.test.ts", expect: "skill row" }] },
-					"Implement browser": { proof: [{ type: "symbol", target: "extension/src/skills.ts#showSkills" }] },
+		const text = taskDetailsText(
+			{
+				...task,
+				extra: {
+					checklist: {
+						"Write failing tests": { proof: [{ type: "test", target: "test/skills.test.ts", expect: "skill row" }] },
+						"Implement browser": { proof: [{ type: "symbol", target: "extension/src/skills.ts#showSkills" }] },
+					},
+					gates: [{ type: "file-exists", target: "/tmp/skills.ts" }],
+					owner: "frontend",
 				},
-				gates: [{ type: "file-exists", target: "/tmp/skills.ts" }],
-				owner: "frontend",
 			},
-		}, ["┌ relationship graph ┐", "└────────────────────┘"]);
+			["┌ relationship graph ┐", "└────────────────────┘"],
+		);
 
 		expect(text).toContain("Checklist:\n  • Write failing tests\n    proof:\n      - test · test/skills.test.ts · skill row");
 		expect(text).toContain("  • Implement browser\n    proof:\n      - symbol · extension/src/skills.ts#showSkills");
@@ -60,19 +65,25 @@ describe("task details", () => {
 	});
 
 	it("renders post-migration actors, reasons, and bounded gate evidence", () => {
-		const text = taskDetailsText(task, [], [{
-			id: 7,
-			taskId: task.id,
-			occurredAt: "2026-01-02T03:04:05.000Z",
-			type: "completed",
-			actor: "agent",
-			source: "pi-tool",
-			reason: "verified",
-			fromStatus: "review",
-			toStatus: "done",
-			evidence: { result: "completed", gates: [{ gate: { type: "test", target: "bun test" }, passed: true }] },
-			schemaVersion: 1,
-		}]);
+		const text = taskDetailsText(
+			task,
+			[],
+			[
+				{
+					id: 7,
+					taskId: task.id,
+					occurredAt: "2026-01-02T03:04:05.000Z",
+					type: "completed",
+					actor: "agent",
+					source: "pi-tool",
+					reason: "verified",
+					fromStatus: "review",
+					toStatus: "done",
+					evidence: { result: "completed", gates: [{ gate: { type: "test", target: "bun test" }, passed: true }] },
+					schemaVersion: 1,
+				},
+			],
+		);
 		expect(text).toContain("completed · review → done · agent/pi-tool · verified");
 		expect(text).toContain("result: completed");
 		expect(text).toContain("✓ test · bun test");
@@ -95,15 +106,14 @@ describe("task details", () => {
 			mode: "tui",
 			hasUI: true,
 			ui: {
-				notify(message: string) { notifications.push(message); },
+				notify(message: string) {
+					notifications.push(message);
+				},
 				async custom(factory: any) {
 					customCalls += 1;
-					const component = await factory(
-						{ terminal: { rows: 30 }, requestRender() {} },
-						theme,
-						{},
-						() => { closed = true; },
-					);
+					const component = await factory({ terminal: { rows: 30 }, requestRender() {} }, theme, {}, () => {
+						closed = true;
+					});
 					rendered = component.render(80);
 					component.render(16);
 					for (let index = 0; index < 50; index++) component.handleInput?.("\x1b[B");

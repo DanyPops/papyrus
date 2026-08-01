@@ -1,13 +1,13 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { TASK_EVENT_FEED_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
-import { InMemoryTaskEventStore, type TaskEventStore } from "../src/ports/task-event-store.ts";
-import { Tasks } from "../src/task-service.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
+import { InMemoryTaskEventStore } from "../src/ports/task-event-store.ts";
+import { Tasks } from "../src/task-service.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
@@ -27,7 +27,10 @@ function inMemoryFixture() {
 	return { tasks: new Tasks(artifacts, passingGates, undefined, events), events };
 }
 
-for (const [name, makeFixture] of [["SQLiteTaskEventStore", sqliteFixture], ["InMemoryTaskEventStore", inMemoryFixture]] as const) {
+for (const [name, makeFixture] of [
+	["SQLiteTaskEventStore", sqliteFixture],
+	["InMemoryTaskEventStore", inMemoryFixture],
+] as const) {
 	describe(`TaskEventStore.feed \u2014 ${name}`, () => {
 		it("replays every event across every task, globally sequenced, not scoped to one taskId like history()", () => {
 			const { tasks, events } = makeFixture();

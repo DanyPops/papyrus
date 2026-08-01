@@ -11,8 +11,13 @@ import type { BlueprintArgumentValue } from "./domain/blueprint-definition.ts";
 import { compilePlaybookDefinition } from "./playbook-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import { applyPlaybookExternalLinks, materializeWorkflowDefinition, resolveRefToTaskId, type WorkflowRunHistory } from "./workflow-execution.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
+import {
+	applyPlaybookExternalLinks,
+	materializeWorkflowDefinition,
+	resolveRefToTaskId,
+	type WorkflowRunHistory,
+} from "./workflow-execution.ts";
 
 export interface InvokePlaybookInput {
 	runId?: string;
@@ -36,7 +41,10 @@ export interface PlaybookMissingArguments {
 	missingArguments: string[];
 }
 
-function missingRequiredInputs(inputs: Record<string, { required?: boolean; default?: BlueprintArgumentValue }>, provided: Record<string, unknown>): string[] {
+function missingRequiredInputs(
+	inputs: Record<string, { required?: boolean; default?: BlueprintArgumentValue }>,
+	provided: Record<string, unknown>,
+): string[] {
 	return Object.entries(inputs)
 		.filter(([name, input]) => input.required && provided[name] === undefined && input.default === undefined)
 		.map(([name]) => name);
@@ -52,7 +60,9 @@ export function invokePlaybook(
 	const missingArguments = missingRequiredInputs(compiled.definition.inputs, input.arguments ?? {});
 	if (missingArguments.length > 0) return { playbookId, missingArguments };
 
-	const atomic = history ? history.events.atomic.bind(history.events) : requireAtomicArtifactStore(artifacts).atomic.bind(requireAtomicArtifactStore(artifacts));
+	const atomic = history
+		? history.events.atomic.bind(history.events)
+		: requireAtomicArtifactStore(artifacts).atomic.bind(requireAtomicArtifactStore(artifacts));
 	return atomic(() => {
 		const result = materializeWorkflowDefinition(
 			artifacts,

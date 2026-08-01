@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { Artifact } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
@@ -11,7 +12,6 @@ import {
 	treeConnector,
 } from "../extension/src/tool-rendering/artifact-card.ts";
 import { createArtifactDetails } from "../extension/src/tool-rendering/render-model.ts";
-import type { Artifact } from "@danypops/papyrus";
 
 function theme(tag: string): Theme {
 	return {

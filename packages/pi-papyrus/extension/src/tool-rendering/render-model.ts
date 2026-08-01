@@ -1,4 +1,5 @@
 import {
+	type Artifact,
 	TOOL_DETAILS_BODY_MAX_CHARACTERS,
 	TOOL_DETAILS_FIELD_MAX_CHARACTERS,
 	TOOL_DETAILS_MAX_EDGES,
@@ -6,7 +7,6 @@ import {
 	TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS,
 	TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS,
 	TOOL_MODEL_CONTENT_MAX_CHARACTERS,
-	type Artifact,
 } from "@danypops/papyrus";
 
 export const PAPYRUS_TOOL_DETAILS_SCHEMA = "papyrus.tool-details/v1" as const;
@@ -198,11 +198,7 @@ export function createTransitionDetails(
 	};
 }
 
-export function createGraphDetails(
-	operation: string,
-	artifacts: readonly Artifact[],
-	edges: readonly ToolGraphEdge[],
-): GraphToolDetails {
+export function createGraphDetails(operation: string, artifacts: readonly Artifact[], edges: readonly ToolGraphEdge[]): GraphToolDetails {
 	const nodes = artifacts.slice(0, TOOL_DETAILS_MAX_ITEMS).map(artifactSummary);
 	const boundedEdges = edges.slice(0, TOOL_DETAILS_MAX_EDGES).map((edge) => ({ ...edge }));
 	return {
@@ -237,11 +233,7 @@ export function createGateRunDetails(
 	};
 }
 
-export function createInvocationDetails(
-	operation: string,
-	runId: string,
-	created: ToolInvocationCreated,
-): InvocationToolDetails {
+export function createInvocationDetails(operation: string, runId: string, created: ToolInvocationCreated): InvocationToolDetails {
 	const bounded: ToolInvocationCreated = {
 		tasks: created.tasks.slice(0, TOOL_DETAILS_MAX_ITEMS),
 		docs: created.docs.slice(0, TOOL_DETAILS_MAX_ITEMS),
@@ -318,13 +310,15 @@ function isCompleteness(value: unknown): value is ResultCompleteness {
 }
 
 function isArtifactSummary(value: unknown): value is ToolArtifactSummary {
-	return isRecord(value)
-		&& isBoundedString(value.id)
-		&& isBoundedString(value.kind)
-		&& isBoundedString(value.title)
-		&& isBoundedString(value.status)
-		&& isBoundedString(value.subtype)
-		&& isStringArray(value.labels);
+	return (
+		isRecord(value) &&
+		isBoundedString(value.id) &&
+		isBoundedString(value.kind) &&
+		isBoundedString(value.title) &&
+		isBoundedString(value.status) &&
+		isBoundedString(value.subtype) &&
+		isStringArray(value.labels)
+	);
 }
 
 function isToolArtifact(value: unknown): value is ToolArtifact {
@@ -332,10 +326,12 @@ function isToolArtifact(value: unknown): value is ToolArtifact {
 	const body = value.body;
 	const createdAt = value.createdAt;
 	const updatedAt = value.updatedAt;
-	return isArtifactSummary(value)
-		&& isBoundedString(body, TOOL_DETAILS_BODY_MAX_CHARACTERS)
-		&& isBoundedString(createdAt)
-		&& isBoundedString(updatedAt);
+	return (
+		isArtifactSummary(value) &&
+		isBoundedString(body, TOOL_DETAILS_BODY_MAX_CHARACTERS) &&
+		isBoundedString(createdAt) &&
+		isBoundedString(updatedAt)
+	);
 }
 
 function isGraphEdge(value: unknown): value is ToolGraphEdge {
@@ -343,11 +339,13 @@ function isGraphEdge(value: unknown): value is ToolGraphEdge {
 }
 
 function isGateRow(value: unknown): value is ToolGateRow {
-	return isRecord(value)
-		&& typeof value.passed === "boolean"
-		&& isBoundedString(value.type)
-		&& isBoundedString(value.target)
-		&& isBoundedString(value.output, TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS);
+	return (
+		isRecord(value) &&
+		typeof value.passed === "boolean" &&
+		isBoundedString(value.type) &&
+		isBoundedString(value.target) &&
+		isBoundedString(value.output, TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS)
+	);
 }
 
 function isBoundedArray<T>(value: unknown, maximum: number, predicate: (entry: unknown) => entry is T): value is T[] {
@@ -362,48 +360,64 @@ export function parsePapyrusToolDetails(value: unknown): PapyrusToolDetails | un
 	} catch {
 		return undefined;
 	}
-	if (serializedLength > TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS || !isRecord(value)
-		|| value.schemaVersion !== PAPYRUS_TOOL_DETAILS_SCHEMA
-		|| !isBoundedString(value.operation)
-		|| !isBoundedString(value.kind)) return undefined;
+	if (
+		serializedLength > TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS ||
+		!isRecord(value) ||
+		value.schemaVersion !== PAPYRUS_TOOL_DETAILS_SCHEMA ||
+		!isBoundedString(value.operation) ||
+		!isBoundedString(value.kind)
+	)
+		return undefined;
 
 	switch (value.kind) {
 		case "artifact":
-			return isToolArtifact(value.artifact) && isCompleteness(value.completeness)
-				? value as unknown as ArtifactToolDetails : undefined;
+			return isToolArtifact(value.artifact) && isCompleteness(value.completeness) ? (value as unknown as ArtifactToolDetails) : undefined;
 		case "artifact-list":
-			return isBoundedArray(value.rows, TOOL_DETAILS_MAX_ITEMS, isArtifactSummary)
-				&& Number.isSafeInteger(value.total) && Number(value.total) >= value.rows.length
-				&& isCompleteness(value.completeness)
-				? value as unknown as ArtifactListToolDetails : undefined;
+			return isBoundedArray(value.rows, TOOL_DETAILS_MAX_ITEMS, isArtifactSummary) &&
+				Number.isSafeInteger(value.total) &&
+				Number(value.total) >= value.rows.length &&
+				isCompleteness(value.completeness)
+				? (value as unknown as ArtifactListToolDetails)
+				: undefined;
 		case "transition":
 			return isArtifactSummary(value.artifact) && isBoundedString(value.fromStatus) && isBoundedString(value.toStatus)
-				? value as unknown as TransitionToolDetails : undefined;
+				? (value as unknown as TransitionToolDetails)
+				: undefined;
 		case "graph":
-			return isBoundedArray(value.nodes, TOOL_DETAILS_MAX_ITEMS, isArtifactSummary)
-				&& isBoundedArray(value.edges, TOOL_DETAILS_MAX_EDGES, isGraphEdge)
-				&& isCompleteness(value.nodeCompleteness) && isCompleteness(value.edgeCompleteness)
-				? value as unknown as GraphToolDetails : undefined;
+			return isBoundedArray(value.nodes, TOOL_DETAILS_MAX_ITEMS, isArtifactSummary) &&
+				isBoundedArray(value.edges, TOOL_DETAILS_MAX_EDGES, isGraphEdge) &&
+				isCompleteness(value.nodeCompleteness) &&
+				isCompleteness(value.edgeCompleteness)
+				? (value as unknown as GraphToolDetails)
+				: undefined;
 		case "gate-run":
-			return isBoundedString(value.artifactId)
-				&& isBoundedString(value.artifactTitle)
-				&& isBoundedArray(value.gates, TOOL_DETAILS_MAX_ITEMS, isGateRow)
-				&& isCompleteness(value.completeness)
-				? value as unknown as GateRunToolDetails : undefined;
+			return isBoundedString(value.artifactId) &&
+				isBoundedString(value.artifactTitle) &&
+				isBoundedArray(value.gates, TOOL_DETAILS_MAX_ITEMS, isGateRow) &&
+				isCompleteness(value.completeness)
+				? (value as unknown as GateRunToolDetails)
+				: undefined;
 		case "invocation": {
 			if (!isRecord(value.created)) return undefined;
-			return isBoundedString(value.runId)
-				&& isStringArray(value.created.tasks) && isStringArray(value.created.docs)
-				&& isStringArray(value.created.rules) && isStringArray(value.created.roots)
-				&& isCompleteness(value.completeness)
-				? value as unknown as InvocationToolDetails : undefined;
+			return isBoundedString(value.runId) &&
+				isStringArray(value.created.tasks) &&
+				isStringArray(value.created.docs) &&
+				isStringArray(value.created.rules) &&
+				isStringArray(value.created.roots) &&
+				isCompleteness(value.completeness)
+				? (value as unknown as InvocationToolDetails)
+				: undefined;
 		}
 		case "preview":
-			return isBoundedString(value.title) && isBoundedString(value.content, TOOL_DETAILS_BODY_MAX_CHARACTERS) && isCompleteness(value.completeness)
-				? value as unknown as PreviewToolDetails : undefined;
+			return isBoundedString(value.title) &&
+				isBoundedString(value.content, TOOL_DETAILS_BODY_MAX_CHARACTERS) &&
+				isCompleteness(value.completeness)
+				? (value as unknown as PreviewToolDetails)
+				: undefined;
 		case "error":
 			return isBoundedString(value.code) && isBoundedString(value.message, TOOL_DETAILS_BODY_MAX_CHARACTERS)
-				? value as unknown as ErrorToolDetails : undefined;
+				? (value as unknown as ErrorToolDetails)
+				: undefined;
 		default:
 			return undefined;
 	}

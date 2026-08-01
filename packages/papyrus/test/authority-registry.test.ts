@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from "../src/authority-registry.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 
 function claim(owner: string, subtype: string, message = `${owner}-owned`): AuthorityClaim {
@@ -50,7 +50,9 @@ describe("AuthorityClaim.appliesToAction — a claim can be scoped to only some 
 			denyMessage: () => "task lifecycle changes require a tasks.* operation",
 		});
 		expect(() => registry.requireArtifactAllowed("task", undefined, "create", "generic")).not.toThrow();
-		expect(() => registry.requireArtifactAllowed("task", undefined, "status", "generic")).toThrow("task lifecycle changes require a tasks.* operation");
+		expect(() => registry.requireArtifactAllowed("task", undefined, "status", "generic")).toThrow(
+			"task lifecycle changes require a tasks.* operation",
+		);
 	});
 });
 
@@ -62,7 +64,8 @@ describe("AuthorizedArtifactWriter — scoped write path bound to one caller ide
 		registry.claim({
 			owner: "notes",
 			matchesArtifact: (_kind, subtype) => subtype === "note",
-			denyMessage: (action) => action === "link" ? "note relationships require a notes.* operation" : "note lifecycle changes require a notes.* operation",
+			denyMessage: (action) =>
+				action === "link" ? "note relationships require a notes.* operation" : "note lifecycle changes require a notes.* operation",
 		});
 		return { writer: new AuthorizedArtifactWriter(store, registry, caller), store };
 	}
@@ -71,7 +74,9 @@ describe("AuthorizedArtifactWriter — scoped write path bound to one caller ide
 		const { writer, store } = fixture("generic");
 		const note = store.create({ kind: "doc", subtype: "note", title: "A note" });
 		const other = store.create({ kind: "doc", title: "Other doc" });
-		expect(() => writer.link({ from: other.id, relation: "relates_to", to: note.id })).toThrow("note relationships require a notes.* operation");
+		expect(() => writer.link({ from: other.id, relation: "relates_to", to: note.id })).toThrow(
+			"note relationships require a notes.* operation",
+		);
 	});
 
 	it("allows the owning caller to link its own claimed artifact", () => {
@@ -84,7 +89,9 @@ describe("AuthorizedArtifactWriter — scoped write path bound to one caller ide
 	it("blocks a non-owner from unlinking and from changing status on a claimed artifact", () => {
 		const { writer, store } = fixture("generic");
 		const note = store.create({ kind: "doc", subtype: "note", title: "A note" });
-		expect(() => writer.unlink({ from: note.id, relation: "relates_to", to: note.id })).toThrow("note relationships require a notes.* operation");
+		expect(() => writer.unlink({ from: note.id, relation: "relates_to", to: note.id })).toThrow(
+			"note relationships require a notes.* operation",
+		);
 		expect(() => writer.setStatus(note.id, "active")).toThrow("note lifecycle changes require a notes.* operation");
 	});
 

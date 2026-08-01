@@ -113,10 +113,18 @@ class FakeArtifactStore implements ArtifactStore {
 	trash(id: string): ArtifactTrashRecord {
 		return { artifactId: id, trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" };
 	}
-	restore(): { restored: boolean } { return { restored: false }; }
-	trashStatus(): ArtifactTrashRecord | null { return null; }
-	listTrash(): ArtifactTrashRecord[] { return []; }
-	purgeDueTrash(): number { return 0; }
+	restore(): { restored: boolean } {
+		return { restored: false };
+	}
+	trashStatus(): ArtifactTrashRecord | null {
+		return null;
+	}
+	listTrash(): ArtifactTrashRecord[] {
+		return [];
+	}
+	purgeDueTrash(): number {
+		return 0;
+	}
 }
 
 class FakeGateRunner implements GateRunner {
@@ -159,15 +167,17 @@ describe("Tasks port behavior", () => {
 			},
 		});
 
-		expect(created.extra["checklist"]).toEqual({
+		expect(created.extra.checklist).toEqual({
 			"Write failing tests": { proof: [{ type: "test", target: "test/task-service.test.ts", expect: "proof requirement" }] },
 			"Implement service": { proof: [{ type: "symbol", target: "src/task-service.ts#Tasks.create" }] },
 		});
 		expect(() => tasks.create({ title: "Legacy", checklist: ["No proof"] as unknown as never })).toThrow("item-to-proof map");
-		expect(() => tasks.create({
-			title: "Missing target",
-			checklist: { "Implement it": { proof: [{ type: "symbol", target: "" }] } },
-		})).toThrow("non-empty proof target");
+		expect(() =>
+			tasks.create({
+				title: "Missing target",
+				checklist: { "Implement it": { proof: [{ type: "symbol", target: "" }] } },
+			}),
+		).toThrow("non-empty proof target");
 	});
 
 	it("replaces a checklist without overwriting gates or other task metadata", () => {
@@ -213,13 +223,15 @@ describe("Tasks port behavior", () => {
 
 	it("rejects malformed gates at both creation and setGates, instead of silently dropping or storing them", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
-		expect(() => tasks.create({ title: "Bad gate type", gates: [{ type: "not-a-real-type", target: "x" }] as never })).toThrow("requires a valid type");
+		expect(() => tasks.create({ title: "Bad gate type", gates: [{ type: "not-a-real-type", target: "x" }] as never })).toThrow(
+			"requires a valid type",
+		);
 		expect(() => tasks.create({ title: "Bad gate target", gates: [{ type: "command", target: "" }] as never })).toThrow("non-empty target");
 
 		const created = tasks.create({ title: "Scoped", gates: [{ type: "command", target: "echo ok" }] });
 		expect(() => tasks.setGates(created.id, [{ type: "bogus", target: "x" }] as never)).toThrow("requires a valid type");
 		// The rejected setGates call must not have partially applied.
-		expect(tasks.show(created.id).extra["gates"]).toEqual([{ type: "command", target: "echo ok" }]);
+		expect(tasks.show(created.id).extra.gates).toEqual([{ type: "command", target: "echo ok" }]);
 	});
 
 	it("rejects a task when review gates fail and keeps it focused for corrective effort", () => {
@@ -328,7 +340,12 @@ describe("Tasks port behavior", () => {
 		const artifacts = new FakeArtifactStore();
 		const tasks = new Tasks(artifacts, new FakeGateRunner());
 		const task = tasks.create({ title: "Ship feature X", status: "review" });
-		const discussion = artifacts.create({ kind: "task", subtype: "discussion", title: "Which approach?", extra: { discussion: { state: "active", roundCount: 1 } } });
+		const discussion = artifacts.create({
+			kind: "task",
+			subtype: "discussion",
+			title: "Which approach?",
+			extra: { discussion: { state: "active", roundCount: 1 } },
+		});
 		artifacts.link({ from: discussion.id, relation: "blocks", to: task.id });
 
 		expect(() => tasks.complete(task.id)).toThrow('task "Ship feature X" is blocked by 1 active Discussion(s): "Which approach?"');
@@ -410,8 +427,20 @@ describe("Tasks port behavior", () => {
 		const task = tasks.create({ title: "Old title", body: "Old body", labels: ["old"], extra: { owner: "papyrus" } });
 		const updated = tasks.update(task.id, { title: "New title", body: "New body", labels: ["new"] }, { actor: "user", source: "test" });
 
-		expect(updated).toMatchObject({ id: task.id, title: "New title", body: "New body", labels: ["new"], status: "todo", extra: { owner: "papyrus" } });
-		expect(tasks.history(task.id, { direction: "asc" }).events.at(-1)).toMatchObject({ type: "updated", actor: "user", source: "test", evidence: { result: "fields:body,labels,title" } });
+		expect(updated).toMatchObject({
+			id: task.id,
+			title: "New title",
+			body: "New body",
+			labels: ["new"],
+			status: "todo",
+			extra: { owner: "papyrus" },
+		});
+		expect(tasks.history(task.id, { direction: "asc" }).events.at(-1)).toMatchObject({
+			type: "updated",
+			actor: "user",
+			source: "test",
+			evidence: { result: "fields:body,labels,title" },
+		});
 		expect(() => tasks.update(task.id, {})).toThrow("requires title, body, or labels");
 	});
 
@@ -424,14 +453,23 @@ describe("Tasks port behavior", () => {
 		expect(tasks.active()?.id).toBe(todo.id);
 		tasks.focus(review.id);
 		expect(tasks.active()?.id).toBe(review.id);
-		expect(tasks.pauseFocus({ reason: "manual pause" })).toMatchObject({ artifact: { id: review.id }, status: "paused", pauseReason: "manual pause" });
+		expect(tasks.pauseFocus({ reason: "manual pause" })).toMatchObject({
+			artifact: { id: review.id },
+			status: "paused",
+			pauseReason: "manual pause",
+		});
 		expect(tasks.active()).toBeNull();
 		expect(tasks.focused()).toMatchObject({ artifact: { id: review.id }, status: "paused" });
 		expect(tasks.unpauseFocus()).toMatchObject({ artifact: { id: review.id }, status: "active" });
 		expect(tasks.active()?.id).toBe(review.id);
 		expect(tasks.show(todo.id).status).toBe("todo");
 		expect(tasks.show(review.id).status).toBe("review");
-		expect(tasks.graph().nodes.filter((node) => node.active).map((node) => node.task.id)).toEqual([review.id]);
+		expect(
+			tasks
+				.graph()
+				.nodes.filter((node) => node.active)
+				.map((node) => node.task.id),
+		).toEqual([review.id]);
 	});
 
 	it("propagates partial effort from a nested task to todo ancestors", () => {
@@ -450,9 +488,17 @@ describe("Tasks port behavior", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
 		const accidental = tasks.create({ title: "Accidental terminal", status: "done" });
 		expect(() => tasks.update(accidental.id, { status: "todo" }, {})).toThrow("reason");
-		const recovered = tasks.update(accidental.id, { status: "todo" }, { actor: "agent", source: "defect-repair", reason: "created with migrated row-order default" });
+		const recovered = tasks.update(
+			accidental.id,
+			{ status: "todo" },
+			{ actor: "agent", source: "defect-repair", reason: "created with migrated row-order default" },
+		);
 		expect(recovered.status).toBe("todo");
-		expect(tasks.history(accidental.id, { direction: "asc" }).events.map((event) => ({ type: event.type, from: event.fromStatus, to: event.toStatus }))).toEqual([
+		expect(
+			tasks
+				.history(accidental.id, { direction: "asc" })
+				.events.map((event) => ({ type: event.type, from: event.fromStatus, to: event.toStatus })),
+		).toEqual([
 			{ type: "created", from: undefined, to: "done" },
 			{ type: "creation_recovered", from: "done", to: "todo" },
 		]);
@@ -518,12 +564,14 @@ describe("Tasks port behavior", () => {
 		const result = tasks.complete(task.id);
 		expect(result.completed).toBe(false);
 		expect(result.artifact.status).toBe("rejected");
-		expect(result.checklist).toEqual([{
-			item: "Claimed done",
-			proof: [],
-			accepted: false,
-			reason: "typed proof reference required",
-		}]);
+		expect(result.checklist).toEqual([
+			{
+				item: "Claimed done",
+				proof: [],
+				accepted: false,
+				reason: "typed proof reference required",
+			},
+		]);
 		expect(gates.calls).toEqual([task.id]);
 	});
 

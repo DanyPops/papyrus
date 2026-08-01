@@ -1,5 +1,5 @@
 import { TASK_LEASE_DEFAULT_TTL_MS } from "../constants.ts";
-import { isLeaseExpired, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs, type TaskLease } from "../domain/task-lease.ts";
+import { isLeaseExpired, type TaskLease, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs } from "../domain/task-lease.ts";
 
 export interface TaskLeaseStore {
 	/**
@@ -51,7 +51,8 @@ export class InMemoryTaskLeaseStore implements TaskLeaseStore {
 		const nowIso = new Date().toISOString();
 		const current = this.leases.get(taskId);
 		if (!current || isLeaseExpired(current, nowIso)) throw new Error(`task "${taskId}" has no live lease to renew`);
-		if (current.owner !== owner || current.token !== token) throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
+		if (current.owner !== owner || current.token !== token)
+			throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
 		const renewed: TaskLease = { ...current, leaseExpiresAt: new Date(Date.now() + ttlMs).toISOString(), heartbeatAt: nowIso };
 		this.leases.set(taskId, renewed);
 		return renewed;
@@ -61,7 +62,8 @@ export class InMemoryTaskLeaseStore implements TaskLeaseStore {
 		const nowIso = new Date().toISOString();
 		const current = this.leases.get(taskId);
 		if (!current || isLeaseExpired(current, nowIso)) return { released: false };
-		if (current.owner !== owner || current.token !== token) throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
+		if (current.owner !== owner || current.token !== token)
+			throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
 		this.leases.delete(taskId);
 		return { released: true };
 	}
@@ -75,7 +77,10 @@ export class InMemoryTaskLeaseStore implements TaskLeaseStore {
 	reapExpired(olderThanIso: string): number {
 		let removed = 0;
 		for (const [taskId, lease] of this.leases) {
-			if (lease.leaseExpiresAt < olderThanIso) { this.leases.delete(taskId); removed++; }
+			if (lease.leaseExpiresAt < olderThanIso) {
+				this.leases.delete(taskId);
+				removed++;
+			}
 		}
 		return removed;
 	}

@@ -10,8 +10,17 @@
  */
 import { ARTIFACT_EVENT_ACTOR_MAX_LENGTH, ARTIFACT_EVENT_HISTORY_DEFAULT_LIMIT, ARTIFACT_EVENT_HISTORY_MAX_LIMIT } from "../constants.ts";
 
-export const ARTIFACT_EVENT_TYPES = ["created", "updated", "status_changed", "extra_set", "linked", "unlinked", "trashed", "restored"] as const;
-export type ArtifactEventType = typeof ARTIFACT_EVENT_TYPES[number];
+export const ARTIFACT_EVENT_TYPES = [
+	"created",
+	"updated",
+	"status_changed",
+	"extra_set",
+	"linked",
+	"unlinked",
+	"trashed",
+	"restored",
+] as const;
+export type ArtifactEventType = (typeof ARTIFACT_EVENT_TYPES)[number];
 export type ArtifactEventDirection = "asc" | "desc";
 
 /** Caller-supplied identity for a mutation. All fields are advisory (self-reported), not cryptographically verified. */
@@ -73,7 +82,9 @@ function boundedString(value: string, field: string, maximum: number): string {
 }
 
 /** Fills defaults and enforces bounds. The one place every appended event is normalized. */
-export function resolveArtifactEvent(input: AppendArtifactEvent): Required<Pick<AppendArtifactEvent, "actor" | "source">> & AppendArtifactEvent {
+export function resolveArtifactEvent(
+	input: AppendArtifactEvent,
+): Required<Pick<AppendArtifactEvent, "actor" | "source">> & AppendArtifactEvent {
 	if (!input.artifactId) throw new Error("artifactId is required");
 	const actor = boundedString(input.actor ?? ARTIFACT_EVENT_DEFAULT_ACTOR, "actor", ARTIFACT_EVENT_ACTOR_MAX_LENGTH);
 	const source = boundedString(input.source ?? ARTIFACT_EVENT_DEFAULT_SOURCE, "source", ARTIFACT_EVENT_ACTOR_MAX_LENGTH);
@@ -81,7 +92,9 @@ export function resolveArtifactEvent(input: AppendArtifactEvent): Required<Pick<
 	return { ...input, actor, source };
 }
 
-export function normalizeArtifactEventQuery(query: ArtifactEventQuery): Required<Pick<ArtifactEventQuery, "limit" | "direction">> & ArtifactEventQuery {
+export function normalizeArtifactEventQuery(
+	query: ArtifactEventQuery,
+): Required<Pick<ArtifactEventQuery, "limit" | "direction">> & ArtifactEventQuery {
 	if (!query.artifactId && !query.actor && !query.sessionId) {
 		throw new Error("artifact event query requires artifactId, actor, or sessionId to stay bounded");
 	}

@@ -1,21 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { SKILL_MAX_RENDERED_BYTES, SKILL_RUN_ID_MAX_LENGTH, SKILL_WORKFLOW_MAX_NESTING_DEPTH, TASK_EXECUTION_MAX_EDGES } from "./constants.ts";
-import type { Artifact } from "./domain/artifact.ts";
-import { validateChecklist } from "./domain/checklist.ts";
 import {
+	SKILL_MAX_RENDERED_BYTES,
+	SKILL_RUN_ID_MAX_LENGTH,
+	SKILL_WORKFLOW_MAX_NESTING_DEPTH,
+	TASK_EXECUTION_MAX_EDGES,
+} from "./constants.ts";
+import type { Artifact } from "./domain/artifact.ts";
+import {
+	type BlueprintArgumentValue,
+	type BlueprintDefinition,
+	type CallBlueprint,
 	resolveBlueprintArguments,
 	validateBlueprintDefinition,
-	type BlueprintArgumentValue,
-	type CallBlueprint,
-	type BlueprintDefinition,
 } from "./domain/blueprint-definition.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
-import { compilePlaybookDefinition, type PlaybookExternalLink } from "./playbook-definition.ts";
+import { validateChecklist } from "./domain/checklist.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
+import { normalizeProjectRoot } from "./domain/task-scope.ts";
+import { compilePlaybookDefinition, type PlaybookExternalLink } from "./playbook-definition.ts";
+import type { ArtifactStore } from "./ports/artifact-store.ts";
+import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { normalizeProjectRoot } from "./domain/task-scope.ts";
-import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import { projectTaskExecution, type TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskGraph, TaskNode, TaskStatus } from "./task-service.ts";
 
@@ -76,7 +81,7 @@ function requireWorkflowSkill(artifacts: ArtifactStore, skillId: string): { skil
 		throw new Error(`artifact "${skillId}" is not a workflow-definition playbook`);
 	}
 	if (skill.status !== "active") throw new Error(`cannot run workflow playbook from ${skill.status}`);
-	return { skill, definition: validateBlueprintDefinition(skill.extra["definition"]) };
+	return { skill, definition: validateBlueprintDefinition(skill.extra.definition) };
 }
 
 function normalizeRunId(skillId: string, requested: string | undefined): string {
@@ -115,8 +120,8 @@ function renderDefinition(definition: BlueprintDefinition, arguments_: Record<st
 	const bytes = new TextEncoder().encode(JSON.stringify(rendered)).byteLength;
 	if (bytes > SKILL_MAX_RENDERED_BYTES) throw new Error(`rendered workflow exceeds ${SKILL_MAX_RENDERED_BYTES} bytes`);
 	for (const task of rendered.blueprints.tasks) {
-		if (task.extra?.["checklist"] !== undefined) {
-			task.extra["checklist"] = validateChecklist(task.extra["checklist"]);
+		if (task.extra?.checklist !== undefined) {
+			task.extra.checklist = validateChecklist(task.extra.checklist);
 		}
 	}
 	return validateBlueprintDefinition(rendered);
@@ -129,9 +134,10 @@ function withRunLabel(labels: string[] | undefined, labelPrefix: string, runId: 
 function executionGraph(tasks: Artifact[], definition: BlueprintDefinition, ids: Map<string, string>, extraKey: string): TaskGraph {
 	const byRef = new Map(definition.blueprints.tasks.map((task) => [task.ref, task]));
 	const nodes: TaskNode[] = tasks.map((task) => {
-		const ref = task.extra[extraKey] && typeof task.extra[extraKey] === "object"
-			? (task.extra[extraKey] as Record<string, unknown>)["ref"] as string
-			: "";
+		const ref =
+			task.extra[extraKey] && typeof task.extra[extraKey] === "object"
+				? ((task.extra[extraKey] as Record<string, unknown>).ref as string)
+				: "";
 		const blueprint = byRef.get(ref)!;
 		return {
 			task,
@@ -171,14 +177,18 @@ export function resolveRefToTaskId(artifacts: ArtifactStore, taskIds: string[], 
 	for (const taskId of taskIds) {
 		const lineage = artifacts.get(taskId)?.extra[extraKey];
 		if (typeof lineage !== "object" || lineage === null || Array.isArray(lineage)) continue;
-		const ref = (lineage as Record<string, unknown>)["ref"];
+		const ref = (lineage as Record<string, unknown>).ref;
 		if (typeof ref === "string") map.set(ref, taskId);
 	}
 	return map;
 }
 
 /** Applies a compiled Playbook's external links (a Rule that `gates` it, a Doc it `references`, etc.) once its blueprint refs have resolved to real task ids -- shared by top-level Playbook invocation and a nested Playbook pipeline-call step alike. */
-export function applyPlaybookExternalLinks(artifacts: ArtifactStore, externalLinks: PlaybookExternalLink[], refToTaskId: Map<string, string>): void {
+export function applyPlaybookExternalLinks(
+	artifacts: ArtifactStore,
+	externalLinks: PlaybookExternalLink[],
+	refToTaskId: Map<string, string>,
+): void {
 	for (const link of externalLinks) {
 		const taskId = refToTaskId.get(link.rootRef);
 		if (!taskId) continue; // defensive -- every rootRef the compiler emits is always materialized
@@ -287,39 +297,44 @@ export function materializeWorkflowDefinition(
 	// way at their own level, and nesting depth is separately capped -- so total blast radius
 	// across a whole pipeline stays bounded on both dimensions even though a step's dependency
 	// on a call ref can fan out to more edges than this per-level count captures exactly.
-	const relationshipCount = rendered.links.length
-		+ rendered.blueprints.tasks.reduce((count, task) => count + (task.dependsOn?.length ?? 0) + (task.parent ? 2 : 0), 0)
-		+ rendered.blueprints.skills.reduce((count, call) => count + (call.dependsOn?.length ?? 0) + (call.parent ? 2 : 0), 0)
-		+ rendered.blueprints.tasks.filter((task) => (task.dependsOn?.length ?? 0) === 0).length
-		+ rendered.blueprints.skills.filter((call) => (call.dependsOn?.length ?? 0) === 0).length;
+	const relationshipCount =
+		rendered.links.length +
+		rendered.blueprints.tasks.reduce((count, task) => count + (task.dependsOn?.length ?? 0) + (task.parent ? 2 : 0), 0) +
+		rendered.blueprints.skills.reduce((count, call) => count + (call.dependsOn?.length ?? 0) + (call.parent ? 2 : 0), 0) +
+		rendered.blueprints.tasks.filter((task) => (task.dependsOn?.length ?? 0) === 0).length +
+		rendered.blueprints.skills.filter((call) => (call.dependsOn?.length ?? 0) === 0).length;
 	if (relationshipCount > TASK_EXECUTION_MAX_EDGES) {
 		throw new Error(`workflow run exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
 	}
 
-	const docs = rendered.blueprints.docs.map((blueprint) => artifacts.create({
-		id: ids.get(blueprint.ref),
-		kind: "doc",
-		title: blueprint.title,
-		body: blueprint.body,
-		subtype: blueprint.subtype,
-		labels: withRunLabel(blueprint.labels, labelPrefix, runId),
-		extra: { ...(blueprint.extra ?? {}), [extraKey]: { id: runId, ownerId, ref: blueprint.ref } },
-	}));
-	const rules = rendered.blueprints.rules.map((blueprint) => artifacts.create({
-		id: ids.get(blueprint.ref),
-		kind: "rule",
-		title: blueprint.title,
-		body: blueprint.body,
-		labels: withRunLabel(blueprint.labels, labelPrefix, runId),
-		extra: {
-			...(blueprint.extra ?? {}),
-			...(blueprint.condition ? { condition: blueprint.condition } : {}),
-			...(blueprint.action ? { action: blueprint.action } : {}),
-			...(blueprint.severity ? { severity: blueprint.severity } : {}),
-			[extraKey]: { id: runId, ownerId, ref: blueprint.ref },
-			scope: { type: labelPrefix, runId, taskIds },
-		},
-	}));
+	const docs = rendered.blueprints.docs.map((blueprint) =>
+		artifacts.create({
+			id: ids.get(blueprint.ref),
+			kind: "doc",
+			title: blueprint.title,
+			body: blueprint.body,
+			subtype: blueprint.subtype,
+			labels: withRunLabel(blueprint.labels, labelPrefix, runId),
+			extra: { ...(blueprint.extra ?? {}), [extraKey]: { id: runId, ownerId, ref: blueprint.ref } },
+		}),
+	);
+	const rules = rendered.blueprints.rules.map((blueprint) =>
+		artifacts.create({
+			id: ids.get(blueprint.ref),
+			kind: "rule",
+			title: blueprint.title,
+			body: blueprint.body,
+			labels: withRunLabel(blueprint.labels, labelPrefix, runId),
+			extra: {
+				...(blueprint.extra ?? {}),
+				...(blueprint.condition ? { condition: blueprint.condition } : {}),
+				...(blueprint.action ? { action: blueprint.action } : {}),
+				...(blueprint.severity ? { severity: blueprint.severity } : {}),
+				[extraKey]: { id: runId, ownerId, ref: blueprint.ref },
+				scope: { type: labelPrefix, runId, taskIds },
+			},
+		}),
+	);
 	const tasks = rendered.blueprints.tasks.map((blueprint) => {
 		const task = artifacts.create({
 			id: ids.get(blueprint.ref),
@@ -351,7 +366,10 @@ export function materializeWorkflowDefinition(
 	const nestedRuns: WorkflowRunResult[] = [];
 	const stepTaskIds = new Map<string, string[]>(tasks.map((task, index) => [rendered.blueprints.tasks[index]!.ref, [task.id]]));
 	const stepRootTaskIds = new Map<string, string[]>(
-		tasks.map((task, index) => [rendered.blueprints.tasks[index]!.ref, (rendered.blueprints.tasks[index]!.dependsOn?.length ?? 0) === 0 ? [task.id] : []]),
+		tasks.map((task, index) => [
+			rendered.blueprints.tasks[index]!.ref,
+			(rendered.blueprints.tasks[index]!.dependsOn?.length ?? 0) === 0 ? [task.id] : [],
+		]),
 	);
 	// A call ref never gets its own real task -- it resolves to whatever the nested run's entry
 	// (or, absent a resolvable one, its first root task) actually is. Lets a focusRef chain
@@ -421,11 +439,12 @@ export function materializeWorkflowDefinition(
 	// A focusRef naming an ordinary task ref resolves directly through ids; one naming a call
 	// ref resolves through the nested run it triggered instead (never through ids, which only
 	// maps a call ref to a synthetic placeholder that was never actually created).
-	const focusTaskId = input.focusRef === undefined
-		? undefined
-		: rendered.blueprints.tasks.some((task) => task.ref === input.focusRef)
-			? ids.get(input.focusRef)
-			: stepEntryTaskIds.get(input.focusRef);
+	const focusTaskId =
+		input.focusRef === undefined
+			? undefined
+			: rendered.blueprints.tasks.some((task) => task.ref === input.focusRef)
+				? ids.get(input.focusRef)
+				: stepEntryTaskIds.get(input.focusRef);
 
 	return {
 		skillId: ownerId,

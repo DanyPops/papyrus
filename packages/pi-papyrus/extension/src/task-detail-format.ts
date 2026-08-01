@@ -1,4 +1,4 @@
-import { checklistEntries, type Artifact, type ProofReference, type TaskEvent } from "@danypops/papyrus";
+import { type Artifact, checklistEntries, type ProofReference, type TaskEvent } from "@danypops/papyrus";
 import { formatMetadata } from "./artifact-format.ts";
 
 const TASK_STATUS_GLYPHS: Record<string, string> = {
@@ -39,9 +39,9 @@ function gateLines(value: unknown): string[] {
 			continue;
 		}
 		const record = gate as Record<string, unknown>;
-		const type = typeof record["type"] === "string" ? record["type"] : "unknown";
-		const target = typeof record["target"] === "string" ? record["target"] : "missing target";
-		const expect = typeof record["expect"] === "string" ? ` · ${record["expect"]}` : "";
+		const type = typeof record.type === "string" ? record.type : "unknown";
+		const target = typeof record.target === "string" ? record.target : "missing target";
+		const expect = typeof record.expect === "string" ? ` · ${record.expect}` : "";
 		lines.push(`  ○ ${type} · ${target}${expect}`);
 	}
 	return lines;
@@ -59,9 +59,9 @@ function historyLines(history: TaskEvent[]): string[] {
 			for (const value of event.evidence.gates) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
 				const result = value as Record<string, unknown>;
-				const gate = typeof result["gate"] === "object" && result["gate"] !== null ? result["gate"] as Record<string, unknown> : {};
-				const passed = result["passed"] === true;
-				lines.push(`    ${passed ? "✓" : "✗"} ${String(gate["type"] ?? "gate")} · ${String(gate["target"] ?? "unknown")}`);
+				const gate = typeof result.gate === "object" && result.gate !== null ? (result.gate as Record<string, unknown>) : {};
+				const passed = result.passed === true;
+				lines.push(`    ${passed ? "✓" : "✗"} ${String(gate.type ?? "gate")} · ${String(gate.target ?? "unknown")}`);
 			}
 		}
 	}
@@ -78,9 +78,9 @@ export interface TaskDetailContent {
 
 export function taskDetailContent(task: Artifact, history: TaskEvent[] = []): TaskDetailContent {
 	const sections: string[][] = [];
-	const checklist = checklistLines(task.extra["checklist"]);
+	const checklist = checklistLines(task.extra.checklist);
 	if (checklist.length > 0) sections.push(checklist);
-	const gates = gateLines(task.extra["gates"]);
+	const gates = gateLines(task.extra.gates);
 	if (gates.length > 0) sections.push(gates);
 	const metadata = Object.fromEntries(Object.entries(task.extra).filter(([key]) => key !== "checklist" && key !== "gates"));
 	if (Object.keys(metadata).length > 0) sections.push(["Metadata:", ...formatMetadata(metadata).map((line) => `  ${line}`)]);

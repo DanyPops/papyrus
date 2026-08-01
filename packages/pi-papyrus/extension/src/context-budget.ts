@@ -1,9 +1,9 @@
-import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import type { ContextSegmentItem } from "@danypops/jittor";
-import { CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_NODES, type Artifact, type TaskGraph } from "@danypops/papyrus";
-import { discoverSkillDirectories, scanSkillCatalogFootprint, type SkillCatalogFootprint } from "./skill-catalog-footprint.ts";
+import { type Artifact, CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_NODES, type TaskGraph } from "@danypops/papyrus";
 import { ruleInjectionPreview } from "./rules.ts";
+import { discoverSkillDirectories, type SkillCatalogFootprint, scanSkillCatalogFootprint } from "./skill-catalog-footprint.ts";
 
 /**
  * Papyrus's own real data for the Context Hub: Rules injection cost, the Task containment tree,
@@ -94,7 +94,9 @@ interface TaskWalkFrame {
 /** Bounded, iterative two-pass walk (an explicit-stack pre-order discovery pass, then a reverse-order construction pass) -- containment depth is not assumed to stay small just because it usually does. */
 export function buildTaskItemTree(graph: TaskGraph): ContextSegmentItem[] {
 	const byId = new Map(graph.nodes.map((node) => [node.task.id, node]));
-	const openIds = new Set(graph.nodes.filter((node) => node.task.status !== "done" && node.task.status !== "canceled").map((node) => node.task.id));
+	const openIds = new Set(
+		graph.nodes.filter((node) => node.task.status !== "done" && node.task.status !== "canceled").map((node) => node.task.id),
+	);
 	const visited = new Set<string>();
 
 	const rootIds = [...openIds].filter((id) => {
@@ -112,7 +114,8 @@ export function buildTaskItemTree(graph: TaskGraph): ContextSegmentItem[] {
 		const index = order.length;
 		order.push(frame);
 		const node = byId.get(frame.taskId);
-		const children = [...(node?.childIds ?? [])].reverse()
+		const children = [...(node?.childIds ?? [])]
+			.reverse()
 			.filter((childId) => openIds.has(childId))
 			.map((childId) => ({ taskId: childId, parentIndex: index }));
 		stack.push(...children);

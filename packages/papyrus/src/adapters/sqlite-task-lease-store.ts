@@ -1,7 +1,7 @@
 import { TASK_LEASE_DEFAULT_TTL_MS } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import { isLeaseExpired, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs, type TaskLease } from "../domain/task-lease.ts";
+import { isLeaseExpired, type TaskLease, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs } from "../domain/task-lease.ts";
 import type { TaskLeaseStore } from "../ports/task-lease-store.ts";
 
 interface TaskLeaseRow {
@@ -49,12 +49,14 @@ export class SQLiteTaskLeaseStore implements TaskLeaseStore {
 			const token = renewingSameOwner ? current!.token : crypto.randomUUID();
 			const claimedAt = renewingSameOwner ? current!.claimedAt : nowIso;
 			const leaseExpiresAt = new Date(now.getTime() + ttlMs).toISOString();
-			this.db.prepare(`
+			this.db
+				.prepare(`
 				INSERT INTO task_leases (task_id, owner, token, claimed_at, lease_expires_at, heartbeat_at, note)
 				VALUES (?, ?, ?, ?, ?, NULL, ?)
 				ON CONFLICT(task_id) DO UPDATE SET owner = excluded.owner, token = excluded.token, claimed_at = excluded.claimed_at,
 					lease_expires_at = excluded.lease_expires_at, heartbeat_at = NULL, note = excluded.note
-			`).run(taskId, owner, token, claimedAt, leaseExpiresAt, note ?? null);
+			`)
+				.run(taskId, owner, token, claimedAt, leaseExpiresAt, note ?? null);
 			return fromRow(this.row(taskId)!);
 		});
 	}
@@ -66,9 +68,12 @@ export class SQLiteTaskLeaseStore implements TaskLeaseStore {
 			const existing = this.row(taskId);
 			const current = existing ? fromRow(existing) : undefined;
 			if (!current || isLeaseExpired(current, nowIso)) throw new Error(`task "${taskId}" has no live lease to renew`);
-			if (current.owner !== owner || current.token !== token) throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
+			if (current.owner !== owner || current.token !== token)
+				throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
 			const leaseExpiresAt = new Date(Date.now() + ttlMs).toISOString();
-			this.db.prepare("UPDATE task_leases SET lease_expires_at = ?, heartbeat_at = ? WHERE task_id = ?").run(leaseExpiresAt, nowIso, taskId);
+			this.db
+				.prepare("UPDATE task_leases SET lease_expires_at = ?, heartbeat_at = ? WHERE task_id = ?")
+				.run(leaseExpiresAt, nowIso, taskId);
 			return fromRow(this.row(taskId)!);
 		});
 	}
@@ -79,7 +84,8 @@ export class SQLiteTaskLeaseStore implements TaskLeaseStore {
 			const existing = this.row(taskId);
 			const current = existing ? fromRow(existing) : undefined;
 			if (!current || isLeaseExpired(current, nowIso)) return { released: false };
-			if (current.owner !== owner || current.token !== token) throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
+			if (current.owner !== owner || current.token !== token)
+				throw new Error(`lease for task "${taskId}" is held by a different owner/token`);
 			this.db.prepare("DELETE FROM task_leases WHERE task_id = ?").run(taskId);
 			return { released: true };
 		});

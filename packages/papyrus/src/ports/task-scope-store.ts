@@ -18,7 +18,9 @@ export class InMemoryTaskScopeStore implements TaskScopeStore {
 		return scope;
 	}
 
-	get(taskId: string): TaskProjectScope | undefined { return this.scopes.get(taskId); }
+	get(taskId: string): TaskProjectScope | undefined {
+		return this.scopes.get(taskId);
+	}
 
 	taskIds(projectRoot: string | undefined, limit: number): string[] {
 		return [...this.scopes.values()]

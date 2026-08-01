@@ -16,8 +16,8 @@ export function projectArtifactRelationships(artifact: Artifact): DisplayGraph {
 		nodeIds.add(edge.from);
 		nodeIds.add(edge.to);
 	}
-	const nodes: DisplayGraphNode[] = [...nodeIds].map((id) => id === artifact.id
-		? { id, label: artifact.title, status: artifact.status }
-		: { id, label: fallbackLabel(id) });
+	const nodes: DisplayGraphNode[] = [...nodeIds].map((id) =>
+		id === artifact.id ? { id, label: artifact.title, status: artifact.status } : { id, label: fallbackLabel(id) },
+	);
 	return { direction: "LR", nodes, edges };
 }

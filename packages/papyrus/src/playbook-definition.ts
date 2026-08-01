@@ -24,7 +24,14 @@ import {
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
-import type { CallBlueprint, BlueprintDefinition, DocBlueprint, BlueprintInputDefinition, RuleBlueprint, TaskBlueprint } from "./domain/blueprint-definition.ts";
+import type {
+	BlueprintDefinition,
+	BlueprintInputDefinition,
+	CallBlueprint,
+	DocBlueprint,
+	RuleBlueprint,
+	TaskBlueprint,
+} from "./domain/blueprint-definition.ts";
 import { validateBlueprintDefinition } from "./domain/blueprint-definition.ts";
 import type { PlaybookArgument, PlaybookStep } from "./domain-services.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
@@ -60,20 +67,20 @@ function requirePlaybook(artifacts: ArtifactStore, id: string): Artifact {
 }
 
 function stepsOf(playbook: Artifact): PlaybookStep[] {
-	return Array.isArray(playbook.extra["steps"]) ? (playbook.extra["steps"] as PlaybookStep[]) : [];
+	return Array.isArray(playbook.extra.steps) ? (playbook.extra.steps as PlaybookStep[]) : [];
 }
 
 function toolsOf(playbook: Artifact): string[] {
-	return Array.isArray(playbook.extra["tools"]) ? playbook.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
+	return Array.isArray(playbook.extra.tools) ? playbook.extra.tools.filter((tool): tool is string => typeof tool === "string") : [];
 }
 
 function argumentsOf(playbook: Artifact): PlaybookArgument[] {
-	return Array.isArray(playbook.extra["arguments"]) ? (playbook.extra["arguments"] as PlaybookArgument[]) : [];
+	return Array.isArray(playbook.extra.arguments) ? (playbook.extra.arguments as PlaybookArgument[]) : [];
 }
 
 /** The generated container task's own body -- purpose and context only. Steps are separate child tasks, so they are not re-listed here (that was the old text-dump shape). */
 function rootTaskBody(playbook: Artifact): string {
-	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
+	const trigger = typeof playbook.extra.trigger === "string" ? playbook.extra.trigger : "manual invocation";
 	const tools = toolsOf(playbook);
 	return [
 		`Playbook "${playbook.title}".`,
@@ -111,7 +118,9 @@ interface CompileNodeResult {
 function mergeArgument(inputs: Record<string, BlueprintInputDefinition>, argument: PlaybookArgument): void {
 	const existing = inputs[argument.name];
 	if (existing && existing.type !== argument.type) {
-		throw new Error(`playbook composition declares conflicting types for argument "${argument.name}" (${existing.type} vs ${argument.type})`);
+		throw new Error(
+			`playbook composition declares conflicting types for argument "${argument.name}" (${existing.type} vs ${argument.type})`,
+		);
 	}
 	inputs[argument.name] = {
 		type: argument.type,
@@ -131,28 +140,44 @@ function compileNode(
 	incomingPrecedingRefs: string[],
 ): CompileNodeResult {
 	if (ancestorIds.has(playbookId)) throw new Error(`playbook composition cycle includes "${playbookId}"`);
-	if (depth > PLAYBOOK_INVOCATION_MAX_CALL_DEPTH) throw new Error(`playbook composition exceeds ${PLAYBOOK_INVOCATION_MAX_CALL_DEPTH} levels`);
+	if (depth > PLAYBOOK_INVOCATION_MAX_CALL_DEPTH)
+		throw new Error(`playbook composition exceeds ${PLAYBOOK_INVOCATION_MAX_CALL_DEPTH} levels`);
 	const nextAncestors = new Set([...ancestorIds, playbookId]);
 
 	const playbook = requirePlaybook(artifacts, playbookId);
 	for (const argument of argumentsOf(playbook)) mergeArgument(ctx.inputs, argument);
 
 	const rootRef = `pb${ctx.refCounter.n++}`;
-	const rootBlueprint: TaskBlueprint = { ref: rootRef, title: playbook.title, body: rootTaskBody(playbook), ...(parentRef ? { parent: parentRef } : {}) };
+	const rootBlueprint: TaskBlueprint = {
+		ref: rootRef,
+		title: playbook.title,
+		body: rootTaskBody(playbook),
+		...(parentRef ? { parent: parentRef } : {}),
+	};
 	ctx.tasks.push(rootBlueprint);
-	if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS) throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
+	if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS)
+		throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
 
 	const edges = artifacts.relationships({ artifactIds: [playbookId] }).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
-	const composablePlaybookIds = nonTrashedPlaybookIds(artifacts, edges.filter((edge) => edge.from === playbookId).map((edge) => edge.to));
-	const prerequisiteIds = edges.filter((edge) => edge.from === playbookId && edge.relation === "depends_on").map((edge) => edge.to)
+	const composablePlaybookIds = nonTrashedPlaybookIds(
+		artifacts,
+		edges.filter((edge) => edge.from === playbookId).map((edge) => edge.to),
+	);
+	const prerequisiteIds = edges
+		.filter((edge) => edge.from === playbookId && edge.relation === "depends_on")
+		.map((edge) => edge.to)
 		.filter((id) => composablePlaybookIds.has(id));
-	const nestedIds = edges.filter((edge) => edge.from === playbookId && edge.relation === "contains").map((edge) => edge.to)
+	const nestedIds = edges
+		.filter((edge) => edge.from === playbookId && edge.relation === "contains")
+		.map((edge) => edge.to)
 		.filter((id) => composablePlaybookIds.has(id));
 	for (const edge of edges) {
-		const isComposingFrom = edge.from === playbookId && (edge.relation === "contains" || edge.relation === "depends_on") && composablePlaybookIds.has(edge.to);
+		const isComposingFrom =
+			edge.from === playbookId && (edge.relation === "contains" || edge.relation === "depends_on") && composablePlaybookIds.has(edge.to);
 		if (isComposingFrom) continue;
 		if (edge.from === playbookId) ctx.externalLinks.push({ rootRef, relation: edge.relation, otherArtifactId: edge.to, ownerIsFrom: true });
-		else if (edge.to === playbookId) ctx.externalLinks.push({ rootRef, relation: edge.relation, otherArtifactId: edge.from, ownerIsFrom: false });
+		else if (edge.to === playbookId)
+			ctx.externalLinks.push({ rootRef, relation: edge.relation, otherArtifactId: edge.from, ownerIsFrom: false });
 	}
 
 	const prerequisiteTailRefs: string[] = [];
@@ -175,13 +200,20 @@ function compileNode(
 			const title = typeof step === "string" ? stepTitle(step) : (step.title ?? stepTitle(body));
 			const stepRef = `${rootRef}-s${index}`;
 			ctx.tasks.push({ ref: stepRef, title, body, parent: rootRef, dependsOn: cursorPrecedingRefs });
-			if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS) throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
+			if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS)
+				throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
 			if (headRef === undefined) headRef = stepRef;
 			cursorPrecedingRefs = [stepRef];
 			tailRef = stepRef;
 		} else if (step.kind === "doc") {
 			const stepRef = `${rootRef}-d${index}`;
-			ctx.docs.push({ ref: stepRef, title: step.title, ...(step.body ? { body: step.body } : {}), ...(step.subtype ? { subtype: step.subtype } : {}), ...(step.labels ? { labels: step.labels } : {}) });
+			ctx.docs.push({
+				ref: stepRef,
+				title: step.title,
+				...(step.body ? { body: step.body } : {}),
+				...(step.subtype ? { subtype: step.subtype } : {}),
+				...(step.labels ? { labels: step.labels } : {}),
+			});
 		} else if (step.kind === "rule") {
 			const stepRef = `${rootRef}-r${index}`;
 			ctx.rules.push({
@@ -198,7 +230,14 @@ function compileNode(
 			// a pipeline step -- shares the same dependsOn chain as a task step, resolved
 			// polymorphically at execution time by workflow-execution.ts based on the target's kind.
 			const stepRef = `${rootRef}-c${index}`;
-			ctx.skills.push({ ref: stepRef, title: step.title, targetId: step.playbookId, ...(step.arguments ? { arguments: step.arguments } : {}), parent: rootRef, dependsOn: cursorPrecedingRefs });
+			ctx.skills.push({
+				ref: stepRef,
+				title: step.title,
+				targetId: step.playbookId,
+				...(step.arguments ? { arguments: step.arguments } : {}),
+				parent: rootRef,
+				dependsOn: cursorPrecedingRefs,
+			});
 			if (headRef === undefined) headRef = stepRef;
 			cursorPrecedingRefs = [stepRef];
 			tailRef = stepRef;

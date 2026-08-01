@@ -1,11 +1,11 @@
-import { describe, expect, it, afterEach } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { PAPYRUS_TASK_FOCUS_CHANNEL, PAPYRUS_TASK_FOCUS_SCHEMA } from "@danypops/papyrus";
 import {
 	buildTaskFocusEvent,
 	emitTaskFocusEvent,
 	resetTaskFocusEventBusForTests,
 	setTaskFocusEventBus,
 } from "../extension/src/task-focus-events.ts";
-import { PAPYRUS_TASK_FOCUS_CHANNEL, PAPYRUS_TASK_FOCUS_SCHEMA } from "@danypops/papyrus";
 
 afterEach(() => resetTaskFocusEventBusForTests());
 
@@ -28,9 +28,9 @@ describe("Papyrus task-focus event", () => {
 
 	it("allows a null taskId only for cleared, since clearing does not require knowing which task was focused", () => {
 		expect(buildTaskFocusEvent({ taskId: null, status: "cleared", observedAt: 1_000 })).toMatchObject({ taskId: null, status: "cleared" });
-		expect(() => buildTaskFocusEvent({ taskId: null, status: "focused", observedAt: 1_000 })).toThrow('requires a taskId');
-		expect(() => buildTaskFocusEvent({ taskId: null, status: "paused", observedAt: 1_000 })).toThrow('requires a taskId');
-		expect(() => buildTaskFocusEvent({ taskId: null, status: "unpaused", observedAt: 1_000 })).toThrow('requires a taskId');
+		expect(() => buildTaskFocusEvent({ taskId: null, status: "focused", observedAt: 1_000 })).toThrow("requires a taskId");
+		expect(() => buildTaskFocusEvent({ taskId: null, status: "paused", observedAt: 1_000 })).toThrow("requires a taskId");
+		expect(() => buildTaskFocusEvent({ taskId: null, status: "unpaused", observedAt: 1_000 })).toThrow("requires a taskId");
 	});
 
 	it("defaults observedAt to now when omitted", () => {
@@ -44,9 +44,11 @@ describe("Papyrus task-focus event", () => {
 		const emitted: Array<{ channel: string; payload: unknown }> = [];
 		setTaskFocusEventBus({ events: { emit: (channel: string, payload: unknown) => emitted.push({ channel, payload }) } as any });
 		emitTaskFocusEvent({ taskId: "t1", sessionId: "s1", status: "focused", observedAt: 2_000 });
-		expect(emitted).toEqual([{
-			channel: PAPYRUS_TASK_FOCUS_CHANNEL,
-			payload: { schema: PAPYRUS_TASK_FOCUS_SCHEMA, taskId: "t1", sessionId: "s1", status: "focused", observedAt: 2_000 },
-		}]);
+		expect(emitted).toEqual([
+			{
+				channel: PAPYRUS_TASK_FOCUS_CHANNEL,
+				payload: { schema: PAPYRUS_TASK_FOCUS_SCHEMA, taskId: "t1", sessionId: "s1", status: "focused", observedAt: 2_000 },
+			},
+		]);
 	});
 });

@@ -36,18 +36,18 @@ export function projectTaskGraph(graph: TaskGraph, view: TaskGraphView): Display
 		}
 	}
 
-	const connected = view === "execution"
-		? new Set(graph.nodes.map((node) => node.task.id))
-		: new Set(edges.flatMap((edge) => [edge.from, edge.to]));
-	const nodes = view === "execution"
-		? projectTaskExecution(graph).nodes.map((node) => ({
-			id: node.id,
-			label: `${node.active ? "▶ " : ""}${EXECUTION_GLYPHS[node.state]} ${node.title} · ${node.layer === null ? "no layer" : `layer ${node.layer + 1}`} · ${node.state}`,
-			status: node.state,
-		}))
-		: graph.nodes
-			.filter((node) => connected.has(node.task.id))
-			.map((node) => ({ id: node.task.id, label: node.task.title, status: node.task.status }));
+	const connected =
+		view === "execution" ? new Set(graph.nodes.map((node) => node.task.id)) : new Set(edges.flatMap((edge) => [edge.from, edge.to]));
+	const nodes =
+		view === "execution"
+			? projectTaskExecution(graph).nodes.map((node) => ({
+					id: node.id,
+					label: `${node.active ? "▶ " : ""}${EXECUTION_GLYPHS[node.state]} ${node.title} · ${node.layer === null ? "no layer" : `layer ${node.layer + 1}`} · ${node.state}`,
+					status: node.state,
+				}))
+			: graph.nodes
+					.filter((node) => connected.has(node.task.id))
+					.map((node) => ({ id: node.task.id, label: node.task.title, status: node.task.status }));
 	return {
 		direction: "TD",
 		nodes,

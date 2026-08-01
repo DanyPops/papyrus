@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { type Artifact, TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ArtifactListCard, TaskHierarchyPreview } from "../extension/src/tool-rendering/artifact-list.ts";
 import { createArtifactListDetails, createGraphDetails } from "../extension/src/tool-rendering/render-model.ts";
-import { TOOL_COLLAPSED_ROW_LIMIT, type Artifact } from "@danypops/papyrus";
 
 const theme = {
 	bold: (text: string) => text,

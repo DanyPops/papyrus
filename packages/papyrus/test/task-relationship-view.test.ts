@@ -5,8 +5,16 @@ import type { TaskGraph } from "../src/task-service.ts";
 
 function task(id: string, title: string): Artifact {
 	return {
-		id, kind: "task", title, status: "todo", subtype: "", body: "", labels: [], extra: {},
-		created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+		id,
+		kind: "task",
+		title,
+		status: "todo",
+		subtype: "",
+		body: "",
+		labels: [],
+		extra: {},
+		created_at: "2026-01-01T00:00:00.000Z",
+		updated_at: "2026-01-01T00:00:00.000Z",
 	};
 }
 

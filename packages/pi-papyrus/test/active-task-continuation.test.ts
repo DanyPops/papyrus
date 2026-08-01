@@ -1,8 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "../extension/src/active-task-continuation.ts";
+import {
+	ActiveTaskContinuation,
+	type ActiveTaskMarker,
+	automaticPauseReason,
+	shouldResumeFocusOnHumanInput,
+} from "../extension/src/active-task-continuation.ts";
 
-const active = (updatedAt = "2026-01-01T00:00:00.000Z"): ActiveTaskMarker =>
-	({ id: "task-1", title: "Implement workflow", updated_at: updatedAt });
+const active = (updatedAt = "2026-01-01T00:00:00.000Z"): ActiveTaskMarker => ({
+	id: "task-1",
+	title: "Implement workflow",
+	updated_at: updatedAt,
+});
 
 describe("Papyrus active task continuation", () => {
 	it("continues one next turn only when active tasks remain and Pi is settled", () => {

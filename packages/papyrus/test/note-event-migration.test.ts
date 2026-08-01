@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { migrateDb, openDb } from "../src/db.ts";
 import { SQLiteNoteEventStore } from "../src/adapters/sqlite-note-event-store.ts";
+import { migrateDb, openDb } from "../src/db.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 describe("note-events migration: existing extra.noteHistory blobs are preserved, not fabricated or dropped", () => {
@@ -19,7 +20,15 @@ describe("note-events migration: existing extra.noteHistory blobs are preserved,
 				disposition: { kind: "promoted", targetId: "task-1" },
 				noteHistory: [
 					{ action: "captured", at: now, actor: "human", source: "command" },
-					{ action: "promoted", at: now, actor: "agent", source: "notes-tool", targetId: "task-1", disposition: "promoted", reason: "Converted to durable research" },
+					{
+						action: "promoted",
+						at: now,
+						actor: "agent",
+						source: "notes-tool",
+						targetId: "task-1",
+						disposition: "promoted",
+						reason: "Converted to durable research",
+					},
 				],
 			}),
 			now,
@@ -44,10 +53,21 @@ describe("note-events migration: existing extra.noteHistory blobs are preserved,
 		const events = new SQLiteNoteEventStore(db).history("note-1", { direction: "asc" });
 		expect(events.events).toEqual([
 			expect.objectContaining({ noteId: "note-1", type: "captured", actor: "human", source: "command" }),
-			expect.objectContaining({ noteId: "note-1", type: "promoted", actor: "agent", source: "notes-tool", relatedId: "task-1", disposition: "promoted", reason: "Converted to durable research" }),
+			expect.objectContaining({
+				noteId: "note-1",
+				type: "promoted",
+				actor: "agent",
+				source: "notes-tool",
+				relatedId: "task-1",
+				disposition: "promoted",
+				reason: "Converted to durable research",
+			}),
 		]);
 
-		const extra = JSON.parse((db.prepare("SELECT extra FROM artifacts WHERE id = 'note-1'").get() as { extra: string }).extra) as Record<string, unknown>;
+		const extra = JSON.parse((db.prepare("SELECT extra FROM artifacts WHERE id = 'note-1'").get() as { extra: string }).extra) as Record<
+			string,
+			unknown
+		>;
 		expect(extra).toEqual({ projectRoot: "/workspace/papyrus", disposition: { kind: "promoted", targetId: "task-1" } });
 		expect(extra).not.toHaveProperty("noteHistory");
 		db.close();
@@ -73,7 +93,10 @@ describe("note-events migration: existing extra.noteHistory blobs are preserved,
 		db = openDb(path);
 		migrateDb(db);
 		expect(new SQLiteNoteEventStore(db).history("note-2").events).toEqual([]);
-		const extra = JSON.parse((db.prepare("SELECT extra FROM artifacts WHERE id = 'note-2'").get() as { extra: string }).extra) as Record<string, unknown>;
+		const extra = JSON.parse((db.prepare("SELECT extra FROM artifacts WHERE id = 'note-2'").get() as { extra: string }).extra) as Record<
+			string,
+			unknown
+		>;
 		expect(extra).toEqual({ projectRoot: "/workspace/papyrus" });
 		db.close();
 	});

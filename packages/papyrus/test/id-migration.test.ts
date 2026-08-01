@@ -1,10 +1,12 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
-import { openDb, type Db } from "../src/db.ts";
-import { createArtifact, linkArtifacts, getArtifact } from "../src/ops.ts";
+
+import { type Db, openDb } from "../src/db.ts";
 import { applyIdMigration, mirrorDatabase, planIdMigration, verifyIdMigration } from "../src/id-migration.ts";
+import { createArtifact, getArtifact, linkArtifacts } from "../src/ops.ts";
 
 function seededDb(): Db {
 	const db = openDb(":memory:");
@@ -13,7 +15,7 @@ function seededDb(): Db {
 	const epic = createArtifact(db, { kind: "task", title: "Epic", status: "in-progress" });
 	const child = createArtifact(db, { kind: "task", title: "Child", status: "todo" });
 	linkArtifacts(db, epic.id, "contains", child.id);
-	const doc = createArtifact(db, {
+	const _doc = createArtifact(db, {
 		kind: "doc",
 		title: "Design",
 		// Prose cross-reference to another artifact's id, embedded in free text -- exactly the
@@ -21,7 +23,9 @@ function seededDb(): Db {
 		body: `See ${epic.id} for the parent epic and ${child.id} for the first child.`,
 		extra: { relatedTaskId: child.id, nested: { alsoReferences: epic.id } },
 	});
-	db.prepare("INSERT INTO task_focus (scope, task_id, status, updated_at) VALUES ('global', ?, 'active', '2026-01-01T00:00:00.000Z')").run(epic.id);
+	db.prepare("INSERT INTO task_focus (scope, task_id, status, updated_at) VALUES ('global', ?, 'active', '2026-01-01T00:00:00.000Z')").run(
+		epic.id,
+	);
 	db.prepare(`
 		INSERT INTO task_events (task_id, occurred_at, event_type, actor, source, to_status, reason, evidence_json)
 		VALUES (?, '2026-01-01T00:00:00.000Z', 'created', 'agent', 'test', 'todo', ?, ?)
@@ -47,7 +51,9 @@ describe("id migration: plan, apply, verify", () => {
 	it("remaps artifacts.id, every structural foreign key, and prose/JSON id mentions, and leaves everything else byte-identical", () => {
 		const db = seededDb();
 		const before = {
-			artifacts: db.prepare("SELECT id, title, body, extra, kind, status, created_at, updated_at FROM artifacts ORDER BY id").all() as Array<Record<string, unknown>>,
+			artifacts: db
+				.prepare("SELECT id, title, body, extra, kind, status, created_at, updated_at FROM artifacts ORDER BY id")
+				.all() as Array<Record<string, unknown>>,
 			edgeCount: (db.prepare("SELECT COUNT(*) AS n FROM edges").get() as { n: number }).n,
 			taskEventCount: (db.prepare("SELECT COUNT(*) AS n FROM task_events").get() as { n: number }).n,
 			artifactEventCount: (db.prepare("SELECT COUNT(*) AS n FROM artifact_events").get() as { n: number }).n,
@@ -70,25 +76,27 @@ describe("id migration: plan, apply, verify", () => {
 
 		// Content equivalence: same rows, same field values, except every old id substituted for
 		// its new one wherever it appeared in text -- nothing else drifted.
-		const after = db.prepare("SELECT id, title, body, extra, kind, status, created_at, updated_at FROM artifacts").all() as Array<Record<string, unknown>>;
+		const after = db.prepare("SELECT id, title, body, extra, kind, status, created_at, updated_at FROM artifacts").all() as Array<
+			Record<string, unknown>
+		>;
 		expect(after.length).toBe(before.artifacts.length);
 		for (const beforeRow of before.artifacts) {
-			const newId = plan.idMap.get(beforeRow["id"] as string)!;
-			const afterRow = after.find((row) => row["id"] === newId)!;
+			const newId = plan.idMap.get(beforeRow.id as string)!;
+			const afterRow = after.find((row) => row.id === newId)!;
 			expect(afterRow).toBeDefined();
-			let expectedBody = beforeRow["body"] as string;
-			let expectedExtra = beforeRow["extra"] as string;
+			let expectedBody = beforeRow.body as string;
+			let expectedExtra = beforeRow.extra as string;
 			for (const [oldId, newIdForSubstitution] of plan.idMap) {
 				expectedBody = expectedBody.split(oldId).join(newIdForSubstitution);
 				expectedExtra = expectedExtra.split(oldId).join(newIdForSubstitution);
 			}
-			expect(afterRow["body"]).toBe(expectedBody);
-			expect(afterRow["extra"]).toBe(expectedExtra);
-			expect(afterRow["title"]).toBe(beforeRow["title"]); // titles never contained an id to begin with
-			expect(afterRow["kind"]).toBe(beforeRow["kind"]);
-			expect(afterRow["status"]).toBe(beforeRow["status"]);
-			expect(afterRow["created_at"]).toBe(beforeRow["created_at"]);
-			expect(afterRow["updated_at"]).toBe(beforeRow["updated_at"]); // identity migration is not a content edit
+			expect(afterRow.body).toBe(expectedBody);
+			expect(afterRow.extra).toBe(expectedExtra);
+			expect(afterRow.title).toBe(beforeRow.title); // titles never contained an id to begin with
+			expect(afterRow.kind).toBe(beforeRow.kind);
+			expect(afterRow.status).toBe(beforeRow.status);
+			expect(afterRow.created_at).toBe(beforeRow.created_at);
+			expect(afterRow.updated_at).toBe(beforeRow.updated_at); // identity migration is not a content edit
 		}
 		expect((db.prepare("SELECT COUNT(*) AS n FROM edges").get() as { n: number }).n).toBe(before.edgeCount);
 
@@ -96,7 +104,11 @@ describe("id migration: plan, apply, verify", () => {
 		// remapped -- and the append-only guard is restored (proven by trying to violate it).
 		expect((db.prepare("SELECT COUNT(*) AS n FROM task_events").get() as { n: number }).n).toBe(before.taskEventCount);
 		expect((db.prepare("SELECT COUNT(*) AS n FROM artifact_events").get() as { n: number }).n).toBe(before.artifactEventCount);
-		const remainingTaskEvent = db.prepare("SELECT task_id, reason, evidence_json FROM task_events LIMIT 1").get() as { task_id: string; reason: string; evidence_json: string };
+		const remainingTaskEvent = db.prepare("SELECT task_id, reason, evidence_json FROM task_events LIMIT 1").get() as {
+			task_id: string;
+			reason: string;
+			evidence_json: string;
+		};
 		expect(getArtifact(db, remainingTaskEvent.task_id)).not.toBeNull(); // task_id now points at a live artifact
 		expect(remainingTaskEvent.reason).not.toContain([...plan.idMap.keys()][0]);
 		expect(() => db.exec(`UPDATE task_events SET reason = 'tampered' WHERE task_id = '${remainingTaskEvent.task_id}'`)).toThrow();

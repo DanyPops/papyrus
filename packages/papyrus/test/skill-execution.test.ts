@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
-import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { ArtifactScopeStore } from "../src/ports/artifact-scope-store.ts";
+import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
 
 /**
@@ -12,7 +12,12 @@ import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
  * directly here since these tests exercise instantiateSkillWorkflow (the shared execution
  * engine, not retired), not Playbook's own steps/trigger authoring surface.
  */
-function createWorkflowSkillFixture(artifacts: ArtifactStore, scopes: ArtifactScopeStore, title: string, definition: unknown): { id: string } {
+function createWorkflowSkillFixture(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	title: string,
+	definition: unknown,
+): { id: string } {
 	const skill = artifacts.create({ kind: "playbook", status: "active", subtype: "workflow", title, extra: { definition } });
 	scopes.assign(skill.id, undefined, "unscoped");
 	return skill;
@@ -62,10 +67,15 @@ describe("Papyrus Skill workflow execution", () => {
 		// so it only stays correct because of ops.ts's defaultStatusFor fix, not because of any
 		// per-call-site hardening. Prove that directly rather than trusting it by inspection.
 		const { db, artifacts, skill } = fixture();
-		for (const [kind, correctDefault] of [["doc", "draft"], ["rule", "active"], ["task", "todo"]] as const) {
+		for (const [kind, correctDefault] of [
+			["doc", "draft"],
+			["rule", "active"],
+			["task", "todo"],
+		] as const) {
 			const rows = db.prepare("SELECT name FROM statuses WHERE kind = ?").all(kind) as Array<{ name: string }>;
 			db.prepare("DELETE FROM statuses WHERE kind = ?").run(kind);
-			for (const row of rows) if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
+			for (const row of rows)
+				if (row.name !== correctDefault) db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(row.name, kind);
 			db.prepare("INSERT INTO statuses (name, kind) VALUES (?, ?)").run(correctDefault, kind);
 		}
 
@@ -106,14 +116,16 @@ describe("Papyrus Skill workflow execution", () => {
 		expect(artifacts.get("run-001-safety")?.extra).toMatchObject({
 			scope: { type: "skill-run", runId: "run-001", taskIds: ["run-001-verify", "run-001-change"] },
 		});
-		expect(artifacts.relationships({ artifactIds: result.created.tasks })).toEqual(expect.arrayContaining([
-			{ from: "run-001-change", relation: "depends_on", to: "run-001-verify" },
-			{ from: "run-001-verify", relation: "contains", to: "run-001-change" },
-			{ from: "run-001-change", relation: "part_of", to: "run-001-verify" },
-			{ from: "run-001-context", relation: "documents", to: "run-001-change" },
-			{ from: "run-001-change", relation: "follows", to: "run-001-safety" },
-			{ from: skill.id, relation: "triggers", to: "run-001-verify" },
-		]));
+		expect(artifacts.relationships({ artifactIds: result.created.tasks })).toEqual(
+			expect.arrayContaining([
+				{ from: "run-001-change", relation: "depends_on", to: "run-001-verify" },
+				{ from: "run-001-verify", relation: "contains", to: "run-001-change" },
+				{ from: "run-001-change", relation: "part_of", to: "run-001-verify" },
+				{ from: "run-001-context", relation: "documents", to: "run-001-change" },
+				{ from: "run-001-change", relation: "follows", to: "run-001-safety" },
+				{ from: skill.id, relation: "triggers", to: "run-001-verify" },
+			]),
+		);
 		expect(result.execution.nodes.find((node) => node.id === "run-001-verify")).toMatchObject({ state: "ready" });
 		expect(result.execution.nodes.find((node) => node.id === "run-001-change")).toMatchObject({ state: "blocked" });
 		db.close();
@@ -123,10 +135,12 @@ describe("Papyrus Skill workflow execution", () => {
 		const { db, artifacts, skill } = fixture();
 		const before = artifacts.query({}).length;
 
-		expect(() => instantiateSkillWorkflow(artifacts, skill.id, {
-			runId: "invalid-run",
-			arguments: { environment: "staging" },
-		})).toThrow('missing required argument "project"');
+		expect(() =>
+			instantiateSkillWorkflow(artifacts, skill.id, {
+				runId: "invalid-run",
+				arguments: { environment: "staging" },
+			}),
+		).toThrow('missing required argument "project"');
 		expect(artifacts.query({}).length).toBe(before);
 		db.close();
 	});
@@ -135,10 +149,12 @@ describe("Papyrus Skill workflow execution", () => {
 		const { db, artifacts, skill } = fixture();
 		artifacts.create({ id: "collision-safety", kind: "rule", title: "Existing collision" });
 
-		expect(() => instantiateSkillWorkflow(artifacts, skill.id, {
-			runId: "collision",
-			arguments: { project: "Papyrus" },
-		})).toThrow();
+		expect(() =>
+			instantiateSkillWorkflow(artifacts, skill.id, {
+				runId: "collision",
+				arguments: { project: "Papyrus" },
+			}),
+		).toThrow();
 		expect(artifacts.get("collision-context")).toBeNull();
 		expect(artifacts.get("collision-verify")).toBeNull();
 		expect(artifacts.get("collision-safety")?.title).toBe("Existing collision");

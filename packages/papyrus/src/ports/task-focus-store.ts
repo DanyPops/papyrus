@@ -37,7 +37,9 @@ export interface TaskFocusStore {
 export class InMemoryTaskFocusStore implements TaskFocusStore {
 	private readonly state = new Map<string, TaskFocusState>();
 
-	get(scope?: string): TaskFocusState | undefined { return this.state.get(normalizeFocusScope(scope)); }
+	get(scope?: string): TaskFocusState | undefined {
+		return this.state.get(normalizeFocusScope(scope));
+	}
 
 	set(taskId: string, scope?: string): TaskFocusState {
 		const key = normalizeFocusScope(scope);
@@ -51,7 +53,12 @@ export class InMemoryTaskFocusStore implements TaskFocusStore {
 		const key = normalizeFocusScope(scope);
 		const current = this.state.get(key);
 		if (current?.taskId !== taskId) throw new Error(`task "${taskId}" is not focused`);
-		const focus: TaskFocusState = { ...current, status: "paused", updatedAt: new Date().toISOString(), ...(reason ? { pauseReason: reason } : {}) };
+		const focus: TaskFocusState = {
+			...current,
+			status: "paused",
+			updatedAt: new Date().toISOString(),
+			...(reason ? { pauseReason: reason } : {}),
+		};
 		this.state.set(key, focus);
 		return focus;
 	}
@@ -79,7 +86,10 @@ export class InMemoryTaskFocusStore implements TaskFocusStore {
 	reapStale(olderThanIso: string): number {
 		let removed = 0;
 		for (const [key, focus] of this.state) {
-			if (focus.updatedAt < olderThanIso) { this.state.delete(key); removed++; }
+			if (focus.updatedAt < olderThanIso) {
+				this.state.delete(key);
+				removed++;
+			}
 		}
 		return removed;
 	}
@@ -88,7 +98,10 @@ export class InMemoryTaskFocusStore implements TaskFocusStore {
 		let oldestKey: string | undefined;
 		let oldestAt: string | undefined;
 		for (const [key, focus] of this.state) {
-			if (oldestAt === undefined || focus.updatedAt < oldestAt) { oldestKey = key; oldestAt = focus.updatedAt; }
+			if (oldestAt === undefined || focus.updatedAt < oldestAt) {
+				oldestKey = key;
+				oldestAt = focus.updatedAt;
+			}
 		}
 		if (oldestKey !== undefined) this.state.delete(oldestKey);
 	}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { openDb } from "../src/db.ts";
 import { SQLiteLogStore } from "../src/adapters/sqlite-log-store.ts";
+import { openDb } from "../src/db.ts";
 import { Logs } from "../src/log-service.ts";
 
 /**
@@ -14,8 +14,11 @@ describe("SQLiteLogStore", () => {
 		const db = openDb(":memory:");
 		const logs = new Logs(new SQLiteLogStore(db));
 		const result = logs.append({
-			sourceId: "pi-session-context", sourceLabel: "Pi session context", level: "info",
-			message: "turn settled", operationId: "session-1:turn-1",
+			sourceId: "pi-session-context",
+			sourceLabel: "Pi session context",
+			level: "info",
+			message: "turn settled",
+			operationId: "session-1:turn-1",
 			fields: { totalTokens: 12345, effectiveBudget: 180000, segments: ["rules", "tasks"] },
 			sessionId: "session-1",
 		});
@@ -43,8 +46,28 @@ describe("SQLiteLogStore", () => {
 		const db = openDb(":memory:");
 		const store = new SQLiteLogStore(db);
 		store.ensureSource("s", "S", null);
-		store.insertEntry({ id: "e1", sourceId: "s", occurredAt: "2024-01-01T00:00:00.000Z", level: "info", message: "m", truncated: false, fields: {}, operationId: "dup" });
-		expect(() => store.insertEntry({ id: "e2", sourceId: "s", occurredAt: "2024-01-01T00:00:01.000Z", level: "info", message: "m2", truncated: false, fields: {}, operationId: "dup" })).toThrow();
+		store.insertEntry({
+			id: "e1",
+			sourceId: "s",
+			occurredAt: "2024-01-01T00:00:00.000Z",
+			level: "info",
+			message: "m",
+			truncated: false,
+			fields: {},
+			operationId: "dup",
+		});
+		expect(() =>
+			store.insertEntry({
+				id: "e2",
+				sourceId: "s",
+				occurredAt: "2024-01-01T00:00:01.000Z",
+				level: "info",
+				message: "m2",
+				truncated: false,
+				fields: {},
+				operationId: "dup",
+			}),
+		).toThrow();
 		db.close();
 	});
 
@@ -52,7 +75,16 @@ describe("SQLiteLogStore", () => {
 		const db = openDb(":memory:");
 		const store = new SQLiteLogStore(db);
 		store.ensureSource("s", "S", null);
-		store.insertEntry({ id: "e1", sourceId: "s", occurredAt: "2024-01-01T00:00:00.000Z", level: "info", message: "m", truncated: false, fields: {}, operationId: "op-1" });
+		store.insertEntry({
+			id: "e1",
+			sourceId: "s",
+			occurredAt: "2024-01-01T00:00:00.000Z",
+			level: "info",
+			message: "m",
+			truncated: false,
+			fields: {},
+			operationId: "op-1",
+		});
 		expect(() => db.prepare("UPDATE log_entries SET message = 'tampered' WHERE id = ?").run("e1")).toThrow(/immutable/);
 		db.close();
 	});
@@ -62,7 +94,16 @@ describe("SQLiteLogStore", () => {
 		const store = new SQLiteLogStore(db);
 		store.ensureSource("s", "S", null);
 		for (let index = 0; index < 5; index++) {
-			store.insertEntry({ id: `e${index}`, sourceId: "s", occurredAt: `2024-01-01T00:00:0${index}.000Z`, level: "info", message: `m${index}`, truncated: false, fields: {}, operationId: `op-${index}` });
+			store.insertEntry({
+				id: `e${index}`,
+				sourceId: "s",
+				occurredAt: `2024-01-01T00:00:0${index}.000Z`,
+				level: "info",
+				message: `m${index}`,
+				truncated: false,
+				fields: {},
+				operationId: `op-${index}`,
+			});
 		}
 		const removed = store.trimSource("s", 2);
 		expect(removed).toBe(3);

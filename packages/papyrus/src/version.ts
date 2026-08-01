@@ -5,7 +5,7 @@ function packageVersion(): string {
 	if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
 		throw new Error("Papyrus package manifest must be an object");
 	}
-	const version = (manifest as Record<string, unknown>)["version"];
+	const version = (manifest as Record<string, unknown>).version;
 	if (typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
 		throw new Error("Papyrus package manifest has an invalid version");
 	}

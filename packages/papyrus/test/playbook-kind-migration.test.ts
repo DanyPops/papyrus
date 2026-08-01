@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { migrateDb, openDb } from "../src/db.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 /**
@@ -44,7 +45,12 @@ describe("playbook-kind migration", () => {
 		expect(result.applied).toContain("skill-to-playbook-data-migration");
 		expect(result.applied).toContain("retire-skill-kind");
 
-		const rows = db.prepare("SELECT id, kind, subtype, status FROM artifacts ORDER BY id").all() as Array<{ id: string; kind: string; subtype: string | null; status: string }>;
+		const rows = db.prepare("SELECT id, kind, subtype, status FROM artifacts ORDER BY id").all() as Array<{
+			id: string;
+			kind: string;
+			subtype: string | null;
+			status: string;
+		}>;
 		expect(rows).toEqual([
 			{ id: "a-template", kind: "playbook", subtype: "artifact-template", status: "active" },
 			{ id: "a-workflow", kind: "playbook", subtype: "workflow", status: "active" },
@@ -54,7 +60,9 @@ describe("playbook-kind migration", () => {
 
 		const kinds = (db.prepare("SELECT name FROM kinds WHERE name = 'playbook'").all() as Array<{ name: string }>).map((row) => row.name);
 		expect(kinds).toEqual(["playbook"]);
-		const statuses = (db.prepare("SELECT name FROM statuses WHERE kind = 'playbook' ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name);
+		const statuses = (db.prepare("SELECT name FROM statuses WHERE kind = 'playbook' ORDER BY name").all() as Array<{ name: string }>).map(
+			(row) => row.name,
+		);
 		expect(statuses).toEqual(["active", "deprecated"]);
 		expect(db.prepare("SELECT name FROM kinds WHERE name = 'skill'").get()).toBeNull();
 		db.close();

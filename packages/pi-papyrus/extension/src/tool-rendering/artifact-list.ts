@@ -1,12 +1,8 @@
+import { TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
 import { countSummary, expandHint, kindGlyph, statusGlyph, treeConnector } from "./artifact-card.ts";
-import type {
-	ArtifactListToolDetails,
-	GraphToolDetails,
-	ToolArtifactSummary,
-} from "./render-model.ts";
+import type { ArtifactListToolDetails, GraphToolDetails, ToolArtifactSummary } from "./render-model.ts";
 
 function pluralKind(rows: readonly ToolArtifactSummary[]): string {
 	const kind = rows[0]?.kind ?? "artifact";
@@ -25,11 +21,9 @@ function statusSummary(rows: readonly ToolArtifactSummary[]): string {
 
 function rowLine(row: ToolArtifactSummary, expanded: boolean, theme: Theme): string {
 	const identity = expanded ? `${row.id}  ` : "";
-	return [
-		theme.fg("muted", `${statusGlyph(row.status)} ${row.status}`),
-		theme.fg("accent", identity),
-		theme.fg("text", row.title),
-	].join("  ");
+	return [theme.fg("muted", `${statusGlyph(row.status)} ${row.status}`), theme.fg("accent", identity), theme.fg("text", row.title)].join(
+		"  ",
+	);
 }
 
 function rowMetadata(row: ToolArtifactSummary): string {
@@ -62,10 +56,9 @@ export class ArtifactListCard implements Component {
 		if (this.cachedLines && this.cachedWidth === safeWidth) return this.cachedLines;
 		const rows = this.details.rows;
 		const noun = pluralKind(rows);
-		const lines = [truncateToWidth(
-			this.theme.fg("toolTitle", this.theme.bold(`${countSummary(rows.length, this.details.total)} ${noun}`)),
-			safeWidth,
-		)];
+		const lines = [
+			truncateToWidth(this.theme.fg("toolTitle", this.theme.bold(`${countSummary(rows.length, this.details.total)} ${noun}`)), safeWidth),
+		];
 		if (rows.length === 0) {
 			lines.push(truncateToWidth(this.theme.fg("dim", `No ${noun}.`), safeWidth));
 		} else {
@@ -116,7 +109,9 @@ function hierarchyRows(details: GraphToolDetails): HierarchyRow[] {
 		if (visited.has(node.id)) return;
 		visited.add(node.id);
 		rows.push({ node, prefix, connector });
-		const children = (childIds.get(node.id) ?? []).map((id) => byId.get(id)).filter((child): child is ToolArtifactSummary => child !== undefined);
+		const children = (childIds.get(node.id) ?? [])
+			.map((id) => byId.get(id))
+			.filter((child): child is ToolArtifactSummary => child !== undefined);
 		children.forEach((child, index) => {
 			const last = index === children.length - 1;
 			visit(child, `${prefix}${connector ? (connector === "└─" ? "  " : "│ ") : ""}`, treeConnector(last));
@@ -152,16 +147,20 @@ export class TaskHierarchyPreview implements Component {
 		const safeWidth = Math.max(1, width);
 		if (this.cachedLines && this.cachedWidth === safeWidth) return this.cachedLines;
 		const rows = hierarchyRows(this.details);
-		const lines = [truncateToWidth(
-			this.theme.fg("toolTitle", this.theme.bold(`${this.details.nodes.length} tasks · ${this.details.edges.length} edges`)),
-			safeWidth,
-		)];
+		const lines = [
+			truncateToWidth(
+				this.theme.fg("toolTitle", this.theme.bold(`${this.details.nodes.length} tasks · ${this.details.edges.length} edges`)),
+				safeWidth,
+			),
+		];
 		for (const row of rows) {
 			const identity = this.expanded ? `${row.node.id}  ` : "";
-			lines.push(truncateToWidth(
-				`${row.prefix}${row.connector}${row.connector ? " " : ""}${this.theme.fg("accent", kindGlyph(row.node.kind))} ${this.theme.fg("muted", statusGlyph(row.node.status))} ${this.theme.fg("accent", identity)}${this.theme.fg("text", row.node.title)}`,
-				safeWidth,
-			));
+			lines.push(
+				truncateToWidth(
+					`${row.prefix}${row.connector}${row.connector ? " " : ""}${this.theme.fg("accent", kindGlyph(row.node.kind))} ${this.theme.fg("muted", statusGlyph(row.node.status))} ${this.theme.fg("accent", identity)}${this.theme.fg("text", row.node.title)}`,
+					safeWidth,
+				),
+			);
 			if (this.expanded) {
 				const metadata = rowMetadata(row.node);
 				if (metadata) lines.push(truncateToWidth(this.theme.fg("dim", `${row.prefix}   ${metadata}`), safeWidth));

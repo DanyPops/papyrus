@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { OperationRegistry, type OperationDefinition } from "../src/module-registry.ts";
+import { type OperationDefinition, OperationRegistry } from "../src/module-registry.ts";
 
 function op(name: string, moduleId: string, execute: (input: unknown) => unknown = () => undefined): OperationDefinition {
 	return { name, moduleId, execute };

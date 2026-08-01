@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskLeaseStore } from "../src/adapters/sqlite-task-lease-store.ts";
 import { TASK_LEASE_MAX_TTL_MS, TASK_LEASE_MIN_TTL_MS, TASK_LEASE_OWNER_MAX_LENGTH } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
-import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
-import { join } from "node:path";
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../src/ports/task-lease-store.ts";
+import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
@@ -23,7 +23,9 @@ function sqliteFixture(): LeaseFixture {
 	const ids = new Map<string, string>();
 	return {
 		store: new SQLiteTaskLeaseStore(db),
-		backdate: (taskId, expiresAt) => { db.prepare("UPDATE task_leases SET lease_expires_at = ? WHERE task_id = ?").run(expiresAt, taskId); },
+		backdate: (taskId, expiresAt) => {
+			db.prepare("UPDATE task_leases SET lease_expires_at = ? WHERE task_id = ?").run(expiresAt, taskId);
+		},
 		taskId: (label) => {
 			const existing = ids.get(label);
 			if (existing) return existing;
@@ -48,7 +50,10 @@ function inMemoryFixture(): LeaseFixture {
 	};
 }
 
-for (const [name, makeFixture] of [["SQLiteTaskLeaseStore", sqliteFixture], ["InMemoryTaskLeaseStore", inMemoryFixture]] as const) {
+for (const [name, makeFixture] of [
+	["SQLiteTaskLeaseStore", sqliteFixture],
+	["InMemoryTaskLeaseStore", inMemoryFixture],
+] as const) {
 	describe(`TaskLeaseStore — ${name}`, () => {
 		it("claims a fresh task lease with a generated token and an expiry ttlMs out", () => {
 			const { store, taskId } = makeFixture();

@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
+
 import { migrateDb, openDb } from "../src/db.ts";
 
 /**
@@ -37,7 +39,21 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 		const db = openDb(path);
 		const result = migrateDb(db);
 		expect(result.from).toBe(10);
-		expect(result.applied).toEqual(["log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"]);
+		expect(result.applied).toEqual([
+			"log-domain",
+			"remove-discourse",
+			"session-identity",
+			"artifact-trash",
+			"discuss-native",
+			"discuss-options",
+			"discussion-task-kind",
+			"playbook-kind",
+			"discuss-option-descriptions",
+			"task-leases",
+			"note-events",
+			"skill-to-playbook-data-migration",
+			"retire-skill-kind",
+		]);
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'log_sources'").get()).not.toBeNull();
 		db.close();
 	});
@@ -47,7 +63,22 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 		const db = openDb(path);
 		const result = migrateDb(db);
 		expect(result.from).toBe(9);
-		expect(result.applied).toEqual(["docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"]);
+		expect(result.applied).toEqual([
+			"docs-rules-skills-project-scope",
+			"log-domain",
+			"remove-discourse",
+			"session-identity",
+			"artifact-trash",
+			"discuss-native",
+			"discuss-options",
+			"discussion-task-kind",
+			"playbook-kind",
+			"discuss-option-descriptions",
+			"task-leases",
+			"note-events",
+			"skill-to-playbook-data-migration",
+			"retire-skill-kind",
+		]);
 		db.close();
 	});
 
@@ -56,7 +87,23 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 		const db = openDb(path);
 		const result = migrateDb(db);
 		expect(result.from).toBe(8);
-		expect(result.applied).toEqual(["graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"]);
+		expect(result.applied).toEqual([
+			"graph-projection-protocol",
+			"docs-rules-skills-project-scope",
+			"log-domain",
+			"remove-discourse",
+			"session-identity",
+			"artifact-trash",
+			"discuss-native",
+			"discuss-options",
+			"discussion-task-kind",
+			"playbook-kind",
+			"discuss-option-descriptions",
+			"task-leases",
+			"note-events",
+			"skill-to-playbook-data-migration",
+			"retire-skill-kind",
+		]);
 		db.close();
 	});
 

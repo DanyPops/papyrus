@@ -2,7 +2,7 @@ import { spawn as spawnProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
-import { daemonStateDir, readDaemonHandle, type DaemonHandle } from "./daemon-state.ts";
+import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon-state.ts";
 import type { OperationName, SchemaState } from "./service.ts";
 
 export type FetchAdapter = (request: Request) => Promise<Response>;
@@ -26,7 +26,7 @@ export class PapyrusClient {
 			signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
 		});
 		const response = await this.fetchAdapter(request);
-		const body = await response.json() as { error?: string } & T;
+		const body = (await response.json()) as { error?: string } & T;
 		if (!response.ok) throw new Error(body.error ?? `Papyrus daemon HTTP ${response.status}`);
 		return body;
 	}
@@ -87,7 +87,10 @@ export interface ConnectPapyrusClientOptions {
  * failure (stale, not "never started") and is NOT auto-recovered here -- it still
  * throws its own actionable "restart manually" error, unchanged from before.
  */
-export async function connectPapyrusClient(dir: string = daemonStateDir(), options: ConnectPapyrusClientOptions = {}): Promise<PapyrusClient> {
+export async function connectPapyrusClient(
+	dir: string = daemonStateDir(),
+	options: ConnectPapyrusClientOptions = {},
+): Promise<PapyrusClient> {
 	return connectWithPolicy({
 		readHandle: () => readDaemonHandle(dir) ?? null,
 		buildClient: probedPapyrusClient,

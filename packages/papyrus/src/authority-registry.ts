@@ -18,8 +18,9 @@
  * claims are constructed at the composition root (src/service.ts) where that knowledge
  * already lives, matching "the core has generic registries" from the decision doc.
  */
-import type { ArtifactEventContext } from "./domain/artifact-event.ts";
+
 import type { Artifact, ArtifactLink } from "./domain/artifact.ts";
+import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 
 export type ArtifactAction = "create" | "link" | "status" | "update";

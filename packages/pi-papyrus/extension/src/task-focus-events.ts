@@ -1,5 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PAPYRUS_TASK_FOCUS_CHANNEL, PAPYRUS_TASK_FOCUS_SCHEMA } from "@danypops/papyrus";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export type TaskFocusStatus = "focused" | "paused" | "unpaused" | "cleared";
 
@@ -27,7 +27,8 @@ export interface TaskFocusEventInput {
  * Papyrus depending on them.
  */
 export function buildTaskFocusEvent(input: TaskFocusEventInput): TaskFocusEvent {
-	if (input.status !== "cleared" && input.taskId === null) throw new Error(`task-focus event of status "${input.status}" requires a taskId`);
+	if (input.status !== "cleared" && input.taskId === null)
+		throw new Error(`task-focus event of status "${input.status}" requires a taskId`);
 	return {
 		schema: PAPYRUS_TASK_FOCUS_SCHEMA,
 		taskId: input.taskId,

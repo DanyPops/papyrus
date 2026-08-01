@@ -9,7 +9,12 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import type { PapyrusClient } from "@danypops/papyrus";
-import { callService, papyrusClient, resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
+import {
+	callService,
+	papyrusClient,
+	resetPapyrusClientForTests,
+	setPapyrusClientConnectorForTests,
+} from "../extension/src/service-client.ts";
 
 afterEach(() => {
 	resetPapyrusClientForTests();

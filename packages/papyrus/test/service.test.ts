@@ -1,10 +1,12 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
+
 import { PapyrusClient } from "../src/client.ts";
 import { openDb } from "../src/db.ts";
-import { EXPECTED_OPERATION_NAMES, createApp, createPapyrusService } from "../src/service.ts";
+import { createApp, createPapyrusService, EXPECTED_OPERATION_NAMES } from "../src/service.ts";
 import { VERSION } from "../src/version.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";
@@ -17,10 +19,12 @@ function fixture() {
 }
 
 function request(app: { fetch(request: Request): Promise<Response> }, path: string, init: RequestInit = {}) {
-	return app.fetch(new Request(`http://papyrus.test${path}`, {
-		...init,
-		headers: { authorization: "Bearer test-token", "content-type": "application/json", ...init.headers },
-	}));
+	return app.fetch(
+		new Request(`http://papyrus.test${path}`, {
+			...init,
+			headers: { authorization: "Bearer test-token", "content-type": "application/json", ...init.headers },
+		}),
+	);
 }
 
 describe("Papyrus operation service", () => {
@@ -79,7 +83,30 @@ describe("Papyrus operation service", () => {
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
 			to: 23,
-			applied: ["task-lifecycle-and-focus", "task-history", "task-project-scope", "task-focus-continuation", "discourse-context-mesh", "artifact-event-log", "task-focus-session-scope", "graph-projection-protocol", "docs-rules-skills-project-scope", "log-domain", "remove-discourse", "session-identity", "artifact-trash", "discuss-native", "discuss-options", "discussion-task-kind", "playbook-kind", "discuss-option-descriptions", "task-leases", "note-events", "skill-to-playbook-data-migration", "retire-skill-kind"],
+			applied: [
+				"task-lifecycle-and-focus",
+				"task-history",
+				"task-project-scope",
+				"task-focus-continuation",
+				"discourse-context-mesh",
+				"artifact-event-log",
+				"task-focus-session-scope",
+				"graph-projection-protocol",
+				"docs-rules-skills-project-scope",
+				"log-domain",
+				"remove-discourse",
+				"session-identity",
+				"artifact-trash",
+				"discuss-native",
+				"discuss-options",
+				"discussion-task-kind",
+				"playbook-kind",
+				"discuss-option-descriptions",
+				"task-leases",
+				"note-events",
+				"skill-to-playbook-data-migration",
+				"retire-skill-kind",
+			],
 		});
 		expect(service.schemaState()).toEqual({ current: 23, required: 23, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
@@ -105,9 +132,13 @@ describe("Papyrus operation service", () => {
 		await service.execute("tasks.update", { id: task.result.id, title: "Serve updated tasks", actor: "user", source: "test" });
 		await service.execute("tasks.focus", { id: task.result.id, actor: "user", source: "test" });
 		await service.execute("tasks.pause", { actor: "user", source: "test", reason: "manual pause" });
-		expect(await service.execute("tasks.focused", { project_root: PROJECT_ROOT })).toEqual(expect.objectContaining({ status: "paused", pauseReason: "manual pause" }));
+		expect(await service.execute("tasks.focused", { project_root: PROJECT_ROOT })).toEqual(
+			expect.objectContaining({ status: "paused", pauseReason: "manual pause" }),
+		);
 		await service.execute("tasks.unpause", { actor: "user", source: "test" });
-		const history = await service.execute("tasks.history", { id: task.result.id, direction: "asc" }) as { events: Array<{ type: string; actor: string }> };
+		const history = (await service.execute("tasks.history", { id: task.result.id, direction: "asc" })) as {
+			events: Array<{ type: string; actor: string }>;
+		};
 		expect(history.events).toEqual([
 			expect.objectContaining({ type: "created", actor: "system" }),
 			expect.objectContaining({ type: "updated", actor: "user", source: "test" }),
@@ -115,10 +146,17 @@ describe("Papyrus operation service", () => {
 			expect.objectContaining({ type: "focus_paused", actor: "user", source: "test" }),
 			expect.objectContaining({ type: "focus_unpaused", actor: "user", source: "test" }),
 		]);
-		const lowLevelTask = await service.execute("artifact.create", { kind: "task", title: "Low-level task", actor: "agent", project_root: PROJECT_ROOT }) as { id: string };
-		expect(await service.execute("tasks.history", { id: lowLevelTask.id }) as unknown).toEqual(expect.objectContaining({
-			events: [expect.objectContaining({ type: "created", actor: "agent", source: "artifact-api" })],
-		}));
+		const lowLevelTask = (await service.execute("artifact.create", {
+			kind: "task",
+			title: "Low-level task",
+			actor: "agent",
+			project_root: PROJECT_ROOT,
+		})) as { id: string };
+		expect((await service.execute("tasks.history", { id: lowLevelTask.id })) as unknown).toEqual(
+			expect.objectContaining({
+				events: [expect.objectContaining({ type: "created", actor: "agent", source: "artifact-api" })],
+			}),
+		);
 		await expect(service.execute("graph.status", { id: lowLevelTask.id, status: "done" })).rejects.toThrow("tasks.* operation");
 
 		const listed = await request(app, "/api/v1/ops", {
@@ -143,7 +181,7 @@ describe("Papyrus operation service", () => {
 				},
 			}),
 		});
-		expect(((await checklist.json()) as { result: { extra: Record<string, unknown> } }).result.extra["checklist"]).toEqual({
+		expect(((await checklist.json()) as { result: { extra: Record<string, unknown> } }).result.extra.checklist).toEqual({
 			"Serve requests": { proof: [{ type: "test", target: "test/service.test.ts" }] },
 		});
 
@@ -154,28 +192,27 @@ describe("Papyrus operation service", () => {
 
 	it("runs Playbooks atomically and injects run rules only for active run tasks", async () => {
 		const { service } = fixture();
-		const playbook = await service.execute("playbooks.create", {
+		const playbook = (await service.execute("playbooks.create", {
 			title: "Scoped workflow",
-			steps: [
-				{ kind: "rule", title: "Scoped rule", body: "Only this run" },
-				"Work on {{project}}",
-			],
+			steps: [{ kind: "rule", title: "Scoped rule", body: "Only this run" }, "Work on {{project}}"],
 			arguments: [{ name: "project", required: true }],
-		}) as { id: string };
-		const run = await service.execute("playbooks.invoke", {
+		})) as { id: string };
+		const run = (await service.execute("playbooks.invoke", {
 			id: playbook.id,
 			run_id: "service-run",
 			arguments: { project: "Papyrus" },
 			project_root: PROJECT_ROOT,
-		}) as { created: { tasks: string[]; rules: string[] }; entryTaskId: string };
+		})) as { created: { tasks: string[]; rules: string[] }; entryTaskId: string };
 		expect(run.entryTaskId).toBe("service-run-pb0-s1");
-		const runHistory = await service.execute("tasks.history", { id: run.entryTaskId }) as { events: Array<{ type: string; source: string }> };
+		const runHistory = (await service.execute("tasks.history", { id: run.entryTaskId })) as {
+			events: Array<{ type: string; source: string }>;
+		};
 		expect(runHistory.events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "created", source: "playbook-run" })]));
 		expect(await service.execute("rules.injectable", { project_root: PROJECT_ROOT })).toEqual([
 			expect.objectContaining({ id: run.created.rules[0], title: "Scoped rule" }),
 		]);
 
-		const unrelated = await service.execute("tasks.create", { title: "Unrelated", project_root: PROJECT_ROOT }) as { id: string };
+		const unrelated = (await service.execute("tasks.create", { title: "Unrelated", project_root: PROJECT_ROOT })) as { id: string };
 		await service.execute("tasks.focus", { id: unrelated.id });
 		expect(await service.execute("rules.injectable", { project_root: PROJECT_ROOT })).toEqual([]);
 		service.close();
@@ -183,20 +220,30 @@ describe("Papyrus operation service", () => {
 
 	it("exposes execution plans and gated successor advancement", async () => {
 		const { service } = fixture();
-		const prerequisite = await service.execute("tasks.create", { title: "Prerequisite", status: "review", project_root: PROJECT_ROOT }) as { id: string };
-		const left = await service.execute("tasks.create", { title: "Left", depends_on: [prerequisite.id], project_root: PROJECT_ROOT }) as { id: string };
-		const right = await service.execute("tasks.create", { title: "Right", depends_on: [prerequisite.id], project_root: PROJECT_ROOT }) as { id: string };
+		const prerequisite = (await service.execute("tasks.create", {
+			title: "Prerequisite",
+			status: "review",
+			project_root: PROJECT_ROOT,
+		})) as { id: string };
+		const left = (await service.execute("tasks.create", { title: "Left", depends_on: [prerequisite.id], project_root: PROJECT_ROOT })) as {
+			id: string;
+		};
+		const right = (await service.execute("tasks.create", {
+			title: "Right",
+			depends_on: [prerequisite.id],
+			project_root: PROJECT_ROOT,
+		})) as { id: string };
 
-		const before = await service.execute("tasks.plan", { project_root: PROJECT_ROOT }) as {
+		const before = (await service.execute("tasks.plan", { project_root: PROJECT_ROOT })) as {
 			layers: string[][];
 			nodes: Array<{ id: string; state: string }>;
 		};
 		expect(before.layers[0]).toEqual([prerequisite.id]);
 		expect([...before.layers[1]!].sort()).toEqual([left.id, right.id].sort());
-		expect((await service.execute("tasks.plan", { project_root: PROJECT_ROOT }) as { layers: string[][] }).layers).toEqual(before.layers);
+		expect(((await service.execute("tasks.plan", { project_root: PROJECT_ROOT })) as { layers: string[][] }).layers).toEqual(before.layers);
 		expect(before.nodes.find((node) => node.id === left.id)?.state).toBe("blocked");
 
-		const completion = await service.execute("tasks.complete", { id: prerequisite.id }) as {
+		const completion = (await service.execute("tasks.complete", { id: prerequisite.id })) as {
 			completed: boolean;
 			focused: { id: string; status: string } | null;
 		};
@@ -213,11 +260,15 @@ describe("Papyrus operation service", () => {
 
 	it("rejects dependency cycles through the daemon boundary", async () => {
 		const { service } = fixture();
-		const first = await service.execute("tasks.create", { title: "First", project_root: PROJECT_ROOT }) as { id: string };
-		const second = await service.execute("tasks.create", { title: "Second", depends_on: [first.id], project_root: PROJECT_ROOT }) as { id: string };
+		const first = (await service.execute("tasks.create", { title: "First", project_root: PROJECT_ROOT })) as { id: string };
+		const second = (await service.execute("tasks.create", { title: "Second", depends_on: [first.id], project_root: PROJECT_ROOT })) as {
+			id: string;
+		};
 
 		await expect(service.execute("tasks.depend", { id: first.id, dependency_id: second.id })).rejects.toThrow("dependency cycle");
-		await expect(service.execute("graph.link", { from: first.id, relation: "depends_on", to: second.id })).rejects.toThrow("dependency cycle");
+		await expect(service.execute("graph.link", { from: first.id, relation: "depends_on", to: second.id })).rejects.toThrow(
+			"dependency cycle",
+		);
 		service.close();
 	});
 
@@ -236,7 +287,10 @@ describe("Papyrus operation service", () => {
 	it("maps a forged session_secret to HTTP 403 through the real daemon boundary, once that session_id is registered", async () => {
 		const { service, app } = fixture();
 		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
-		const task = await client.call<{ title: string; project_root: string }, { id: string }>("tasks.create", { title: "Armored", project_root: PROJECT_ROOT });
+		const task = await client.call<{ title: string; project_root: string }, { id: string }>("tasks.create", {
+			title: "Armored",
+			project_root: PROJECT_ROOT,
+		});
 		await client.call("session.register", { session_id: "session-a" });
 
 		const forged = await request(app, "/api/v1/ops", {
@@ -245,7 +299,9 @@ describe("Papyrus operation service", () => {
 		});
 		expect(forged.status).toBe(403);
 
-		const { secret } = await client.call<{ session_id: string }, { sessionId: string; secret: string }>("session.register", { session_id: "session-a" });
+		const { secret } = await client.call<{ session_id: string }, { sessionId: string; secret: string }>("session.register", {
+			session_id: "session-a",
+		});
 		const real = await request(app, "/api/v1/ops", {
 			method: "POST",
 			body: JSON.stringify({ op: "tasks.focus", input: { id: task.id, session_id: "session-a", session_secret: secret } }),
@@ -262,7 +318,10 @@ describe("Papyrus operation service", () => {
 			version: VERSION,
 			schema: { current: 23, required: 23, migrationRequired: false },
 		});
-		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", { title: "Client task", project_root: PROJECT_ROOT });
+		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", {
+			title: "Client task",
+			project_root: PROJECT_ROOT,
+		});
 		expect(task.kind).toBe("task");
 		expect((await client.operations()).length).toBe(EXPECTED_OPERATION_NAMES.length);
 		service.close();
@@ -296,31 +355,33 @@ describe("Papyrus operation service", () => {
 describe("graph.status refuses to bypass a kind's own validated lifecycle transitions, matching Tasks' existing protection", () => {
 	it("refuses on a Doc: draft cannot jump straight to archived via the raw graph action", async () => {
 		const { service } = fixture();
-		const doc = await service.execute("docs.create", { title: "Doc", actor: "agent" }) as { id: string; status: string };
+		const doc = (await service.execute("docs.create", { title: "Doc", actor: "agent" })) as { id: string; status: string };
 		expect(doc.status).toBe("draft");
 		await expect(service.execute("graph.status", { id: doc.id, status: "archived" })).rejects.toThrow("docs.* operation");
-		expect((await service.execute("docs.show", { id: doc.id }) as { status: string }).status).toBe("draft");
+		expect(((await service.execute("docs.show", { id: doc.id })) as { status: string }).status).toBe("draft");
 	});
 
 	it("refuses on a Rule", async () => {
 		const { service } = fixture();
-		const rule = await service.execute("rules.create", { title: "Rule", actor: "agent" }) as { id: string; status: string };
+		const rule = (await service.execute("rules.create", { title: "Rule", actor: "agent" })) as { id: string; status: string };
 		expect(rule.status).toBe("active");
 		await expect(service.execute("graph.status", { id: rule.id, status: "deprecated" })).rejects.toThrow("rules.* operation");
 	});
 
 	it("refuses on a Playbook", async () => {
 		const { service } = fixture();
-		const playbook = await service.execute("playbooks.create", { title: "Playbook", actor: "agent" }) as { id: string; status: string };
+		const playbook = (await service.execute("playbooks.create", { title: "Playbook", actor: "agent" })) as { id: string; status: string };
 		expect(playbook.status).toBe("active");
 		await expect(service.execute("graph.status", { id: playbook.id, status: "deprecated" })).rejects.toThrow("playbooks.* operation");
 	});
 
 	it("still refuses on a Task, and on a Note -- the two kinds already protected before this fix", async () => {
 		const { service } = fixture();
-		const task = await service.execute("tasks.create", { title: "Task", project_root: PROJECT_ROOT, actor: "agent" }) as { id: string };
+		const task = (await service.execute("tasks.create", { title: "Task", project_root: PROJECT_ROOT, actor: "agent" })) as { id: string };
 		await expect(service.execute("graph.status", { id: task.id, status: "done" })).rejects.toThrow("tasks.* operation");
-		const note = await service.execute("notes.capture", { body: "Remember this", project_root: PROJECT_ROOT, actor: "agent" }) as { id: string };
+		const note = (await service.execute("notes.capture", { body: "Remember this", project_root: PROJECT_ROOT, actor: "agent" })) as {
+			id: string;
+		};
 		await expect(service.execute("graph.status", { id: note.id, status: "active" })).rejects.toThrow("notes.* operation");
 	});
 });

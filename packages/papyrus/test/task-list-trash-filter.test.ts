@@ -30,7 +30,12 @@ describe("tasks.list excludes a trashed task, in every scope mode, matching quer
 		const keep = tasks.create({ title: "Keep", projectRoot: PROJECT, projectSource: "cwd" });
 		const trashed = tasks.create({ title: "Trash me", projectRoot: PROJECT, projectSource: "cwd" });
 
-		expect(tasks.list({ projectRoot: PROJECT }).map((task) => task.id).sort()).toEqual([keep.id, trashed.id].sort());
+		expect(
+			tasks
+				.list({ projectRoot: PROJECT })
+				.map((task) => task.id)
+				.sort(),
+		).toEqual([keep.id, trashed.id].sort());
 
 		artifacts.trash(trashed.id);
 
@@ -43,7 +48,12 @@ describe("tasks.list excludes a trashed task, in every scope mode, matching quer
 		const child = tasks.create({ title: "Child", parentId: epic.id, projectRoot: PROJECT, projectSource: "cwd" });
 		tasks.setView(PROJECT, "graph", epic.id);
 
-		expect(tasks.list({ projectRoot: PROJECT }).map((task) => task.id).sort()).toEqual([epic.id, child.id].sort());
+		expect(
+			tasks
+				.list({ projectRoot: PROJECT })
+				.map((task) => task.id)
+				.sort(),
+		).toEqual([epic.id, child.id].sort());
 
 		artifacts.trash(child.id);
 

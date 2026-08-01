@@ -1,13 +1,21 @@
 import { describe, expect, it } from "bun:test";
+import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { showTaskGraph } from "../extension/src/task-graph.ts";
-import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 
 function task(id: string, title: string): Artifact {
 	return {
-		id, kind: "task", title, status: "todo", subtype: "", body: "", labels: [], extra: {},
-		created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+		id,
+		kind: "task",
+		title,
+		status: "todo",
+		subtype: "",
+		body: "",
+		labels: [],
+		extra: {},
+		created_at: "2026-01-01T00:00:00.000Z",
+		updated_at: "2026-01-01T00:00:00.000Z",
 	};
 }
 
@@ -47,9 +55,9 @@ describe("task graph TUI", () => {
 			ui: {
 				notify() {},
 				async custom(factory: any) {
-					const component = await factory(
-						{ terminal: { rows: 24 }, requestRender() {} }, theme, {}, () => { closed = true; },
-					);
+					const component = await factory({ terminal: { rows: 24 }, requestRender() {} }, theme, {}, () => {
+						closed = true;
+					});
 					executionLines = component.render(50);
 					for (const width of [40, 80, 120]) widthSafe &&= component.render(width).every((line: string) => visibleWidth(line) <= width);
 					component.handleInput("\t");

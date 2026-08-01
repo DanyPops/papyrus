@@ -6,9 +6,7 @@ const rules = [
 	{ title: "Protect secrets", body: "Never log tokens", extra: {} },
 ];
 
-const playbooks = [
-	{ title: "New Project", extra: { trigger: "starting from scratch" } },
-];
+const playbooks = [{ title: "New Project", extra: { trigger: "starting from scratch" } }];
 
 describe("Papyrus context injection telemetry", () => {
 	it("measures the exact Rule and Task payload returned to Pi without retaining content", () => {
@@ -43,9 +41,22 @@ describe("Papyrus context injection telemetry", () => {
 	});
 
 	it("reports zero injection and stable unchanged fingerprints", () => {
-		const first = buildContextInjection({ basePrompt: "Base", rules: [], playbooks: [], taskSummary: null, observedAt: 1, sequence: 1, producerId: "123e4567-e89b-42d3-a456-426614174000" });
+		const first = buildContextInjection({
+			basePrompt: "Base",
+			rules: [],
+			playbooks: [],
+			taskSummary: null,
+			observedAt: 1,
+			sequence: 1,
+			producerId: "123e4567-e89b-42d3-a456-426614174000",
+		});
 		const second = buildContextInjection({
-			basePrompt: "Base", rules: [], playbooks: [], taskSummary: null, observedAt: 2, sequence: 2,
+			basePrompt: "Base",
+			rules: [],
+			playbooks: [],
+			taskSummary: null,
+			observedAt: 2,
+			sequence: 2,
 			producerId: "123e4567-e89b-42d3-a456-426614174000",
 			previousFingerprint: first.observation.fingerprint,
 		});

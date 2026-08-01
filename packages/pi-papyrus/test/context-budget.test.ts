@@ -2,11 +2,17 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
-afterAll(cleanupTempDirs);
-import { buildTaskItemTree, computeContextBudget, computeRuleBudget } from "../extension/src/context-budget.ts";
-import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 
-function rule(id: string, title: string, extra: Record<string, unknown> = {}): { id: string; title: string; body: string; extra: Record<string, unknown> } {
+afterAll(cleanupTempDirs);
+
+import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
+import { buildTaskItemTree, computeContextBudget, computeRuleBudget } from "../extension/src/context-budget.ts";
+
+function rule(
+	id: string,
+	title: string,
+	extra: Record<string, unknown> = {},
+): { id: string; title: string; body: string; extra: Record<string, unknown> } {
 	return { id, title, body: "Do the thing.", extra };
 }
 
@@ -14,7 +20,10 @@ describe("computeRuleBudget", () => {
 	it("sizes each rule via the same ruleInjectionPreview text actually injected, sorted biggest first", () => {
 		const budget = computeRuleBudget([
 			rule("short", "Short rule"),
-			rule("long", "A rule with a much longer title that costs more characters", { condition: "always", action: "Do more things with more words" }),
+			rule("long", "A rule with a much longer title that costs more characters", {
+				condition: "always",
+				action: "Do more things with more words",
+			}),
 		]);
 		expect(budget.entries[0]!.id).toBe("long");
 		expect(budget.entries[1]!.id).toBe("short");
@@ -70,10 +79,25 @@ function taskGraph(nodes: TaskNode[], rootIds: string[]): TaskGraph {
 }
 
 function task(id: string, title: string, status = "todo", body = ""): Artifact {
-	return { id, title, status, kind: "task", subtype: "", body, labels: [], extra: {}, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" };
+	return {
+		id,
+		title,
+		status,
+		kind: "task",
+		subtype: "",
+		body,
+		labels: [],
+		extra: {},
+		created_at: "2026-01-01T00:00:00.000Z",
+		updated_at: "2026-01-01T00:00:00.000Z",
+	};
 }
 
-function taskNode(id: string, title: string, options: { status?: string; parentIds?: string[]; childIds?: string[]; body?: string } = {}): TaskNode {
+function taskNode(
+	id: string,
+	title: string,
+	options: { status?: string; parentIds?: string[]; childIds?: string[]; body?: string } = {},
+): TaskNode {
 	return {
 		task: task(id, title, options.status ?? "todo", options.body ?? ""),
 		parentIds: options.parentIds ?? [],
@@ -84,7 +108,10 @@ function taskNode(id: string, title: string, options: { status?: string; parentI
 
 describe("buildTaskItemTree", () => {
 	it("nests tasks by real containment (parentIds/childIds), not a flat list", () => {
-		const graph = taskGraph([taskNode("parent", "Parent", { childIds: ["child"] }), taskNode("child", "Child", { parentIds: ["parent"] })], ["parent"]);
+		const graph = taskGraph(
+			[taskNode("parent", "Parent", { childIds: ["child"] }), taskNode("child", "Child", { parentIds: ["parent"] })],
+			["parent"],
+		);
 		const items = buildTaskItemTree(graph);
 		expect(items).toHaveLength(1);
 		expect(items[0]!.label).toBe("Parent");
@@ -92,13 +119,26 @@ describe("buildTaskItemTree", () => {
 	});
 
 	it("filters done and canceled tasks -- only open work matters for the injected context, matching taskContext()'s own rule", () => {
-		const graph = taskGraph([taskNode("a", "Open", { status: "todo" }), taskNode("b", "Finished", { status: "done" }), taskNode("c", "Dropped", { status: "canceled" })], ["a", "b", "c"]);
+		const graph = taskGraph(
+			[
+				taskNode("a", "Open", { status: "todo" }),
+				taskNode("b", "Finished", { status: "done" }),
+				taskNode("c", "Dropped", { status: "canceled" }),
+			],
+			["a", "b", "c"],
+		);
 		const items = buildTaskItemTree(graph);
 		expect(items.map((item) => item.label)).toEqual(["Open"]);
 	});
 
 	it("promotes an open task to a root in this projection when its real parent is done/canceled/filtered, instead of dropping it", () => {
-		const graph = taskGraph([taskNode("parent", "Finished parent", { status: "done", childIds: ["child"] }), taskNode("child", "Still open", { parentIds: ["parent"] })], ["parent"]);
+		const graph = taskGraph(
+			[
+				taskNode("parent", "Finished parent", { status: "done", childIds: ["child"] }),
+				taskNode("child", "Still open", { parentIds: ["parent"] }),
+			],
+			["parent"],
+		);
 		const items = buildTaskItemTree(graph);
 		expect(items.map((item) => item.label)).toEqual(["Still open"]);
 	});
@@ -113,7 +153,10 @@ describe("buildTaskItemTree", () => {
 			["a", "b"],
 		);
 		const items = buildTaskItemTree(graph);
-		const totalSharedAppearances = items.reduce((count, item) => count + (item.children?.some((child) => child.label === "Shared child") ? 1 : 0), 0);
+		const totalSharedAppearances = items.reduce(
+			(count, item) => count + (item.children?.some((child) => child.label === "Shared child") ? 1 : 0),
+			0,
+		);
 		expect(totalSharedAppearances).toBe(1);
 	});
 
@@ -121,4 +164,3 @@ describe("buildTaskItemTree", () => {
 		expect(buildTaskItemTree(taskGraph([], []))).toEqual([]);
 	});
 });
-

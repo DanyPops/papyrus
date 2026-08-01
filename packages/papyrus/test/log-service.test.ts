@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { Logs } from "../src/log-service.ts";
-import { LOG_FIELDS_MAX_CHARACTERS, LOG_MESSAGE_MAX_CHARACTERS, LOG_RETENTION_MAX_ENTRIES_PER_SOURCE } from "../src/domain/log-entry.ts";
 import type { LogEntry, LogSource } from "../src/domain/log-entry.ts";
+import { LOG_FIELDS_MAX_CHARACTERS, LOG_MESSAGE_MAX_CHARACTERS, LOG_RETENTION_MAX_ENTRIES_PER_SOURCE } from "../src/domain/log-entry.ts";
+import { Logs } from "../src/log-service.ts";
 import type { LogStore } from "../src/ports/log-store.ts";
 
 class InMemoryLogStore implements LogStore {
@@ -115,7 +115,14 @@ describe("Logs.append", () => {
 describe("Logs.query", () => {
 	function seed(logs: Logs, count: number, sourceId = "s"): void {
 		for (let index = 0; index < count; index++) {
-			logs.append(command({ sourceId, operationId: `op-${index}`, message: `entry ${index}`, occurredAt: `2024-01-01T00:00:${String(index).padStart(2, "0")}.000Z` }));
+			logs.append(
+				command({
+					sourceId,
+					operationId: `op-${index}`,
+					message: `entry ${index}`,
+					occurredAt: `2024-01-01T00:00:${String(index).padStart(2, "0")}.000Z`,
+				}),
+			);
 		}
 	}
 

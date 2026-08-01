@@ -1,8 +1,5 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import type { AtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
-import type { ArtifactEventReader } from "../ports/artifact-event-reader.ts";
-import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
 import type {
 	Artifact,
 	ArtifactEdge,
@@ -31,6 +28,9 @@ import {
 	updateExtra,
 	updateStatus,
 } from "../ops.ts";
+import type { ArtifactEventReader } from "../ports/artifact-event-reader.ts";
+import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
+import type { AtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
 
 export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashStore, ArtifactEventReader {
 	constructor(private readonly db: Db) {}
@@ -115,7 +115,8 @@ export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashSt
 			limit = "LIMIT ?";
 			parameters.push(filter.limit);
 		}
-		return this.db.prepare(`
+		return this.db
+			.prepare(`
 			SELECT edges.from_id AS "from", edges.relation, edges.to_id AS "to"
 			FROM edges
 			JOIN artifacts AS source ON source.id = edges.from_id
@@ -123,6 +124,7 @@ export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashSt
 			${where}
 			ORDER BY edges.rowid
 			${limit}
-		`).all(...parameters) as ArtifactEdge[];
+		`)
+			.all(...parameters) as ArtifactEdge[];
 	}
 }

@@ -289,7 +289,7 @@ export const TASK_RECONCILIATION_INSTRUCTION = [
 
 /** $XDG_DATA_HOME/papyrus/papyrus.db */
 export function dbPath(): string {
-	const xdg = process.env["XDG_DATA_HOME"] || `${process.env["HOME"]}/.local/share`;
+	const xdg = process.env.XDG_DATA_HOME || `${process.env.HOME}/.local/share`;
 	return `${xdg}/papyrus/papyrus.db`;
 }
 
@@ -324,7 +324,18 @@ export const DEFAULT_STATUS_BY_KIND: Readonly<Record<string, string>> = {
  * triggers:    this playbook run applies to that work (playbook→task)
  */
 export const SEED_RELATIONS = [
-	"references", "implements", "follows", "depends_on",
-	"documents", "blocks", "supersedes", "relates_to",
-	"gates", "triggers", "contains", "part_of", "reply_to", "discusses",
+	"references",
+	"implements",
+	"follows",
+	"depends_on",
+	"documents",
+	"blocks",
+	"supersedes",
+	"relates_to",
+	"gates",
+	"triggers",
+	"contains",
+	"part_of",
+	"reply_to",
+	"discusses",
 ] as const;

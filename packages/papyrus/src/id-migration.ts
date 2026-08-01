@@ -71,7 +71,12 @@ const TEXT_SCAN_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
 ];
 
 /** Audit tables whose append-only guard must be suspended for exactly this migration's duration. */
-const APPEND_ONLY_GUARD_TRIGGERS = ["task_events_no_update", "task_events_no_delete", "artifact_events_no_update", "artifact_events_no_delete"];
+const APPEND_ONLY_GUARD_TRIGGERS = [
+	"task_events_no_update",
+	"task_events_no_delete",
+	"artifact_events_no_update",
+	"artifact_events_no_delete",
+];
 
 function tableExists(db: Db, table: string): boolean {
 	return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) != null;
@@ -102,8 +107,13 @@ export function applyIdMigration(db: Db, plan: IdMigrationPlan): IdMigrationRepo
 		return inTransaction(db, () => {
 			const triggerDdl = new Map<string, string>();
 			for (const name of APPEND_ONLY_GUARD_TRIGGERS) {
-				const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(name) as { sql: string } | undefined;
-				if (row) { triggerDdl.set(name, row.sql); db.exec(`DROP TRIGGER ${name}`); }
+				const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(name) as
+					| { sql: string }
+					| undefined;
+				if (row) {
+					triggerDdl.set(name, row.sql);
+					db.exec(`DROP TRIGGER ${name}`);
+				}
 			}
 			try {
 				let edgesRemapped = 0;
@@ -123,7 +133,10 @@ export function applyIdMigration(db: Db, plan: IdMigrationPlan): IdMigrationRepo
 				let textOccurrencesRemapped = 0;
 				for (const { table, column } of TEXT_SCAN_COLUMNS) {
 					if (!tableExists(db, table)) continue;
-					const rows = db.prepare(`SELECT rowid AS rowid, ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL`).all() as Array<{ rowid: number; value: string }>;
+					const rows = db.prepare(`SELECT rowid AS rowid, ${column} AS value FROM ${table} WHERE ${column} IS NOT NULL`).all() as Array<{
+						rowid: number;
+						value: string;
+					}>;
 					const updateStmt = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
 					for (const row of rows) {
 						let value = row.value;

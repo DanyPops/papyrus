@@ -11,18 +11,28 @@
  * than resolveVehicleClientTarget() directly, so a test exercising the full
  * extension entrypoint doesn't resolve a real daemonStateDir().
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerVehicleTools } from "@danypops/vehicle-client-pi";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { currentVehicleClientTarget } from "./service-client.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
 const REGISTERED_PERMISSIONS = [
-	"notes:read", "notes:write", "rules:read", "rules:write", "docs:read", "docs:write",
-	"playbooks:read", "playbooks:write", "tasks:read", "tasks:write",
-	"artifact:read", "artifact:write",
+	"notes:read",
+	"notes:write",
+	"rules:read",
+	"rules:write",
+	"docs:read",
+	"docs:write",
+	"playbooks:read",
+	"playbooks:write",
+	"tasks:read",
+	"tasks:write",
+	"artifact:read",
+	"artifact:write",
 ];
 
 /** Task Focus's own internal write needs a real, per-session secret -- see below. Every other tasks.* operation reads session_id purely for read-scoping and needs no secret. */
@@ -54,7 +64,10 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 				// explicitly overrides session_id to a DIFFERENT session never gets this
 				// session's secret smuggled in on its behalf.
 				const requestedSessionId = (input as { session_id?: unknown } | undefined)?.session_id;
-				const sessionId = typeof requestedSessionId === "string" && requestedSessionId.length > 0 ? requestedSessionId : context.sessionManager.getSessionId();
+				const sessionId =
+					typeof requestedSessionId === "string" && requestedSessionId.length > 0
+						? requestedSessionId
+						: context.sessionManager.getSessionId();
 				const { session_secret: sessionSecret } = sessionSecretField(sessionId);
 				// Omit sessionSecret entirely when nothing is cached (unregistered session) --
 				// {sessionSecret: null} would fail the module's own optionalString(input,
@@ -75,7 +88,8 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 				}
 				if (descriptor.name === "tasks.pause" || descriptor.name === "tasks.unpause") {
 					const focus = output as { artifact: { id: string } } | undefined;
-					if (focus?.artifact?.id) emitTaskFocusEvent({ taskId: focus.artifact.id, status: descriptor.name === "tasks.pause" ? "paused" : "unpaused" });
+					if (focus?.artifact?.id)
+						emitTaskFocusEvent({ taskId: focus.artifact.id, status: descriptor.name === "tasks.pause" ? "paused" : "unpaused" });
 					return;
 				}
 				if (descriptor.name === "tasks.clear_focus") {

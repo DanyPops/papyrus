@@ -33,7 +33,7 @@ export const TASK_EVENT_TYPES = [
 	"became_ready",
 ] as const;
 
-export type TaskEventType = typeof TASK_EVENT_TYPES[number];
+export type TaskEventType = (typeof TASK_EVENT_TYPES)[number];
 export type TaskEventDirection = "asc" | "desc";
 
 export interface TaskEventContext {
@@ -105,7 +105,9 @@ export interface TaskEventFeedPage {
 	nextCursor?: number;
 }
 
-export function normalizeTaskEventFeedQuery(query: TaskEventFeedQuery = {}): Required<Pick<TaskEventFeedQuery, "limit">> & Pick<TaskEventFeedQuery, "cursor" | "eventTypes"> {
+export function normalizeTaskEventFeedQuery(
+	query: TaskEventFeedQuery = {},
+): Required<Pick<TaskEventFeedQuery, "limit">> & Pick<TaskEventFeedQuery, "cursor" | "eventTypes"> {
 	const limit = query.limit ?? TASK_EVENT_FEED_DEFAULT_LIMIT;
 	if (!Number.isInteger(limit) || limit < 1 || limit > TASK_EVENT_FEED_MAX_LIMIT) {
 		throw new Error(`task event feed limit must be between 1 and ${TASK_EVENT_FEED_MAX_LIMIT}`);
@@ -122,7 +124,9 @@ export function normalizeTaskEventFeedQuery(query: TaskEventFeedQuery = {}): Req
 	return { limit, cursor: query.cursor, eventTypes: query.eventTypes };
 }
 
-export function normalizeTaskHistoryQuery(query: TaskHistoryQuery = {}): Required<Pick<TaskHistoryQuery, "limit" | "direction">> & Pick<TaskHistoryQuery, "cursor"> {
+export function normalizeTaskHistoryQuery(
+	query: TaskHistoryQuery = {},
+): Required<Pick<TaskHistoryQuery, "limit" | "direction">> & Pick<TaskHistoryQuery, "cursor"> {
 	const limit = query.limit ?? TASK_HISTORY_DEFAULT_LIMIT;
 	if (!Number.isInteger(limit) || limit < 1 || limit > TASK_HISTORY_MAX_LIMIT) {
 		throw new Error(`task history limit must be between 1 and ${TASK_HISTORY_MAX_LIMIT}`);
@@ -137,11 +141,17 @@ export function normalizeTaskHistoryQuery(query: TaskHistoryQuery = {}): Require
 }
 
 export function validateTaskEvent(event: AppendTaskEvent): AppendTaskEvent {
-	for (const [field, value] of [["actor", event.actor], ["source", event.source]] as const) {
-		if (!value || value.length > TASK_EVENT_ACTOR_MAX_LENGTH) throw new Error(`${field} must be between 1 and ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
+	for (const [field, value] of [
+		["actor", event.actor],
+		["source", event.source],
+	] as const) {
+		if (!value || value.length > TASK_EVENT_ACTOR_MAX_LENGTH)
+			throw new Error(`${field} must be between 1 and ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
 	}
-	if (event.sessionId !== undefined && event.sessionId.length > TASK_EVENT_ACTOR_MAX_LENGTH) throw new Error(`sessionId cannot exceed ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
-	if (event.reason !== undefined && event.reason.length > TASK_EVENT_REASON_MAX_LENGTH) throw new Error(`reason cannot exceed ${TASK_EVENT_REASON_MAX_LENGTH} characters`);
+	if (event.sessionId !== undefined && event.sessionId.length > TASK_EVENT_ACTOR_MAX_LENGTH)
+		throw new Error(`sessionId cannot exceed ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
+	if (event.reason !== undefined && event.reason.length > TASK_EVENT_REASON_MAX_LENGTH)
+		throw new Error(`reason cannot exceed ${TASK_EVENT_REASON_MAX_LENGTH} characters`);
 	if (event.evidence !== undefined && new TextEncoder().encode(JSON.stringify(event.evidence)).byteLength > TASK_EVENT_MAX_EVIDENCE_BYTES) {
 		throw new Error(`task event evidence cannot exceed ${TASK_EVENT_MAX_EVIDENCE_BYTES} bytes`);
 	}

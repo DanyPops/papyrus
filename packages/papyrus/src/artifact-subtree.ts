@@ -38,8 +38,10 @@ export function removeArtifactSubtree(
 		const current = queue.shift()!;
 		if (visited.has(current)) continue;
 		visited.add(current);
-		if (visited.size > ARTIFACT_REMOVE_SUBTREE_MAX_NODES) throw new Error(`remove_subtree exceeds ${ARTIFACT_REMOVE_SUBTREE_MAX_NODES} artifacts`);
-		const childIds = store.relationships({ artifactIds: [current] })
+		if (visited.size > ARTIFACT_REMOVE_SUBTREE_MAX_NODES)
+			throw new Error(`remove_subtree exceeds ${ARTIFACT_REMOVE_SUBTREE_MAX_NODES} artifacts`);
+		const childIds = store
+			.relationships({ artifactIds: [current] })
 			.filter((edge) => edge.from === current && edge.relation === "contains")
 			.map((edge) => edge.to);
 		queue.push(...childIds);

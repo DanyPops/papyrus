@@ -1,16 +1,7 @@
 import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import type { TaskGraph } from "./task-service.ts";
 
-export type TaskExecutionState =
-	| "todo"
-	| "in-progress"
-	| "review"
-	| "rejected"
-	| "done"
-	| "canceled"
-	| "ready"
-	| "blocked"
-	| "invalid";
+export type TaskExecutionState = "todo" | "in-progress" | "review" | "rejected" | "done" | "canceled" | "ready" | "blocked" | "invalid";
 
 export interface TaskExecutionNode {
 	id: string;
@@ -56,8 +47,9 @@ function assertBounds(graph: TaskGraph): void {
 /** Build deterministic topological layers ordered by creation time and task ID. */
 export function projectTaskExecution(graph: TaskGraph): TaskExecutionPlan {
 	assertBounds(graph);
-	const orderedNodes = [...graph.nodes].sort((left, right) =>
-		left.task.created_at.localeCompare(right.task.created_at) || left.task.id.localeCompare(right.task.id));
+	const orderedNodes = [...graph.nodes].sort(
+		(left, right) => left.task.created_at.localeCompare(right.task.created_at) || left.task.id.localeCompare(right.task.id),
+	);
 	const byId = new Map(orderedNodes.map((node) => [node.task.id, node]));
 	const order = new Map(orderedNodes.map((node, index) => [node.task.id, index]));
 	const successors = new Map(orderedNodes.map((node) => [node.task.id, [] as string[]]));

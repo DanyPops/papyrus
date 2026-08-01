@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { removeArtifactSubtree } from "../src/artifact-subtree.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
+import { removeArtifactSubtree } from "../src/artifact-subtree.ts";
 import { openDb } from "../src/db.ts";
 
 function fixture() {

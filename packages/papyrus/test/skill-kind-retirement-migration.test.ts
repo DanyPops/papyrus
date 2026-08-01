@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { migrateDb, openDb } from "../src/db.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 /**
@@ -38,7 +39,12 @@ describe("skill-to-playbook-data-migration (v22)", () => {
 		expect(result.from).toBe(21);
 		expect(result.applied).toContain("skill-to-playbook-data-migration");
 
-		const rows = db.prepare("SELECT id, kind, subtype, status FROM artifacts ORDER BY id").all() as Array<{ id: string; kind: string; subtype: string | null; status: string }>;
+		const rows = db.prepare("SELECT id, kind, subtype, status FROM artifacts ORDER BY id").all() as Array<{
+			id: string;
+			kind: string;
+			subtype: string | null;
+			status: string;
+		}>;
 		expect(rows).toEqual([
 			{ id: "a-template", kind: "playbook", subtype: "artifact-template", status: "active" },
 			{ id: "live-verify-leaf", kind: "playbook", subtype: "workflow", status: "deprecated" },
@@ -64,9 +70,13 @@ describe("retire-skill-kind (v23)", () => {
 		expect(db.prepare("SELECT name FROM statuses WHERE kind = 'skill'").get()).toBeNull();
 
 		// The write path is genuinely gone: a fresh kind=skill insert now fails the FK constraint.
-		expect(() => db.prepare(
-			"INSERT INTO artifacts (id, kind, subtype, title, status, created_at, updated_at) VALUES ('should-fail', 'skill', 'workflow', 'x', 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
-		).run()).toThrow();
+		expect(() =>
+			db
+				.prepare(
+					"INSERT INTO artifacts (id, kind, subtype, title, status, created_at, updated_at) VALUES ('should-fail', 'skill', 'workflow', 'x', 'active', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+				)
+				.run(),
+		).toThrow();
 		db.close();
 	});
 });

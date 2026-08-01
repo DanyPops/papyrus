@@ -32,9 +32,7 @@ export function projectTaskRelationships(task: Artifact, graph?: TaskGraph): Dis
 	}
 	const nodes: DisplayGraphNode[] = [...nodeIds].map((id) => {
 		const artifact = taskNodes.get(id);
-		return artifact
-			? { id, label: artifact.title, status: artifact.status }
-			: { id, label: fallbackLabel(id) };
+		return artifact ? { id, label: artifact.title, status: artifact.status } : { id, label: fallbackLabel(id) };
 	});
 	return { direction: "LR", nodes, edges };
 }

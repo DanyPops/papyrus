@@ -1,12 +1,6 @@
-/**
- * db.ts — enforced-schema SQLite store for Papyrus.
- * Dual-runtime: bun:sqlite (Bun) / node:sqlite (Node/pi host).
- * Four kinds (doc/task/rule/skill) are FK-enforced; relations are universal (any→any).
- */
-import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import { runMigrations, type SqliteMigrationRunner } from "@danypops/vehicle-server/storage";
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 
@@ -373,10 +367,22 @@ export function migrationLedger(db: Db): ModuleMigrationRow[] {
 	// has no ledger table yet -- "nothing recorded" is the correct answer, not an error.
 	const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'module_migrations'").get() != null;
 	if (!tableExists) return [];
-	const rows = db.prepare("SELECT module_id, version, name, checksum, applied_at FROM module_migrations ORDER BY module_id, version").all() as Array<{
-		module_id: string; version: number; name: string; checksum: string; applied_at: string;
+	const rows = db
+		.prepare("SELECT module_id, version, name, checksum, applied_at FROM module_migrations ORDER BY module_id, version")
+		.all() as Array<{
+		module_id: string;
+		version: number;
+		name: string;
+		checksum: string;
+		applied_at: string;
 	}>;
-	return rows.map((row) => ({ moduleId: row.module_id, version: row.version, name: row.name, checksum: row.checksum, appliedAt: row.applied_at }));
+	return rows.map((row) => ({
+		moduleId: row.module_id,
+		version: row.version,
+		name: row.name,
+		checksum: row.checksum,
+		appliedAt: row.applied_at,
+	}));
 }
 
 /**
@@ -407,10 +413,14 @@ function ensureCoreLedger(db: Db, alreadyAtCurrentSchema: boolean): void {
 	`);
 	inTransaction(db, () => {
 		for (const [index, entry] of CORE_LEDGER_VERSIONS.entries()) {
-			const existingRow = db.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = ?").get(entry.version) as { checksum: string } | null;
+			const existingRow = db
+				.prepare("SELECT checksum FROM module_migrations WHERE module_id = 'core' AND version = ?")
+				.get(entry.version) as { checksum: string } | null;
 			if (existingRow != null) {
 				if (existingRow.checksum !== entry.checksum) {
-					throw new Error(`module migration "core" version ${entry.version} checksum mismatch: the frozen definition for this version was edited after it was applied`);
+					throw new Error(
+						`module migration "core" version ${entry.version} checksum mismatch: the frozen definition for this version was edited after it was applied`,
+					);
 				}
 				continue;
 			}
@@ -420,16 +430,18 @@ function ensureCoreLedger(db: Db, alreadyAtCurrentSchema: boolean): void {
 				db.exec(SEED_SQL);
 				db.exec(`PRAGMA user_version = ${SQLITE_SCHEMA_VERSION}`);
 			}
-			db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', ?, ?, ?, ?)")
-				.run(entry.version, entry.name, entry.checksum, new Date().toISOString());
+			db.prepare("INSERT INTO module_migrations (module_id, version, name, checksum, applied_at) VALUES ('core', ?, ?, ?, ?)").run(
+				entry.version,
+				entry.name,
+				entry.checksum,
+				new Date().toISOString(),
+			);
 		}
 	});
 }
 
 function bootstrapEmptyDatabase(db: Db): void {
-	const existing = db
-		.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1")
-		.get();
+	const existing = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1").get();
 	if (existing) throw new Error("database schema is unversioned; refusing to migrate existing data during boot");
 	ensureCoreLedger(db, false);
 }
@@ -524,7 +536,9 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 		// older user_version to exercise this migration path must not fail with "duplicate column
 		// name" -- the same class of already-bootstrapped-fixture concern version 9's comment covers.
 		up: (db) => {
-			const existing = new Set((db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name));
+			const existing = new Set(
+				(db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name),
+			);
 			for (const column of ["options", "options_mode", "selected"]) {
 				if (!existing.has(column)) db.exec(`ALTER TABLE discussion_rounds ADD COLUMN ${column} TEXT`);
 			}
@@ -568,7 +582,9 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 		// pattern as version 16's discuss-options -- a round with no per-option description (every
 		// round before this feature existed, and any that simply doesn't need one) stores NULL.
 		up: (db) => {
-			const existing = new Set((db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name));
+			const existing = new Set(
+				(db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name),
+			);
 			if (!existing.has("option_descriptions")) db.exec("ALTER TABLE discussion_rounds ADD COLUMN option_descriptions TEXT");
 		},
 	},
@@ -621,7 +637,10 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				WHEN NOT EXISTS (SELECT 1 FROM artifact_trash WHERE artifact_id = OLD.note_id AND purge_after <= strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 				BEGIN SELECT RAISE(ABORT, 'note_events are append-only except during an explicit, elapsed-grace-period artifact trash purge'); END;
 			`);
-			const rows = db.prepare("SELECT id, extra FROM artifacts WHERE kind = 'doc' AND subtype = 'note'").all() as Array<{ id: string; extra: string }>;
+			const rows = db.prepare("SELECT id, extra FROM artifacts WHERE kind = 'doc' AND subtype = 'note'").all() as Array<{
+				id: string;
+				extra: string;
+			}>;
 			const insert = db.prepare(`
 				INSERT INTO note_events (note_id, occurred_at, event_type, actor, source, session_id, reason, related_id, disposition, event_schema_version)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
@@ -629,20 +648,20 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 			const strip = db.prepare("UPDATE artifacts SET extra = ? WHERE id = ?");
 			for (const row of rows) {
 				const extra = JSON.parse(row.extra) as Record<string, unknown>;
-				const noteHistory = extra["noteHistory"];
+				const noteHistory = extra.noteHistory;
 				if (Array.isArray(noteHistory)) {
 					for (const raw of noteHistory) {
 						const entry = raw as Record<string, unknown>;
 						insert.run(
 							row.id,
-							typeof entry["at"] === "string" ? entry["at"] : new Date().toISOString(),
-							typeof entry["action"] === "string" ? entry["action"] : "captured",
-							typeof entry["actor"] === "string" ? entry["actor"] : "system",
-							typeof entry["source"] === "string" ? entry["source"] : "unknown",
-							typeof entry["sessionId"] === "string" ? entry["sessionId"] : null,
-							typeof entry["reason"] === "string" ? entry["reason"] : null,
-							typeof entry["targetId"] === "string" ? entry["targetId"] : null,
-							typeof entry["disposition"] === "string" ? entry["disposition"] : null,
+							typeof entry.at === "string" ? entry.at : new Date().toISOString(),
+							typeof entry.action === "string" ? entry.action : "captured",
+							typeof entry.actor === "string" ? entry.actor : "system",
+							typeof entry.source === "string" ? entry.source : "unknown",
+							typeof entry.sessionId === "string" ? entry.sessionId : null,
+							typeof entry.reason === "string" ? entry.reason : null,
+							typeof entry.targetId === "string" ? entry.targetId : null,
+							typeof entry.disposition === "string" ? entry.disposition : null,
 						);
 					}
 				}
@@ -724,9 +743,10 @@ export function migrateDb(db: Db): MigrationResult {
 	// entire frozen chain, not merely fail to match any of its branches -- entering it and
 	// falling through to the final gap check would otherwise misreport a database correctly
 	// mid-way through FUTURE_MIGRATIONS as "no explicit migration path".
-	if (from < LEGACY_MIGRATION_CHAIN_TARGET_VERSION) inTransaction(db, () => {
-		if (schemaVersion(db) === 1) {
-			db.exec(`
+	if (from < LEGACY_MIGRATION_CHAIN_TARGET_VERSION)
+		inTransaction(db, () => {
+			if (schemaVersion(db) === 1) {
+				db.exec(`
 				INSERT OR IGNORE INTO statuses VALUES ('todo','task');
 				INSERT OR IGNORE INTO statuses VALUES ('in-progress','task');
 				INSERT OR IGNORE INTO statuses VALUES ('review','task');
@@ -751,10 +771,10 @@ export function migrateDb(db: Db): MigrationResult {
 				DELETE FROM statuses WHERE kind = 'task' AND name IN ('pending', 'active', 'failed');
 				PRAGMA user_version = 2;
 			`);
-			applied.push("task-lifecycle-and-focus");
-		}
-		if (schemaVersion(db) === 2) {
-			db.exec(`
+				applied.push("task-lifecycle-and-focus");
+			}
+			if (schemaVersion(db) === 2) {
+				db.exec(`
 				CREATE TABLE task_events (
 					id INTEGER PRIMARY KEY AUTOINCREMENT,
 					task_id TEXT NOT NULL REFERENCES artifacts(id),
@@ -777,10 +797,10 @@ export function migrateDb(db: Db): MigrationResult {
 				BEGIN SELECT RAISE(ABORT, 'task_events are append-only'); END;
 				PRAGMA user_version = 3;
 			`);
-			applied.push("task-history");
-		}
-		if (schemaVersion(db) === 3) {
-			db.exec(`
+				applied.push("task-history");
+			}
+			if (schemaVersion(db) === 3) {
+				db.exec(`
 				CREATE TABLE task_scopes (
 					task_id TEXT PRIMARY KEY REFERENCES artifacts(id),
 					project_root TEXT,
@@ -800,18 +820,18 @@ export function migrateDb(db: Db): MigrationResult {
 				FROM artifacts WHERE kind = 'task';
 				PRAGMA user_version = 4;
 			`);
-			applied.push("task-project-scope");
-		}
-		if (schemaVersion(db) === 4) {
-			db.exec(`
+				applied.push("task-project-scope");
+			}
+			if (schemaVersion(db) === 4) {
+				db.exec(`
 				ALTER TABLE task_focus ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused'));
 				ALTER TABLE task_focus ADD COLUMN pause_reason TEXT;
 				PRAGMA user_version = 5;
 			`);
-			applied.push("task-focus-continuation");
-		}
-		if (schemaVersion(db) === 5) {
-			db.exec(`
+				applied.push("task-focus-continuation");
+			}
+			if (schemaVersion(db) === 5) {
+				db.exec(`
 				INSERT OR IGNORE INTO relation_names VALUES ('reply_to','Append-only message replies to another message in the same thread');
 				INSERT OR IGNORE INTO relation_names VALUES ('discusses','Message or turn concerns a verified artifact');
 				CREATE TABLE discourse_threads (
@@ -853,10 +873,10 @@ export function migrateDb(db: Db): MigrationResult {
 				BEGIN SELECT RAISE(ABORT, 'discourse Context Mesh artifact type is immutable'); END;
 				PRAGMA user_version = 6;
 			`);
-			applied.push("discourse-context-mesh");
-		}
-		if (schemaVersion(db) === 6) {
-			db.exec(`
+				applied.push("discourse-context-mesh");
+			}
+			if (schemaVersion(db) === 6) {
+				db.exec(`
 				CREATE TABLE artifact_events (
 					id INTEGER PRIMARY KEY AUTOINCREMENT,
 					artifact_id TEXT NOT NULL REFERENCES artifacts(id),
@@ -881,10 +901,10 @@ export function migrateDb(db: Db): MigrationResult {
 				BEGIN SELECT RAISE(ABORT, 'artifact_events are append-only'); END;
 				PRAGMA user_version = 7;
 			`);
-			applied.push("artifact-event-log");
-		}
-		if (schemaVersion(db) === 7) {
-			db.exec(`
+				applied.push("artifact-event-log");
+			}
+			if (schemaVersion(db) === 7) {
+				db.exec(`
 				CREATE TABLE task_focus_v7 (
 					scope TEXT PRIMARY KEY,
 					task_id TEXT NOT NULL REFERENCES artifacts(id),
@@ -897,15 +917,15 @@ export function migrateDb(db: Db): MigrationResult {
 				ALTER TABLE task_focus_v7 RENAME TO task_focus;
 				PRAGMA user_version = 8;
 			`);
-			applied.push("task-focus-session-scope");
-		}
-		if (schemaVersion(db) === 8) {
-			// IF NOT EXISTS here, unlike earlier migration branches: a fully-bootstrapped
-			// :memory: fixture (used by unrelated tests that only roll user_version back to
-			// simulate an older *file* database) already has every table the current bootstrap
-			// DDL declares, this one included -- so this branch must be safe to run whether or
-			// not that already happened, not assume a truly-old database created it first.
-			db.exec(`
+				applied.push("task-focus-session-scope");
+			}
+			if (schemaVersion(db) === 8) {
+				// IF NOT EXISTS here, unlike earlier migration branches: a fully-bootstrapped
+				// :memory: fixture (used by unrelated tests that only roll user_version back to
+				// simulate an older *file* database) already has every table the current bootstrap
+				// DDL declares, this one included -- so this branch must be safe to run whether or
+				// not that already happened, not assume a truly-old database created it first.
+				db.exec(`
 				CREATE TABLE IF NOT EXISTS graph_projection_checkpoints (
 					producer_id    TEXT PRIMARY KEY,
 					last_sequence  INTEGER NOT NULL,
@@ -921,10 +941,10 @@ export function migrateDb(db: Db): MigrationResult {
 				CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_projection_identities(artifact_id);
 				PRAGMA user_version = 9;
 			`);
-			applied.push("graph-projection-protocol");
-		}
-		if (schemaVersion(db) === 9) {
-			db.exec(`
+				applied.push("graph-projection-protocol");
+			}
+			if (schemaVersion(db) === 9) {
+				db.exec(`
 				CREATE TABLE IF NOT EXISTS artifact_scopes (
 					artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
 					project_root  TEXT,
@@ -934,10 +954,10 @@ export function migrateDb(db: Db): MigrationResult {
 				CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
 				PRAGMA user_version = 10;
 			`);
-			applied.push("docs-rules-skills-project-scope");
-		}
-		if (schemaVersion(db) === 10) {
-			db.exec(`
+				applied.push("docs-rules-skills-project-scope");
+			}
+			if (schemaVersion(db) === 10) {
+				db.exec(`
 				CREATE TABLE IF NOT EXISTS log_sources (
 					id            TEXT PRIMARY KEY,
 					label         TEXT NOT NULL,
@@ -961,18 +981,18 @@ export function migrateDb(db: Db): MigrationResult {
 				BEGIN SELECT RAISE(ABORT, 'log_entries are immutable once written; retention trimming is the only supported deletion path'); END;
 				PRAGMA user_version = 11;
 			`);
-			applied.push("log-domain");
-		}
-		if (schemaVersion(db) === 11) {
-			// Removes Discourse's Papyrus-embedded storage entirely: confirmed zero rows in every
-			// discourse_* table and zero Docs carrying the reserved context-thread/context-message
-			// subtypes in the real production database before this was written -- Discourse's real
-			// home is now the standalone @danypops/discourse package plus host adapters, and
-			// Papyrus's own copy never had a single real caller since it was built. IF EXISTS
-			// throughout: a database that never actually reached the v5->v6 discourse-context-mesh
-			// step in the first place (e.g. a test fixture that starts partway through the chain)
-			// must not fail here just because there was nothing to remove.
-			db.exec(`
+				applied.push("log-domain");
+			}
+			if (schemaVersion(db) === 11) {
+				// Removes Discourse's Papyrus-embedded storage entirely: confirmed zero rows in every
+				// discourse_* table and zero Docs carrying the reserved context-thread/context-message
+				// subtypes in the real production database before this was written -- Discourse's real
+				// home is now the standalone @danypops/discourse package plus host adapters, and
+				// Papyrus's own copy never had a single real caller since it was built. IF EXISTS
+				// throughout: a database that never actually reached the v5->v6 discourse-context-mesh
+				// step in the first place (e.g. a test fixture that starts partway through the chain)
+				// must not fail here just because there was nothing to remove.
+				db.exec(`
 				DROP TRIGGER IF EXISTS discourse_artifact_type_immutable;
 				DROP TRIGGER IF EXISTS discourse_posts_artifact_type;
 				DROP TRIGGER IF EXISTS discourse_threads_artifact_type;
@@ -985,14 +1005,14 @@ export function migrateDb(db: Db): MigrationResult {
 				DELETE FROM relation_names WHERE name IN ('reply_to', 'discusses');
 				PRAGMA user_version = 12;
 			`);
-			applied.push("remove-discourse");
-		}
-		if (schemaVersion(db) === 12) {
-			// See domain/session-identity.ts and verify-caller-identity-behind-papyrus-mutation-
-			// attribution-koxt: first-touch capability binding for session_id, the one place it is
-			// behavior-affecting today (Task Focus). Purely additive -- a session_id that never
-			// registers here behaves exactly as before.
-			db.exec(`
+				applied.push("remove-discourse");
+			}
+			if (schemaVersion(db) === 12) {
+				// See domain/session-identity.ts and verify-caller-identity-behind-papyrus-mutation-
+				// attribution-koxt: first-touch capability binding for session_id, the one place it is
+				// behavior-affecting today (Task Focus). Purely additive -- a session_id that never
+				// registers here behaves exactly as before.
+				db.exec(`
 				CREATE TABLE IF NOT EXISTS session_identities (
 					session_id    TEXT PRIMARY KEY,
 					secret_hash   TEXT NOT NULL,
@@ -1001,10 +1021,11 @@ export function migrateDb(db: Db): MigrationResult {
 				);
 				PRAGMA user_version = 13;
 			`);
-			applied.push("session-identity");
-		}
-		if (schemaVersion(db) !== LEGACY_MIGRATION_CHAIN_TARGET_VERSION) throw new Error(`no explicit migration path from database schema ${from}`);
-	});
+				applied.push("session-identity");
+			}
+			if (schemaVersion(db) !== LEGACY_MIGRATION_CHAIN_TARGET_VERSION)
+				throw new Error(`no explicit migration path from database schema ${from}`);
+		});
 
 	// Guarded by length: runMigrations treats an empty migrations array's "target version" as
 	// 0 (see its own sorted.at(-1) ?? 0), which would misreport a database the legacy chain

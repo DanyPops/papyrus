@@ -3,8 +3,8 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteDiscussionRoundStore } from "../src/adapters/sqlite-discussion-round-store.ts";
 import { openDb } from "../src/db.ts";
 import { Discussions } from "../src/discussion-service.ts";
-import { discussOperations, DISCUSS_OPERATION_NAMES } from "../src/modules/discuss.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
+import { DISCUSS_OPERATION_NAMES, discussOperations } from "../src/modules/discuss.ts";
 
 function fixture() {
 	const db = openDb(":memory:");
@@ -31,7 +31,7 @@ describe("modules/discuss — registered operations", () => {
 		expect(result.discussion.id).toBeTruthy();
 	});
 
-	it("the actor error names what a valid value looks like, since \"actor\" alone isn't self-explanatory unlike title/content/id", () => {
+	it('the actor error names what a valid value looks like, since "actor" alone isn\'t self-explanatory unlike title/content/id', () => {
 		const { registry } = fixture();
 		expect(() => registry.get("discuss.open")!.execute({ title: "T" })).toThrow(/a display name for who is posting/);
 	});
@@ -55,18 +55,32 @@ describe("modules/discuss — registered operations", () => {
 	it("discuss.open and discuss.reply accept snake_case options/options_mode/selected", () => {
 		const { registry } = fixture();
 		const open = registry.get("discuss.open")!;
-		const opened = open.execute({ title: "T", actor: "a", content: "A or B?", options: ["A", "B"], options_mode: "single" }) as { discussion: { id: string; extra: Record<string, unknown> } };
-		expect(opened.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionsMode: "single" });
+		const opened = open.execute({ title: "T", actor: "a", content: "A or B?", options: ["A", "B"], options_mode: "single" }) as {
+			discussion: { id: string; extra: Record<string, unknown> };
+		};
+		expect(opened.discussion.extra.discussion).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionsMode: "single" });
 		const reply = registry.get("discuss.reply")!;
-		const replied = reply.execute({ id: opened.discussion.id, actor: "b", content: "B", selected: ["B"] }) as { discussion: { extra: Record<string, unknown> } };
-		expect(replied.discussion.extra["discussion"]).not.toHaveProperty("pendingOptions");
+		const replied = reply.execute({ id: opened.discussion.id, actor: "b", content: "B", selected: ["B"] }) as {
+			discussion: { extra: Record<string, unknown> };
+		};
+		expect(replied.discussion.extra.discussion).not.toHaveProperty("pendingOptions");
 	});
 
 	it("discuss.open and discuss.reply accept snake_case option_descriptions, index-aligned with options", () => {
 		const { registry } = fixture();
 		const open = registry.get("discuss.open")!;
-		const opened = open.execute({ title: "T", actor: "a", content: "A or B?", options: ["A", "B"], options_mode: "single", option_descriptions: ["pro A", "pro B"] }) as { discussion: { id: string; extra: Record<string, unknown> } };
-		expect(opened.discussion.extra["discussion"]).toMatchObject({ pendingOptions: ["A", "B"], pendingOptionDescriptions: ["pro A", "pro B"] });
+		const opened = open.execute({
+			title: "T",
+			actor: "a",
+			content: "A or B?",
+			options: ["A", "B"],
+			options_mode: "single",
+			option_descriptions: ["pro A", "pro B"],
+		}) as { discussion: { id: string; extra: Record<string, unknown> } };
+		expect(opened.discussion.extra.discussion).toMatchObject({
+			pendingOptions: ["A", "B"],
+			pendingOptionDescriptions: ["pro A", "pro B"],
+		});
 	});
 
 	it("discuss.reply rejects an invalid options_mode", () => {
@@ -74,7 +88,9 @@ describe("modules/discuss — registered operations", () => {
 		const open = registry.get("discuss.open")!;
 		const opened = open.execute({ title: "T", actor: "a", content: "c" }) as { discussion: { id: string } };
 		const reply = registry.get("discuss.reply")!;
-		expect(() => reply.execute({ id: opened.discussion.id, actor: "b", content: "c", options: ["A", "B"], options_mode: "quorum" })).toThrow(/options_mode must be/);
+		expect(() =>
+			reply.execute({ id: opened.discussion.id, actor: "b", content: "c", options: ["A", "B"], options_mode: "quorum" }),
+		).toThrow(/options_mode must be/);
 	});
 
 	it("discuss.list and discuss.rounds round-trip through the registry", () => {

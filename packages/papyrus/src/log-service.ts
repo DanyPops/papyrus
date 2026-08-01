@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+	type AppendLogEntryCommand,
+	type AppendLogEntryResult,
 	boundMessage,
 	LOG_QUERY_MAX_ENTRIES,
 	LOG_RETENTION_MAX_ENTRIES_PER_SOURCE,
-	meetsLevel,
-	validateAppendLogEntryCommand,
-	type AppendLogEntryCommand,
-	type AppendLogEntryResult,
 	type LogEntryPage,
 	type LogQuery,
+	meetsLevel,
+	validateAppendLogEntryCommand,
 } from "./domain/log-entry.ts";
 import type { LogStore } from "./ports/log-store.ts";
 
@@ -47,7 +47,8 @@ export class Logs {
 	 */
 	query(query: LogQuery): LogEntryPage {
 		const limit = Math.min(query.limit ?? LOG_QUERY_MAX_ENTRIES, LOG_QUERY_MAX_ENTRIES);
-		const matching = this.store.entriesForSource(query.sourceId)
+		const matching = this.store
+			.entriesForSource(query.sourceId)
 			.filter((entry) => query.since === undefined || entry.occurredAt > query.since)
 			.filter((entry) => query.level === undefined || meetsLevel(entry.level, query.level));
 

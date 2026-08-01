@@ -12,11 +12,12 @@
  * playbooks.ts precedent -- Notes is the one kind with a human-facing creation command (/note),
  * because Notes exists specifically as a human-authored inbox.
  */
+
+import { type Artifact, type DiscussionAndRounds, readDiscussionExtra } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { readDiscussionExtra, type Artifact, type DiscussionAndRounds } from "@danypops/papyrus";
-import { askQuestion } from "./discuss-ask-view.ts";
 import { showArtifactBrowser } from "./artifact-browser.ts";
 import { DISCUSSION_STATE_PRESENTATION, DOC_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
+import { askQuestion } from "./discuss-ask-view.ts";
 import { discussionRoundCountOf, discussionStateOf, showDiscussionDetailView } from "./discussion-detail-view.ts";
 import { callService } from "./service-client.ts";
 
@@ -33,14 +34,22 @@ export async function openTaskChoices(cwd: string): Promise<Artifact[]> {
 export async function blockedTaskChoices(discussionId: string): Promise<Artifact[]> {
 	const tree = await callService<Record<string, unknown>, Artifact>("graph.tree", { id: discussionId, depth: 1 });
 	const blockedIds = (tree.edges ?? []).filter((edge) => edge.relation === "blocks" && edge.from === discussionId).map((edge) => edge.to);
-	const tasks = await Promise.all(blockedIds.map((id) => callService<Record<string, unknown>, Artifact | null>("tasks.show", { id }).catch(() => null)));
+	const tasks = await Promise.all(
+		blockedIds.map((id) => callService<Record<string, unknown>, Artifact | null>("tasks.show", { id }).catch(() => null)),
+	);
 	return tasks.filter((task): task is Artifact => task !== null);
 }
 
 /** Picking a task by title, the same ui.select pattern used for Discuss's own single-choice options -- no ecosystem extension (Pi's own docs/examples, pi-tasks) builds a bespoke fuzzy picker for a plain "choose one named thing" list. */
 export async function pickTaskByName(ctx: ExtensionCommandContext, title: string, tasks: Artifact[]): Promise<Artifact | undefined> {
-	if (tasks.length === 0) { ctx.ui.notify("No open tasks to choose from.", "info"); return undefined; }
-	const label = await ctx.ui.select(title, tasks.map((task) => `${task.title} [${task.status}]`));
+	if (tasks.length === 0) {
+		ctx.ui.notify("No open tasks to choose from.", "info");
+		return undefined;
+	}
+	const label = await ctx.ui.select(
+		title,
+		tasks.map((task) => `${task.title} [${task.status}]`),
+	);
 	if (!label) return undefined;
 	const index = tasks.map((task) => `${task.title} [${task.status}]`).indexOf(label);
 	return index === -1 ? undefined : tasks[index];
@@ -49,9 +58,17 @@ export async function pickTaskByName(ctx: ExtensionCommandContext, title: string
 export function discussionRowMeta(discussion: Artifact, theme: Theme): string {
 	const state = discussionStateOf(discussion);
 	const presentation = DISCUSSION_STATE_PRESENTATION[state];
-	const stateText = presentation ? theme.fg(presentation.color, `${presentation.glyph} ${presentation.label}`) : theme.fg("muted", "state unknown");
+	const stateText = presentation
+		? theme.fg(presentation.color, `${presentation.glyph} ${presentation.label}`)
+		: theme.fg("muted", "state unknown");
 	const rounds = discussionRoundCountOf(discussion);
-	const pending = (() => { try { return readDiscussionExtra(discussion.extra).pendingOptions; } catch { return undefined; } })();
+	const pending = (() => {
+		try {
+			return readDiscussionExtra(discussion.extra).pendingOptions;
+		} catch {
+			return undefined;
+		}
+	})();
 	const pendingText = pending && pending.length > 0 ? theme.fg("accent", ` · awaiting: ${pending.join("/")}`) : "";
 	return `${stateText} · ${rounds} round${rounds === 1 ? "" : "s"}${pendingText}`;
 }
@@ -79,18 +96,39 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 				return;
 			}
 			if (choice === "Reply") {
-				const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
+				const pending = (() => {
+					try {
+						return readDiscussionExtra(discussion.extra);
+					} catch {
+						return undefined;
+					}
+				})();
 				// Same fix as the live discuss tool: the most recent round's own content IS the real
 				// question -- the title becomes a plain orientation subtitle, not a labeled-backwards
 				// "Context:" section under a generic "Reply to <title>:" wrapper.
 				const transcript = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.show", { id: discussion.id });
 				const question = transcript.rounds.at(-1)?.content?.trim() || `Reply to "${discussion.title}":`;
 				const subtitle = discussion.title;
-				const answer = pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
-					? await askQuestion(commandCtx, { question, subtitle, options: pending.pendingOptions.map((title, index) => ({ title, description: pending.pendingOptionDescriptions?.[index] || undefined })), allowMultiple: pending.pendingOptionsMode === "multi" })
-					: await askQuestion(commandCtx, { question, subtitle });
+				const answer =
+					pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
+						? await askQuestion(commandCtx, {
+								question,
+								subtitle,
+								options: pending.pendingOptions.map((title, index) => ({
+									title,
+									description: pending.pendingOptionDescriptions?.[index] || undefined,
+								})),
+								allowMultiple: pending.pendingOptionsMode === "multi",
+							})
+						: await askQuestion(commandCtx, { question, subtitle });
 				if (!answer) return; // canceled
-				await callService("discuss.reply", { id: discussion.id, actor: ACTOR, content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: SOURCE });
+				await callService("discuss.reply", {
+					id: discussion.id,
+					actor: ACTOR,
+					content: answer.content,
+					...(answer.selected ? { selected: answer.selected } : {}),
+					source: SOURCE,
+				});
 				commandCtx.ui.notify(answer.selected ? `Selected: ${answer.selected.join(", ")}` : "Reply added.", "info");
 				return;
 			}
@@ -121,11 +159,22 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 			}
 			if (choice === "Unblock a task") {
 				const blocked = await blockedTaskChoices(discussion.id);
-				if (blocked.length === 0) { commandCtx.ui.notify("This discussion isn't blocking any task.", "info"); return; }
+				if (blocked.length === 0) {
+					commandCtx.ui.notify("This discussion isn't blocking any task.", "info");
+					return;
+				}
 				const target = await pickTaskByName(commandCtx, "Unblock which task?", blocked);
 				if (!target) return;
-				const result = await callService<Record<string, unknown>, { unblocked: boolean }>("discuss.unblock", { id: discussion.id, task_id: target.id, actor: ACTOR, source: SOURCE });
-				commandCtx.ui.notify(result.unblocked ? `"${discussion.title}" no longer blocks "${target.title}"` : "No such blocking relationship.", "info");
+				const result = await callService<Record<string, unknown>, { unblocked: boolean }>("discuss.unblock", {
+					id: discussion.id,
+					task_id: target.id,
+					actor: ACTOR,
+					source: SOURCE,
+				});
+				commandCtx.ui.notify(
+					result.unblocked ? `"${discussion.title}" no longer blocks "${target.title}"` : "No such blocking relationship.",
+					"info",
+				);
 			}
 		},
 	});

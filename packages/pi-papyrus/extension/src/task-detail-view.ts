@@ -1,20 +1,20 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { matchesKey, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
 import {
+	type Artifact,
+	type GraphRenderer,
+	projectTaskRelationships,
 	TASK_DETAIL_HORIZONTAL_PAN_COLUMNS,
 	TASK_DETAIL_MAX_VISIBLE_LINES,
 	TASK_DETAIL_MIN_VISIBLE_LINES,
 	TASK_DETAIL_RESERVED_ROWS,
-	projectTaskRelationships,
-	type Artifact,
-	type GraphRenderer,
 	type TaskEvent,
 	type TaskGraph,
 } from "@danypops/papyrus";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { matchesKey, sliceByColumn, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
 import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
-import { taskDetailContent, taskDetailsText, type TaskDetailContent } from "./task-detail-format.ts";
-import { renderMarkdownBody, type ActiveTheme } from "./markdown.ts";
+import { type ActiveTheme, renderMarkdownBody } from "./markdown.ts";
+import { type TaskDetailContent, taskDetailContent, taskDetailsText } from "./task-detail-format.ts";
 import { TASK_STATUS_PRESENTATION } from "./task-presentation.ts";
 
 interface DetailLine {
@@ -47,7 +47,9 @@ class TaskDetailViewport {
 		this.status = task.status;
 	}
 
-	invalidate(): void { this.renderedWidth = 0; }
+	invalidate(): void {
+		this.renderedWidth = 0;
+	}
 
 	render(width: number): string[] {
 		const contentWidth = Math.max(1, width - 2);
@@ -62,21 +64,28 @@ class TaskDetailViewport {
 			graphWidth > contentWidth ? `←/→ graph · column ${this.offsetX + 1}/${graphWidth}` : "",
 			this.detailLines.length > this.visibleLines ? `↑/↓ scroll · ${this.offsetY + 1}-${end}/${this.detailLines.length}` : "",
 			"Esc back",
-		].filter(Boolean).join(" · ");
+		]
+			.filter(Boolean)
+			.join(" · ");
 		return [
 			border,
 			truncateToWidth(theme.fg("accent", theme.bold("Task details")), width, ""),
 			border,
-			...this.detailLines.slice(this.offsetY, end).map((line) => line.graph
-				? ` ${sliceByColumn(line.text, this.offsetX, contentWidth, true)}`
-				: truncateToWidth(` ${line.text}`, width, "")),
+			...this.detailLines
+				.slice(this.offsetY, end)
+				.map((line) =>
+					line.graph ? ` ${sliceByColumn(line.text, this.offsetX, contentWidth, true)}` : truncateToWidth(` ${line.text}`, width, ""),
+				),
 			truncateToWidth(theme.fg("dim", footer), width, ""),
 			border,
 		];
 	}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.close(); return; }
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+			this.close();
+			return;
+		}
 		if (matchesKey(data, "up")) this.offsetY = Math.max(0, this.offsetY - 1);
 		else if (matchesKey(data, "down")) this.offsetY = Math.min(Math.max(0, this.detailLines.length - this.visibleLines), this.offsetY + 1);
 		else if (matchesKey(data, "left")) this.offsetX = Math.max(0, this.offsetX - TASK_DETAIL_HORIZONTAL_PAN_COLUMNS);
@@ -111,21 +120,18 @@ class TaskDetailViewport {
 			line: (s: string) => theme.fg("dim", s),
 		};
 		const fields: DetailField[] = this.content.labels.length > 0 ? [{ label: "Labels", value: this.content.labels.join(", ") }] : [];
-		const labels = fields.length > 0
-			? [...buildDetailLines(width, { fields, theme: detailTheme }).map((text) => ({ text, graph: false })), { text: "", graph: false }]
-			: [{ text: "", graph: false }];
+		const labels =
+			fields.length > 0
+				? [...buildDetailLines(width, { fields, theme: detailTheme }).map((text) => ({ text, graph: false })), { text: "", graph: false }]
+				: [{ text: "", graph: false }];
 		const body = renderMarkdownBody(this.content.body, width, this.activeTheme).map((text) => ({ text, graph: false }));
 		const sections: DetailSection[] = this.content.sections.map((section) => ({ heading: section[0], lines: section.slice(1) }));
-		const sectionLines = sections.length > 0
-			? buildDetailLines(width, { sections, theme: detailTheme }).map((text) => ({ text, graph: false }))
-			: [];
-		const relationshipHeader = this.graphLines.length > 0
-			? [
-				{ text: "", graph: false },
-				...wrap("Relationships:", "muted"),
-				...wrap("  Dependencies point prerequisite → dependent.", "dim"),
-			]
-			: [];
+		const sectionLines =
+			sections.length > 0 ? buildDetailLines(width, { sections, theme: detailTheme }).map((text) => ({ text, graph: false })) : [];
+		const relationshipHeader =
+			this.graphLines.length > 0
+				? [{ text: "", graph: false }, ...wrap("Relationships:", "muted"), ...wrap("  Dependencies point prerequisite → dependent.", "dim")]
+				: [];
 		this.detailLines = [
 			...identity,
 			...labels,
@@ -151,6 +157,7 @@ export async function showTaskDetails(
 		ctx.ui.notify(content, "info");
 		return;
 	}
-	await ctx.ui.custom<void>((tui, theme, _keybindings, done) =>
-		new TaskDetailViewport(tui, () => ctx.ui.theme ?? theme, task, relationshipGraph, history, done));
+	await ctx.ui.custom<void>(
+		(tui, theme, _keybindings, done) => new TaskDetailViewport(tui, () => ctx.ui.theme ?? theme, task, relationshipGraph, history, done),
+	);
 }

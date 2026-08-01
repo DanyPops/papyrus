@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { TaskOverlay } from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,
@@ -9,7 +10,6 @@ import {
 	setPushChannelTargetResolverForTests,
 } from "../extension/src/service-client.ts";
 import { buildTaskWidgetProjection } from "../extension/src/task-widget.ts";
-import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 
 // Every TaskOverlay.refresh() call now also attempts to establish a push-channel
 // subscription -- without this, these unit tests would fall through to the real
@@ -21,8 +21,16 @@ afterEach(resetPushChannelTargetResolverForTests);
 
 function task(id: string, title: string, status: string): Artifact {
 	return {
-		id, title, status, kind: "task", subtype: "", body: "", labels: [], extra: {},
-		created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+		id,
+		title,
+		status,
+		kind: "task",
+		subtype: "",
+		body: "",
+		labels: [],
+		extra: {},
+		created_at: "2026-01-01T00:00:00.000Z",
+		updated_at: "2026-01-01T00:00:00.000Z",
 	};
 }
 
@@ -45,9 +53,14 @@ describe("task widget projection", () => {
 	it("shows open parents and children in containment order with orthogonal focus", () => {
 		const projection = buildTaskWidgetProjection(graph, 3);
 
-		expect(projection.rows.map(({ task, depth, hasOpenChildren, active }) => ({
-			id: task.id, depth, hasOpenChildren, active,
-		}))).toEqual([
+		expect(
+			projection.rows.map(({ task, depth, hasOpenChildren, active }) => ({
+				id: task.id,
+				depth,
+				hasOpenChildren,
+				active,
+			})),
+		).toEqual([
 			{ id: "parent", depth: 0, hasOpenChildren: true, active: false },
 			{ id: "child", depth: 1, hasOpenChildren: false, active: true },
 			{ id: "todo", depth: 0, hasOpenChildren: false, active: false },
@@ -110,25 +123,39 @@ describe("TaskOverlay.refresh(): never throws, even if rendering itself fails", 
 	afterEach(resetPapyrusClientForTests);
 
 	it("swallows a render() failure after a successful snapshot fetch", async () => {
-		setPapyrusClientConnectorForTests(async () => ({
-			async call() { return { nodes: [], rootIds: [] } satisfies TaskGraph; },
-		}) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						return { nodes: [], rootIds: [] } satisfies TaskGraph;
+					},
+				}) as any,
+		);
 		const overlay = new TaskOverlay();
 		overlay.setUI({} as ExtensionUIContext);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
-		(overlay as unknown as { render: () => void }).render = () => { throw new Error("boom"); };
+		(overlay as unknown as { render: () => void }).render = () => {
+			throw new Error("boom");
+		};
 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
 
 	it("swallows a render() failure even when the snapshot fetch itself failed", async () => {
-		setPapyrusClientConnectorForTests(async () => ({
-			async call() { throw new Error("daemon unavailable"); },
-		}) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						throw new Error("daemon unavailable");
+					},
+				}) as any,
+		);
 		const overlay = new TaskOverlay();
 		overlay.setUI({} as ExtensionUIContext);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
-		(overlay as unknown as { render: () => void }).render = () => { throw new Error("boom"); };
+		(overlay as unknown as { render: () => void }).render = () => {
+			throw new Error("boom");
+		};
 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
@@ -145,9 +172,15 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 
 	it("startPolling refreshes repeatedly on its own, without any tool_execution_end or session event", async () => {
 		let calls = 0;
-		setPapyrusClientConnectorForTests(async () => ({
-			async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
-		}) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						calls += 1;
+						return { nodes: [], rootIds: [] } satisfies TaskGraph;
+					},
+				}) as any,
+		);
 		const overlay = new TaskOverlay();
 		overlay.setUI({} as ExtensionUIContext);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
@@ -161,9 +194,15 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 
 	it("is idempotent -- calling startPolling twice does not run two overlapping timers", async () => {
 		let calls = 0;
-		setPapyrusClientConnectorForTests(async () => ({
-			async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
-		}) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						calls += 1;
+						return { nodes: [], rootIds: [] } satisfies TaskGraph;
+					},
+				}) as any,
+		);
 		const overlay = new TaskOverlay();
 		overlay.setUI({} as ExtensionUIContext);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
@@ -180,9 +219,15 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 
 	it("stopPolling (and dispose()) stop further refreshes", async () => {
 		let calls = 0;
-		setPapyrusClientConnectorForTests(async () => ({
-			async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
-		}) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						calls += 1;
+						return { nodes: [], rootIds: [] } satisfies TaskGraph;
+					},
+				}) as any,
+		);
 		const overlay = new TaskOverlay();
 		overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
@@ -216,15 +261,21 @@ describe("TaskOverlay push channel: refreshes immediately on a server-published 
 		return { pushChannel, server, port: server.port! };
 	}
 
-	it("a publish on the \"tasks\" topic triggers a real refresh() beyond the poll timer", async () => {
+	it('a publish on the "tasks" topic triggers a real refresh() beyond the poll timer', async () => {
 		const token = "overlay-push-token";
 		const { pushChannel, server, port } = startPushFixture(token);
 		try {
 			setPushChannelTargetResolverForTests(() => ({ url: `ws://127.0.0.1:${port}/push`, token }));
 			let calls = 0;
-			setPapyrusClientConnectorForTests(async () => ({
-				async call() { calls += 1; return { nodes: [], rootIds: [] } satisfies TaskGraph; },
-			}) as any);
+			setPapyrusClientConnectorForTests(
+				async () =>
+					({
+						async call() {
+							calls += 1;
+							return { nodes: [], rootIds: [] } satisfies TaskGraph;
+						},
+					}) as any,
+			);
 
 			const overlay = new TaskOverlay();
 			overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);

@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { migrateDb, openDb } from "../src/db.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 /** Discussions moved from kind doc to task (see domain/discussion.ts); already-persisted rows need the same remap newly-created ones get for free. */
@@ -27,7 +28,11 @@ describe("discussion-task-kind migration", () => {
 		expect(result.from).toBe(16);
 		expect(result.applied).toContain("discussion-task-kind");
 
-		const rows = db.prepare("SELECT id, kind, status FROM artifacts ORDER BY id").all() as Array<{ id: string; kind: string; status: string }>;
+		const rows = db.prepare("SELECT id, kind, status FROM artifacts ORDER BY id").all() as Array<{
+			id: string;
+			kind: string;
+			status: string;
+		}>;
 		expect(rows).toEqual([
 			{ id: "active-discussion", kind: "task", status: "in-progress" },
 			{ id: "real-doc", kind: "doc", status: "active" },

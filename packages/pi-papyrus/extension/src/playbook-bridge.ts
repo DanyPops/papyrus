@@ -17,14 +17,19 @@
  * time rather than baking in stale content, so even a lingering stale name fails cleanly with a
  * real error instead of running deleted content.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 import type { Artifact } from "@danypops/papyrus";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { callService } from "./service-client.ts";
 
 export const PLAYBOOK_BRIDGE_MAX_PLAYBOOKS = 100;
 
 function slugify(title: string): string {
-	const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+	const slug = title
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 64);
 	return slug.length > 0 ? slug : "playbook";
 }
 
@@ -44,7 +49,7 @@ export function playbookCommandName(title: string): string {
  * already work this way).
  */
 export function playbookInjectionPreview(playbook: Pick<Artifact, "title" | "extra">): string {
-	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
+	const trigger = typeof playbook.extra.trigger === "string" ? playbook.extra.trigger : "manual invocation";
 	return `• ${playbook.title} (when: ${trigger})`;
 }
 
@@ -56,7 +61,7 @@ export async function planPlaybookCommandRegistrations(): Promise<Array<{ name: 
 		let name = playbookCommandName(playbook.title);
 		if (usedNames.has(name)) name = `${name}-${playbook.id.slice(0, 8)}`; // a real title collision, not the common case
 		usedNames.add(name);
-		const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
+		const trigger = typeof playbook.extra.trigger === "string" ? playbook.extra.trigger : "manual invocation";
 		return { name, id: playbook.id, title: playbook.title, trigger };
 	});
 }
@@ -77,7 +82,10 @@ export function registerPlaybookBridge(pi: ExtensionAPI): void {
 							// returns rendered text to drop into the editor (that's playbooks.preview
 							// now). The editor gets a short kickoff prompt instead; the actual step
 							// content surfaces via the normal Task Focus system-prompt pointer.
-							const invocation = await callService<Record<string, unknown>, { entryTaskId?: string; missingArguments?: string[] }>("playbooks.invoke", { id });
+							const invocation = await callService<Record<string, unknown>, { entryTaskId?: string; missingArguments?: string[] }>(
+								"playbooks.invoke",
+								{ id },
+							);
 							if (invocation.missingArguments) {
 								ctx.ui.notify(`"${title}" needs: ${invocation.missingArguments.join(", ")}`, "error");
 								return;
@@ -95,5 +103,8 @@ export function registerPlaybookBridge(pi: ExtensionAPI): void {
 			// "no new/updated playbook commands this cycle", not a broken session start.
 		}
 	};
-	pi.on("resources_discover", async () => { await refresh(); return {}; });
+	pi.on("resources_discover", async () => {
+		await refresh();
+		return {};
+	});
 }

@@ -1,20 +1,9 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
-import { documentRowMeta } from "../extension/src/docs.ts";
-import {
-	artifactLine as domainToolsArtifactLine,
-	artifactLines,
-	matchArtifactByName,
-	registerDiscussTool,
-	registerDomainTools,
-} from "../extension/src/domain-tools.ts";
-import { discussionRowMeta } from "../extension/src/discuss.ts";
-import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
-import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
+import type { Artifact } from "@danypops/papyrus";
 import { NOTE_LIST_MAX_LIMIT } from "@danypops/papyrus";
-import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
 import {
 	DISCUSSION_STATE_PRESENTATION,
 	DOC_STATUS_PRESENTATION,
@@ -22,7 +11,18 @@ import {
 	RULE_STATUS_PRESENTATION,
 	severityColor,
 } from "../extension/src/artifact-status-presentation.ts";
-import type { Artifact } from "@danypops/papyrus";
+import { discussionRowMeta } from "../extension/src/discuss.ts";
+import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
+import { documentRowMeta } from "../extension/src/docs.ts";
+import {
+	artifactLines,
+	artifactLine as domainToolsArtifactLine,
+	matchArtifactByName,
+	registerDiscussTool,
+	registerDomainTools,
+} from "../extension/src/domain-tools.ts";
+import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
+import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 
 const theme = {
 	bold: (text: string) => text,
@@ -71,13 +71,20 @@ describe("shared artifact browser model", () => {
 
 describe("kind-specific frontend projections", () => {
 	it("projects document subtype and labels", () => {
-		expect(documentRowMeta(artifact({ subtype: "decision", labels: ["sqlite", "architecture"] }), theme)).toBe("decision · sqlite, architecture");
+		expect(documentRowMeta(artifact({ subtype: "decision", labels: ["sqlite", "architecture"] }), theme)).toBe(
+			"decision · sqlite, architecture",
+		);
 	});
 
 	it("exposes Notes through direct commands, a bounded inbox, and one Vehicle (not a single action-dispatch pi.registerTool())", () => {
-		expect(noteRowMeta(artifact({ subtype: "note", extra: { noteHistory: [{ action: "captured" }, { action: "consumed" }] } }))).toBe("2 events");
+		expect(noteRowMeta(artifact({ subtype: "note", extra: { noteHistory: [{ action: "captured" }, { action: "consumed" }] } }))).toBe(
+			"2 events",
+		);
 		expect(noteCaptureInput("  Review this later  ", "/workspace/papyrus")).toEqual({
-			body: "Review this later", project_root: "/workspace/papyrus", actor: "human", source: "note-command",
+			body: "Review this later",
+			project_root: "/workspace/papyrus",
+			actor: "human",
+			source: "note-command",
 		});
 		expect(noteCaptureInput("   ", "/workspace/papyrus")).toBeNull();
 		// Regression: the generic artifact browser defaults to a 500-row page, which exceeds
@@ -116,11 +123,12 @@ describe("kind-specific frontend projections", () => {
 	it("colors rule severity distinctly, so BLOCK/WARN/INFO are never visually identical", () => {
 		const distinguishingTheme = { ...theme, fg: (color: string, text: string) => `<${color}>${text}</${color}>` } as Theme;
 		const severities = ["block", "warn", "info"] as const;
-		const rendered = severities.map((severity) => ruleRowMeta(artifact({ kind: "rule", extra: { severity, condition: "x" } }), distinguishingTheme));
+		const rendered = severities.map((severity) =>
+			ruleRowMeta(artifact({ kind: "rule", extra: { severity, condition: "x" } }), distinguishingTheme),
+		);
 		const colorsUsed = new Set(rendered.map((line) => line.match(/^<(\w+)>/)?.[1]));
 		expect(colorsUsed.size).toBe(3); // block, warn, info each get a genuinely different color, not the same fallback
 	});
-
 });
 
 describe("status presentation: every browsable kind's statuses are colored, not just glyphed", () => {
@@ -146,10 +154,10 @@ describe("status presentation: every browsable kind's statuses are colored, not 
 		// This is the exact, literal complaint this feature closes: "hard to understand which
 		// rules are active" traces to active/deprecated differing only by glyph shape (filled vs
 		// hollow circle), not color. Lock in that active always reads as success-green.
-		expect(RULE_STATUS_PRESENTATION["active"]!.color).toBe("success");
-		expect(RULE_STATUS_PRESENTATION["deprecated"]!.color).not.toBe("success");
-		expect(DOC_STATUS_PRESENTATION["active"]!.color).toBe("success");
-		expect(NOTE_STATUS_PRESENTATION["active"]!.color).toBe("success");
+		expect(RULE_STATUS_PRESENTATION.active!.color).toBe("success");
+		expect(RULE_STATUS_PRESENTATION.deprecated!.color).not.toBe("success");
+		expect(DOC_STATUS_PRESENTATION.active!.color).toBe("success");
+		expect(NOTE_STATUS_PRESENTATION.active!.color).toBe("success");
 	});
 
 	it("maps every rule severity to a distinct color, defaulting unknown severities to muted rather than throwing", () => {
@@ -191,7 +199,9 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 
 	it("matchArtifactByName refuses ambiguity and surfaces real ids only at that point, to disambiguate", () => {
 		const candidates = [task({ id: "task-a", title: "Fix bug" }), task({ id: "task-b", title: "Fix bug" })];
-		expect(() => matchArtifactByName(candidates, "Fix bug")).toThrow(/2 artifacts are named "Fix bug": Fix bug \(task-a\), Fix bug \(task-b\) -- use id to disambiguate/);
+		expect(() => matchArtifactByName(candidates, "Fix bug")).toThrow(
+			/2 artifacts are named "Fix bug": Fix bug \(task-a\), Fix bug \(task-b\) -- use id to disambiguate/,
+		);
 	});
 
 	it("registers name-based equivalents for discuss (still an action-dispatch pi.registerTool())", () => {
@@ -207,7 +217,8 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 		expect(rulesVehicle).toContain("task_name");
 		expect(docsVehicle).toContain("target_name");
 		for (const field of ["parent_name", "child_name", "dependency_name"]) expect(playbooksVehicle).toContain(field);
-		for (const field of ["name:", "dependency_name:", "parent_name:", "child_name:", "root_task_name:", "depends_on_names:"]) expect(tasksVehicle).toContain(field);
+		for (const field of ["name:", "dependency_name:", "parent_name:", "child_name:", "root_task_name:", "depends_on_names:"])
+			expect(tasksVehicle).toContain(field);
 	});
 
 	it("registers from_name/to_name on papyrus_graph, matching every other link-target name-resolution field", () => {
@@ -220,7 +231,11 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 
 describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared doc status glyph", () => {
 	function discussion(state: string, roundCount: number): Artifact {
-		return artifact({ subtype: "discussion", status: state === "settled" ? "archived" : "active", extra: { discussion: { state, roundCount } } });
+		return artifact({
+			subtype: "discussion",
+			status: state === "settled" ? "archived" : "active",
+			extra: { discussion: { state, roundCount } },
+		});
 	}
 
 	it("reads state and round count defensively, defaulting to a safe read-only fallback on corrupt extra", () => {
@@ -248,7 +263,10 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 	});
 
 	it("surfaces a pending posed choice in rowMeta, since it's the one thing worth seeing before opening the transcript", () => {
-		const awaiting = artifact({ subtype: "discussion", extra: { discussion: { state: "active", roundCount: 1, pendingOptions: ["A", "B"], pendingOptionsMode: "single" } } });
+		const awaiting = artifact({
+			subtype: "discussion",
+			extra: { discussion: { state: "active", roundCount: 1, pendingOptions: ["A", "B"], pendingOptionsMode: "single" } },
+		});
 		expect(discussionRowMeta(awaiting, theme)).toBe("\u25cf active \u00b7 1 round \u00b7 awaiting: A/B");
 		expect(discussionRowMeta(discussion("active", 1), theme)).not.toContain("awaiting");
 	});
@@ -259,8 +277,16 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 		expect(extension).toContain('registerCommand("discuss"');
 		expect(tools).toContain('name: "discuss"');
 		for (const operation of [
-			"discuss.open", "discuss.reply", "discuss.defer", "discuss.resume", "discuss.settle",
-			"discuss.block", "discuss.unblock", "discuss.show", "discuss.rounds", "discuss.list",
+			"discuss.open",
+			"discuss.reply",
+			"discuss.defer",
+			"discuss.resume",
+			"discuss.settle",
+			"discuss.block",
+			"discuss.unblock",
+			"discuss.show",
+			"discuss.rounds",
+			"discuss.list",
 		]) {
 			expect(tools).toContain(operation);
 		}

@@ -4,24 +4,38 @@ import {
 	TASK_EXECUTION_MAX_DEGREE,
 	TASK_EXECUTION_MAX_EDGES,
 	TASK_EXECUTION_MAX_NODES,
+	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
-	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
-import { checklistEntries, validateChecklist, type Checklist, type ProofReference } from "./domain/checklist.ts";
+import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "./domain/checklist.ts";
 import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
-import { validateGates, type Gate, type GateResult } from "./domain/gate.ts";
-import type { AppendTaskEvent, TaskEventContext, TaskEventFeedPage, TaskEventFeedQuery, TaskHistoryPage, TaskHistoryQuery, TaskLifecycleStatus } from "./domain/task-event.ts";
-import { normalizeProjectRoot, taskScopeLabel, type TaskScopeSource, type TaskViewMode, type TaskViewSelection } from "./domain/task-scope.ts";
+import { type Gate, type GateResult, validateGates } from "./domain/gate.ts";
+import type {
+	AppendTaskEvent,
+	TaskEventContext,
+	TaskEventFeedPage,
+	TaskEventFeedQuery,
+	TaskHistoryPage,
+	TaskHistoryQuery,
+	TaskLifecycleStatus,
+} from "./domain/task-event.ts";
+import type { TaskLease } from "./domain/task-lease.ts";
+import {
+	normalizeProjectRoot,
+	type TaskScopeSource,
+	type TaskViewMode,
+	type TaskViewSelection,
+	taskScopeLabel,
+} from "./domain/task-scope.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
-import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-store.ts";
+import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "./ports/task-lease-store.ts";
-import type { TaskLease } from "./domain/task-lease.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "./ports/task-scope-store.ts";
 import { assertDependencyEdgeAllowed } from "./task-execution.ts";
 
@@ -147,8 +161,8 @@ export class Tasks {
 			if (input.parentId) this.require(input.parentId);
 			for (const dependency of input.dependsOn ?? []) this.require(dependency);
 			const extra: Record<string, unknown> = { ...(input.extra ?? {}) };
-			if (input.gates !== undefined) extra["gates"] = validateGates(input.gates);
-			if (input.checklist !== undefined) extra["checklist"] = validateChecklist(input.checklist);
+			if (input.gates !== undefined) extra.gates = validateGates(input.gates);
+			if (input.checklist !== undefined) extra.checklist = validateChecklist(input.checklist);
 			const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 			if (input.parentId && this.scopes.get(input.parentId)?.projectRoot !== projectRoot) {
 				throw new Error(`parent task "${input.parentId}" is outside project scope`);
@@ -179,18 +193,26 @@ export class Tasks {
 			if (task.status !== "done" && task.status !== "canceled") throw new Error(`cannot recover task creation from ${task.status}`);
 			const history = this.events.history(id, { direction: "asc", limit: 2 });
 			const created = history.events[0];
-			if (history.events.length !== 1 || history.nextCursor !== undefined || created?.type !== "created" || created.toStatus !== task.status) {
+			if (
+				history.events.length !== 1 ||
+				history.nextCursor !== undefined ||
+				created?.type !== "created" ||
+				created.toStatus !== task.status
+			) {
 				throw new Error("task was not terminal at creation");
 			}
 			const recovered = this.artifacts.setStatus(id, "todo");
 			if (!recovered) throw new Error(`task "${id}" not found`);
-			this.appendEvent({
-				taskId: id,
-				type: "creation_recovered",
-				fromStatus: task.status as TaskStatus,
-				toStatus: "todo",
-				evidence: { result: "terminal-at-creation" },
-			}, context);
+			this.appendEvent(
+				{
+					taskId: id,
+					type: "creation_recovered",
+					fromStatus: task.status as TaskStatus,
+					toStatus: "todo",
+					evidence: { result: "terminal-at-creation" },
+				},
+				context,
+			);
 			return recovered;
 		});
 	}
@@ -204,11 +226,13 @@ export class Tasks {
 			return this.recoverCreation(id, context);
 		}
 		const fields = (["title", "body", "labels"] as const).filter((field) => input[field] !== undefined);
-		if (fields.length === 0) throw new Error("task update requires title, body, or labels; status todo is only valid for creation recovery");
+		if (fields.length === 0)
+			throw new Error("task update requires title, body, or labels; status todo is only valid for creation recovery");
 		if (input.title !== undefined && (input.title.trim().length === 0 || input.title.length > TASK_TITLE_MAX_LENGTH)) {
 			throw new Error(`title must be between 1 and ${TASK_TITLE_MAX_LENGTH} characters`);
 		}
-		if (input.body !== undefined && input.body.length > TASK_BODY_MAX_LENGTH) throw new Error(`body cannot exceed ${TASK_BODY_MAX_LENGTH} characters`);
+		if (input.body !== undefined && input.body.length > TASK_BODY_MAX_LENGTH)
+			throw new Error(`body cannot exceed ${TASK_BODY_MAX_LENGTH} characters`);
 		if (input.labels !== undefined) {
 			if (input.labels.length > TASK_LABEL_MAX_COUNT) throw new Error(`labels cannot exceed ${TASK_LABEL_MAX_COUNT} entries`);
 			if (input.labels.some((label) => label.length === 0 || label.length > TASK_LABEL_MAX_LENGTH)) {
@@ -231,7 +255,14 @@ export class Tasks {
 			throw new Error(`task list limit must be between 1 and ${TASK_SCOPE_MAX_TASKS + 1}`);
 		}
 		if (selection.mode === "all") {
-			return this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, status: filter.status, text: filter.text, labels: filter.labels, limit });
+			return this.artifacts.query({
+				kind: "task",
+				excludeSubtype: DISCUSSION_SUBTYPE,
+				status: filter.status,
+				text: filter.text,
+				labels: filter.labels,
+				limit,
+			});
 		}
 		const ids = this.scopes.taskIds(selection.projectRoot, TASK_SCOPE_MAX_TASKS + 1);
 		if (ids.length > TASK_SCOPE_MAX_TASKS) throw new Error(`task project scope exceeds ${TASK_SCOPE_MAX_TASKS} tasks`);
@@ -244,7 +275,9 @@ export class Tasks {
 		// leak a trashed task back into list results for the entire grace period. Scoped by ids
 		// rather than a bare kind query, so this stays bounded to exactly the already-bounded
 		// selectedIds set instead of scanning every task in the database.
-		const notTrashed = new Map(this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, ids: [...selectedIds] }).map((task) => [task.id, task]));
+		const notTrashed = new Map(
+			this.artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, ids: [...selectedIds] }).map((task) => [task.id, task]),
+		);
 		return [...selectedIds]
 			.map((id) => notTrashed.get(id))
 			.filter((task): task is Artifact => task !== undefined)
@@ -256,7 +289,8 @@ export class Tasks {
 	}
 
 	scopeSelection(projectRoot?: string, mode?: TaskViewMode, rootTaskId?: string): TaskViewSelection {
-		if (mode !== undefined && mode !== "project" && mode !== "graph" && mode !== "all") throw new Error("task scope must be project, graph, or all");
+		if (mode !== undefined && mode !== "project" && mode !== "graph" && mode !== "all")
+			throw new Error("task scope must be project, graph, or all");
 		if (projectRoot === undefined) return { mode: "all", label: taskScopeLabel("all") };
 		const normalized = normalizeProjectRoot(projectRoot);
 		const persisted = this.scopes.view(normalized);
@@ -302,14 +336,19 @@ export class Tasks {
 		const focus = this.focusStore.get(filter.sessionId);
 		const focusedId = focus?.taskId;
 		const focusStatus = focus?.status;
-		const nodes = new Map(tasks.map((task) => [task.id, {
-			task,
-			active: task.id === focusedId,
-			...(task.id === focusedId ? { focusStatus } : {}),
-			parentIds: [] as string[],
-			childIds: [] as string[],
-			dependencyIds: [] as string[],
-		}]));
+		const nodes = new Map(
+			tasks.map((task) => [
+				task.id,
+				{
+					task,
+					active: task.id === focusedId,
+					...(task.id === focusedId ? { focusStatus } : {}),
+					parentIds: [] as string[],
+					childIds: [] as string[],
+					dependencyIds: [] as string[],
+				},
+			]),
+		);
 		const relationships = this.artifacts.relationships({
 			kind: "task",
 			artifactIds: [...byId.keys()],
@@ -349,12 +388,17 @@ export class Tasks {
 		const focus = this.focusStore.get(filter?.sessionId);
 		if (!focus) return null;
 		const task = this.artifacts.get(focus.taskId);
-		if (!task || task.kind !== "task" || task.status === "done" || task.status === "canceled") {
+		if (task?.kind !== "task" || task.status === "done" || task.status === "canceled") {
 			this.focusStore.clear(focus.taskId, filter?.sessionId);
 			return null;
 		}
 		if (filter?.projectRoot && !this.list(filter).some((candidate) => candidate.id === task.id)) return null;
-		return { artifact: task, status: focus.status, updatedAt: focus.updatedAt, ...(focus.pauseReason ? { pauseReason: focus.pauseReason } : {}) };
+		return {
+			artifact: task,
+			status: focus.status,
+			updatedAt: focus.updatedAt,
+			...(focus.pauseReason ? { pauseReason: focus.pauseReason } : {}),
+		};
 	}
 
 	active(filter?: TaskFilter): Artifact | null {
@@ -378,7 +422,12 @@ export class Tasks {
 			if (!focus) throw new Error("no focused task");
 			const state = this.focusStore.pause(focus.artifact.id, context.reason, context.sessionId);
 			this.appendEvent({ taskId: focus.artifact.id, type: "focus_paused" }, context);
-			return { artifact: focus.artifact, status: state.status, updatedAt: state.updatedAt, ...(state.pauseReason ? { pauseReason: state.pauseReason } : {}) };
+			return {
+				artifact: focus.artifact,
+				status: state.status,
+				updatedAt: state.updatedAt,
+				...(state.pauseReason ? { pauseReason: state.pauseReason } : {}),
+			};
 		});
 	}
 
@@ -446,12 +495,19 @@ export class Tasks {
 			const transition = TASK_TRANSITIONS[action];
 			if (!transition.from.includes(task.status as TaskStatus)) throw new Error(`cannot ${action} task from ${task.status}`);
 			if (action === "start") {
-				const blocking = this.dependencyIds(id).map((dependencyId) => this.require(dependencyId)).filter((dependency) => dependency.status !== "done");
-				if (blocking.length > 0) throw new Error(`task "${task.title}" is blocked by dependencies: ${blocking.map((dependency) => `"${dependency.title}"`).join(", ")}`);
+				const blocking = this.dependencyIds(id)
+					.map((dependencyId) => this.require(dependencyId))
+					.filter((dependency) => dependency.status !== "done");
+				if (blocking.length > 0)
+					throw new Error(
+						`task "${task.title}" is blocked by dependencies: ${blocking.map((dependency) => `"${dependency.title}"`).join(", ")}`,
+					);
 				this.focusStore.set(id, context.sessionId);
 			}
 			const updated = this.artifacts.setStatus(id, transition.to)!;
-			const eventType = { start: "started", submit: "submitted", reject: "review_rejected", retry: "retried", cancel: "canceled" }[action] as AppendTaskEvent["type"];
+			const eventType = { start: "started", submit: "submitted", reject: "review_rejected", retry: "retried", cancel: "canceled" }[
+				action
+			] as AppendTaskEvent["type"];
 			this.appendEvent({ taskId: id, type: eventType, fromStatus: task.status as TaskStatus, toStatus: transition.to }, context);
 			if (action === "start" || action === "retry") this.propagateProgressToAncestors(id, context);
 			if (action === "retry") this.focusStore.set(id, context.sessionId);
@@ -480,8 +536,9 @@ export class Tasks {
 			visited.add(current);
 			if (visited.size > TASK_CANCEL_SUBTREE_MAX_NODES) throw new Error(`cancelSubtree exceeds ${TASK_CANCEL_SUBTREE_MAX_NODES} tasks`);
 			const task = this.artifacts.get(current);
-			if (!task || task.kind !== "task") continue;
-			const childIds = this.artifacts.relationships({ artifactIds: [current] })
+			if (task?.kind !== "task") continue;
+			const childIds = this.artifacts
+				.relationships({ artifactIds: [current] })
 				.filter((edge) => edge.from === current && edge.relation === "contains")
 				.map((edge) => edge.to);
 			queue.push(...childIds);
@@ -499,7 +556,9 @@ export class Tasks {
 		const task = this.requireReview(id);
 		this.requireNotBlocked(task);
 		const attemptId = crypto.randomUUID();
-		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
+		this.events.atomic(() =>
+			this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context),
+		);
 		const checklist = this.reviewChecklist(task);
 		const results = this.gates.run(id, { cwd: this.scopes.get(id)?.projectRoot });
 		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
@@ -509,7 +568,9 @@ export class Tasks {
 		const task = this.requireReview(id);
 		this.requireNotBlocked(task);
 		const attemptId = crypto.randomUUID();
-		this.events.atomic(() => this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context));
+		this.events.atomic(() =>
+			this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context),
+		);
 		const checklist = this.reviewChecklist(task);
 		// project_root, never the daemon's own inherited process cwd -- see GateRunOptions.cwd's doc
 		// comment for the real incident this fixes (a command gate once tested the daemon's entire
@@ -522,7 +583,16 @@ export class Tasks {
 	async runGates(id: string, context: TaskEventContext = {}): Promise<GateResult[]> {
 		this.require(id);
 		const results = await this.gates.runAsync(id, { cwd: this.scopes.get(id)?.projectRoot });
-		this.events.atomic(() => this.appendEvent({ taskId: id, type: "gates_evaluated", evidence: { gates: results, result: results.every((gate) => gate.passed) ? "passed" : "failed" } }, context));
+		this.events.atomic(() =>
+			this.appendEvent(
+				{
+					taskId: id,
+					type: "gates_evaluated",
+					evidence: { gates: results, result: results.every((gate) => gate.passed) ? "passed" : "failed" },
+				},
+				context,
+			),
+		);
 		return results;
 	}
 
@@ -593,7 +663,9 @@ export class Tasks {
 		return this.events.atomic(() => {
 			this.require(parentId);
 			this.require(childId);
-			const alreadyContained = this.relationships(parentId).some((edge) => edge.relation === "contains" && edge.from === parentId && edge.to === childId);
+			const alreadyContained = this.relationships(parentId).some(
+				(edge) => edge.relation === "contains" && edge.from === parentId && edge.to === childId,
+			);
 			this.artifacts.link({ from: parentId, relation: "contains", to: childId }, context);
 			this.artifacts.link({ from: childId, relation: "part_of", to: parentId }, context);
 			if (!alreadyContained) this.appendEvent({ taskId: parentId, type: "containment_added", reason: context.reason }, context);
@@ -621,7 +693,8 @@ export class Tasks {
 			artifactIds: projectTaskIds,
 			limit: TASK_EXECUTION_MAX_EDGES + 1,
 		});
-		if (relationships.length > TASK_EXECUTION_MAX_EDGES) throw new Error(`task project scope exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
+		if (relationships.length > TASK_EXECUTION_MAX_EDGES)
+			throw new Error(`task project scope exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
 		const children = new Map<string, string[]>();
 		for (const edge of relationships) {
 			const parentId = edge.relation === "contains" ? edge.from : edge.relation === "part_of" ? edge.to : undefined;
@@ -676,22 +749,25 @@ export class Tasks {
 			const parent = this.require(parentId);
 			if (parent.status === "todo") {
 				this.artifacts.setStatus(parentId, "in-progress");
-				this.appendEvent({ taskId: parentId, type: "started", fromStatus: "todo", toStatus: "in-progress" }, {
-					...context,
-					source: "task-ancestry",
-					reason: `nested task ${id} entered progress`,
-				});
+				this.appendEvent(
+					{ taskId: parentId, type: "started", fromStatus: "todo", toStatus: "in-progress" },
+					{
+						...context,
+						source: "task-ancestry",
+						reason: `nested task ${id} entered progress`,
+					},
+				);
 			}
 			pending.push(...this.parentIds(parentId));
 		}
 	}
 
 	private reviewChecklist(task: Artifact): ChecklistReview[] {
-		return checklistEntries(task.extra["checklist"]).map((entry) => ({
+		return checklistEntries(task.extra.checklist).map((entry) => ({
 			item: entry.item,
 			proof: entry.proof,
 			accepted: !entry.legacy && entry.proof.length > 0,
-			...((entry.legacy || entry.proof.length === 0) ? { reason: "typed proof reference required" } : {}),
+			...(entry.legacy || entry.proof.length === 0 ? { reason: "typed proof reference required" } : {}),
 		}));
 	}
 
@@ -717,21 +793,31 @@ export class Tasks {
 		if (failed) {
 			return this.events.atomic(() => {
 				const artifact = this.artifacts.setStatus(id, "rejected")!;
-				this.appendEvent({
-					taskId: id,
-					type: "review_rejected",
-					fromStatus: "review",
-					toStatus: "rejected",
-					attemptId,
-					evidence: { gates, checklist, result: "rejected" },
-				}, context);
+				this.appendEvent(
+					{
+						taskId: id,
+						type: "review_rejected",
+						fromStatus: "review",
+						toStatus: "rejected",
+						attemptId,
+						evidence: { gates, checklist, result: "rejected" },
+					},
+					context,
+				);
 				return { artifact, gates, checklist, completed: false, focused: this.active({ sessionId: context.sessionId }), blocked: [] };
 			});
 		}
 		return this.events.atomic(() => this.finish(id, attemptId, gates, checklist, context, options));
 	}
 
-	private finish(id: string, attemptId: string, gates: GateResult[], checklist: ChecklistReview[], context: TaskEventContext, options: TaskCompletionOptions): TaskCompletion {
+	private finish(
+		id: string,
+		attemptId: string,
+		gates: GateResult[],
+		checklist: ChecklistReview[],
+		context: TaskEventContext,
+		options: TaskCompletionOptions,
+	): TaskCompletion {
 		const successorIds = this.relationships(id)
 			.filter((edge) => edge.relation === "depends_on" && edge.to === id)
 			.map((edge) => edge.from);
@@ -739,22 +825,24 @@ export class Tasks {
 			throw new Error(`task "${id}" exceeds ${TASK_EXECUTION_MAX_DEGREE} successors`);
 		}
 		const artifact = this.artifacts.setStatus(id, "done")!;
-		this.appendEvent({
-			taskId: id,
-			type: "completed",
-			fromStatus: "review",
-			toStatus: "done",
-			attemptId,
-			evidence: { gates, checklist, result: "completed" },
-		}, context);
+		this.appendEvent(
+			{
+				taskId: id,
+				type: "completed",
+				fromStatus: "review",
+				toStatus: "done",
+				attemptId,
+				evidence: { gates, checklist, result: "completed" },
+			},
+			context,
+		);
 		this.focusStore.clearEverywhere(id);
 		const blocked: TaskBlockage[] = [];
 		let focused: Artifact | null = null;
 		for (const successorId of [...successorIds].sort()) {
 			const successor = this.require(successorId);
 			if (successor.status === "done" || successor.status === "canceled") continue;
-			const dependencyIds = this.dependencyIds(successorId)
-				.filter((dependencyId) => this.require(dependencyId).status !== "done");
+			const dependencyIds = this.dependencyIds(successorId).filter((dependencyId) => this.require(dependencyId).status !== "done");
 			if (dependencyIds.length > 0) {
 				blocked.push({ artifact: successor, dependencyIds });
 				continue;
@@ -794,19 +882,26 @@ export class Tasks {
 	 * unrecognized shape.
 	 */
 	private blockingDiscussions(id: string): Artifact[] {
-		return this.artifacts.relationships({ artifactIds: [id] })
+		return this.artifacts
+			.relationships({ artifactIds: [id] })
 			.filter((edge) => edge.relation === "blocks" && edge.to === id)
 			.map((edge) => this.artifacts.get(edge.from))
 			.filter((source): source is Artifact => source !== null && isDiscussionArtifact(source))
 			.filter((discussion) => {
-				try { return readDiscussionExtra(discussion.extra).state === "active"; } catch { return false; }
+				try {
+					return readDiscussionExtra(discussion.extra).state === "active";
+				} catch {
+					return false;
+				}
 			});
 	}
 
 	private requireNotBlocked(task: Artifact): void {
 		const blockers = this.blockingDiscussions(task.id);
 		if (blockers.length > 0) {
-			throw new Error(`task "${task.title}" is blocked by ${blockers.length} active Discussion(s): ${blockers.map((discussion) => `"${discussion.title}"`).join(", ")}`);
+			throw new Error(
+				`task "${task.title}" is blocked by ${blockers.length} active Discussion(s): ${blockers.map((discussion) => `"${discussion.title}"`).join(", ")}`,
+			);
 		}
 	}
 }

@@ -8,40 +8,43 @@
  *             "Are we there yet?" — the agent sees its open work items.
  */
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { CONTEXT_DEFAULT_RESERVE_TOKENS, CONTEXT_HUB_CONTRIBUTION_CHANNEL, CONTEXT_HUB_CONTRIBUTION_SCHEMA } from "@danypops/jittor";
 import {
-	CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN,
+	type Artifact,
+	type GateResult,
 	NOTE_LIST_MAX_LIMIT,
 	NOTE_WIDGET_POLL_INTERVAL_MS,
 	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
 	TASK_DRIVER_MAX_TURNS,
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
 	TASK_WIDGET_POLL_INTERVAL_MS,
-	type Artifact,
-	type GateResult,
 	type TaskGraph,
 	type TaskStatus,
 } from "@danypops/papyrus";
-import { formatMetadata } from "./artifact-format.ts";
-import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import type { PushChannelClient } from "@danypops/vehicle-client/daemon-client";
-import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
-import { registerNotesVehicle } from "./vehicle-notes-client.ts";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
+import {
+	ActiveTaskContinuation,
+	type ActiveTaskMarker,
+	automaticPauseReason,
+	shouldResumeFocusOnHumanInput,
+} from "./active-task-continuation.ts";
+import { formatMetadata } from "./artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
-import { renderNoteWidgetLines } from "./note-widget.ts";
-import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
-import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
-import { ActiveTaskContinuation, automaticPauseReason, shouldResumeFocusOnHumanInput, type ActiveTaskMarker } from "./active-task-continuation.ts";
-import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
-import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
-import { buildContextInjection } from "./context-injection-telemetry.ts";
 import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
 import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context-hub-contribution.ts";
-import { CONTEXT_DEFAULT_RESERVE_TOKENS, CONTEXT_HUB_CONTRIBUTION_CHANNEL, CONTEXT_HUB_CONTRIBUTION_SCHEMA } from "@danypops/jittor";
-import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
+import { buildContextInjection } from "./context-injection-telemetry.ts";
+import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
+import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
+import { renderNoteWidgetLines } from "./note-widget.ts";
+import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
+import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
+import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
+import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
+import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
 	createArtifactDetails,
@@ -50,6 +53,7 @@ import {
 	createModelContent,
 	createPreviewDetails,
 } from "./tool-rendering/render-model.ts";
+import { registerNotesVehicle } from "./vehicle-notes-client.ts";
 
 function text(value: string, details: unknown = {}) {
 	const modelContent = createModelContent(value);
@@ -63,18 +67,25 @@ function artifactTextLabel(artifact: Artifact): string {
 function artifactTextLines(artifacts: readonly Artifact[]): string[] {
 	const titleCounts = new Map<string, number>();
 	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
-	return artifacts.map((artifact) => titleCounts.get(artifact.title)! > 1
-		? `${artifactTextLabel(artifact)} (${artifact.id})`
-		: artifactTextLabel(artifact));
+	return artifacts.map((artifact) =>
+		titleCounts.get(artifact.title)! > 1 ? `${artifactTextLabel(artifact)} (${artifact.id})` : artifactTextLabel(artifact),
+	);
 }
 
 /** Resolves graph protocol ids into model-facing names; equal titles retain ids only to disambiguate. */
 async function artifactNamesById(ids: readonly string[]): Promise<Map<string, string>> {
 	const uniqueIds = [...new Set(ids)];
-	const artifacts = (await Promise.all(uniqueIds.map((id) => callService<Record<string, unknown>, Artifact | null>("artifact.show", { id })))).filter((artifact): artifact is Artifact => artifact !== null);
+	const artifacts = (
+		await Promise.all(uniqueIds.map((id) => callService<Record<string, unknown>, Artifact | null>("artifact.show", { id })))
+	).filter((artifact): artifact is Artifact => artifact !== null);
 	const titleCounts = new Map<string, number>();
 	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
-	return new Map(artifacts.map((artifact) => [artifact.id, titleCounts.get(artifact.title)! > 1 ? `${artifact.title} (${artifact.id})` : artifact.title]));
+	return new Map(
+		artifacts.map((artifact) => [
+			artifact.id,
+			titleCounts.get(artifact.title)! > 1 ? `${artifact.title} (${artifact.id})` : artifact.title,
+		]),
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,10 +132,14 @@ export class TaskOverlay {
 		}
 	}
 
-	setProjectRoot(projectRoot: string): void { this.projectRoot = projectRoot; }
+	setProjectRoot(projectRoot: string): void {
+		this.projectRoot = projectRoot;
+	}
 	// Scopes the widget's "active" glyph to this Pi session's own Focus, so a second
 	// concurrent agent's focused task never shows as active in this session's widget.
-	setSessionId(sessionId: string): void { this.sessionId = sessionId; }
+	setSessionId(sessionId: string): void {
+		this.sessionId = sessionId;
+	}
 
 	/**
 	 * Never throws: called from several pi.on(...) handlers, some of which (session_compact,
@@ -135,7 +150,11 @@ export class TaskOverlay {
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
 		try {
-			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", { limit: 500, project_root: this.projectRoot, session_id: this.sessionId });
+			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", {
+				limit: 500,
+				project_root: this.projectRoot,
+				session_id: this.sessionId,
+			});
 		} catch {
 			this.snapshot = { nodes: [], rootIds: [] };
 		}
@@ -156,7 +175,9 @@ export class TaskOverlay {
 	 */
 	private ensurePushChannel(): void {
 		if (this.pushChannel && this.pushChannel.state() !== "closed") return;
-		this.pushChannel = subscribeTaskPushChannel(() => { void this.refresh(); });
+		this.pushChannel = subscribeTaskPushChannel(() => {
+			void this.refresh();
+		});
 	}
 
 	private render(): void {
@@ -203,7 +224,9 @@ export class TaskOverlay {
 	 * a second concurrent Pi session against the same daemon.
 	 */
 	startPolling(intervalMs: number = TASK_WIDGET_POLL_INTERVAL_MS): void {
-		this.poll.start(intervalMs, () => { void this.refresh(); });
+		this.poll.start(intervalMs, () => {
+			void this.refresh();
+		});
 	}
 
 	stopPolling(): void {
@@ -247,12 +270,17 @@ export class NoteOverlay {
 		}
 	}
 
-	setProjectRoot(projectRoot: string): void { this.projectRoot = projectRoot; }
+	setProjectRoot(projectRoot: string): void {
+		this.projectRoot = projectRoot;
+	}
 
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
 		try {
-			const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", { project_root: this.projectRoot, limit: NOTE_LIST_MAX_LIMIT });
+			const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", {
+				project_root: this.projectRoot,
+				limit: NOTE_LIST_MAX_LIMIT,
+			});
 			this.openCount = rows.length;
 		} catch {
 			this.openCount = 0;
@@ -298,7 +326,9 @@ export class NoteOverlay {
 	}
 
 	startPolling(intervalMs: number = NOTE_WIDGET_POLL_INTERVAL_MS): void {
-		this.poll.start(intervalMs, () => { void this.refresh(); });
+		this.poll.start(intervalMs, () => {
+			void this.refresh();
+		});
 	}
 
 	stopPolling(): void {
@@ -346,17 +376,23 @@ export default async function (pi: ExtensionAPI) {
 		if (isLiveAskPending()) return;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", { project_root: ctx.cwd, session_id: sessionId });
+			const active = await callService<Record<string, unknown>, ActiveTaskMarker | null>("tasks.active", {
+				project_root: ctx.cwd,
+				session_id: sessionId,
+			});
 			const decision = taskContinuation.evaluate(active, {
 				idle: ctx.isIdle(),
 				pendingMessages: ctx.hasPendingMessages(),
 			});
 			if (decision.action === "continue" && decision.prompt) {
-				pi.sendMessage({
-					customType: "papyrus-task-continuation",
-					content: decision.prompt,
-					display: false,
-				}, { triggerTurn: true, deliverAs: "nextTurn" });
+				pi.sendMessage(
+					{
+						customType: "papyrus-task-continuation",
+						content: decision.prompt,
+						display: false,
+					},
+					{ triggerTurn: true, deliverAs: "nextTurn" },
+				);
 			} else if (decision.action === "pause") {
 				const paused = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>("tasks.pause", {
 					actor: "system",
@@ -415,8 +451,12 @@ export default async function (pi: ExtensionAPI) {
 			text: Type.Optional(Type.String({ description: "substring across title and body" })),
 			limit: Type.Optional(Type.Number()),
 		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Query artifacts", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
+		renderCall(args, theme) {
+			return renderPapyrusToolCall("Query artifacts", args, theme);
+		},
+		renderResult(result, options, theme, context) {
+			return renderPapyrusToolResult(result, options, theme, context);
+		},
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const rows = await callService<Record<string, unknown>, Artifact[]>("artifact.query", { ...params, limit: params.limit ?? 50 });
@@ -456,8 +496,12 @@ export default async function (pi: ExtensionAPI) {
 			since: Type.Optional(Type.String({ description: "history: RFC3339 lower bound" })),
 			limit: Type.Optional(Type.Number({ description: "history: bounded page size" })),
 		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Artifact graph", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
+		renderCall(args, theme) {
+			return renderPapyrusToolCall("Artifact graph", args, theme);
+		},
+		renderResult(result, options, theme, context) {
+			return renderPapyrusToolResult(result, options, theme, context);
+		},
 		async execute(_id, rawParams, _signal, _onUpdate, _ctx) {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
@@ -475,7 +519,11 @@ export default async function (pi: ExtensionAPI) {
 					return text(output, createPreviewDetails("graph.link", "Artifact relationship", output));
 				}
 				if (params.action === "unlink") {
-					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: params.from as string, relation: params.relation as string, to: params.to as string });
+					const result = await callService<Record<string, unknown>, { removed: boolean }>("graph.unlink", {
+						from: params.from as string,
+						relation: params.relation as string,
+						to: params.to as string,
+					});
 					const names = await artifactNamesById([params.from as string, params.to as string]);
 					const relationship = `"${names.get(params.from as string) ?? "unknown artifact"}" --${params.relation}--> "${names.get(params.to as string) ?? "unknown artifact"}"`;
 					const output = result.removed ? `Unlinked ${relationship}` : `No such relationship: ${relationship}`;
@@ -505,12 +553,22 @@ export default async function (pi: ExtensionAPI) {
 				}
 				if (params.action === "history") {
 					const page = await callService<Record<string, unknown>, { events: Array<Record<string, unknown>> }>("graph.history", {
-						id: params.id, actor: params.actor, session_id: params.session_id, since: params.since, limit: params.limit,
+						id: params.id,
+						actor: params.actor,
+						session_id: params.session_id,
+						since: params.since,
+						limit: params.limit,
 					});
-					if (page.events.length === 0) return text("No recorded events.", createPreviewDetails("graph.history", "Mutation event log", "No recorded events."));
-					const eventIds = page.events.map((event) => event["artifactId"]).filter((id): id is string => typeof id === "string");
+					if (page.events.length === 0)
+						return text("No recorded events.", createPreviewDetails("graph.history", "Mutation event log", "No recorded events."));
+					const eventIds = page.events.map((event) => event.artifactId).filter((id): id is string => typeof id === "string");
 					const names = await artifactNamesById(eventIds);
-					const output = page.events.map((event) => `${event["occurredAt"]} "${typeof event["artifactId"] === "string" ? names.get(event["artifactId"]) ?? "unknown artifact" : "unknown artifact"}" ${event["type"]} · ${event["actor"]}/${event["source"]}`).join("\n");
+					const output = page.events
+						.map(
+							(event) =>
+								`${event.occurredAt} "${typeof event.artifactId === "string" ? (names.get(event.artifactId) ?? "unknown artifact") : "unknown artifact"}" ${event.type} · ${event.actor}/${event.source}`,
+						)
+						.join("\n");
 					return text(output, createPreviewDetails("graph.history", "Mutation event log", output));
 				}
 				throw new Error(`unknown action: ${params.action}; use link, tree, status, or history`);
@@ -530,8 +588,12 @@ export default async function (pi: ExtensionAPI) {
 			depth: Type.Optional(Type.Number({ description: "edge traversal depth" })),
 			max_nodes: Type.Optional(Type.Number({ description: "maximum traversed nodes" })),
 		}),
-		renderCall(args, theme) { return renderPapyrusToolCall("Show artifact", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
+		renderCall(args, theme) {
+			return renderPapyrusToolCall("Show artifact", args, theme);
+		},
+		renderResult(result, options, theme, context) {
+			return renderPapyrusToolResult(result, options, theme, context);
+		},
 		async execute(_id, params, _signal, _onUpdate, _ctx) {
 			try {
 				const a = await callService<Record<string, unknown>, Artifact | null>("artifact.show", {
@@ -543,7 +605,9 @@ export default async function (pi: ExtensionAPI) {
 				if (!a) throw new Error(`artifact ${params.id} not found`);
 				let out = `${artifactTextLabel(a)}\n\n${a.body}`;
 				if (Object.keys(a.extra).length > 0) {
-					out += `\n\nMetadata:\n${formatMetadata(a.extra).map((line) => `  ${line}`).join("\n")}`;
+					out += `\n\nMetadata:\n${formatMetadata(a.extra)
+						.map((line) => `  ${line}`)
+						.join("\n")}`;
 				}
 				if (a.edges?.length) {
 					const names = await artifactNamesById(a.edges.flatMap((edge) => [edge.from, edge.to]));
@@ -585,7 +649,9 @@ export default async function (pi: ExtensionAPI) {
 	});
 	pi.registerCommand("docs", {
 		description: "Browse and manage Papyrus documents (interactive)",
-		handler: async (_args, ctx) => { await docsModule.showDocs(ctx); },
+		handler: async (_args, ctx) => {
+			await docsModule.showDocs(ctx);
+		},
 	});
 	pi.registerCommand("note", {
 		description: "Capture a deferred request directly in Papyrus",
@@ -604,20 +670,29 @@ export default async function (pi: ExtensionAPI) {
 	});
 	pi.registerCommand("rules", {
 		description: "Browse, preview, and toggle Papyrus rules (interactive)",
-		handler: async (_args, ctx) => { await rulesModule.showRules(ctx); },
+		handler: async (_args, ctx) => {
+			await rulesModule.showRules(ctx);
+		},
 	});
 	pi.registerCommand("playbooks", {
 		description: "Browse, edit, and invoke Papyrus playbooks -- trigger/steps guidance an agent reads and follows (interactive)",
-		handler: async (_args, ctx) => { await playbooksModule.showPlaybooks(ctx); },
+		handler: async (_args, ctx) => {
+			await playbooksModule.showPlaybooks(ctx);
+		},
 	});
 	pi.registerCommand("playbook", {
-		description: "Open one Papyrus playbook directly by name (tab-completes active playbook titles) and place its invocation in the editor; no argument opens the full /playbooks browser instead",
+		description:
+			"Open one Papyrus playbook directly by name (tab-completes active playbook titles) and place its invocation in the editor; no argument opens the full /playbooks browser instead",
 		getArgumentCompletions: (argumentPrefix) => playbooksModule.playbookArgumentCompletions(argumentPrefix),
-		handler: async (args, ctx) => { await playbooksModule.openPlaybookByName(args, ctx); },
+		handler: async (args, ctx) => {
+			await playbooksModule.openPlaybookByName(args, ctx);
+		},
 	});
 	pi.registerCommand("discuss", {
 		description: "Browse Papyrus Discussions and reply, defer, resume, settle, or block/unblock a task (interactive)",
-		handler: async (_args, ctx) => { await discussModule.showDiscussions(ctx); },
+		handler: async (_args, ctx) => {
+			await discussModule.showDiscussions(ctx);
+		},
 	});
 
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
@@ -643,7 +718,9 @@ export default async function (pi: ExtensionAPI) {
 		// not worth surfacing to the user.
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const { secret } = await callService<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", { session_id: sessionId });
+			const { secret } = await callService<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", {
+				session_id: sessionId,
+			});
 			cacheSessionSecret(sessionId, secret);
 		} catch {
 			// intentionally silent -- see comment above
@@ -667,9 +744,15 @@ export default async function (pi: ExtensionAPI) {
 		noteOverlay.startPolling(NOTE_WIDGET_POLL_INTERVAL_MS);
 	});
 
-	pi.on("session_before_compact", () => { taskContinuation.onCompaction(); });
-	pi.on("session_compact", async () => { await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]); });
-	pi.on("session_tree", async () => { await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]); });
+	pi.on("session_before_compact", () => {
+		taskContinuation.onCompaction();
+	});
+	pi.on("session_compact", async () => {
+		await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]);
+	});
+	pi.on("session_tree", async () => {
+		await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]);
+	});
 	pi.on("session_shutdown", async (_event, ctx) => {
 		overlay?.dispose();
 		overlay = undefined;
@@ -705,16 +788,27 @@ export default async function (pi: ExtensionAPI) {
 		taskContinuation.onHumanInput();
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>("tasks.focused", { session_id: sessionId });
+			const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>(
+				"tasks.focused",
+				{ session_id: sessionId },
+			);
 			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
-				await callService("tasks.unpause", { actor: "system", source: "task-continuation", reason: "human input resumed automatic task continuation", session_id: sessionId, ...sessionSecretField(sessionId) });
+				await callService("tasks.unpause", {
+					actor: "system",
+					source: "task-continuation",
+					reason: "human input resumed automatic task continuation",
+					session_id: sessionId,
+					...sessionSecretField(sessionId),
+				});
 				emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId, status: "unpaused" });
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.
 		}
 	});
-	pi.on("agent_start", () => { taskContinuation.onAgentStart(); });
+	pi.on("agent_start", () => {
+		taskContinuation.onAgentStart();
+	});
 	pi.on("agent_settled", async (_event, ctx) => {
 		await driveActiveTasks(ctx);
 		await logSessionContextSnapshot(ctx);
@@ -729,9 +823,19 @@ export default async function (pi: ExtensionAPI) {
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
 			const [rules, playbooks, summary, taskGraph] = await Promise.all([
-				callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", { project_root: ctx.cwd, session_id: sessionId }),
-				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", { status: "active", limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS }),
-				callService<Record<string, unknown>, string | null>("tasks.context", { project_root: ctx.cwd, session_id: sessionId, verbosity: "summary" }),
+				callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", {
+					project_root: ctx.cwd,
+					session_id: sessionId,
+				}),
+				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", {
+					status: "active",
+					limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
+				}),
+				callService<Record<string, unknown>, string | null>("tasks.context", {
+					project_root: ctx.cwd,
+					session_id: sessionId,
+					verbosity: "summary",
+				}),
 				callService<Record<string, unknown>, TaskGraph>("tasks.graph", { project_root: ctx.cwd, session_id: sessionId }),
 			]);
 			const injection = buildContextInjection({

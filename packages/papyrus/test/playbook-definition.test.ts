@@ -77,7 +77,12 @@ describe("playbook-definition: structured steps (full-richness Blueprint absorpt
 		]);
 		const compiled = compilePlaybookDefinition(artifacts, playbook.id);
 		expect(compiled.definition.blueprints.docs).toHaveLength(1);
-		expect(compiled.definition.blueprints.docs[0]).toMatchObject({ title: "Design note", body: "the design", subtype: "design", labels: ["spec"] });
+		expect(compiled.definition.blueprints.docs[0]).toMatchObject({
+			title: "Design note",
+			body: "the design",
+			subtype: "design",
+			labels: ["spec"],
+		});
 		// Two tasks only: root + "First step" + "Second step" -- three, actually; the doc step contributes nothing to blueprints.tasks.
 		expect(compiled.definition.blueprints.tasks).toHaveLength(3);
 		// The doc step doesn't break the sequential chain: "Second step" still depends on "First step", not on the doc.
@@ -93,7 +98,12 @@ describe("playbook-definition: structured steps (full-richness Blueprint absorpt
 		]);
 		const compiled = compilePlaybookDefinition(artifacts, playbook.id);
 		expect(compiled.definition.blueprints.rules).toHaveLength(1);
-		expect(compiled.definition.blueprints.rules[0]).toMatchObject({ title: "No secrets in commits", condition: "committing", action: "scan for secrets first", severity: "block" });
+		expect(compiled.definition.blueprints.rules[0]).toMatchObject({
+			title: "No secrets in commits",
+			condition: "committing",
+			action: "scan for secrets first",
+			severity: "block",
+		});
 	});
 
 	it("compiles a call step into blueprints.skills, chained into the same dependsOn sequence as a task step", () => {
@@ -128,13 +138,17 @@ describe("playbook-definition: structured steps (full-richness Blueprint absorpt
 			arguments: [{ name: "environment", required: true, type: "string", enum: ["staging", "production"] }],
 		});
 		const compiled = compilePlaybookDefinition(artifacts, playbook.id);
-		expect(compiled.definition.inputs["environment"]).toEqual({ type: "string", required: true, enum: ["staging", "production"] });
+		expect(compiled.definition.inputs.environment).toEqual({ type: "string", required: true, enum: ["staging", "production"] });
 	});
 
 	it("throws when a composition tree declares the same argument name with conflicting types", () => {
 		const artifacts = fixture();
-		const prereq = createPlaybook(artifacts, "Needs a count (number)", ["Step"], { arguments: [{ name: "n", required: true, type: "number" }] });
-		const dependent = createPlaybook(artifacts, "Needs a count (string)", ["Step"], { arguments: [{ name: "n", required: true, type: "string" }] });
+		const prereq = createPlaybook(artifacts, "Needs a count (number)", ["Step"], {
+			arguments: [{ name: "n", required: true, type: "number" }],
+		});
+		const dependent = createPlaybook(artifacts, "Needs a count (string)", ["Step"], {
+			arguments: [{ name: "n", required: true, type: "string" }],
+		});
 		artifacts.link({ from: dependent.id, relation: "depends_on", to: prereq.id });
 		expect(() => compilePlaybookDefinition(artifacts, dependent.id)).toThrow(/conflicting types/);
 	});

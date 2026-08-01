@@ -1,10 +1,10 @@
 import {
-	normalizeNoteHistoryQuery,
-	validateNoteEvent,
 	type AppendNoteEvent,
 	type NoteEvent,
 	type NoteHistoryPage,
 	type NoteHistoryQuery,
+	normalizeNoteHistoryQuery,
+	validateNoteEvent,
 } from "../domain/note-event.ts";
 
 export interface NoteEventStore {
@@ -30,8 +30,10 @@ export class InMemoryNoteEventStore implements NoteEventStore {
 	history(noteId: string, query: NoteHistoryQuery = {}): NoteHistoryPage {
 		const { direction, limit, cursor } = normalizeNoteHistoryQuery(query);
 		const ordered = this.events
-			.filter((event) => event.noteId === noteId && (cursor === undefined || (direction === "desc" ? event.id < cursor : event.id > cursor)))
-			.sort((left, right) => direction === "desc" ? right.id - left.id : left.id - right.id);
+			.filter(
+				(event) => event.noteId === noteId && (cursor === undefined || (direction === "desc" ? event.id < cursor : event.id > cursor)),
+			)
+			.sort((left, right) => (direction === "desc" ? right.id - left.id : left.id - right.id));
 		const events = ordered.slice(0, limit);
 		return { events, ...(ordered.length > limit ? { nextCursor: events.at(-1)!.id } : {}) };
 	}

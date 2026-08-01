@@ -1,19 +1,19 @@
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "@danypops/papyrus";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { RULE_STATUS_PRESENTATION, severityColor } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 
 export function ruleRowMeta(rule: Artifact, theme: Theme): string {
-	const severity = typeof rule.extra["severity"] === "string" ? rule.extra["severity"] : "info";
+	const severity = typeof rule.extra.severity === "string" ? rule.extra.severity : "info";
 	const severityText = theme.fg(severityColor(severity), severity.toUpperCase());
-	const condition = typeof rule.extra["condition"] === "string" ? `when ${rule.extra["condition"]}` : "always";
+	const condition = typeof rule.extra.condition === "string" ? `when ${rule.extra.condition}` : "always";
 	return `${severityText} · ${condition}`;
 }
 
 export function ruleInjectionPreview(rule: Pick<Artifact, "title" | "body" | "extra">): string {
-	const condition = typeof rule.extra["condition"] === "string" ? ` (when: ${rule.extra["condition"]})` : "";
-	const action = rule.body || (typeof rule.extra["action"] === "string" ? rule.extra["action"] : "");
+	const condition = typeof rule.extra.condition === "string" ? ` (when: ${rule.extra.condition})` : "";
+	const action = rule.body || (typeof rule.extra.action === "string" ? rule.extra.action : "");
 	return `• ${rule.title}${condition}\n  ${action}`;
 }
 

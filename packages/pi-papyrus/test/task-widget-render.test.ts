@@ -9,16 +9,26 @@ const theme = {
 } as Theme;
 
 const projection: TaskWidgetProjection = {
-	rows: [{
-		task: {
-			id: "defect", kind: "task", title: "Fix graph crash", status: "in-progress", subtype: "", body: "", labels: [], extra: {},
-			created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+	rows: [
+		{
+			task: {
+				id: "defect",
+				kind: "task",
+				title: "Fix graph crash",
+				status: "in-progress",
+				subtype: "",
+				body: "",
+				labels: [],
+				extra: {},
+				created_at: "2026-01-01T00:00:00.000Z",
+				updated_at: "2026-01-01T00:00:00.000Z",
+			},
+			depth: 0,
+			hasOpenChildren: false,
+			active: true,
+			parentCount: 1,
 		},
-		depth: 0,
-		hasOpenChildren: false,
-		active: true,
-		parentCount: 1,
-	}],
+	],
 	openTotal: 49,
 	total: 110,
 	scopeLabel: "papyrus · Release epic",

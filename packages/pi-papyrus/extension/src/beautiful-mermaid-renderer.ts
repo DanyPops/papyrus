@@ -1,15 +1,15 @@
-import { renderMermaidASCII } from "beautiful-mermaid";
 import {
+	type DisplayGraph,
 	GRAPH_RENDER_BOX_PADDING,
 	GRAPH_RENDER_MAX_FALLBACK_LINES,
 	GRAPH_RENDER_MAX_ROUTED_EDGES,
 	GRAPH_RENDER_MAX_ROUTED_NODES,
 	GRAPH_RENDER_PADDING_X,
 	GRAPH_RENDER_PADDING_Y,
-	type DisplayGraph,
 	type GraphRenderer,
 	type RenderedGraph,
 } from "@danypops/papyrus";
+import { renderMermaidASCII } from "beautiful-mermaid";
 
 function nodeLabel(label: string): string {
 	return label.replace(/\s+/g, " ").trim().replaceAll('"', "'");
@@ -27,9 +27,7 @@ export function mermaidSource(graph: DisplayGraph): string {
 		const from = aliases.get(edge.from);
 		const to = aliases.get(edge.to);
 		if (!from || !to) continue;
-		lines.push(edge.label
-			? `  ${from} -->|${edgeLabel(edge.label)}| ${to}`
-			: `  ${from} --> ${to}`);
+		lines.push(edge.label ? `  ${from} -->|${edgeLabel(edge.label)}| ${to}` : `  ${from} --> ${to}`);
 	}
 	return lines.join("\n");
 }

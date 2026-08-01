@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
-import { DAEMON_UNIT_NAME, TASK_EXECUTION_MAX_NODES, dbPath } from "./constants.ts";
+import { DAEMON_UNIT_NAME, dbPath, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
 import { openDb } from "./db.ts";
-import { applyIdMigration, mirrorDatabase, planIdMigration, verifyIdMigration, type IdMigrationPlan } from "./id-migration.ts";
 import type { GateResult } from "./domain/gate.ts";
+import { applyIdMigration, type IdMigrationPlan, mirrorDatabase, planIdMigration, verifyIdMigration } from "./id-migration.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskBlockage, TaskCompletion } from "./task-service.ts";
 
@@ -52,7 +52,7 @@ export function renderSystemdUnit(options: SystemdUnitOptions): string {
 }
 
 function unitPath(): string {
-	const configHome = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
+	const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
 	return join(configHome, "systemd", "user", DAEMON_UNIT_NAME);
 }
 
@@ -199,7 +199,15 @@ function usage(): never {
 type TaskCliClient = Pick<PapyrusClient, "call">;
 type MigrationResult = { from: number; to: number; applied: string[] };
 type CliArtifact = { id: string; title: string; status: string; body?: string };
-type CliTaskLease = { taskId: string; owner: string; token: string; claimedAt: string; leaseExpiresAt: string; heartbeatAt?: string; note?: string };
+type CliTaskLease = {
+	taskId: string;
+	owner: string;
+	token: string;
+	claimedAt: string;
+	leaseExpiresAt: string;
+	heartbeatAt?: string;
+	note?: string;
+};
 type CliCompletion = Omit<TaskCompletion, "artifact" | "blocked"> & {
 	artifact: CliArtifact;
 	blocked: Array<Omit<TaskBlockage, "artifact"> & { artifact: CliArtifact }>;
@@ -288,7 +296,11 @@ export function runIdMigrationCli(args: string[]): string {
 		const mirrorPath = flag("out");
 		if (!mirrorPath) throw new Error("migrate-ids mirror requires --out <path>");
 		const sourceDb = openDb(source);
-		try { mirrorDatabase(sourceDb, mirrorPath); } finally { sourceDb.close(); }
+		try {
+			mirrorDatabase(sourceDb, mirrorPath);
+		} finally {
+			sourceDb.close();
+		}
 
 		const mirror = openDb(mirrorPath);
 		let plan: IdMigrationPlan;
@@ -318,9 +330,14 @@ export function runIdMigrationCli(args: string[]): string {
 		const plan = readIdMap(flag("idmap") ?? `${mirrorPath}.idmap.json`);
 		const mirror = openDb(mirrorPath);
 		let result: ReturnType<typeof verifyIdMigration>;
-		try { result = verifyIdMigration(mirror, plan); } finally { mirror.close(); }
+		try {
+			result = verifyIdMigration(mirror, plan);
+		} finally {
+			mirror.close();
+		}
 		if (json) return JSON.stringify(result);
-		if (result.ok) return `Validation passed: ${plan.idMap.size} artifact id(s) correctly migrated.\nNext: papyrus migrate-ids promote --mirror ${mirrorPath}`;
+		if (result.ok)
+			return `Validation passed: ${plan.idMap.size} artifact id(s) correctly migrated.\nNext: papyrus migrate-ids promote --mirror ${mirrorPath}`;
 		return `Validation FAILED:\n${result.problems.map((problem) => `  - ${problem}`).join("\n")}\nDo not promote this mirror.`;
 	}
 
@@ -330,14 +347,22 @@ export function runIdMigrationCli(args: string[]): string {
 		const target = flag("db") ?? dbPath();
 		const force = rest.includes("--force");
 		if (isDaemonActive() && !force) {
-			throw new Error(`refusing to promote while ${DAEMON_UNIT_NAME} is active -- stop it first (papyrus service stop), or pass --force if you have already verified it is safe`);
+			throw new Error(
+				`refusing to promote while ${DAEMON_UNIT_NAME} is active -- stop it first (papyrus service stop), or pass --force if you have already verified it is safe`,
+			);
 		}
 		const plan = readIdMap(flag("idmap") ?? `${mirrorPath}.idmap.json`);
 		const mirror = openDb(mirrorPath);
 		let result: ReturnType<typeof verifyIdMigration>;
-		try { result = verifyIdMigration(mirror, plan); } finally { mirror.close(); }
+		try {
+			result = verifyIdMigration(mirror, plan);
+		} finally {
+			mirror.close();
+		}
 		if (!result.ok) {
-			throw new Error(`refusing to promote: mirror failed validation (${result.problems.length} problem(s)) -- run migrate-ids validate for details`);
+			throw new Error(
+				`refusing to promote: mirror failed validation (${result.problems.length} problem(s)) -- run migrate-ids validate for details`,
+			);
 		}
 		let backupPath: string | undefined;
 		if (existsSync(target)) {
@@ -377,7 +402,10 @@ export async function runGraphCli(args: string[], client: TaskCliClient): Promis
 		const argument = args[index]!;
 		if (argument === "--json") continue;
 		const flags: Record<string, string> = {
-			"--id": "id", "--actor": "actor", "--session-id": "session_id", "--since": "since",
+			"--id": "id",
+			"--actor": "actor",
+			"--session-id": "session_id",
+			"--since": "since",
 			"--direction": "direction",
 		};
 		if (argument in flags) {
@@ -415,13 +443,20 @@ export async function runGraphCli(args: string[], client: TaskCliClient): Promis
 	}
 	if (action === "unlink") {
 		if (positional.length !== 4) throw new Error("graph unlink requires <from> <relation> <to>");
-		const result = await client.call<Record<string, unknown>, { removed: boolean }>("graph.unlink", { from: first, relation: second, to: third });
+		const result = await client.call<Record<string, unknown>, { removed: boolean }>("graph.unlink", {
+			from: first,
+			relation: second,
+			to: third,
+		});
 		if (json) return JSON.stringify(result);
 		return result.removed ? `Unlinked ${first} --${second}--> ${third}` : `No such relationship: ${first} --${second}--> ${third}`;
 	}
 	if (action === "tree") {
 		if (positional.length !== 2) throw new Error("graph tree requires exactly one artifact id");
-		const artifact = await client.call<Record<string, unknown>, CliArtifact & { edges?: Array<{ from: string; relation: string; to: string }> }>("graph.tree", { id: first, depth, max_nodes: maxNodes });
+		const artifact = await client.call<
+			Record<string, unknown>,
+			CliArtifact & { edges?: Array<{ from: string; relation: string; to: string }> }
+		>("graph.tree", { id: first, depth, max_nodes: maxNodes });
 		if (json) return JSON.stringify(artifact);
 		const edges = artifact.edges ?? [];
 		return edges.length === 0
@@ -437,11 +472,13 @@ export async function runGraphCli(args: string[], client: TaskCliClient): Promis
 	const page = await client.call<Record<string, unknown>, import("./domain/artifact-event.ts").ArtifactEventPage>("graph.history", input);
 	if (json) return JSON.stringify(page);
 	if (page.events.length === 0) return "No recorded events.";
-	return page.events.map((event) => {
-		const transition = event.fromStatus || event.toStatus ? ` ${event.fromStatus ?? "\u2205"} \u2192 ${event.toStatus ?? "\u2205"}` : "";
-		const relation = event.relation ? ` ${event.relation} \u2192 ${event.relatedId}` : "";
-		return `${event.occurredAt} ${event.artifactId} ${event.type}${transition}${relation} \u00b7 ${event.actor}/${event.source}${event.sessionId ? ` \u00b7 ${event.sessionId}` : ""}`;
-	}).join("\n");
+	return page.events
+		.map((event) => {
+			const transition = event.fromStatus || event.toStatus ? ` ${event.fromStatus ?? "\u2205"} \u2192 ${event.toStatus ?? "\u2205"}` : "";
+			const relation = event.relation ? ` ${event.relation} \u2192 ${event.relatedId}` : "";
+			return `${event.occurredAt} ${event.artifactId} ${event.type}${transition}${relation} \u00b7 ${event.actor}/${event.source}${event.sessionId ? ` \u00b7 ${event.sessionId}` : ""}`;
+		})
+		.join("\n");
 }
 
 export async function runDocsCli(args: string[], client: TaskCliClient): Promise<string> {
@@ -460,15 +497,49 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
-		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
-		if (argument === "--subtype") { subtype = args[++index]; if (!subtype) throw new Error("--subtype requires a value"); continue; }
-		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
-		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
-		if (argument === "--template-id") { templateId = args[++index]; if (!templateId) throw new Error("--template-id requires a value"); continue; }
-		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
-		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
-		if (argument === "--project-root") { projectRoot = args[++index]; if (!projectRoot) throw new Error("--project-root requires a value"); continue; }
+		if (argument === "--title") {
+			title = args[++index];
+			if (title === undefined) throw new Error("--title requires a value");
+			continue;
+		}
+		if (argument === "--body") {
+			body = args[++index];
+			if (body === undefined) throw new Error("--body requires a value");
+			continue;
+		}
+		if (argument === "--subtype") {
+			subtype = args[++index];
+			if (!subtype) throw new Error("--subtype requires a value");
+			continue;
+		}
+		if (argument === "--labels-json") {
+			labels = parseJsonStringArrayFlag(args[++index], "--labels-json");
+			continue;
+		}
+		if (argument === "--extra-json") {
+			extra = parseJsonObjectFlag(args[++index], "--extra-json");
+			continue;
+		}
+		if (argument === "--template-id") {
+			templateId = args[++index];
+			if (!templateId) throw new Error("--template-id requires a value");
+			continue;
+		}
+		if (argument === "--status") {
+			status = args[++index];
+			if (!status) throw new Error("--status requires a value");
+			continue;
+		}
+		if (argument === "--text") {
+			text = args[++index];
+			if (text === undefined) throw new Error("--text requires a value");
+			continue;
+		}
+		if (argument === "--project-root") {
+			projectRoot = args[++index];
+			if (!projectRoot) throw new Error("--project-root requires a value");
+			continue;
+		}
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -485,14 +556,27 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 		case "create": {
 			if (id) throw new Error("docs create accepts no positional arguments");
 			if (!title) throw new Error("docs create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.create", { title, body, subtype, labels, extra, template_id: templateId, project_root: projectRoot });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.create", {
+				title,
+				body,
+				subtype,
+				labels,
+				extra,
+				template_id: templateId,
+				project_root: projectRoot,
+			});
 			result = artifact;
 			human = `Created document: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "list": {
 			if (id) throw new Error("docs list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("docs.list", { status, text, limit, project_root: projectRoot });
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("docs.list", {
+				status,
+				text,
+				limit,
+				project_root: projectRoot,
+			});
 			result = rows;
 			human = rows.length === 0 ? "No documents found." : rows.map((row) => artifactLabel(row)).join("\n");
 			break;
@@ -529,7 +613,8 @@ export async function runDocsCli(args: string[], client: TaskCliClient): Promise
 		}
 		case "update": {
 			if (!id || second) throw new Error("docs update requires exactly one document id");
-			if (title === undefined && body === undefined && labels === undefined) throw new Error("docs update requires --title, --body, or --labels-json");
+			if (title === undefined && body === undefined && labels === undefined)
+				throw new Error("docs update requires --title, --body, or --labels-json");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("docs.update", { id, title, body, labels });
 			result = artifact;
 			human = `${artifactLabel(artifact)}`;
@@ -558,16 +643,54 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
-		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
-		if (argument === "--condition") { condition = args[++index]; if (condition === undefined) throw new Error("--condition requires a value"); continue; }
-		if (argument === "--rule-action") { ruleAction = args[++index]; if (ruleAction === undefined) throw new Error("--rule-action requires a value"); continue; }
-		if (argument === "--severity") { severity = args[++index]; if (!severity) throw new Error("--severity requires a value"); continue; }
-		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
-		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
-		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
-		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
-		if (argument === "--project-root") { ruleProjectRoot = args[++index]; if (!ruleProjectRoot) throw new Error("--project-root requires a value"); continue; }
+		if (argument === "--title") {
+			title = args[++index];
+			if (title === undefined) throw new Error("--title requires a value");
+			continue;
+		}
+		if (argument === "--body") {
+			body = args[++index];
+			if (body === undefined) throw new Error("--body requires a value");
+			continue;
+		}
+		if (argument === "--condition") {
+			condition = args[++index];
+			if (condition === undefined) throw new Error("--condition requires a value");
+			continue;
+		}
+		if (argument === "--rule-action") {
+			ruleAction = args[++index];
+			if (ruleAction === undefined) throw new Error("--rule-action requires a value");
+			continue;
+		}
+		if (argument === "--severity") {
+			severity = args[++index];
+			if (!severity) throw new Error("--severity requires a value");
+			continue;
+		}
+		if (argument === "--labels-json") {
+			labels = parseJsonStringArrayFlag(args[++index], "--labels-json");
+			continue;
+		}
+		if (argument === "--extra-json") {
+			extra = parseJsonObjectFlag(args[++index], "--extra-json");
+			continue;
+		}
+		if (argument === "--status") {
+			status = args[++index];
+			if (!status) throw new Error("--status requires a value");
+			continue;
+		}
+		if (argument === "--text") {
+			text = args[++index];
+			if (text === undefined) throw new Error("--text requires a value");
+			continue;
+		}
+		if (argument === "--project-root") {
+			ruleProjectRoot = args[++index];
+			if (!ruleProjectRoot) throw new Error("--project-root requires a value");
+			continue;
+		}
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -584,14 +707,28 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 		case "create": {
 			if (id) throw new Error("rules create accepts no positional arguments");
 			if (!title) throw new Error("rules create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.create", { title, body, condition, rule_action: ruleAction, severity, labels, extra, project_root: ruleProjectRoot });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.create", {
+				title,
+				body,
+				condition,
+				rule_action: ruleAction,
+				severity,
+				labels,
+				extra,
+				project_root: ruleProjectRoot,
+			});
 			result = artifact;
 			human = `Created rule: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "list": {
 			if (id) throw new Error("rules list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("rules.list", { status, text, limit, project_root: ruleProjectRoot });
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("rules.list", {
+				status,
+				text,
+				limit,
+				project_root: ruleProjectRoot,
+			});
 			result = rows;
 			human = rows.length === 0 ? "No rules found." : rows.map((row) => artifactLabel(row)).join("\n");
 			break;
@@ -641,7 +778,8 @@ export async function runRulesCli(args: string[], client: TaskCliClient, project
 		}
 		case "update": {
 			if (!id || second) throw new Error("rules update requires exactly one rule id");
-			if (title === undefined && body === undefined && labels === undefined) throw new Error("rules update requires --title, --body, or --labels-json");
+			if (title === undefined && body === undefined && labels === undefined)
+				throw new Error("rules update requires --title, --body, or --labels-json");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("rules.update", { id, title, body, labels });
 			result = artifact;
 			human = `${artifactLabel(artifact)}`;
@@ -672,18 +810,61 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
-		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
-		if (argument === "--trigger") { trigger = args[++index]; if (trigger === undefined) throw new Error("--trigger requires a value"); continue; }
-		if (argument === "--steps-json") { steps = parseJsonAnyFlag(args[++index], "--steps-json"); continue; }
-		if (argument === "--tools-json") { tools = parseJsonStringArrayFlag(args[++index], "--tools-json"); continue; }
-		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
-		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
-		if (argument === "--arguments-json") { playbookArguments = parseJsonAnyFlag(args[++index], "--arguments-json"); continue; }
-		if (argument === "--run-id") { runId = args[++index]; if (!runId) throw new Error("--run-id requires a value"); continue; }
-		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
-		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
-		if (argument === "--project-root") { playbookProjectRoot = args[++index]; if (!playbookProjectRoot) throw new Error("--project-root requires a value"); continue; }
+		if (argument === "--title") {
+			title = args[++index];
+			if (title === undefined) throw new Error("--title requires a value");
+			continue;
+		}
+		if (argument === "--body") {
+			body = args[++index];
+			if (body === undefined) throw new Error("--body requires a value");
+			continue;
+		}
+		if (argument === "--trigger") {
+			trigger = args[++index];
+			if (trigger === undefined) throw new Error("--trigger requires a value");
+			continue;
+		}
+		if (argument === "--steps-json") {
+			steps = parseJsonAnyFlag(args[++index], "--steps-json");
+			continue;
+		}
+		if (argument === "--tools-json") {
+			tools = parseJsonStringArrayFlag(args[++index], "--tools-json");
+			continue;
+		}
+		if (argument === "--labels-json") {
+			labels = parseJsonStringArrayFlag(args[++index], "--labels-json");
+			continue;
+		}
+		if (argument === "--extra-json") {
+			extra = parseJsonObjectFlag(args[++index], "--extra-json");
+			continue;
+		}
+		if (argument === "--arguments-json") {
+			playbookArguments = parseJsonAnyFlag(args[++index], "--arguments-json");
+			continue;
+		}
+		if (argument === "--run-id") {
+			runId = args[++index];
+			if (!runId) throw new Error("--run-id requires a value");
+			continue;
+		}
+		if (argument === "--status") {
+			status = args[++index];
+			if (!status) throw new Error("--status requires a value");
+			continue;
+		}
+		if (argument === "--text") {
+			text = args[++index];
+			if (text === undefined) throw new Error("--text requires a value");
+			continue;
+		}
+		if (argument === "--project-root") {
+			playbookProjectRoot = args[++index];
+			if (!playbookProjectRoot) throw new Error("--project-root requires a value");
+			continue;
+		}
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -700,14 +881,29 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		case "create": {
 			if (id) throw new Error("playbooks create accepts no positional arguments");
 			if (!title) throw new Error("playbooks create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.create", { title, body, trigger, steps, tools, labels, extra, arguments: playbookArguments, project_root: playbookProjectRoot });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.create", {
+				title,
+				body,
+				trigger,
+				steps,
+				tools,
+				labels,
+				extra,
+				arguments: playbookArguments,
+				project_root: playbookProjectRoot,
+			});
 			result = artifact;
 			human = `Created playbook: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "list": {
 			if (id) throw new Error("playbooks list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("playbooks.list", { status, text, limit, project_root: playbookProjectRoot });
+			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("playbooks.list", {
+				status,
+				text,
+				limit,
+				project_root: playbookProjectRoot,
+			});
 			result = rows;
 			human = rows.length === 0 ? "No playbooks found." : rows.map((row) => artifactLabel(row)).join("\n");
 			break;
@@ -728,7 +924,10 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		}
 		case "invoke": {
 			if (!id || second) throw new Error("playbooks invoke requires exactly one playbook id");
-			const invocation = await client.call<Record<string, unknown>, { entryTaskId: string; missingArguments?: string[] }>("playbooks.invoke", { id, arguments: playbookArguments, run_id: runId, project_root: playbookProjectRoot });
+			const invocation = await client.call<Record<string, unknown>, { entryTaskId: string; missingArguments?: string[] }>(
+				"playbooks.invoke",
+				{ id, arguments: playbookArguments, run_id: runId, project_root: playbookProjectRoot },
+			);
 			result = invocation;
 			human = invocation.missingArguments
 				? `Missing required argument(s): ${invocation.missingArguments.join(", ")}.`
@@ -744,7 +943,7 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 			break;
 		}
 		case "assign-project": {
-			if (!id || second === undefined && positional.length > 2) throw new Error("playbooks assign-project requires <id> [project-root]");
+			if (!id || (second === undefined && positional.length > 2)) throw new Error("playbooks assign-project requires <id> [project-root]");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.assign_project", { id, project_root: second });
 			result = artifact;
 			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
@@ -752,7 +951,8 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 		}
 		case "update": {
 			if (!id || second) throw new Error("playbooks update requires exactly one playbook id");
-			if (title === undefined && body === undefined && labels === undefined) throw new Error("playbooks update requires --title, --body, or --labels-json");
+			if (title === undefined && body === undefined && labels === undefined)
+				throw new Error("playbooks update requires --title, --body, or --labels-json");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.update", { id, title, body, labels });
 			result = artifact;
 			human = `${artifactLabel(artifact)}`;
@@ -787,7 +987,9 @@ export async function runPlaybooksCli(args: string[], client: TaskCliClient): Pr
 			break;
 		}
 		default:
-			throw new Error("playbooks action must be create, list, show, invoke, preview, enable, disable, assign-project, update, contain, uncontain, depend, or undepend");
+			throw new Error(
+				"playbooks action must be create, list, show, invoke, preview, enable, disable, assign-project, update, contain, uncontain, depend, or undepend",
+			);
 	}
 	return json ? JSON.stringify(result) : human;
 }
@@ -811,16 +1013,54 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--kind") { kind = args[++index]; if (!kind) throw new Error("--kind requires a value"); continue; }
-		if (argument === "--title") { title = args[++index]; if (title === undefined) throw new Error("--title requires a value"); continue; }
-		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
-		if (argument === "--status") { status = args[++index]; if (!status) throw new Error("--status requires a value"); continue; }
-		if (argument === "--subtype") { subtype = args[++index]; if (!subtype) throw new Error("--subtype requires a value"); continue; }
-		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
-		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index], "--extra-json"); continue; }
-		if (argument === "--template-id") { templateId = args[++index]; if (!templateId) throw new Error("--template-id requires a value"); continue; }
-		if (argument === "--reason") { reason = args[++index]; if (reason === undefined) throw new Error("--reason requires a value"); continue; }
-		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
+		if (argument === "--kind") {
+			kind = args[++index];
+			if (!kind) throw new Error("--kind requires a value");
+			continue;
+		}
+		if (argument === "--title") {
+			title = args[++index];
+			if (title === undefined) throw new Error("--title requires a value");
+			continue;
+		}
+		if (argument === "--body") {
+			body = args[++index];
+			if (body === undefined) throw new Error("--body requires a value");
+			continue;
+		}
+		if (argument === "--status") {
+			status = args[++index];
+			if (!status) throw new Error("--status requires a value");
+			continue;
+		}
+		if (argument === "--subtype") {
+			subtype = args[++index];
+			if (!subtype) throw new Error("--subtype requires a value");
+			continue;
+		}
+		if (argument === "--labels-json") {
+			labels = parseJsonStringArrayFlag(args[++index], "--labels-json");
+			continue;
+		}
+		if (argument === "--extra-json") {
+			extra = parseJsonObjectFlag(args[++index], "--extra-json");
+			continue;
+		}
+		if (argument === "--template-id") {
+			templateId = args[++index];
+			if (!templateId) throw new Error("--template-id requires a value");
+			continue;
+		}
+		if (argument === "--reason") {
+			reason = args[++index];
+			if (reason === undefined) throw new Error("--reason requires a value");
+			continue;
+		}
+		if (argument === "--text") {
+			text = args[++index];
+			if (text === undefined) throw new Error("--text requires a value");
+			continue;
+		}
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -850,7 +1090,14 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 			if (id) throw new Error("artifact create accepts no positional arguments");
 			if (!kind && !templateId) throw new Error("artifact create requires --kind (or --template-id)");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("artifact.create", {
-				kind, title, body, status, subtype, labels, extra, template_id: templateId,
+				kind,
+				title,
+				body,
+				status,
+				subtype,
+				labels,
+				extra,
+				template_id: templateId,
 				...(kind === "task" ? { project_root: projectRoot } : {}),
 			});
 			result = artifact;
@@ -873,14 +1120,20 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 		}
 		case "remove": {
 			if (!id) throw new Error("artifact remove requires exactly one artifact id");
-			const record = await client.call<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>("artifact.remove", { id, reason });
+			const record = await client.call<
+				Record<string, unknown>,
+				{ artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }
+			>("artifact.remove", { id, reason });
 			result = record;
 			human = `Trashed ${record.artifactId}: eligible for purge at ${record.purgeAfter}`;
 			break;
 		}
 		case "remove-subtree": {
 			if (!id) throw new Error("artifact remove-subtree requires exactly one artifact id");
-			const outcome = await client.call<Record<string, unknown>, { removed: string[]; skipped: string[] }>("artifact.remove_subtree", { id, reason });
+			const outcome = await client.call<Record<string, unknown>, { removed: string[]; skipped: string[] }>("artifact.remove_subtree", {
+				id,
+				reason,
+			});
 			result = outcome;
 			human = `Trashed ${outcome.removed.length} artifact(s)${outcome.skipped.length > 0 ? `, skipped ${outcome.skipped.length} already-trashed` : ""}.`;
 			break;
@@ -894,16 +1147,25 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 		}
 		case "trash-status": {
 			if (!id) throw new Error("artifact trash-status requires exactly one artifact id");
-			const record = await client.call<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string } | null>("artifact.trash_status", { id });
+			const record = await client.call<
+				Record<string, unknown>,
+				{ artifactId: string; trashedAt: string; purgeAfter: string; reason?: string } | null
+			>("artifact.trash_status", { id });
 			result = record;
-			human = record ? `${record.artifactId}: trashed at ${record.trashedAt}, purge eligible at ${record.purgeAfter}` : `${id} is not trashed`;
+			human = record
+				? `${record.artifactId}: trashed at ${record.trashedAt}, purge eligible at ${record.purgeAfter}`
+				: `${id} is not trashed`;
 			break;
 		}
 		case "trash-list": {
 			if (id) throw new Error("artifact trash-list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, Array<{ artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>>("artifact.trash_list", {});
+			const rows = await client.call<
+				Record<string, unknown>,
+				Array<{ artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>
+			>("artifact.trash_list", {});
 			result = rows;
-			human = rows.length === 0 ? "Trash is empty." : rows.map((row) => `${row.artifactId}: purge eligible at ${row.purgeAfter}`).join("\n");
+			human =
+				rows.length === 0 ? "Trash is empty." : rows.map((row) => `${row.artifactId}: purge eligible at ${row.purgeAfter}`).join("\n");
 			break;
 		}
 		default:
@@ -931,8 +1193,15 @@ export async function runGraphProjectionCli(args: string[], client: TaskCliClien
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--batch-json") { batch = parseJsonObjectFlag(args[++index], "--batch-json"); continue; }
-		if (argument === "--producer-id") { producerId = args[++index]; if (!producerId) throw new Error("--producer-id requires a value"); continue; }
+		if (argument === "--batch-json") {
+			batch = parseJsonObjectFlag(args[++index], "--batch-json");
+			continue;
+		}
+		if (argument === "--producer-id") {
+			producerId = args[++index];
+			if (!producerId) throw new Error("--producer-id requires a value");
+			continue;
+		}
 		positional.push(argument);
 	}
 	const [action] = positional;
@@ -967,9 +1236,27 @@ export async function runLogCli(args: string[], client: TaskCliClient, projectRo
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--global") { global = true; continue; }
-		if (argument === "--fields-json") { fields = parseJsonObjectFlag(args[++index], "--fields-json"); continue; }
-		if (["--source", "--source-label", "--level", "--message", "--operation-id", "--session-id", "--occurred-at", "--since", "--limit"].includes(argument)) {
+		if (argument === "--global") {
+			global = true;
+			continue;
+		}
+		if (argument === "--fields-json") {
+			fields = parseJsonObjectFlag(args[++index], "--fields-json");
+			continue;
+		}
+		if (
+			[
+				"--source",
+				"--source-label",
+				"--level",
+				"--message",
+				"--operation-id",
+				"--session-id",
+				"--occurred-at",
+				"--since",
+				"--limit",
+			].includes(argument)
+		) {
 			const value = args[++index];
 			if (value === undefined) throw new Error(`${argument} requires a value`);
 			if (argument === "--source") source = value;
@@ -996,17 +1283,25 @@ export async function runLogCli(args: string[], client: TaskCliClient, projectRo
 		if (!message) throw new Error("log append requires --message");
 		if (!operationId) throw new Error("log append requires --operation-id");
 		const result = await client.call("logs.append", {
-			source_id: source, ...(sourceLabel ? { source_label: sourceLabel } : {}),
+			source_id: source,
+			...(sourceLabel ? { source_label: sourceLabel } : {}),
 			...(global ? {} : { project_root: projectRoot }),
-			level, message, operation_id: operationId,
-			...(fields ? { fields } : {}), ...(sessionId ? { session_id: sessionId } : {}), ...(occurredAt ? { occurred_at: occurredAt } : {}),
+			level,
+			message,
+			operation_id: operationId,
+			...(fields ? { fields } : {}),
+			...(sessionId ? { session_id: sessionId } : {}),
+			...(occurredAt ? { occurred_at: occurredAt } : {}),
 		});
 		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 	}
 	if (action === "query") {
 		if (!source) throw new Error("log query requires --source");
 		const result = await client.call<Record<string, unknown>, { entries: unknown[]; truncated: boolean }>("logs.query", {
-			source_id: source, ...(since ? { since } : {}), ...(level ? { level } : {}), ...(limit === undefined ? {} : { limit }),
+			source_id: source,
+			...(since ? { since } : {}),
+			...(level ? { level } : {}),
+			...(limit === undefined ? {} : { limit }),
 		});
 		if (json) return JSON.stringify(result);
 		const lines = result.entries.map((entry) => JSON.stringify(entry));
@@ -1023,20 +1318,31 @@ export async function runSessionIdentityCli(args: string[], client: TaskCliClien
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--session-id") { sessionId = args[++index]; continue; }
-		if (argument === "--session-secret") { secret = args[++index]; continue; }
+		if (argument === "--session-id") {
+			sessionId = args[++index];
+			continue;
+		}
+		if (argument === "--session-secret") {
+			secret = args[++index];
+			continue;
+		}
 		if (argument.startsWith("--")) throw new Error(`unknown session option ${argument}`);
 		positional.push(argument);
 	}
 	const [action] = positional;
 	if (action === "register") {
 		if (!sessionId) throw new Error("session register requires --session-id");
-		const result = await client.call<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", { session_id: sessionId });
+		const result = await client.call<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", {
+			session_id: sessionId,
+		});
 		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 	}
 	if (action === "release") {
 		if (!sessionId) throw new Error("session release requires --session-id");
-		const result = await client.call<Record<string, unknown>, { released: boolean }>("session.release", { session_id: sessionId, ...(secret ? { session_secret: secret } : {}) });
+		const result = await client.call<Record<string, unknown>, { released: boolean }>("session.release", {
+			session_id: sessionId,
+			...(secret ? { session_secret: secret } : {}),
+		});
 		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 	}
 	throw new Error("session action must be register or release");
@@ -1064,20 +1370,71 @@ export async function runDiscussCli(args: string[], client: TaskCliClient): Prom
 	for (let index = 0; index < args.length; index++) {
 		const argument = args[index]!;
 		if (argument === "--json") continue;
-		if (argument === "--title") { title = args[++index]; if (!title) throw new Error("--title requires a value"); continue; }
-		if (argument === "--actor") { actor = args[++index]; if (!actor) throw new Error("--actor requires a value"); continue; }
-		if (argument === "--content") { content = args[++index]; if (content === undefined) throw new Error("--content requires a value"); continue; }
-		if (argument === "--body") { body = args[++index]; if (body === undefined) throw new Error("--body requires a value"); continue; }
-		if (argument === "--labels-json") { labels = parseJsonStringArrayFlag(args[++index], "--labels-json"); continue; }
-		if (argument === "--blocks-json") { blocksTaskIds = parseJsonStringArrayFlag(args[++index], "--blocks-json"); continue; }
-		if (argument === "--task-id") { taskId = args[++index]; if (!taskId) throw new Error("--task-id requires a value"); continue; }
-		if (argument === "--options-json") { options = parseJsonStringArrayFlag(args[++index], "--options-json"); continue; }
-		if (argument === "--options-mode") { optionsMode = args[++index]; if (!optionsMode) throw new Error("--options-mode requires a value"); continue; }
-		if (argument === "--option-descriptions-json") { optionDescriptions = parseJsonStringArrayFlag(args[++index], "--option-descriptions-json"); continue; }
-		if (argument === "--selected-json") { selected = parseJsonStringArrayFlag(args[++index], "--selected-json"); continue; }
-		if (argument === "--reason") { reason = args[++index]; if (reason === undefined) throw new Error("--reason requires a value"); continue; }
-		if (argument === "--settlement") { settlement = args[++index]; if (!settlement) throw new Error("--settlement requires a value"); continue; }
-		if (argument === "--state") { state = args[++index]; if (!state) throw new Error("--state requires a value"); continue; }
+		if (argument === "--title") {
+			title = args[++index];
+			if (!title) throw new Error("--title requires a value");
+			continue;
+		}
+		if (argument === "--actor") {
+			actor = args[++index];
+			if (!actor) throw new Error("--actor requires a value");
+			continue;
+		}
+		if (argument === "--content") {
+			content = args[++index];
+			if (content === undefined) throw new Error("--content requires a value");
+			continue;
+		}
+		if (argument === "--body") {
+			body = args[++index];
+			if (body === undefined) throw new Error("--body requires a value");
+			continue;
+		}
+		if (argument === "--labels-json") {
+			labels = parseJsonStringArrayFlag(args[++index], "--labels-json");
+			continue;
+		}
+		if (argument === "--blocks-json") {
+			blocksTaskIds = parseJsonStringArrayFlag(args[++index], "--blocks-json");
+			continue;
+		}
+		if (argument === "--task-id") {
+			taskId = args[++index];
+			if (!taskId) throw new Error("--task-id requires a value");
+			continue;
+		}
+		if (argument === "--options-json") {
+			options = parseJsonStringArrayFlag(args[++index], "--options-json");
+			continue;
+		}
+		if (argument === "--options-mode") {
+			optionsMode = args[++index];
+			if (!optionsMode) throw new Error("--options-mode requires a value");
+			continue;
+		}
+		if (argument === "--option-descriptions-json") {
+			optionDescriptions = parseJsonStringArrayFlag(args[++index], "--option-descriptions-json");
+			continue;
+		}
+		if (argument === "--selected-json") {
+			selected = parseJsonStringArrayFlag(args[++index], "--selected-json");
+			continue;
+		}
+		if (argument === "--reason") {
+			reason = args[++index];
+			if (reason === undefined) throw new Error("--reason requires a value");
+			continue;
+		}
+		if (argument === "--settlement") {
+			settlement = args[++index];
+			if (!settlement) throw new Error("--settlement requires a value");
+			continue;
+		}
+		if (argument === "--state") {
+			state = args[++index];
+			if (!state) throw new Error("--state requires a value");
+			continue;
+		}
 		if (argument === "--after-round") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--after-round requires a numeric value");
@@ -1097,12 +1454,30 @@ export async function runDiscussCli(args: string[], client: TaskCliClient): Prom
 	switch (action) {
 		case "open": {
 			if (id) throw new Error("discuss open accepts no positional arguments");
-			const result = await client.call<Record<string, unknown>, unknown>("discuss.open", { title, actor, content, body, labels, blocks_task_ids: blocksTaskIds, options, options_mode: optionsMode, option_descriptions: optionDescriptions });
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.open", {
+				title,
+				actor,
+				content,
+				body,
+				labels,
+				blocks_task_ids: blocksTaskIds,
+				options,
+				options_mode: optionsMode,
+				option_descriptions: optionDescriptions,
+			});
 			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 		}
 		case "reply": {
 			if (!id) throw new Error("discuss reply requires exactly one discussion id");
-			const result = await client.call<Record<string, unknown>, unknown>("discuss.reply", { id, actor, content, selected, options, options_mode: optionsMode, option_descriptions: optionDescriptions });
+			const result = await client.call<Record<string, unknown>, unknown>("discuss.reply", {
+				id,
+				actor,
+				content,
+				selected,
+				options,
+				options_mode: optionsMode,
+				option_descriptions: optionDescriptions,
+			});
 			return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
 		}
 		case "defer": {
@@ -1182,34 +1557,77 @@ export async function runNoteCli(args: string[], client: TaskCliClient, projectR
 	let human: string;
 	if (action === "capture") {
 		if (!id || target) throw new Error("notes capture requires exactly one request argument");
-		result = await client.call("notes.capture", { body: id, ...(title ? { title } : {}), project_root: projectRoot, actor: "human", source: "cli" }) as CliArtifact;
+		result = (await client.call("notes.capture", {
+			body: id,
+			...(title ? { title } : {}),
+			project_root: projectRoot,
+			actor: "human",
+			source: "cli",
+		})) as CliArtifact;
 		human = `Captured: ${artifactLabel(result)}`;
 	} else if (action === "list") {
 		if (id) throw new Error("notes list accepts no positional arguments");
-		result = await client.call("notes.list", { project_root: projectRoot, ...(status ? { status } : {}), ...(text ? { text } : {}), ...(limit === undefined ? {} : { limit }) }) as CliArtifact[];
+		result = (await client.call("notes.list", {
+			project_root: projectRoot,
+			...(status ? { status } : {}),
+			...(text ? { text } : {}),
+			...(limit === undefined ? {} : { limit }),
+		})) as CliArtifact[];
 		human = result.length > 0 ? result.map((note) => `[${note.status}] ${artifactLabel(note)}`).join("\n") : "No open notes.";
 	} else if (action === "show") {
 		if (!id || target) throw new Error("notes show requires exactly one note id");
-		result = await client.call("notes.show", { id, project_root: projectRoot }) as CliArtifact;
+		result = (await client.call("notes.show", { id, project_root: projectRoot })) as CliArtifact;
 		human = `${artifactLabel(result)}\n\n${result.body ?? ""}`.trimEnd();
 	} else if (action === "history") {
 		if (!id || target) throw new Error("notes history requires exactly one note id");
-		const page = await client.call<Record<string, unknown>, import("./domain/note-event.ts").NoteHistoryPage>("notes.history", { id, project_root: projectRoot, direction: "desc", ...(limit === undefined ? {} : { limit }) });
+		const page = await client.call<Record<string, unknown>, import("./domain/note-event.ts").NoteHistoryPage>("notes.history", {
+			id,
+			project_root: projectRoot,
+			direction: "desc",
+			...(limit === undefined ? {} : { limit }),
+		});
 		result = page;
-		human = page.events.length === 0
-			? `No recorded history for ${id}.`
-			: [...page.events].reverse().map((event) => `${event.occurredAt} ${event.type} · ${event.actor}/${event.source}${event.relatedId ? ` · ${event.relatedId}` : ""}${event.disposition ? ` · ${event.disposition}` : ""}${event.reason ? ` · ${event.reason}` : ""}`).join("\n");
+		human =
+			page.events.length === 0
+				? `No recorded history for ${id}.`
+				: [...page.events]
+						.reverse()
+						.map(
+							(event) =>
+								`${event.occurredAt} ${event.type} · ${event.actor}/${event.source}${event.relatedId ? ` · ${event.relatedId}` : ""}${event.disposition ? ` · ${event.disposition}` : ""}${event.reason ? ` · ${event.reason}` : ""}`,
+						)
+						.join("\n");
 	} else if (action === "consume") {
 		if (!id || target) throw new Error("notes consume requires exactly one note id");
-		result = await client.call("notes.consume", { id, project_root: projectRoot, actor: "agent", source: "cli", ...(reason ? { reason } : {}) }) as CliArtifact;
+		result = (await client.call("notes.consume", {
+			id,
+			project_root: projectRoot,
+			actor: "agent",
+			source: "cli",
+			...(reason ? { reason } : {}),
+		})) as CliArtifact;
 		human = `Consumed: ${artifactLabel(result)}`;
 	} else if (action === "promote") {
 		if (!id || !target || positional.length !== 3) throw new Error("notes promote requires a note id and target artifact id");
-		result = await client.call("notes.promote", { id, target_id: target, project_root: projectRoot, actor: "agent", source: "cli", ...(reason ? { reason } : {}) }) as CliArtifact;
+		result = (await client.call("notes.promote", {
+			id,
+			target_id: target,
+			project_root: projectRoot,
+			actor: "agent",
+			source: "cli",
+			...(reason ? { reason } : {}),
+		})) as CliArtifact;
 		human = `Promoted: ${artifactLabel(result)} → ${target}`;
 	} else if (action === "archive") {
 		if (!id || !target || positional.length !== 3) throw new Error("notes archive requires a note id and disposition");
-		result = await client.call("notes.archive", { id, disposition: target, project_root: projectRoot, actor: "human", source: "cli", ...(reason ? { reason } : {}) }) as CliArtifact;
+		result = (await client.call("notes.archive", {
+			id,
+			disposition: target,
+			project_root: projectRoot,
+			actor: "human",
+			source: "cli",
+			...(reason ? { reason } : {}),
+		})) as CliArtifact;
 		human = `Archived: ${artifactLabel(result)} · ${target}`;
 	} else {
 		throw new Error("notes action must be capture, list, show, history, consume, promote, or archive");
@@ -1257,12 +1675,22 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			if (!sessionSecret) throw new Error("--session-secret requires a value");
 			continue;
 		}
-		if (argument === "--title" || argument === "--body" || argument === "--labels-json" || argument === "--status" || argument === "--reason") {
+		if (
+			argument === "--title" ||
+			argument === "--body" ||
+			argument === "--labels-json" ||
+			argument === "--status" ||
+			argument === "--reason"
+		) {
 			const value = args[++index];
 			if (value === undefined) throw new Error(`${argument} requires a value`);
-			if (argument === "--title") { updateInput.title = value; title = value; }
-			else if (argument === "--body") { updateInput.body = value; body = value; }
-			else if (argument === "--reason") reason = value;
+			if (argument === "--title") {
+				updateInput.title = value;
+				title = value;
+			} else if (argument === "--body") {
+				updateInput.body = value;
+				body = value;
+			} else if (argument === "--reason") reason = value;
 			else if (argument === "--status") {
 				status = value;
 				if (value === "todo") updateInput.status = value;
@@ -1272,7 +1700,10 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			}
 			continue;
 		}
-		if (argument === "--extra-json") { extra = parseJsonObjectFlag(args[++index]!, "--extra-json"); continue; }
+		if (argument === "--extra-json") {
+			extra = parseJsonObjectFlag(args[++index]!, "--extra-json");
+			continue;
+		}
 		if (argument === "--gates-json") {
 			const value = args[++index];
 			if (!value) throw new Error("--gates-json requires a value");
@@ -1281,11 +1712,29 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			gates = parsed;
 			continue;
 		}
-		if (argument === "--checklist-json") { checklist = parseJsonObjectFlag(args[++index]!, "--checklist-json"); continue; }
-		if (argument === "--template-id") { templateId = args[++index]; if (!templateId) throw new Error("--template-id requires a value"); continue; }
-		if (argument === "--parent-id") { parentId = args[++index]; if (!parentId) throw new Error("--parent-id requires a value"); continue; }
-		if (argument === "--depends-on-json") { dependsOn = parseJsonStringArrayFlag(args[++index]!, "--depends-on-json"); continue; }
-		if (argument === "--text") { text = args[++index]; if (text === undefined) throw new Error("--text requires a value"); continue; }
+		if (argument === "--checklist-json") {
+			checklist = parseJsonObjectFlag(args[++index]!, "--checklist-json");
+			continue;
+		}
+		if (argument === "--template-id") {
+			templateId = args[++index];
+			if (!templateId) throw new Error("--template-id requires a value");
+			continue;
+		}
+		if (argument === "--parent-id") {
+			parentId = args[++index];
+			if (!parentId) throw new Error("--parent-id requires a value");
+			continue;
+		}
+		if (argument === "--depends-on-json") {
+			dependsOn = parseJsonStringArrayFlag(args[++index]!, "--depends-on-json");
+			continue;
+		}
+		if (argument === "--text") {
+			text = args[++index];
+			if (text === undefined) throw new Error("--text requires a value");
+			continue;
+		}
 		if (argument === "--limit") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
@@ -1298,10 +1747,26 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			listScope = value;
 			continue;
 		}
-		if (argument === "--root-task-id") { rootTaskId = args[++index]; if (!rootTaskId) throw new Error("--root-task-id requires a value"); continue; }
-		if (argument === "--owner") { owner = args[++index]; if (!owner) throw new Error("--owner requires a value"); continue; }
-		if (argument === "--token") { token = args[++index]; if (!token) throw new Error("--token requires a value"); continue; }
-		if (argument === "--note") { note = args[++index]; if (note === undefined) throw new Error("--note requires a value"); continue; }
+		if (argument === "--root-task-id") {
+			rootTaskId = args[++index];
+			if (!rootTaskId) throw new Error("--root-task-id requires a value");
+			continue;
+		}
+		if (argument === "--owner") {
+			owner = args[++index];
+			if (!owner) throw new Error("--owner requires a value");
+			continue;
+		}
+		if (argument === "--token") {
+			token = args[++index];
+			if (!token) throw new Error("--token requires a value");
+			continue;
+		}
+		if (argument === "--note") {
+			note = args[++index];
+			if (note === undefined) throw new Error("--note requires a value");
+			continue;
+		}
 		if (argument === "--ttl-ms") {
 			const value = args[++index];
 			if (!value || Number.isNaN(Number(value))) throw new Error("--ttl-ms requires a numeric value");
@@ -1314,13 +1779,17 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			cursor = Number(value);
 			continue;
 		}
-		if (argument === "--event-types-json") { eventTypes = parseJsonStringArrayFlag(args[++index]!, "--event-types-json"); continue; }
+		if (argument === "--event-types-json") {
+			eventTypes = parseJsonStringArrayFlag(args[++index]!, "--event-types-json");
+			continue;
+		}
 		if (argument.startsWith("--")) throw new Error(`unknown tasks option ${argument}`);
 		positional.push(argument);
 	}
 	const [action, id, dependencyId] = positional;
 	const reasonSupportedActions = new Set(["update", "depend", "undepend", "contain", "uncontain"]);
-	if (reason !== undefined && !reasonSupportedActions.has(action ?? "")) throw new Error("--reason is only supported by tasks update, depend, undepend, contain, and uncontain");
+	if (reason !== undefined && !reasonSupportedActions.has(action ?? ""))
+		throw new Error("--reason is only supported by tasks update, depend, undepend, contain, and uncontain");
 	const sessionScope = sessionId ? { session_id: sessionId } : {};
 	// Only meaningful alongside a registered session_id (see session.register); required by the
 	// daemon only for the specific Focus-mutating operations below (focus/pause/unpause/clear_focus)
@@ -1331,14 +1800,20 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 	switch (action) {
 		case "active": {
 			if (id) throw new Error("tasks active accepts no positional arguments");
-			const active = await client.call<Record<string, unknown>, CliArtifact | null>("tasks.active", { project_root: projectRoot, ...sessionScope });
+			const active = await client.call<Record<string, unknown>, CliArtifact | null>("tasks.active", {
+				project_root: projectRoot,
+				...sessionScope,
+			});
 			result = active;
 			human = active ? `Active: ${artifactLabel(active)}` : "No active task.";
 			break;
 		}
 		case "focused": {
 			if (id) throw new Error("tasks focused accepts no positional arguments");
-			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: "active" | "paused"; updatedAt: string } | null>("tasks.focused", { project_root: projectRoot, ...sessionScope });
+			const focus = await client.call<
+				Record<string, unknown>,
+				{ artifact: CliArtifact; status: "active" | "paused"; updatedAt: string } | null
+			>("tasks.focused", { project_root: projectRoot, ...sessionScope });
 			result = focus;
 			human = focus ? `Focused (${focus.status}): ${artifactLabel(focus.artifact)}` : "No focused task.";
 			break;
@@ -1347,14 +1822,24 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "unpause": {
 			if (id) throw new Error(`tasks ${action} accepts no positional arguments`);
 			const operation = action === "pause" ? "tasks.pause" : "tasks.unpause";
-			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: string }>(operation, { actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
+			const focus = await client.call<Record<string, unknown>, { artifact: CliArtifact; status: string }>(operation, {
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+				...sessionSecretField,
+			});
 			result = focus;
 			human = `Focused (${focus.status}): ${artifactLabel(focus.artifact)}`;
 			break;
 		}
 		case "clear-focus": {
 			if (id) throw new Error("tasks clear-focus accepts no positional arguments");
-			const cleared = await client.call<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", { actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
+			const cleared = await client.call<Record<string, unknown>, { cleared: boolean }>("tasks.clear_focus", {
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+				...sessionSecretField,
+			});
 			result = cleared;
 			human = cleared.cleared ? "Task focus cleared." : "No focused task.";
 			break;
@@ -1406,20 +1891,36 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "event-feed": {
 			if (id) throw new Error("tasks event-feed accepts no positional arguments");
-			const page = await client.call<Record<string, unknown>, import("./domain/task-event.ts").TaskEventFeedPage>("tasks.event_feed", { cursor, limit, event_types: eventTypes });
+			const page = await client.call<Record<string, unknown>, import("./domain/task-event.ts").TaskEventFeedPage>("tasks.event_feed", {
+				cursor,
+				limit,
+				event_types: eventTypes,
+			});
 			result = page;
-			human = page.events.length === 0
-				? "No events."
-				: page.events.map((event) => `${event.id} ${event.occurredAt} ${event.taskId} ${event.type}`).join("\n");
+			human =
+				page.events.length === 0
+					? "No events."
+					: page.events.map((event) => `${event.id} ${event.occurredAt} ${event.taskId} ${event.type}`).join("\n");
 			break;
 		}
 		case "create": {
 			if (id) throw new Error("tasks create accepts no positional arguments");
 			if (!title) throw new Error("tasks create requires --title");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.create", {
-				title, body, status, labels, extra, gates, checklist,
-				template_id: templateId, parent_id: parentId, depends_on: dependsOn,
-				project_root: projectRoot, actor: "user", source: "cli", ...sessionScope,
+				title,
+				body,
+				status,
+				labels,
+				extra,
+				gates,
+				checklist,
+				template_id: templateId,
+				parent_id: parentId,
+				depends_on: dependsOn,
+				project_root: projectRoot,
+				actor: "user",
+				source: "cli",
+				...sessionScope,
 			});
 			result = artifact;
 			human = `Created task: ${artifactLabel(artifact)}`;
@@ -1428,7 +1929,14 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "list": {
 			if (id) throw new Error("tasks list accepts no positional arguments");
 			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("tasks.list", {
-				status, text, limit, labels, project_root: projectRoot, scope: listScope, root_task_id: rootTaskId, ...sessionScope,
+				status,
+				text,
+				limit,
+				labels,
+				project_root: projectRoot,
+				scope: listScope,
+				root_task_id: rootTaskId,
+				...sessionScope,
 			});
 			result = rows;
 			human = rows.length === 0 ? "No tasks found." : rows.map((row) => artifactLabel(row)).join("\n");
@@ -1445,9 +1953,10 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 			if (!id || dependencyId) throw new Error("tasks run-gates requires exactly one task id");
 			const results = await client.call<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id, actor: "user", source: "cli" });
 			result = results;
-			human = results.length === 0
-				? "No gates configured."
-				: results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
+			human =
+				results.length === 0
+					? "No gates configured."
+					: results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
 			break;
 		}
 		case "set-checklist": {
@@ -1469,7 +1978,10 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "context": {
 			if (id) throw new Error("tasks context accepts no positional arguments");
 			const summary = await client.call<Record<string, unknown>, string | null>("tasks.context", {
-				project_root: projectRoot, scope: listScope, root_task_id: rootTaskId, ...sessionScope,
+				project_root: projectRoot,
+				scope: listScope,
+				root_task_id: rootTaskId,
+				...sessionScope,
 			});
 			result = summary;
 			human = summary ?? "No open tasks.";
@@ -1478,7 +1990,12 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "contain": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks contain requires a parent id and child id");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.contain", {
-				parent_id: id, child_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+				parent_id: id,
+				child_id: dependencyId,
+				actor: "user",
+				source: "cli",
+				...(reason ? { reason } : {}),
+				...sessionScope,
 			});
 			result = artifact;
 			human = `Contained: ${dependencyId} → ${artifactLabel(artifact)}`;
@@ -1487,7 +2004,12 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "uncontain": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks uncontain requires a parent id and child id");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.uncontain", {
-				parent_id: id, child_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+				parent_id: id,
+				child_id: dependencyId,
+				actor: "user",
+				source: "cli",
+				...(reason ? { reason } : {}),
+				...sessionScope,
 			});
 			result = artifact;
 			human = `Removed ${dependencyId} from ${artifactLabel(artifact)}`;
@@ -1495,12 +2017,17 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "update": {
 			if (!id || dependencyId) throw new Error("tasks update requires exactly one task id");
-			if (status !== undefined && status !== "todo") throw new Error("tasks update --status only supports todo for accidental creation recovery");
+			if (status !== undefined && status !== "todo")
+				throw new Error("tasks update --status only supports todo for accidental creation recovery");
 			if (Object.keys(updateInput).length === 0) throw new Error("tasks update requires --title, --body, --labels-json, or --status todo");
 			if (updateInput.status !== undefined && !reason?.trim()) throw new Error("tasks update --status requires --reason");
 			if (reason !== undefined && updateInput.status === undefined) throw new Error("tasks update --reason requires --status todo");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.update", {
-				id, ...updateInput, ...(reason ? { reason } : {}), actor: "user", source: "cli",
+				id,
+				...updateInput,
+				...(reason ? { reason } : {}),
+				actor: "user",
+				source: "cli",
 			});
 			result = artifact;
 			human = `Updated: ${artifactLabel(artifact)}`;
@@ -1508,16 +2035,28 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "history": {
 			if (!id || dependencyId) throw new Error("tasks history requires exactly one task id");
-			const page = await client.call<{ id: string; direction: "desc" }, import("./domain/task-event.ts").TaskHistoryPage>("tasks.history", { id, direction: "desc" });
+			const page = await client.call<{ id: string; direction: "desc" }, import("./domain/task-event.ts").TaskHistoryPage>("tasks.history", {
+				id,
+				direction: "desc",
+			});
 			result = page;
-			human = page.events.length === 0
-				? `No recorded history for ${id}.`
-				: [...page.events].reverse().map((event) => `${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`).join("\n");
+			human =
+				page.events.length === 0
+					? `No recorded history for ${id}.`
+					: [...page.events]
+							.reverse()
+							.map(
+								(event) =>
+									`${event.occurredAt} ${event.type} ${event.fromStatus ?? "∅"} → ${event.toStatus ?? "∅"} · ${event.actor}/${event.source}${event.reason ? ` · ${event.reason}` : ""}`,
+							)
+							.join("\n");
 			break;
 		}
 		case "scope": {
 			if (!id) {
-				const selection = await client.call<Record<string, string>, import("./domain/task-scope.ts").TaskViewSelection>("tasks.scope", { project_root: projectRoot });
+				const selection = await client.call<Record<string, string>, import("./domain/task-scope.ts").TaskViewSelection>("tasks.scope", {
+					project_root: projectRoot,
+				});
 				result = selection;
 				human = `Task scope: ${selection.label}`;
 				break;
@@ -1548,17 +2087,33 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "focus": {
 			if (!id || dependencyId) throw new Error("tasks focus requires exactly one task id");
-			const active = await client.call<Record<string, unknown>, CliArtifact>("tasks.focus", { id, actor: "user", source: "cli", ...sessionScope, ...sessionSecretField });
+			const active = await client.call<Record<string, unknown>, CliArtifact>("tasks.focus", {
+				id,
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+				...sessionSecretField,
+			});
 			result = active;
 			human = `Active: ${artifactLabel(active)}`;
 			break;
 		}
 		case "graph": {
 			if (id) throw new Error("tasks graph accepts no positional arguments");
-			const graph = await client.call<Record<string, unknown>, {
-				nodes: Array<{ dependencyIds: string[]; childIds: string[] }>;
-				rootIds: string[];
-			}>("tasks.graph", { limit: TASK_EXECUTION_MAX_NODES + 1, labels, project_root: projectRoot, scope: listScope, root_task_id: rootTaskId, ...sessionScope });
+			const graph = await client.call<
+				Record<string, unknown>,
+				{
+					nodes: Array<{ dependencyIds: string[]; childIds: string[] }>;
+					rootIds: string[];
+				}
+			>("tasks.graph", {
+				limit: TASK_EXECUTION_MAX_NODES + 1,
+				labels,
+				project_root: projectRoot,
+				scope: listScope,
+				root_task_id: rootTaskId,
+				...sessionScope,
+			});
 			result = graph;
 			const dependencies = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 			const children = graph.nodes.reduce((count, node) => count + node.childIds.length, 0);
@@ -1567,19 +2122,29 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "plan": {
 			if (id) throw new Error("tasks plan accepts no positional arguments");
-			const plan = await client.call<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", { project_root: projectRoot, ...sessionScope });
+			const plan = await client.call<Record<string, unknown>, TaskExecutionPlan>("tasks.plan", {
+				project_root: projectRoot,
+				...sessionScope,
+			});
 			result = plan;
 			human = planText(plan);
 			break;
 		}
 		case "complete": {
 			if (!id || dependencyId) throw new Error("tasks complete requires exactly one task id");
-			const completion = await client.call<Record<string, unknown>, CliCompletion>("tasks.complete", { id, actor: "user", source: "cli", ...sessionScope });
+			const completion = await client.call<Record<string, unknown>, CliCompletion>("tasks.complete", {
+				id,
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+			});
 			result = completion;
 			const lines = [`${completion.completed ? "Completed" : "Rejected"}: ${artifactLabel(completion.artifact)}`];
 			if (completion.focused) lines.push(`Active: ${artifactLabel(completion.focused)}`);
 			if (completion.blocked.length > 0) {
-				lines.push(`Blocked: ${completion.blocked.map((entry) => `${artifactLabel(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`);
+				lines.push(
+					`Blocked: ${completion.blocked.map((entry) => `${artifactLabel(entry.artifact)} waits for ${entry.dependencyIds.join(", ")}`).join("; ")}`,
+				);
 			}
 			for (const gate of completion.gates) lines.push(`${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`);
 			human = lines.join("\n");
@@ -1587,7 +2152,12 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		}
 		case "start": {
 			if (!id || dependencyId) throw new Error("tasks start requires exactly one task id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.start", { id, actor: "user", source: "cli", ...sessionScope });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.start", {
+				id,
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+			});
 			result = artifact;
 			human = `Started: ${artifactLabel(artifact)}`;
 			break;
@@ -1598,14 +2168,24 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "cancel": {
 			if (!id || dependencyId) throw new Error(`tasks ${action} requires exactly one task id`);
 			const operation = `tasks.${action}` as "tasks.submit" | "tasks.reject" | "tasks.retry" | "tasks.cancel";
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>(operation, { id, actor: "user", source: "cli", ...sessionScope });
+			const artifact = await client.call<Record<string, unknown>, CliArtifact>(operation, {
+				id,
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+			});
 			result = artifact;
 			human = `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`;
 			break;
 		}
 		case "cancel-subtree": {
 			if (!id || dependencyId) throw new Error("tasks cancel-subtree requires exactly one task id");
-			const outcome = await client.call<Record<string, unknown>, { canceled: string[]; skipped: string[] }>("tasks.cancel_subtree", { id, actor: "user", source: "cli", ...sessionScope });
+			const outcome = await client.call<Record<string, unknown>, { canceled: string[]; skipped: string[] }>("tasks.cancel_subtree", {
+				id,
+				actor: "user",
+				source: "cli",
+				...sessionScope,
+			});
 			result = outcome;
 			human = `Canceled ${outcome.canceled.length} task(s)${outcome.skipped.length > 0 ? `, skipped ${outcome.skipped.length} already-terminal` : ""}.`;
 			break;
@@ -1613,7 +2193,12 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "depend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks depend requires a task id and prerequisite id");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.depend", {
-				id, dependency_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+				id,
+				dependency_id: dependencyId,
+				actor: "user",
+				source: "cli",
+				...(reason ? { reason } : {}),
+				...sessionScope,
 			});
 			result = artifact;
 			human = `Dependency added: ${artifactLabel(artifact)} waits for ${dependencyId}`;
@@ -1622,21 +2207,31 @@ export async function runTaskCli(args: string[], client: TaskCliClient, projectR
 		case "undepend": {
 			if (!id || !dependencyId || positional.length !== 3) throw new Error("tasks undepend requires a task id and prerequisite id");
 			const artifact = await client.call<Record<string, unknown>, CliArtifact>("tasks.undepend", {
-				id, dependency_id: dependencyId, actor: "user", source: "cli", ...(reason ? { reason } : {}), ...sessionScope,
+				id,
+				dependency_id: dependencyId,
+				actor: "user",
+				source: "cli",
+				...(reason ? { reason } : {}),
+				...sessionScope,
 			});
 			result = artifact;
 			human = `Dependency removed: ${artifactLabel(artifact)} no longer waits for ${dependencyId}`;
 			break;
 		}
 		default:
-			throw new Error("tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, cancel-subtree, depend, undepend, contain, uncontain, run-gates, set-checklist, or set-gates");
+			throw new Error(
+				"tasks action must be create, list, show, active, focused, focus, pause, unpause, clear-focus, update, graph, plan, context, history, scope, assign-project, complete, start, submit, reject, retry, cancel, cancel-subtree, depend, undepend, contain, uncontain, run-gates, set-checklist, or set-gates",
+			);
 	}
 	return json ? JSON.stringify(result) : human;
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {
 	const [command, action] = args;
-	if (command === "serve") { serveMain(); return; }
+	if (command === "serve") {
+		serveMain();
+		return;
+	}
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
@@ -1708,12 +2303,23 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	}
 	if (command !== "service") usage();
 	switch (action) {
-		case "install": installService(); break;
-		case "start": systemctl("start", DAEMON_UNIT_NAME); break;
-		case "stop": systemctl("stop", DAEMON_UNIT_NAME); break;
-		case "restart": systemctl("restart", DAEMON_UNIT_NAME); break;
-		case "status": systemctl("status", DAEMON_UNIT_NAME); break;
-		default: usage();
+		case "install":
+			installService();
+			break;
+		case "start":
+			systemctl("start", DAEMON_UNIT_NAME);
+			break;
+		case "stop":
+			systemctl("stop", DAEMON_UNIT_NAME);
+			break;
+		case "restart":
+			systemctl("restart", DAEMON_UNIT_NAME);
+			break;
+		case "status":
+			systemctl("status", DAEMON_UNIT_NAME);
+			break;
+		default:
+			usage();
 	}
 }
 

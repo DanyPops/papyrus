@@ -18,8 +18,22 @@ function harness() {
 describe("registerRulesVehicleOperations (wired through createPapyrusService)", () => {
 	it("registers exactly one honest VehicleOperation per real rules.* action, never an action-dispatch schema", () => {
 		const { registry, service } = harness();
-		const names = registry.manifest().operations.map((op: VehicleManifestOperation) => op.name).filter((name: string) => name.startsWith("rules.")).sort();
-		expect(names).toEqual(["rules.assign_project", "rules.create", "rules.disable", "rules.enable", "rules.gate", "rules.list", "rules.preview", "rules.show", "rules.update"]);
+		const names = registry
+			.manifest()
+			.operations.map((op: VehicleManifestOperation) => op.name)
+			.filter((name: string) => name.startsWith("rules."))
+			.sort();
+		expect(names).toEqual([
+			"rules.assign_project",
+			"rules.create",
+			"rules.disable",
+			"rules.enable",
+			"rules.gate",
+			"rules.list",
+			"rules.preview",
+			"rules.show",
+			"rules.update",
+		]);
 		service.close();
 	});
 
@@ -31,7 +45,10 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 
 	it("creates a rule and lists it by project", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("rules.create", 1, { title: "Always run tests", project_root: PROJECT }, PERMS)) as { id: string; title: string };
+		const created = (await registry.invoke("rules.create", 1, { title: "Always run tests", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			title: string;
+		};
 		expect(created.title).toBe("Always run tests");
 
 		const rows = (await registry.invoke("rules.list", 1, { project_root: PROJECT }, PERMS)) as Array<{ id: string }>;
@@ -41,7 +58,9 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 
 	it("show resolves a rule by name, without a separate round trip", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("rules.create", 1, { title: "Prefer edit over sed", project_root: PROJECT }, PERMS)) as { id: string };
+		const created = (await registry.invoke("rules.create", 1, { title: "Prefer edit over sed", project_root: PROJECT }, PERMS)) as {
+			id: string;
+		};
 
 		const byId = await registry.invoke("rules.show", 1, { id: created.id }, PERMS);
 		const byName = await registry.invoke("rules.show", 1, { name: "Prefer edit over sed" }, PERMS);
@@ -62,7 +81,10 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 
 	it("enable/disable transition a rule's status -- rules default to active on create", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("rules.create", 1, { title: "Toggle me", project_root: PROJECT }, PERMS)) as { id: string; status: string };
+		const created = (await registry.invoke("rules.create", 1, { title: "Toggle me", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			status: string;
+		};
 		expect(created.status).toBe("active");
 
 		const disabled = (await registry.invoke("rules.disable", 1, { id: created.id }, PERMS)) as { status: string };
@@ -76,9 +98,11 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 	it("gate resolves both the rule and the target task by name in one call", async () => {
 		const { registry, service } = harness();
 		const rule = (await registry.invoke("rules.create", 1, { title: "Must pass CI", project_root: PROJECT }, PERMS)) as { id: string };
-		const task = (await service.execute("tasks.create", { title: "Ship the feature", project_root: PROJECT })) as { id: string };
+		const _task = (await service.execute("tasks.create", { title: "Ship the feature", project_root: PROJECT })) as { id: string };
 
-		const gated = (await registry.invoke("rules.gate", 1, { name: "Must pass CI", task_name: "Ship the feature" }, PERMS)) as { id: string };
+		const gated = (await registry.invoke("rules.gate", 1, { name: "Must pass CI", task_name: "Ship the feature" }, PERMS)) as {
+			id: string;
+		};
 		expect(gated.id).toBe(rule.id);
 		service.close();
 	});

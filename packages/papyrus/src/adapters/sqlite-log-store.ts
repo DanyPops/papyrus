@@ -43,34 +43,51 @@ export class SQLiteLogStore implements LogStore {
 	constructor(private readonly db: Db) {}
 
 	ensureSource(sourceId: string, label: string, projectRoot: string | null): LogSource {
-		const existing = this.db.prepare("SELECT id, label, project_root, created_at FROM log_sources WHERE id = ?").get(sourceId) as SourceRow | undefined;
+		const existing = this.db.prepare("SELECT id, label, project_root, created_at FROM log_sources WHERE id = ?").get(sourceId) as
+			| SourceRow
+			| undefined;
 		if (existing) return toSource(existing);
 		const createdAt = new Date().toISOString();
-		this.db.prepare("INSERT INTO log_sources (id, label, project_root, created_at) VALUES (?, ?, ?, ?)").run(sourceId, label, projectRoot, createdAt);
+		this.db
+			.prepare("INSERT INTO log_sources (id, label, project_root, created_at) VALUES (?, ?, ?, ?)")
+			.run(sourceId, label, projectRoot, createdAt);
 		return { id: sourceId, label, projectRoot, createdAt };
 	}
 
 	findEntryByOperationId(sourceId: string, operationId: string): LogEntry | undefined {
-		const row = this.db.prepare(
-			"SELECT id, source_id, occurred_at, level, message, truncated, fields_json, operation_id, session_id FROM log_entries WHERE source_id = ? AND operation_id = ?",
-		).get(sourceId, operationId) as EntryRow | undefined;
+		const row = this.db
+			.prepare(
+				"SELECT id, source_id, occurred_at, level, message, truncated, fields_json, operation_id, session_id FROM log_entries WHERE source_id = ? AND operation_id = ?",
+			)
+			.get(sourceId, operationId) as EntryRow | undefined;
 		return row ? toEntry(row) : undefined;
 	}
 
 	insertEntry(entry: LogEntry): void {
-		this.db.prepare(
-			`INSERT INTO log_entries (id, source_id, occurred_at, level, message, truncated, fields_json, operation_id, session_id)
+		this.db
+			.prepare(
+				`INSERT INTO log_entries (id, source_id, occurred_at, level, message, truncated, fields_json, operation_id, session_id)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		).run(
-			entry.id, entry.sourceId, entry.occurredAt, entry.level, entry.message,
-			entry.truncated ? 1 : 0, JSON.stringify(entry.fields), entry.operationId, entry.sessionId ?? null,
-		);
+			)
+			.run(
+				entry.id,
+				entry.sourceId,
+				entry.occurredAt,
+				entry.level,
+				entry.message,
+				entry.truncated ? 1 : 0,
+				JSON.stringify(entry.fields),
+				entry.operationId,
+				entry.sessionId ?? null,
+			);
 	}
 
 	entriesForSource(sourceId: string): readonly LogEntry[] {
-		const rows = this.db.prepare(
-			"SELECT id, source_id, occurred_at, level, message, truncated, fields_json, operation_id, session_id FROM log_entries WHERE source_id = ? ORDER BY occurred_at, id",
-		).all(sourceId) as EntryRow[];
+		const rows = this.db
+			.prepare(
+				"SELECT id, source_id, occurred_at, level, message, truncated, fields_json, operation_id, session_id FROM log_entries WHERE source_id = ? ORDER BY occurred_at, id",
+			)
+			.all(sourceId) as EntryRow[];
 		return rows.map(toEntry);
 	}
 
@@ -78,11 +95,13 @@ export class SQLiteLogStore implements LogStore {
 		const countRow = this.db.prepare("SELECT COUNT(*) as count FROM log_entries WHERE source_id = ?").get(sourceId) as { count: number };
 		const excess = countRow.count - maxEntries;
 		if (excess <= 0) return 0;
-		this.db.prepare(
-			`DELETE FROM log_entries WHERE id IN (
+		this.db
+			.prepare(
+				`DELETE FROM log_entries WHERE id IN (
 				SELECT id FROM log_entries WHERE source_id = ? ORDER BY occurred_at, id LIMIT ?
 			)`,
-		).run(sourceId, excess);
+			)
+			.run(sourceId, excess);
 		return excess;
 	}
 }

@@ -1,5 +1,5 @@
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "@danypops/papyrus";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { DOC_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
@@ -48,7 +48,8 @@ export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
 				commandCtx.ui.notify(`Linked "${document.title}" via ${relation}`, "info");
 				return;
 			}
-			const operation = choice === "Activate" ? "docs.activate" : choice === "Archive" ? "docs.archive" : choice === "Reopen" ? "docs.reopen" : undefined;
+			const operation =
+				choice === "Activate" ? "docs.activate" : choice === "Archive" ? "docs.archive" : choice === "Reopen" ? "docs.reopen" : undefined;
 			if (operation) {
 				const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: document.id });
 				commandCtx.ui.notify(`${updated.title} → [${updated.status}]`, "info");

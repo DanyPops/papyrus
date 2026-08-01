@@ -1,13 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Artifact } from "@danypops/papyrus";
+import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { showArtifactDetailView } from "../extension/src/artifact-detail-view.ts";
-import { showTaskDetails } from "../extension/src/task-detail-view.ts";
 import { createPapyrusMarkdownTheme, renderMarkdownBody } from "../extension/src/markdown.ts";
-import type { Artifact } from "@danypops/papyrus";
+import { showTaskDetails } from "../extension/src/task-detail-view.ts";
 
 const markdown = [
 	"# Themed heading",
@@ -33,11 +32,26 @@ const markdown = [
 function trackingTheme() {
 	const calls: string[] = [];
 	const theme = {
-		fg(token: string, text: string) { calls.push(token); return text; },
-		bold(text: string) { calls.push("bold"); return text; },
-		italic(text: string) { calls.push("italic"); return text; },
-		underline(text: string) { calls.push("underline"); return text; },
-		strikethrough(text: string) { calls.push("strikethrough"); return text; },
+		fg(token: string, text: string) {
+			calls.push(token);
+			return text;
+		},
+		bold(text: string) {
+			calls.push("bold");
+			return text;
+		},
+		italic(text: string) {
+			calls.push("italic");
+			return text;
+		},
+		underline(text: string) {
+			calls.push("underline");
+			return text;
+		},
+		strikethrough(text: string) {
+			calls.push("strikethrough");
+			return text;
+		},
 	} as unknown as Theme;
 	return { theme, calls };
 }
@@ -47,13 +61,48 @@ describe("Papyrus Markdown detail rendering", () => {
 		const tracked = trackingTheme();
 		let highlighted = false;
 		const syntax = {
-			highlightCode(code: string) { highlighted = true; return code.split("\n"); },
+			highlightCode(code: string) {
+				highlighted = true;
+				return code.split("\n");
+			},
 		} as Pick<MarkdownTheme, "highlightCode">;
-		const markdownTheme = createPapyrusMarkdownTheme(() => tracked.theme, () => syntax);
-		for (const key of ["heading", "link", "linkUrl", "code", "codeBlock", "codeBlockBorder", "quote", "quoteBorder", "hr", "listBullet"] as const) markdownTheme[key](key);
-		const lines = renderMarkdownBody(markdown, 50, () => tracked.theme, () => syntax);
+		const markdownTheme = createPapyrusMarkdownTheme(
+			() => tracked.theme,
+			() => syntax,
+		);
+		for (const key of [
+			"heading",
+			"link",
+			"linkUrl",
+			"code",
+			"codeBlock",
+			"codeBlockBorder",
+			"quote",
+			"quoteBorder",
+			"hr",
+			"listBullet",
+		] as const)
+			markdownTheme[key](key);
+		const lines = renderMarkdownBody(
+			markdown,
+			50,
+			() => tracked.theme,
+			() => syntax,
+		);
 
-		for (const token of ["mdHeading", "mdLink", "mdLinkUrl", "mdCode", "mdCodeBlock", "mdCodeBlockBorder", "mdQuote", "mdQuoteBorder", "mdHr", "mdListBullet", "text"]) {
+		for (const token of [
+			"mdHeading",
+			"mdLink",
+			"mdLinkUrl",
+			"mdCode",
+			"mdCodeBlock",
+			"mdCodeBlockBorder",
+			"mdQuote",
+			"mdQuoteBorder",
+			"mdHr",
+			"mdListBullet",
+			"text",
+		]) {
 			expect(tracked.calls).toContain(token);
 		}
 		for (const decoration of ["bold", "italic", "underline", "strikethrough"]) expect(tracked.calls).toContain(decoration);
@@ -67,26 +116,43 @@ describe("Papyrus Markdown detail rendering", () => {
 		const first = trackingTheme();
 		const second = trackingTheme();
 		let active = first.theme;
-		const markdownTheme = createPapyrusMarkdownTheme(() => active, () => ({ highlightCode: (code: string) => code.split("\n") }));
+		const markdownTheme = createPapyrusMarkdownTheme(
+			() => active,
+			() => ({ highlightCode: (code: string) => code.split("\n") }),
+		);
 		markdownTheme.heading("one");
 		active = second.theme;
 		markdownTheme.heading("two");
 		expect(first.calls).toContain("mdHeading");
 		expect(second.calls).toContain("mdHeading");
 
-		const lines = renderMarkdownBody(markdown, 18, () => active, () => ({ highlightCode: (code: string) => code.split("\n") }));
+		const lines = renderMarkdownBody(
+			markdown,
+			18,
+			() => active,
+			() => ({ highlightCode: (code: string) => code.split("\n") }),
+		);
 		expect(lines.every((line) => visibleWidth(line) <= 18)).toBe(true);
 	});
 
 	it("themes generated detail chrome, metadata, and Task lifecycle semantics", async () => {
 		const tracked = trackingTheme();
 		const value: Artifact = {
-			id: "detail-1", kind: "doc", title: "Theme detail", status: "active", subtype: "research",
-			body: markdown, labels: ["theme"], extra: { owner: "human" },
-			created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+			id: "detail-1",
+			kind: "doc",
+			title: "Theme detail",
+			status: "active",
+			subtype: "research",
+			body: markdown,
+			labels: ["theme"],
+			extra: { owner: "human" },
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
 		};
 		const ctx = {
-			mode: "tui", hasUI: true, ui: {
+			mode: "tui",
+			hasUI: true,
+			ui: {
 				theme: tracked.theme,
 				async custom(factory: any) {
 					const component = await factory({ terminal: { rows: 24 }, requestRender() {} }, tracked.theme, {}, () => {});
@@ -104,13 +170,24 @@ describe("Papyrus Markdown detail rendering", () => {
 		const second = trackingTheme();
 		let active = first.theme;
 		const value: Artifact = {
-			id: "reload-1", kind: "doc", title: "Reload", status: "active", subtype: "research",
-			body: "# Theme reload", labels: [], extra: {},
-			created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+			id: "reload-1",
+			kind: "doc",
+			title: "Reload",
+			status: "active",
+			subtype: "research",
+			body: "# Theme reload",
+			labels: [],
+			extra: {},
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
 		};
 		const ctx = {
-			mode: "tui", hasUI: true, ui: {
-				get theme() { return active; },
+			mode: "tui",
+			hasUI: true,
+			ui: {
+				get theme() {
+					return active;
+				},
 				async custom(factory: any) {
 					const component = await factory({ terminal: { rows: 24 }, requestRender() {} }, active, {}, () => {});
 					component.render(50);
@@ -127,7 +204,11 @@ describe("Papyrus Markdown detail rendering", () => {
 	});
 
 	it("contains no hardcoded ANSI colors in the Markdown adapter path", () => {
-		for (const path of ["../extension/src/markdown.ts", "../extension/src/artifact-detail-view.ts", "../extension/src/task-detail-view.ts"]) {
+		for (const path of [
+			"../extension/src/markdown.ts",
+			"../extension/src/artifact-detail-view.ts",
+			"../extension/src/task-detail-view.ts",
+		]) {
 			const source = readFileSync(new URL(path, import.meta.url), "utf8");
 			expect(source).not.toContain("\\x1b[");
 			expect(source).not.toMatch(/38;[25]/);

@@ -1,11 +1,19 @@
 import { describe, expect, it } from "bun:test";
-import type { Artifact } from "../src/domain/artifact.ts";
 import { projectArtifactRelationships } from "../src/artifact-relationship-view.ts";
+import type { Artifact } from "../src/domain/artifact.ts";
 
 function doc(id: string, title: string, overrides: Partial<Artifact> = {}): Artifact {
 	return {
-		id, kind: "doc", title, status: "active", subtype: "", body: "", labels: [], extra: {},
-		created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+		id,
+		kind: "doc",
+		title,
+		status: "active",
+		subtype: "",
+		body: "",
+		labels: [],
+		extra: {},
+		created_at: "2026-01-01T00:00:00.000Z",
+		updated_at: "2026-01-01T00:00:00.000Z",
 		...overrides,
 	};
 }
@@ -36,7 +44,10 @@ describe("artifact relationship graph projection", () => {
 
 	it("deduplicates a neighbor referenced by more than one edge into one node", () => {
 		const artifact = doc("a", "A", {
-			edges: [{ from: "a", relation: "references", to: "b" }, { from: "b", relation: "blocks", to: "a" }],
+			edges: [
+				{ from: "a", relation: "references", to: "b" },
+				{ from: "b", relation: "blocks", to: "a" },
+			],
 		});
 		const display = projectArtifactRelationships(artifact);
 		expect(display.nodes).toHaveLength(2);

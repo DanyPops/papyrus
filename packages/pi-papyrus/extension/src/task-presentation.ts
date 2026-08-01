@@ -1,5 +1,5 @@
-import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { TaskStatus } from "@danypops/papyrus";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 
 export interface TaskStatusPresentation {
 	label: string;
@@ -16,11 +16,7 @@ export const TASK_STATUS_PRESENTATION: Record<TaskStatus, TaskStatusPresentation
 	canceled: { label: "canceled", glyph: "×", color: "error" },
 };
 
-export function taskTreeConnector(options: {
-	depth: number;
-	hasChildren: boolean;
-	hasLaterSibling: boolean;
-}): string {
+export function taskTreeConnector(options: { depth: number; hasChildren: boolean; hasLaterSibling: boolean }): string {
 	if (options.depth === 0) return options.hasChildren ? "▾" : "·";
 	return `${"│ ".repeat(Math.max(0, options.depth - 1))}${options.hasLaterSibling ? "├─" : "└─"}`;
 }

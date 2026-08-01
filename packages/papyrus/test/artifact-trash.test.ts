@@ -6,6 +6,7 @@
  * deadline independent of application code) can only be proven against real SQLite.
  */
 import { afterAll, describe, expect, it } from "bun:test";
+import { openDb } from "../src/db.ts";
 import {
 	createArtifact,
 	getArtifact,
@@ -17,8 +18,8 @@ import {
 	restoreArtifact,
 	trashArtifact,
 } from "../src/ops.ts";
-import { openDb } from "../src/db.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 function fixture() {
@@ -28,7 +29,7 @@ function fixture() {
 }
 
 const PAST = () => new Date(Date.now() - 1000).toISOString(); // already elapsed
-const FUTURE = () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days out
+const _FUTURE = () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days out
 
 describe("trashArtifact", () => {
 	it("moves an artifact to the trash and records a trashed event", () => {
@@ -61,7 +62,9 @@ describe("trashArtifact", () => {
 	it("refuses to trash a Task that is the live Task Focus in any scope", () => {
 		const { db } = fixture();
 		const task = createArtifact(db, { kind: "task", title: "x" });
-		db.exec(`INSERT INTO task_focus (scope, task_id, status, updated_at) VALUES ('global', '${task.id}', 'active', '${new Date().toISOString()}')`);
+		db.exec(
+			`INSERT INTO task_focus (scope, task_id, status, updated_at) VALUES ('global', '${task.id}', 'active', '${new Date().toISOString()}')`,
+		);
 		expect(() => trashArtifact(db, task.id)).toThrow(/active Task Focus/);
 		db.close();
 	});
@@ -69,7 +72,9 @@ describe("trashArtifact", () => {
 	it("still works once focus has moved elsewhere", () => {
 		const { db } = fixture();
 		const task = createArtifact(db, { kind: "task", title: "x" });
-		db.exec(`INSERT INTO task_focus (scope, task_id, status, updated_at) VALUES ('global', '${task.id}', 'active', '${new Date().toISOString()}')`);
+		db.exec(
+			`INSERT INTO task_focus (scope, task_id, status, updated_at) VALUES ('global', '${task.id}', 'active', '${new Date().toISOString()}')`,
+		);
 		db.exec("DELETE FROM task_focus");
 		expect(() => trashArtifact(db, task.id)).not.toThrow();
 		db.close();
@@ -143,7 +148,9 @@ describe("the database itself enforces the elapsed-deadline carve-out (not just 
 	it("still blocks deleting task_events for a task not yet past its deadline", () => {
 		const { db } = fixture();
 		const task = createArtifact(db, { kind: "task", title: "x" });
-		db.exec(`INSERT INTO task_events (task_id, occurred_at, event_type, actor, source) VALUES ('${task.id}', '${new Date().toISOString()}', 'created', 'system', 'test')`);
+		db.exec(
+			`INSERT INTO task_events (task_id, occurred_at, event_type, actor, source) VALUES ('${task.id}', '${new Date().toISOString()}', 'created', 'system', 'test')`,
+		);
 		trashArtifact(db, task.id);
 		expect(() => db.exec(`DELETE FROM task_events WHERE task_id = '${task.id}'`)).toThrow(/append-only/);
 		db.close();
@@ -166,8 +173,12 @@ describe("purgeDueArtifacts", () => {
 		const doomed = createArtifact(db, { kind: "task", title: "doomed" });
 		linkArtifacts(db, doomed.id, "references", survivor.id);
 		linkArtifacts(db, survivor.id, "implements", doomed.id);
-		db.exec(`INSERT INTO task_scopes (task_id, project_root, source, assigned_at) VALUES ('${doomed.id}', NULL, 'unscoped', '${new Date().toISOString()}')`);
-		db.exec(`INSERT INTO task_events (task_id, occurred_at, event_type, actor, source) VALUES ('${doomed.id}', '${new Date().toISOString()}', 'created', 'system', 'test')`);
+		db.exec(
+			`INSERT INTO task_scopes (task_id, project_root, source, assigned_at) VALUES ('${doomed.id}', NULL, 'unscoped', '${new Date().toISOString()}')`,
+		);
+		db.exec(
+			`INSERT INTO task_events (task_id, occurred_at, event_type, actor, source) VALUES ('${doomed.id}', '${new Date().toISOString()}', 'created', 'system', 'test')`,
+		);
 		trashArtifact(db, doomed.id, { now: PAST });
 		db.exec(`UPDATE artifact_trash SET purge_after = '${PAST()}' WHERE artifact_id = '${doomed.id}'`);
 

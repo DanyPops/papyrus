@@ -1,12 +1,12 @@
 import type { Db } from "../db.ts";
 import {
-	normalizeNoteHistoryQuery,
-	validateNoteEvent,
 	type AppendNoteEvent,
 	type NoteEvent,
 	type NoteEventType,
 	type NoteHistoryPage,
 	type NoteHistoryQuery,
+	normalizeNoteHistoryQuery,
+	validateNoteEvent,
 } from "../domain/note-event.ts";
 import type { NoteEventStore } from "../ports/note-event-store.ts";
 
@@ -45,21 +45,23 @@ export class SQLiteNoteEventStore implements NoteEventStore {
 
 	append(input: AppendNoteEvent): NoteEvent {
 		const event = validateNoteEvent(input);
-		const result = this.db.prepare(`
+		const result = this.db
+			.prepare(`
 			INSERT INTO note_events (
 				note_id, occurred_at, event_type, actor, source, session_id, reason, related_id, disposition, event_schema_version
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-		`).run(
-			event.noteId,
-			new Date().toISOString(),
-			event.type,
-			event.actor,
-			event.source,
-			event.sessionId ?? null,
-			event.reason ?? null,
-			event.relatedId ?? null,
-			event.disposition ?? null,
-		);
+		`)
+			.run(
+				event.noteId,
+				new Date().toISOString(),
+				event.type,
+				event.actor,
+				event.source,
+				event.sessionId ?? null,
+				event.reason ?? null,
+				event.relatedId ?? null,
+				event.disposition ?? null,
+			);
 		return mapRow(this.db.prepare("SELECT * FROM note_events WHERE id = ?").get(result.lastInsertRowid) as NoteEventRow);
 	}
 
@@ -67,12 +69,14 @@ export class SQLiteNoteEventStore implements NoteEventStore {
 		const { limit, direction, cursor } = normalizeNoteHistoryQuery(query);
 		const comparator = direction === "desc" ? "<" : ">";
 		const order = direction === "desc" ? "DESC" : "ASC";
-		const rows = this.db.prepare(`
+		const rows = this.db
+			.prepare(`
 			SELECT * FROM note_events
 			WHERE note_id = ? ${cursor === undefined ? "" : `AND id ${comparator} ?`}
 			ORDER BY occurred_at ${order}, id ${order}
 			LIMIT ?
-		`).all(...(cursor === undefined ? [noteId, limit + 1] : [noteId, cursor, limit + 1])) as NoteEventRow[];
+		`)
+			.all(...(cursor === undefined ? [noteId, limit + 1] : [noteId, cursor, limit + 1])) as NoteEventRow[];
 		const hasMore = rows.length > limit;
 		const events = rows.slice(0, limit).map(mapRow);
 		return { events, ...(hasMore ? { nextCursor: events.at(-1)!.id } : {}) };

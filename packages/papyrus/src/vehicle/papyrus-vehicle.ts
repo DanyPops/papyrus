@@ -13,9 +13,9 @@ import type { Notes } from "../note-service.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
-import type { SessionIdentity } from "../session-identity-service.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
+import type { SessionIdentity } from "../session-identity-service.ts";
 import type { Tasks } from "../task-service.ts";
 import { registerArtifactTrashOperations } from "./artifact-trash-vehicle.ts";
 import { registerDocsVehicleOperations } from "./docs-vehicle.ts";
@@ -36,11 +36,22 @@ export interface PapyrusVehicleDeps {
 }
 
 export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleRegistry {
-	const registry = new VehicleRegistry({ name: "papyrus", version: "1.0.0", description: "Papyrus's graph-artifact domains, one honest operation per real action." });
+	const registry = new VehicleRegistry({
+		name: "papyrus",
+		version: "1.0.0",
+		description: "Papyrus's graph-artifact domains, one honest operation per real action.",
+	});
 	registerNotesVehicleOperations(registry, deps.notes, deps.artifacts);
 	registerRulesVehicleOperations(registry, deps.artifacts, deps.scopes);
 	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority);
-	registerPlaybooksVehicleOperations(registry, { artifacts: deps.artifacts, events: deps.events, scopes: deps.taskScopes, artifactScopes: deps.scopes, tasks: deps.tasks, sessionIdentity: deps.sessionIdentity });
+	registerPlaybooksVehicleOperations(registry, {
+		artifacts: deps.artifacts,
+		events: deps.events,
+		scopes: deps.taskScopes,
+		artifactScopes: deps.scopes,
+		tasks: deps.tasks,
+		sessionIdentity: deps.sessionIdentity,
+	});
 	registerTasksVehicleOperations(registry, { tasks: deps.tasks, artifacts: deps.artifacts, sessionIdentity: deps.sessionIdentity });
 	registerArtifactTrashOperations(registry, deps.artifacts);
 	return registry;

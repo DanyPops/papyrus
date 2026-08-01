@@ -1,5 +1,5 @@
-import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 
 /** Hidden at 0, matching TaskOverlay's own "nothing open" hiding rule. */
 export function renderNoteWidgetLines(theme: Theme, openCount: number, width: number): string[] {

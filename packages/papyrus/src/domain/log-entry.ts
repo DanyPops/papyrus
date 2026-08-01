@@ -18,7 +18,7 @@
  */
 
 export const LOG_LEVELS = ["debug", "info", "warning", "error"] as const;
-export type LogLevel = typeof LOG_LEVELS[number];
+export type LogLevel = (typeof LOG_LEVELS)[number];
 
 export const LOG_SOURCE_ID_MAX_LENGTH = 256;
 export const LOG_MESSAGE_MAX_CHARACTERS = 4000;

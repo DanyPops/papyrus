@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
 import { TASK_FOCUS_STALE_AFTER_MS } from "../src/constants.ts";
-import { openDb, type Db } from "../src/db.ts";
+import { type Db, openDb } from "../src/db.ts";
 import { InMemoryTaskFocusStore } from "../src/ports/task-focus-store.ts";
 import { Tasks } from "../src/task-service.ts";
 
@@ -37,7 +37,10 @@ const JUST_UNDER_STALE = new Date(NOW.getTime() - (TASK_FOCUS_STALE_AFTER_MS - 6
 const JUST_OVER_STALE = new Date(NOW.getTime() - (TASK_FOCUS_STALE_AFTER_MS + 60_000)).toISOString();
 
 describe("Tasks.reapStaleFocus — time-based reclamation, independent of the LRU cap", () => {
-	for (const [name, makeFixture] of [["SQLiteTaskFocusStore", sqliteFixture], ["InMemoryTaskFocusStore", inMemoryFixture]] as const) {
+	for (const [name, makeFixture] of [
+		["SQLiteTaskFocusStore", sqliteFixture],
+		["InMemoryTaskFocusStore", inMemoryFixture],
+	] as const) {
 		describe(name, () => {
 			it("removes a Focus scope not updated in over TASK_FOCUS_STALE_AFTER_MS, keeps one just under the threshold", () => {
 				const { tasks, backdate } = makeFixture();

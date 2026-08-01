@@ -1,8 +1,8 @@
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
-import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, WAL_CHECKPOINT_INTERVAL_MS, dbPath } from "./constants.ts";
+import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
-import { createApp, createPapyrusService } from "./service.ts";
 import { logEvent } from "./log.ts";
+import { createApp, createPapyrusService } from "./service.ts";
 
 /**
  * Operations that never change what a Task-graph reader (the pi-papyrus widget's
@@ -13,8 +13,16 @@ import { logEvent } from "./log.ts";
  * silently-uncovered new mutation.
  */
 const TASK_READ_ONLY_OPERATIONS = new Set([
-	"tasks.active", "tasks.context", "tasks.event_feed", "tasks.focused",
-	"tasks.graph", "tasks.history", "tasks.list", "tasks.plan", "tasks.scope", "tasks.show",
+	"tasks.active",
+	"tasks.context",
+	"tasks.event_feed",
+	"tasks.focused",
+	"tasks.graph",
+	"tasks.history",
+	"tasks.list",
+	"tasks.plan",
+	"tasks.scope",
+	"tasks.show",
 ]);
 
 /** Start the supervised, long-running Papyrus service. */
@@ -49,10 +57,18 @@ export function serveMain(): void {
 	}
 	writeDaemonPort(stateDir, server.port);
 	const checkpointTimer = setInterval(() => {
-		try { service.checkpoint(); } catch (error) { logEvent("error", "checkpoint_failed", { message: error instanceof Error ? error.message : String(error) }); }
+		try {
+			service.checkpoint();
+		} catch (error) {
+			logEvent("error", "checkpoint_failed", { message: error instanceof Error ? error.message : String(error) });
+		}
 	}, WAL_CHECKPOINT_INTERVAL_MS);
 	const optimizeTimer = setInterval(() => {
-		try { service.optimize(); } catch (error) { logEvent("error", "optimize_failed", { message: error instanceof Error ? error.message : String(error) }); }
+		try {
+			service.optimize();
+		} catch (error) {
+			logEvent("error", "optimize_failed", { message: error instanceof Error ? error.message : String(error) });
+		}
 	}, DB_OPTIMIZE_INTERVAL_MS);
 	// Daily cadence (reusing DB_OPTIMIZE_INTERVAL_MS) is plenty against a 30-day staleness
 	// threshold (TASK_FOCUS_STALE_AFTER_MS) -- see clean-up-stale-per-session-task-focus-rows-
@@ -61,7 +77,9 @@ export function serveMain(): void {
 		try {
 			const removed = service.reapStaleFocus();
 			if (removed > 0) logEvent("info", "stale_focus_reaped", { removed });
-		} catch (error) { logEvent("error", "reap_stale_focus_failed", { message: error instanceof Error ? error.message : String(error) }); }
+		} catch (error) {
+			logEvent("error", "reap_stale_focus_failed", { message: error instanceof Error ? error.message : String(error) });
+		}
 	}, DB_OPTIMIZE_INTERVAL_MS);
 	// Same daily cadence: ARTIFACT_TRASH_RETENTION_MS is 30 days, so a daily sweep finds newly
 	// due artifacts promptly without needing its own tighter interval -- see domain/artifact-trash.ts.
@@ -69,7 +87,9 @@ export function serveMain(): void {
 		try {
 			const purged = service.purgeDueTrash();
 			if (purged > 0) logEvent("info", "artifact_trash_purged", { purged });
-		} catch (error) { logEvent("error", "purge_trash_failed", { message: error instanceof Error ? error.message : String(error) }); }
+		} catch (error) {
+			logEvent("error", "purge_trash_failed", { message: error instanceof Error ? error.message : String(error) });
+		}
 	}, DB_OPTIMIZE_INTERVAL_MS);
 	let stopping = false;
 	const shutdown = () => {
@@ -83,7 +103,8 @@ export function serveMain(): void {
 		service.close();
 		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare
 		// unhandled-rejection warning into a real, queryable shutdown-failure log line.
-		void server.stop(true)
+		void server
+			.stop(true)
 			.catch((error) => logEvent("error", "server_stop_failed", { message: error instanceof Error ? error.message : String(error) }))
 			.finally(() => process.exit(0));
 	};

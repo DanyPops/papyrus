@@ -3,7 +3,7 @@
  * VehicleRegistry projection (notes-vehicle.ts, rules-vehicle.ts, docs-vehicle.ts,
  * artifact-trash-vehicle.ts).
  */
-import { defineVehicleSchema, type VehicleSchemaCodec, type VehicleContentBlock } from "@danypops/vehicle-core";
+import { defineVehicleSchema, type VehicleContentBlock, type VehicleSchemaCodec } from "@danypops/vehicle-core";
 import type { Artifact } from "../domain/artifact.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskExecutionPlan } from "../task-execution.ts";
@@ -14,7 +14,10 @@ import type { TaskExecutionPlan } from "../task-execution.ts";
  * enforced at runtime -- so a declared `enum` has to be checked here for
  * real, or it's a documentation gesture, not an honest contract.
  */
-export function looseObjectSchema(properties: Record<string, { type: string; enum?: readonly string[] }>, required: readonly string[] = []): VehicleSchemaCodec<Record<string, unknown>> {
+export function looseObjectSchema(
+	properties: Record<string, { type: string; enum?: readonly string[] }>,
+	required: readonly string[] = [],
+): VehicleSchemaCodec<Record<string, unknown>> {
 	return defineVehicleSchema<Record<string, unknown>>({
 		jsonSchema: { type: "object", properties, required: [...required], additionalProperties: false },
 		safeParse(value) {
@@ -61,7 +64,9 @@ export function matchArtifactByName(candidates: readonly Artifact[], name: strin
 	const matches = candidates.filter((artifact) => artifact.title.trim().toLowerCase() === needle);
 	if (matches.length === 0) throw new Error(`no artifact named "${name}" found in this scope`);
 	if (matches.length > 1) {
-		throw new Error(`${matches.length} artifacts are named "${name}": ${matches.map((a) => `${a.title} (${a.id})`).join(", ")} -- use id to disambiguate`);
+		throw new Error(
+			`${matches.length} artifacts are named "${name}": ${matches.map((a) => `${a.title} (${a.id})`).join(", ")} -- use id to disambiguate`,
+		);
 	}
 	return matches[0]!.id;
 }
@@ -72,7 +77,11 @@ export function matchArtifactByName(candidates: readonly Artifact[], name: strin
  * flow only -- the caller supplies its own scoped/widened list calls, since scoping
  * differs per domain. Omit `fetchWidened` when there is no wider scope to retry.
  */
-export function resolveArtifactIdWidened(name: string, fetchCandidates: () => readonly Artifact[], fetchWidened?: () => readonly Artifact[]): string {
+export function resolveArtifactIdWidened(
+	name: string,
+	fetchCandidates: () => readonly Artifact[],
+	fetchWidened?: () => readonly Artifact[],
+): string {
 	try {
 		return matchArtifactByName(fetchCandidates(), name);
 	} catch (error) {
@@ -87,7 +96,12 @@ export function labelsById(artifacts: ArtifactStore, ids: readonly string[]): Ma
 	const resolved = uniqueIds.map((id) => artifacts.get(id)).filter((artifact): artifact is Artifact => artifact !== null);
 	const titleCounts = new Map<string, number>();
 	for (const artifact of resolved) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
-	return new Map(resolved.map((artifact) => [artifact.id, (titleCounts.get(artifact.title) ?? 0) > 1 ? `${artifact.title} (${artifact.id})` : artifact.title]));
+	return new Map(
+		resolved.map((artifact) => [
+			artifact.id,
+			(titleCounts.get(artifact.title) ?? 0) > 1 ? `${artifact.title} (${artifact.id})` : artifact.title,
+		]),
+	);
 }
 
 export interface WorkflowRunNarrativeInput {
@@ -103,14 +117,21 @@ export interface WorkflowRunNarrativeInput {
  * execution DAG -- the same shape pi-papyrus's own hand-rolled playbooks tool built
  * client-side, now built once here where the run result is actually produced.
  */
-export function buildWorkflowRunContent(artifacts: ArtifactStore, headline: string, input: WorkflowRunNarrativeInput, extraLines: readonly string[] = []): VehicleContentBlock {
+export function buildWorkflowRunContent(
+	artifacts: ArtifactStore,
+	headline: string,
+	input: WorkflowRunNarrativeInput,
+	extraLines: readonly string[] = [],
+): VehicleContentBlock {
 	const nodeById = new Map(input.execution.nodes.map((node) => [node.id, node]));
 	const rootLabels = input.rootTaskIds.map((id) => nodeById.get(id)?.title ?? "unknown task");
 	const createdLabels = labelsById(artifacts, [...input.created.docs, ...input.created.rules]);
 	const titleCounts = new Map<string, number>();
 	for (const node of input.execution.nodes) titleCounts.set(node.title, (titleCounts.get(node.title) ?? 0) + 1);
 	const executionLines = input.execution.nodes
-		.map((node) => ((titleCounts.get(node.title) ?? 0) > 1 ? `  [${node.state}] ${node.title} (${node.id})` : `  [${node.state}] ${node.title}`))
+		.map((node) =>
+			(titleCounts.get(node.title) ?? 0) > 1 ? `  [${node.state}] ${node.title} (${node.id})` : `  [${node.state}] ${node.title}`,
+		)
 		.join("\n");
 	const text = [
 		headline,

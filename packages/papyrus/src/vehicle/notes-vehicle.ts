@@ -7,11 +7,11 @@
  * input parsing. Resolves `name`/`target_name` to `id`/`target_id` server-side, in
  * the same call -- avoids a separate round trip per name before the real call.
  */
-import { defineVehicleOperation, bindVehicleOperation } from "@danypops/vehicle-core";
+import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { Notes, NOTE_DISPOSITIONS } from "../note-service.ts";
 import { notesOperations } from "../modules/notes.ts";
+import { NOTE_DISPOSITIONS, type Notes } from "../note-service.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "notes";
@@ -63,7 +63,10 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
 			limits: LIMITS,
 		});
-		registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => call(`notes.${action}`, resolve(context.input))));
+		registry.register(
+			OWNER,
+			bindVehicleOperation(operation, () => async (context) => call(`notes.${action}`, resolve(context.input))),
+		);
 	};
 
 	define(
@@ -97,7 +100,14 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 		"history",
 		"This note's own real append-only event log (captured/consumed/promoted/archived).",
 		"read",
-		{ id: stringProp, name: stringProp, project_root: stringProp, limit: numberProp, cursor: numberProp, direction: { type: "string", enum: ["asc", "desc"] } },
+		{
+			id: stringProp,
+			name: stringProp,
+			project_root: stringProp,
+			limit: numberProp,
+			cursor: numberProp,
+			direction: { type: "string", enum: ["asc", "desc"] },
+		},
 		["project_root"],
 		(input) => ({ ...input, id: resolveNoteId(notes, input.project_root as string, input.id, input.name) }),
 	);
@@ -106,7 +116,15 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 		"consume",
 		"Marks a note as considered.",
 		"local-write",
-		{ id: stringProp, name: stringProp, project_root: stringProp, actor: stringProp, source: stringProp, session_id: stringProp, reason: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			project_root: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+			reason: stringProp,
+		},
 		["project_root"],
 		(input) => ({ ...input, id: resolveNoteId(notes, input.project_root as string, input.id, input.name) }),
 	);

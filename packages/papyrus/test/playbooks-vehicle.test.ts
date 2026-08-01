@@ -17,11 +17,25 @@ function harness() {
 describe("registerPlaybooksVehicleOperations (wired through createPapyrusService)", () => {
 	it("registers exactly one honest VehicleOperation per real playbooks.* action, never an action-dispatch schema", () => {
 		const { registry, service } = harness();
-		const names = registry.manifest().operations.map((op: VehicleManifestOperation) => op.name).filter((name: string) => name.startsWith("playbooks.")).sort();
+		const names = registry
+			.manifest()
+			.operations.map((op: VehicleManifestOperation) => op.name)
+			.filter((name: string) => name.startsWith("playbooks."))
+			.sort();
 		expect(names).toEqual([
-			"playbooks.assign_project", "playbooks.contain", "playbooks.create", "playbooks.depend", "playbooks.disable",
-			"playbooks.enable", "playbooks.invoke", "playbooks.list", "playbooks.preview", "playbooks.show",
-			"playbooks.uncontain", "playbooks.undepend", "playbooks.update",
+			"playbooks.assign_project",
+			"playbooks.contain",
+			"playbooks.create",
+			"playbooks.depend",
+			"playbooks.disable",
+			"playbooks.enable",
+			"playbooks.invoke",
+			"playbooks.list",
+			"playbooks.preview",
+			"playbooks.show",
+			"playbooks.uncontain",
+			"playbooks.undepend",
+			"playbooks.update",
 		]);
 		service.close();
 	});
@@ -34,7 +48,12 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 	it("creates a playbook and lists it", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("playbooks.create", 1, { title: "New Project", trigger: "starting from scratch", steps: ["Frame the problem"] }, PERMS)) as { id: string; title: string };
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "New Project", trigger: "starting from scratch", steps: ["Frame the problem"] },
+			PERMS,
+		)) as { id: string; title: string };
 		expect(created.title).toBe("New Project");
 
 		const rows = (await registry.invoke("playbooks.list", 1, {}, PERMS)) as Array<{ id: string }>;
@@ -54,7 +73,12 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 	it("preview renders the composition tree as text with no side effects", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("playbooks.create", 1, { title: "New Project", trigger: "starting from scratch", steps: ["Frame the problem"] }, PERMS)) as { id: string };
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "New Project", trigger: "starting from scratch", steps: ["Frame the problem"] },
+			PERMS,
+		)) as { id: string };
 
 		const preview = (await registry.invoke("playbooks.preview", 1, { id: created.id }, PERMS)) as string;
 		expect(preview).toContain("1. Frame the problem");
@@ -65,7 +89,12 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 	it("invoke materializes real tasks and focuses the entry task, with a model-facing content summary instead of the raw execution DAG", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("playbooks.create", 1, { title: "New Project", trigger: "starting from scratch", steps: ["Frame the problem"] }, PERMS)) as { id: string };
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "New Project", trigger: "starting from scratch", steps: ["Frame the problem"] },
+			PERMS,
+		)) as { id: string };
 
 		const invocation = (await registry.invoke("playbooks.invoke", 1, { id: created.id }, PERMS)) as {
 			entryTaskId: string;
@@ -85,9 +114,17 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 	it("invoke returns missingArguments (with its own content text) and creates nothing when a required argument is absent", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("playbooks.create", 1, { title: "Needs env", steps: ["Deploy to {{environment}}"], arguments: [{ name: "environment", required: true }] }, PERMS)) as { id: string };
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Needs env", steps: ["Deploy to {{environment}}"], arguments: [{ name: "environment", required: true }] },
+			PERMS,
+		)) as { id: string };
 
-		const result = (await registry.invoke("playbooks.invoke", 1, { id: created.id }, PERMS)) as { missingArguments: string[]; content: Array<{ type: string; text: string }> };
+		const result = (await registry.invoke("playbooks.invoke", 1, { id: created.id }, PERMS)) as {
+			missingArguments: string[];
+			content: Array<{ type: string; text: string }>;
+		};
 		expect(result.missingArguments).toEqual(["environment"]);
 		expect(result.content[0]!.text).toContain("Missing required argument(s): environment");
 		expect(result.content[0]!.text).toContain("Nothing was created");
@@ -99,17 +136,24 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 	it("create/invoke accept structured (doc/rule/call) steps and typed arguments through the real Vehicle JSON schema, not just the module layer directly", async () => {
 		const { registry, service } = harness();
-		const target = (await registry.invoke("playbooks.create", 1, { title: "Nested target", steps: ["Target step"] }, PERMS)) as { id: string };
-		const created = (await registry.invoke("playbooks.create", 1, {
-			title: "Rich playbook",
-			steps: [
-				"Plain step",
-				{ kind: "doc", title: "A doc", body: "content" },
-				{ kind: "rule", title: "A rule", condition: "always" },
-				{ kind: "call", title: "Run target", playbookId: target.id },
-			],
-			arguments: [{ name: "count", type: "number", required: true }],
-		}, PERMS)) as { id: string };
+		const target = (await registry.invoke("playbooks.create", 1, { title: "Nested target", steps: ["Target step"] }, PERMS)) as {
+			id: string;
+		};
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{
+				title: "Rich playbook",
+				steps: [
+					"Plain step",
+					{ kind: "doc", title: "A doc", body: "content" },
+					{ kind: "rule", title: "A rule", condition: "always" },
+					{ kind: "call", title: "Run target", playbookId: target.id },
+				],
+				arguments: [{ name: "count", type: "number", required: true }],
+			},
+			PERMS,
+		)) as { id: string };
 
 		const invocation = (await registry.invoke("playbooks.invoke", 1, { id: created.id, arguments: { count: 3 } }, PERMS)) as {
 			created: { docs: string[]; rules: string[]; tasks: string[] };
@@ -117,22 +161,35 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		};
 		expect(invocation.created.docs).toHaveLength(1);
 		expect(invocation.created.rules).toHaveLength(1);
-		expect(invocation.arguments["count"]).toBe(3);
+		expect(invocation.arguments.count).toBe(3);
 		service.close();
 	});
 
 	it("invoke accepts a JSON-encoded string for arguments -- a known LLM tool-calling quirk", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("playbooks.create", 1, { title: "Needs env 2", steps: ["Deploy to {{environment}}"], arguments: [{ name: "environment", required: true }] }, PERMS)) as { id: string };
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Needs env 2", steps: ["Deploy to {{environment}}"], arguments: [{ name: "environment", required: true }] },
+			PERMS,
+		)) as { id: string };
 
-		const invocation = (await registry.invoke("playbooks.invoke", 1, { id: created.id, arguments: JSON.stringify({ environment: "staging" }) }, PERMS)) as { entryTaskId: string };
+		const invocation = (await registry.invoke(
+			"playbooks.invoke",
+			1,
+			{ id: created.id, arguments: JSON.stringify({ environment: "staging" }) },
+			PERMS,
+		)) as { entryTaskId: string };
 		expect(invocation.entryTaskId).toBeTruthy();
 		service.close();
 	});
 
 	it("enable/disable transition a playbook's status", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("playbooks.create", 1, { title: "Toggle me", steps: ["Step"] }, PERMS)) as { id: string; status: string };
+		const created = (await registry.invoke("playbooks.create", 1, { title: "Toggle me", steps: ["Step"] }, PERMS)) as {
+			id: string;
+			status: string;
+		};
 
 		const disabled = (await registry.invoke("playbooks.disable", 1, { id: created.id }, PERMS)) as { status: string };
 		expect(disabled.status).not.toBe(created.status);
@@ -152,30 +209,44 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 	it("contain/uncontain resolve parent_name/child_name server-side", async () => {
 		const { registry, service } = harness();
-		const parent = (await registry.invoke("playbooks.create", 1, { title: "Parent playbook", steps: ["Parent step"] }, PERMS)) as { id: string };
-		const child = (await registry.invoke("playbooks.create", 1, { title: "Child playbook", steps: ["Child step"] }, PERMS)) as { id: string };
+		const parent = (await registry.invoke("playbooks.create", 1, { title: "Parent playbook", steps: ["Parent step"] }, PERMS)) as {
+			id: string;
+		};
+		const child = (await registry.invoke("playbooks.create", 1, { title: "Child playbook", steps: ["Child step"] }, PERMS)) as {
+			id: string;
+		};
 
 		await registry.invoke("playbooks.contain", 1, { parent_name: "Parent playbook", child_name: "Child playbook" }, PERMS);
-		const tree = (await service.execute("graph.tree", { id: parent.id, depth: 1 })) as { edges?: Array<{ from: string; to: string; relation: string }> };
+		const tree = (await service.execute("graph.tree", { id: parent.id, depth: 1 })) as {
+			edges?: Array<{ from: string; to: string; relation: string }>;
+		};
 		expect(tree.edges?.some((edge) => edge.relation === "contains" && edge.to === child.id)).toBe(true);
 
 		await registry.invoke("playbooks.uncontain", 1, { parent_name: "Parent playbook", child_name: "Child playbook" }, PERMS);
-		const afterUncontain = (await service.execute("graph.tree", { id: parent.id, depth: 1 })) as { edges?: Array<{ from: string; to: string; relation: string }> };
+		const afterUncontain = (await service.execute("graph.tree", { id: parent.id, depth: 1 })) as {
+			edges?: Array<{ from: string; to: string; relation: string }>;
+		};
 		expect(afterUncontain.edges?.some((edge) => edge.relation === "contains" && edge.to === child.id)).toBe(false);
 		service.close();
 	});
 
 	it("depend/undepend resolve dependency_name server-side", async () => {
 		const { registry, service } = harness();
-		const dependent = (await registry.invoke("playbooks.create", 1, { title: "Dependent playbook", steps: ["Step"] }, PERMS)) as { id: string };
+		const dependent = (await registry.invoke("playbooks.create", 1, { title: "Dependent playbook", steps: ["Step"] }, PERMS)) as {
+			id: string;
+		};
 		await registry.invoke("playbooks.create", 1, { title: "Prerequisite playbook", steps: ["Step"] }, PERMS);
 
 		await registry.invoke("playbooks.depend", 1, { name: "Dependent playbook", dependency_name: "Prerequisite playbook" }, PERMS);
-		const tree = (await service.execute("graph.tree", { id: dependent.id, depth: 1 })) as { edges?: Array<{ from: string; to: string; relation: string }> };
+		const tree = (await service.execute("graph.tree", { id: dependent.id, depth: 1 })) as {
+			edges?: Array<{ from: string; to: string; relation: string }>;
+		};
 		expect(tree.edges?.some((edge) => edge.relation === "depends_on")).toBe(true);
 
 		await registry.invoke("playbooks.undepend", 1, { name: "Dependent playbook", dependency_name: "Prerequisite playbook" }, PERMS);
-		const afterUndepend = (await service.execute("graph.tree", { id: dependent.id, depth: 1 })) as { edges?: Array<{ from: string; to: string; relation: string }> };
+		const afterUndepend = (await service.execute("graph.tree", { id: dependent.id, depth: 1 })) as {
+			edges?: Array<{ from: string; to: string; relation: string }>;
+		};
 		expect(afterUndepend.edges?.some((edge) => edge.relation === "depends_on")).toBe(false);
 		service.close();
 	});
@@ -189,19 +260,31 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		// A wrong secret for a REGISTERED session id is refused -- assertAuthorized's real check runs.
 		// VehicleRegistry wraps the real domain error in a generic "handler failed" VehicleError,
 		// with the original preserved as .cause.
-		const rejection = await registry.invoke("playbooks.invoke", 1, { id: created.id }, {
-			...PERMS,
-			principal: { id: "pi-papyrus", claims: { sessionId: "session-1", sessionSecret: "wrong-secret" } },
-		}).catch((error: unknown) => error);
+		const rejection = await registry
+			.invoke(
+				"playbooks.invoke",
+				1,
+				{ id: created.id },
+				{
+					...PERMS,
+					principal: { id: "pi-papyrus", claims: { sessionId: "session-1", sessionSecret: "wrong-secret" } },
+				},
+			)
+			.catch((error: unknown) => error);
 		expect(rejection).toBeInstanceOf(Error);
 		expect((rejection as { cause?: unknown }).cause).toBeInstanceOf(Error);
-		expect(((rejection as { cause: Error }).cause).message).toContain("session_secret");
+		expect((rejection as { cause: Error }).cause.message).toContain("session_secret");
 
 		// The real cached secret authorizes it.
-		const invocation = (await registry.invoke("playbooks.invoke", 1, { id: created.id }, {
-			...PERMS,
-			principal: { id: "pi-papyrus", claims: { sessionId: "session-1", sessionSecret: secret } },
-		})) as { entryTaskId: string };
+		const invocation = (await registry.invoke(
+			"playbooks.invoke",
+			1,
+			{ id: created.id },
+			{
+				...PERMS,
+				principal: { id: "pi-papyrus", claims: { sessionId: "session-1", sessionSecret: secret } },
+			},
+		)) as { entryTaskId: string };
 		expect(invocation.entryTaskId).toBeTruthy();
 		service.close();
 	});

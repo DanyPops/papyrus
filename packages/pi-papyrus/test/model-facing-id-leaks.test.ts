@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { type Artifact, type ArtifactStore, taskContext } from "@danypops/papyrus";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import registerPapyrus from "../extension/src/index.ts";
 import { ActiveTaskContinuation } from "../extension/src/active-task-continuation.ts";
+import registerPapyrus from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,
 	resetVehicleClientTargetResolverForTests,
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
-import { taskContext, type Artifact, type ArtifactStore } from "@danypops/papyrus";
 
 const TASK_ID = "0d6cc36a-2755-474c-b955-6a5534d5f66d";
 const OTHER_ID = "899fdd09-1340-450b-ae60-e1816f9b481e";
@@ -31,15 +31,26 @@ function artifact(overrides: Partial<Artifact> = {}): Artifact {
 }
 
 function modelText(result: { content: Array<{ type: string; text?: string }> }): string {
-	return result.content.filter((entry) => entry.type === "text").map((entry) => entry.text ?? "").join("\n");
+	return result.content
+		.filter((entry) => entry.type === "text")
+		.map((entry) => entry.text ?? "")
+		.join("\n");
 }
 
-type ToolExecute = (id: string, params: Record<string, unknown>, signal: undefined, onUpdate: undefined, ctx: ExtensionContext) => Promise<{ content: Array<{ type: string; text?: string }>; details?: unknown }>;
+type ToolExecute = (
+	id: string,
+	params: Record<string, unknown>,
+	signal: undefined,
+	onUpdate: undefined,
+	ctx: ExtensionContext,
+) => Promise<{ content: Array<{ type: string; text?: string }>; details?: unknown }>;
 
 async function registeredTools(): Promise<Map<string, ToolExecute>> {
 	const tools = new Map<string, ToolExecute>();
 	const api = {
-		registerTool(tool: { name: string; execute: ToolExecute }) { tools.set(tool.name, tool.execute); },
+		registerTool(tool: { name: string; execute: ToolExecute }) {
+			tools.set(tool.name, tool.execute);
+		},
 		registerCommand() {},
 		on() {},
 		sendMessage() {},
@@ -62,14 +73,19 @@ function context(): ExtensionContext {
 	} as unknown as ExtensionContext;
 }
 
-function mockService(handler: (operation: string, input: Record<string, unknown>) => unknown): Array<{ operation: string; input: Record<string, unknown> }> {
+function mockService(
+	handler: (operation: string, input: Record<string, unknown>) => unknown,
+): Array<{ operation: string; input: Record<string, unknown> }> {
 	const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
-	setPapyrusClientConnectorForTests(async () => ({
-		async call(operation: string, input: Record<string, unknown>) {
-			calls.push({ operation, input });
-			return handler(operation, input);
-		},
-	}) as any);
+	setPapyrusClientConnectorForTests(
+		async () =>
+			({
+				async call(operation: string, input: Record<string, unknown>) {
+					calls.push({ operation, input });
+					return handler(operation, input);
+				},
+			}) as any,
+	);
 	return calls;
 }
 
@@ -103,18 +119,32 @@ describe("model-facing artifact references are name-first", () => {
 			if (operation === "graph.status") return { ...rows[0], status: "in-progress" };
 			if (operation === "graph.link") return { linked: true };
 			if (operation === "graph.tree") return { ...rows[0], edges: [{ from: TASK_ID, relation: "references", to: OTHER_ID }] };
-			if (operation === "graph.history") return { events: [{ occurredAt: "2026-01-01", artifactId: TASK_ID, type: "updated", actor: "agent", source: "test" }] };
+			if (operation === "graph.history")
+				return { events: [{ occurredAt: "2026-01-01", artifactId: TASK_ID, type: "updated", actor: "agent", source: "test" }] };
 			throw new Error(`unexpected operation ${operation}`);
 		});
 
 		const queryResult = await tools.get("papyrus_query")!("q", {}, undefined, undefined, context());
 		const showResult = await tools.get("papyrus_show")!("s", { id: TASK_ID }, undefined, undefined, context());
-		const statusResult = await tools.get("papyrus_graph")!("g", { action: "status", id: TASK_ID, status: "in-progress" }, undefined, undefined, context());
-		const linkResult = await tools.get("papyrus_graph")!("g", { action: "link", from: TASK_ID, relation: "references", to: OTHER_ID }, undefined, undefined, context());
+		const statusResult = await tools.get("papyrus_graph")!(
+			"g",
+			{ action: "status", id: TASK_ID, status: "in-progress" },
+			undefined,
+			undefined,
+			context(),
+		);
+		const linkResult = await tools.get("papyrus_graph")!(
+			"g",
+			{ action: "link", from: TASK_ID, relation: "references", to: OTHER_ID },
+			undefined,
+			undefined,
+			context(),
+		);
 		const treeResult = await tools.get("papyrus_graph")!("g", { action: "tree", id: TASK_ID }, undefined, undefined, context());
 		const historyResult = await tools.get("papyrus_graph")!("g", { action: "history", id: TASK_ID }, undefined, undefined, context());
 
-		for (const result of [queryResult, showResult, statusResult, linkResult, treeResult, historyResult]) expect(modelText(result)).not.toMatch(UUID);
+		for (const result of [queryResult, showResult, statusResult, linkResult, treeResult, historyResult])
+			expect(modelText(result)).not.toMatch(UUID);
 		expect(JSON.stringify(queryResult.details)).toContain(OTHER_ID);
 		expect(JSON.stringify(showResult.details)).toContain(TASK_ID);
 	});
@@ -149,8 +179,20 @@ describe("model-facing artifact references are name-first", () => {
 			throw new Error(`unexpected operation ${operation}`);
 		});
 
-		const linkResult = await tools.get("papyrus_graph")!("g", { action: "link", from_name: "Decide middleware fate", relation: "references", to_name: "Trust model" }, undefined, undefined, context());
-		const unlinkResult = await tools.get("papyrus_graph")!("g", { action: "unlink", from_name: "Decide middleware fate", relation: "references", to_name: "Trust model" }, undefined, undefined, context());
+		const linkResult = await tools.get("papyrus_graph")!(
+			"g",
+			{ action: "link", from_name: "Decide middleware fate", relation: "references", to_name: "Trust model" },
+			undefined,
+			undefined,
+			context(),
+		);
+		const unlinkResult = await tools.get("papyrus_graph")!(
+			"g",
+			{ action: "unlink", from_name: "Decide middleware fate", relation: "references", to_name: "Trust model" },
+			undefined,
+			undefined,
+			context(),
+		);
 
 		const linkCall = calls.find((entry) => entry.operation === "graph.link");
 		expect(linkCall?.input).toMatchObject({ from: TASK_ID, to: OTHER_ID, relation: "references" });
@@ -170,7 +212,13 @@ describe("model-facing artifact references are name-first", () => {
 			throw new Error(`unexpected operation ${operation}`);
 		});
 
-		await tools.get("papyrus_graph")!("g", { action: "link", from: TASK_ID, relation: "references", to: OTHER_ID }, undefined, undefined, context());
+		await tools.get("papyrus_graph")!(
+			"g",
+			{ action: "link", from: TASK_ID, relation: "references", to: OTHER_ID },
+			undefined,
+			undefined,
+			context(),
+		);
 
 		const linkCall = calls.find((entry) => entry.operation === "graph.link");
 		expect(linkCall?.input).toMatchObject({ from: TASK_ID, to: OTHER_ID });

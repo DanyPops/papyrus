@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { buildTaskHierarchy } from "../extension/src/tasks.ts";
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
+import { buildTaskHierarchy } from "../extension/src/tasks.ts";
 
 function task(id: string, title: string): Artifact {
 	return {
@@ -53,10 +53,7 @@ describe("task hierarchy projection", () => {
 
 	it("visits every task once when malformed containment contains a cycle", () => {
 		const graph: TaskGraph = {
-			nodes: [
-				node("a", "A", { parentIds: ["b"], childIds: ["b"] }),
-				node("b", "B", { parentIds: ["a"], childIds: ["a"] }),
-			],
+			nodes: [node("a", "A", { parentIds: ["b"], childIds: ["b"] }), node("b", "B", { parentIds: ["a"], childIds: ["a"] })],
 			rootIds: [],
 		};
 

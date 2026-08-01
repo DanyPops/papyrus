@@ -1,12 +1,6 @@
+import { type Artifact, type DiscussionAndRounds, type DiscussionRound, type OperationName, readDiscussionExtra } from "@danypops/papyrus";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-	readDiscussionExtra,
-	type Artifact,
-	type DiscussionAndRounds,
-	type DiscussionRound,
-	type OperationName,
-} from "@danypops/papyrus";
 import { askQuestion } from "./discuss-ask-view.ts";
 import { callService } from "./service-client.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
@@ -43,7 +37,11 @@ function normalizeDiscussOptions(params: Record<string, unknown>): void {
 	const titles: string[] = [];
 	const descriptions: string[] = [];
 	for (const entry of raw) {
-		if (typeof entry === "string") { titles.push(entry); descriptions.push(""); continue; }
+		if (typeof entry === "string") {
+			titles.push(entry);
+			descriptions.push("");
+			continue;
+		}
 		if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).title === "string") {
 			const record = entry as Record<string, unknown>;
 			titles.push(record.title as string);
@@ -59,9 +57,21 @@ function normalizeDiscussOptions(params: Record<string, unknown>): void {
 	if (anyDescription) params.option_descriptions = descriptions;
 }
 
-async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestContent: string | undefined, onUpdate: AgentToolUpdateCallback | undefined, signal: AbortSignal | undefined): Promise<{ content: string; selected?: string[] } | undefined> {
+async function liveAnswer(
+	ctx: ExtensionContext,
+	discussion: Artifact,
+	latestContent: string | undefined,
+	onUpdate: AgentToolUpdateCallback | undefined,
+	signal: AbortSignal | undefined,
+): Promise<{ content: string; selected?: string[] } | undefined> {
 	if (!ctx.hasUI) return undefined;
-	const pending = (() => { try { return readDiscussionExtra(discussion.extra); } catch { return undefined; } })();
+	const pending = (() => {
+		try {
+			return readDiscussionExtra(discussion.extra);
+		} catch {
+			return undefined;
+		}
+	})();
 	// The just-recorded round's own content IS the real question -- a generic "Reply to <title>:"
 	// wrapper as the primary question, with the real content demoted to "Context:", left a human
 	// staring at a labeled-backwards prompt (live-observed). The wrapper is now only a fallback for
@@ -72,7 +82,10 @@ async function liveAnswer(ctx: ExtensionContext, discussion: Artifact, latestCon
 		return askQuestion(ctx, {
 			question,
 			subtitle,
-			options: pending.pendingOptions.map((title, index) => ({ title, description: pending.pendingOptionDescriptions?.[index] || undefined })),
+			options: pending.pendingOptions.map((title, index) => ({
+				title,
+				description: pending.pendingOptionDescriptions?.[index] || undefined,
+			})),
 			allowMultiple: pending.pendingOptionsMode === "multi",
 			onUpdate,
 			signal,
@@ -96,7 +109,9 @@ export function artifactLine(artifact: Artifact): string {
 export function artifactLines(artifacts: Artifact[]): string[] {
 	const titleCounts = new Map<string, number>();
 	for (const artifact of artifacts) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
-	return artifacts.map((artifact) => (titleCounts.get(artifact.title)! > 1 ? `${artifactLine(artifact)} (${artifact.id})` : artifactLine(artifact)));
+	return artifacts.map((artifact) =>
+		titleCounts.get(artifact.title)! > 1 ? `${artifactLine(artifact)} (${artifact.id})` : artifactLine(artifact),
+	);
 }
 
 /**
@@ -110,7 +125,9 @@ export function matchArtifactByName(candidates: Artifact[], name: string): strin
 	const matches = candidates.filter((artifact) => artifact.title.trim().toLowerCase() === needle);
 	if (matches.length === 0) throw new Error(`no artifact named "${name}" found in this scope`);
 	if (matches.length > 1) {
-		throw new Error(`${matches.length} artifacts are named "${name}": ${matches.map((artifact) => `${artifact.title} (${artifact.id})`).join(", ")} -- use id to disambiguate`);
+		throw new Error(
+			`${matches.length} artifacts are named "${name}": ${matches.map((artifact) => `${artifact.title} (${artifact.id})`).join(", ")} -- use id to disambiguate`,
+		);
 	}
 	return matches[0]!.id;
 }
@@ -126,9 +143,7 @@ const SCOPE_AWARE_LIST_OPERATIONS = new Set<OperationName>(["tasks.list"]);
 
 /** The widened-scope request tried once when a name isn't found under the caller's current scope. */
 function widenedRequest(listOperation: OperationName, baseRequest: Record<string, unknown>): Record<string, unknown> {
-	return SCOPE_AWARE_LIST_OPERATIONS.has(listOperation)
-		? { ...baseRequest, scope: "all" }
-		: { ...baseRequest, project_root: undefined };
+	return SCOPE_AWARE_LIST_OPERATIONS.has(listOperation) ? { ...baseRequest, scope: "all" } : { ...baseRequest, project_root: undefined };
 }
 
 /**
@@ -147,13 +162,21 @@ function widenedRequest(listOperation: OperationName, baseRequest: Record<string
  * widening, so the caller can surface that a search went wider than the caller's default scope
  * rather than resolving silently.
  */
-async function resolveArtifactIdByName(listOperation: OperationName, baseRequest: Record<string, unknown>, name: string, notes?: string[]): Promise<string> {
+async function resolveArtifactIdByName(
+	listOperation: OperationName,
+	baseRequest: Record<string, unknown>,
+	name: string,
+	notes?: string[],
+): Promise<string> {
 	const candidates = await callService<Record<string, unknown>, Artifact[]>(listOperation, { ...baseRequest, text: name });
 	try {
 		return matchArtifactByName(candidates, name);
 	} catch (error) {
-		if (!(error instanceof Error) || !error.message.startsWith("no artifact named") || baseRequest["scope"] !== undefined) throw error;
-		const widenedCandidates = await callService<Record<string, unknown>, Artifact[]>(listOperation, { ...widenedRequest(listOperation, baseRequest), text: name });
+		if (!(error instanceof Error) || !error.message.startsWith("no artifact named") || baseRequest.scope !== undefined) throw error;
+		const widenedCandidates = await callService<Record<string, unknown>, Artifact[]>(listOperation, {
+			...widenedRequest(listOperation, baseRequest),
+			text: name,
+		});
 		const id = matchArtifactByName(widenedCandidates, name);
 		notes?.push(`"${name}" was not found in the current project scope; resolved across all projects instead.`);
 		return id;
@@ -201,13 +224,13 @@ async function resolveNameArrayField(
  * over the same two operations rather than reinventing trash semantics four times.
  * Returns null when action is neither, so callers fall through to their own dispatch.
  */
-async function handleArtifactRemoveRestore(action: unknown, params: Record<string, unknown>): Promise<ReturnType<typeof text> | null> {
+async function _handleArtifactRemoveRestore(action: unknown, params: Record<string, unknown>): Promise<ReturnType<typeof text> | null> {
 	// Trashed/restored artifacts stay directly showable, so known identities render by title on
 	// either side of the action. An unresolved explicit id stays in structured/error channels;
 	// normal model text does not turn that backend key into the artifact's public name.
 	const titleOf = async (): Promise<string> => {
 		try {
-			const artifact = await callService<Record<string, unknown>, Artifact | null>("artifact.show", { id: params["id"] });
+			const artifact = await callService<Record<string, unknown>, Artifact | null>("artifact.show", { id: params.id });
 			return artifact ? `"${artifact.title}"` : "unknown artifact";
 		} catch {
 			return "unknown artifact";
@@ -215,7 +238,10 @@ async function handleArtifactRemoveRestore(action: unknown, params: Record<strin
 	};
 	if (action === "remove") {
 		const label = await titleOf();
-		const record = await callService<Record<string, unknown>, { artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }>("artifact.remove", params);
+		const record = await callService<
+			Record<string, unknown>,
+			{ artifactId: string; trashedAt: string; purgeAfter: string; reason?: string }
+		>("artifact.remove", params);
 		const message = `Trashed ${label}, eligible for purge at ${record.purgeAfter}.`;
 		return text(message, createPreviewDetails("artifact.remove", "Trashed", record.artifactId));
 	}
@@ -242,7 +268,8 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "discuss",
 		label: "Discuss",
-		description: "Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Each option is either a bare string or {title, description}; description is optional for exactly 2 options (a self-evident yes/no) but REQUIRED and non-empty for every option once there are 3 or more -- rejected otherwise. One line: the real pro/con/risk/consequence, never padding that just restates the title. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. The live picker docks in the input area itself (falls back to a plain text prompt if unsupported in the current UI mode). PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
+		description:
+			"Native Papyrus deliberation with a real lifecycle -- distinct from a one-shot ask: a Discussion persists, takes multiple rounds, and can genuinely block a Task's completion until settled or deferred. ACTIONS: open, reply, defer, resume, settle, block, unblock, show, rounds, list. open starts round 1 and optionally blocks_task_ids immediately. reply is refused once deferred or settled -- resume first. defer is explicitly non-blocking (paused, resumable); settle is terminal and archives the discussion. block/unblock manage the blocking relationship to a task independently of open. A task's completion is refused while any active Discussion blocks it. open/reply can pose a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several); reply answers a currently pending choice via selected, validated against it. Each option is either a bare string or {title, description}; description is optional for exactly 2 options (a self-evident yes/no) but REQUIRED and non-empty for every option once there are 3 or more -- rejected otherwise. One line: the real pro/con/risk/consequence, never padding that just restates the title. Pass live:true on open or reply to get the human's answer synchronously in this same call, via an interactive prompt (the pending choice's picker if one was posed, otherwise a freeform question) -- covers a completely open question with no artifact (open with no prior discussion) and a question tied to a specific existing artifact (reply, addressed by name) alike. Only takes effect with an interactive UI available; otherwise degrades silently to the normal async round. The live picker docks in the input area itself (falls back to a plain text prompt if unsupported in the current UI mode). PREFER `name` (the discussion's exact title) over `id`, `task_name`/`blocks_task_names` over `task_id`/`blocks_task_ids` -- all are backend implementation details, resolved from name automatically.",
 		parameters: Type.Object({
 			action: Type.String(),
 			id: Type.Optional(Type.String()),
@@ -261,7 +288,9 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 			state: Type.Optional(Type.String()),
 			after_round: Type.Optional(Type.Number()),
 			limit: Type.Optional(Type.Number()),
-			options: Type.Optional(Type.Array(Type.Union([Type.String(), Type.Object({ title: Type.String(), description: Type.Optional(Type.String()) })]))),
+			options: Type.Optional(
+				Type.Array(Type.Union([Type.String(), Type.Object({ title: Type.String(), description: Type.Optional(Type.String()) })])),
+			),
 			options_mode: Type.Optional(Type.String()),
 			selected: Type.Optional(Type.Array(Type.String())),
 			live: Type.Optional(Type.Boolean()),
@@ -270,8 +299,12 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 		// back, same reasoning as pi-ask-user's own tool: the model must not batch a live ask with
 		// bash/edit/write and let those run before the human sees the prompt.
 		executionMode: "sequential",
-		renderCall(args, theme) { return renderPapyrusToolCall("Discuss", args, theme); },
-		renderResult(result, options, theme, context) { return renderPapyrusToolResult(result, options, theme, context); },
+		renderCall(args, theme) {
+			return renderPapyrusToolCall("Discuss", args, theme);
+		},
+		renderResult(result, options, theme, context) {
+			return renderPapyrusToolResult(result, options, theme, context);
+		},
 		async execute(_id, rawParams, signal, onUpdate, ctx) {
 			try {
 				const params: Record<string, unknown> = { ...rawParams };
@@ -290,14 +323,22 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 					if (typeof params.actor !== "string" || params.actor.length === 0) params.actor = "agent";
 					const operation = action === "open" ? "discuss.open" : "discuss.reply";
 					const result = await callService<Record<string, unknown>, DiscussionAndRounds>(operation, params);
-					const fallback = action === "open"
-						? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
-						: text(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`, createArtifactDetails("discuss.reply", result.discussion));
+					const fallback =
+						action === "open"
+							? text(`Opened discussion ${artifactLine(result.discussion)}`, createArtifactDetails("discuss.open", result.discussion))
+							: text(
+									`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`,
+									createArtifactDetails("discuss.reply", result.discussion),
+								);
 					if (params.live !== true) return fallback;
 					const answer = await liveAnswer(ctx, result.discussion, result.rounds[0]?.content, onUpdate, signal);
 					if (!answer) return fallback;
 					const answered = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
-						id: result.discussion.id, actor: "human", content: answer.content, ...(answer.selected ? { selected: answer.selected } : {}), source: "discuss-live",
+						id: result.discussion.id,
+						actor: "human",
+						content: answer.content,
+						...(answer.selected ? { selected: answer.selected } : {}),
+						source: "discuss-live",
 					});
 					return text(`"${answered.discussion.title}": ${answer.content}`, createArtifactDetails("discuss.reply", answered.discussion));
 				}
@@ -309,9 +350,10 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 						callService<Record<string, unknown>, Artifact>("tasks.show", { id: params.task_id }),
 					]);
 					const discussion = discussionAndRounds.discussion;
-					const message = action === "unblock" && !outcome.unblocked
-						? "No such blocking relationship."
-						: `"${discussion.title}" ${action === "block" ? "now blocks" : "no longer blocks"} "${task.title}"`;
+					const message =
+						action === "unblock" && !outcome.unblocked
+							? "No such blocking relationship."
+							: `"${discussion.title}" ${action === "block" ? "now blocks" : "no longer blocks"} "${task.title}"`;
 					return text(message, createPreviewDetails(operation, action === "block" ? "Blocked" : "Unblocked", message));
 				}
 				if (action === "show") {
@@ -326,7 +368,10 @@ export function registerDiscussTool(pi: ExtensionAPI): void {
 				}
 				if (action === "list") {
 					const rows = await callService<Record<string, unknown>, Artifact[]>("discuss.list", params);
-					return text(rows.length ? artifactLines(rows).join("\n") : "No discussions found.", createArtifactListDetails("discuss.list", rows));
+					return text(
+						rows.length ? artifactLines(rows).join("\n") : "No discussions found.",
+						createArtifactListDetails("discuss.list", rows),
+					);
 				}
 				const operations = { defer: "discuss.defer", resume: "discuss.resume", settle: "discuss.settle" } as const;
 				const operation = operations[action as keyof typeof operations];

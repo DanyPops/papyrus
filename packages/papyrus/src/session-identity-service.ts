@@ -1,4 +1,9 @@
-import { isSessionRegistered, registerSessionIdentity, releaseSessionIdentity, verifySessionSecret } from "@danypops/vehicle-server/session-identity";
+import {
+	isSessionRegistered,
+	registerSessionIdentity,
+	releaseSessionIdentity,
+	verifySessionSecret,
+} from "@danypops/vehicle-server/session-identity";
 import { assertValidSessionId } from "./domain/session-identity.ts";
 import type { SessionIdentityStore } from "./ports/session-identity-store.ts";
 
@@ -50,6 +55,9 @@ export class SessionIdentity {
 	assertAuthorized(sessionId: string | undefined, secret: string | undefined): void {
 		if (sessionId === undefined) return;
 		if (!this.isRegistered(sessionId)) return;
-		if (!this.verify(sessionId, secret)) throw new InvalidSessionSecretError(`session "${sessionId}" is registered; a valid session_secret is required to mutate its Task Focus`);
+		if (!this.verify(sessionId, secret))
+			throw new InvalidSessionSecretError(
+				`session "${sessionId}" is registered; a valid session_secret is required to mutate its Task Focus`,
+			);
 	}
 }

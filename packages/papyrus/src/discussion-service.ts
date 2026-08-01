@@ -4,8 +4,13 @@
  * design rationale.
  */
 import { DISCUSSION_LIST_DEFAULT_LIMIT, DISCUSSION_LIST_MAX_LIMIT, DISCUSSION_MAX_ROUNDS } from "./constants.ts";
+import type { Artifact } from "./domain/artifact.ts";
+import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import {
 	DISCUSSION_SUBTYPE,
+	type DiscussionExtra,
+	type DiscussionOptionsMode,
+	type DiscussionRound,
 	isDiscussionArtifact,
 	readDiscussionExtra,
 	validateDeferReason,
@@ -14,12 +19,7 @@ import {
 	validateDiscussionOptions,
 	validateSelectedOptions,
 	validateSettlement,
-	type DiscussionExtra,
-	type DiscussionOptionsMode,
-	type DiscussionRound,
 } from "./domain/discussion.ts";
-import type { Artifact } from "./domain/artifact.ts";
-import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import type { AtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import type { DiscussionRoundStore } from "./ports/discussion-round-store.ts";
 
@@ -72,7 +72,11 @@ export class Discussions {
 	}
 
 	/** Validates a freshly-posed choice; undefined when neither field is given (nothing posed), since both/neither is the only valid shape. */
-	private validatePosedOptions(options: string[] | undefined, optionsMode: DiscussionOptionsMode | undefined, optionDescriptions: string[] | undefined): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } | undefined {
+	private validatePosedOptions(
+		options: string[] | undefined,
+		optionsMode: DiscussionOptionsMode | undefined,
+		optionDescriptions: string[] | undefined,
+	): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } | undefined {
 		if (options === undefined && optionsMode === undefined) return undefined;
 		return validateDiscussionOptions(options ?? [], optionsMode ?? "", optionDescriptions);
 	}
@@ -82,25 +86,46 @@ export class Discussions {
 		const content = validateDiscussionContent(input.content);
 		const posed = this.validatePosedOptions(input.options, input.optionsMode, input.optionDescriptions);
 		return this.artifacts.atomic(() => {
-			const discussion = this.artifacts.create({
-				kind: "task",
-				subtype: DISCUSSION_SUBTYPE,
-				title: input.title,
-				body: input.body ?? "",
-				status: "in-progress",
-				labels: input.labels,
-				extra: {
-					discussion: {
-						state: "active",
-						roundCount: 1,
-						...(posed ? { pendingOptions: posed.options, pendingOptionsMode: posed.mode, ...(posed.optionDescriptions ? { pendingOptionDescriptions: posed.optionDescriptions } : {}) } : {}),
+			const discussion = this.artifacts.create(
+				{
+					kind: "task",
+					subtype: DISCUSSION_SUBTYPE,
+					title: input.title,
+					body: input.body ?? "",
+					status: "in-progress",
+					labels: input.labels,
+					extra: {
+						discussion: {
+							state: "active",
+							roundCount: 1,
+							...(posed
+								? {
+										pendingOptions: posed.options,
+										pendingOptionsMode: posed.mode,
+										...(posed.optionDescriptions ? { pendingOptionDescriptions: posed.optionDescriptions } : {}),
+									}
+								: {}),
+						},
 					},
 				},
-			}, context);
-			const round = this.rounds.append({
-				discussionId: discussion.id, roundNumber: 1, actor, content,
-				...(posed ? { options: posed.options, optionsMode: posed.mode, ...(posed.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}) } : {}),
-			}, new Date().toISOString());
+				context,
+			);
+			const round = this.rounds.append(
+				{
+					discussionId: discussion.id,
+					roundNumber: 1,
+					actor,
+					content,
+					...(posed
+						? {
+								options: posed.options,
+								optionsMode: posed.mode,
+								...(posed.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}),
+							}
+						: {}),
+				},
+				new Date().toISOString(),
+			);
 			for (const taskId of input.blocksTaskIds ?? []) this.block(discussion.id, taskId, context);
 			return { discussion: this.artifacts.get(discussion.id)!, rounds: [round] };
 		});
@@ -114,24 +139,49 @@ export class Discussions {
 			const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
 			const state = this.extra(discussion);
 			if (state.state !== "active") throw new DiscussionError(`discussion "${discussionId}" is ${state.state}; resume it before replying`);
-			if (state.roundCount >= DISCUSSION_MAX_ROUNDS) throw new DiscussionError(`discussion "${discussionId}" has reached its ${DISCUSSION_MAX_ROUNDS}-round limit; settle or defer it`);
-			const selected = input.selected !== undefined ? validateSelectedOptions(input.selected, state.pendingOptions, state.pendingOptionsMode) : undefined;
+			if (state.roundCount >= DISCUSSION_MAX_ROUNDS)
+				throw new DiscussionError(`discussion "${discussionId}" has reached its ${DISCUSSION_MAX_ROUNDS}-round limit; settle or defer it`);
+			const selected =
+				input.selected !== undefined ? validateSelectedOptions(input.selected, state.pendingOptions, state.pendingOptionsMode) : undefined;
 			const nextRound = state.roundCount + 1;
-			const round = this.rounds.append({
-				discussionId, roundNumber: nextRound, actor: validActor, content: validContent,
-				...(posed ? { options: posed.options, optionsMode: posed.mode, ...(posed.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}) } : {}),
-				...(selected ? { selected } : {}),
-			}, new Date().toISOString());
+			const round = this.rounds.append(
+				{
+					discussionId,
+					roundNumber: nextRound,
+					actor: validActor,
+					content: validContent,
+					...(posed
+						? {
+								options: posed.options,
+								optionsMode: posed.mode,
+								...(posed.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}),
+							}
+						: {}),
+					...(selected ? { selected } : {}),
+				},
+				new Date().toISOString(),
+			);
 			// Whenever this round answers the pending choice OR poses a new one, the base must drop ALL
 			// three pending* fields first -- otherwise a re-pose that omits descriptions this time would
 			// leave a stale pendingOptionDescriptions array (sized for the OLD options) spread through
 			// unchanged, no longer aligned 1:1 with the new pendingOptions. Only a plain reply that
 			// neither answers nor re-poses leaves the existing pending state untouched.
-			const { pendingOptions: _clearedOptions, pendingOptionsMode: _clearedMode, pendingOptionDescriptions: _clearedDescriptions, ...withoutPending } = state;
+			const {
+				pendingOptions: _clearedOptions,
+				pendingOptionsMode: _clearedMode,
+				pendingOptionDescriptions: _clearedDescriptions,
+				...withoutPending
+			} = state;
 			const nextState = {
 				...(selected || posed ? withoutPending : state),
 				roundCount: nextRound,
-				...(posed ? { pendingOptions: posed.options, pendingOptionsMode: posed.mode, ...(posed.optionDescriptions ? { pendingOptionDescriptions: posed.optionDescriptions } : {}) } : {}),
+				...(posed
+					? {
+							pendingOptions: posed.options,
+							pendingOptionsMode: posed.mode,
+							...(posed.optionDescriptions ? { pendingOptionDescriptions: posed.optionDescriptions } : {}),
+						}
+					: {}),
 			};
 			const updated = this.artifacts.setExtra(discussionId, { ...discussion.extra, discussion: nextState }, context)!;
 			return { discussion: updated, rounds: [round] };
@@ -143,11 +193,16 @@ export class Discussions {
 		return this.artifacts.atomic(() => {
 			const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
 			const state = this.extra(discussion);
-			if (state.state !== "active") throw new DiscussionError(`discussion "${discussionId}" is ${state.state}; only an active Discussion can be deferred`);
-			return this.artifacts.setExtra(discussionId, {
-				...discussion.extra,
-				discussion: { ...state, state: "deferred", ...(validReason === undefined ? {} : { deferredReason: validReason }) },
-			}, context)!;
+			if (state.state !== "active")
+				throw new DiscussionError(`discussion "${discussionId}" is ${state.state}; only an active Discussion can be deferred`);
+			return this.artifacts.setExtra(
+				discussionId,
+				{
+					...discussion.extra,
+					discussion: { ...state, state: "deferred", ...(validReason === undefined ? {} : { deferredReason: validReason }) },
+				},
+				context,
+			)!;
 		});
 	}
 
@@ -155,7 +210,8 @@ export class Discussions {
 		return this.artifacts.atomic(() => {
 			const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
 			const state = this.extra(discussion);
-			if (state.state !== "deferred") throw new DiscussionError(`discussion "${discussionId}" is ${state.state}; only a deferred Discussion can be resumed`);
+			if (state.state !== "deferred")
+				throw new DiscussionError(`discussion "${discussionId}" is ${state.state}; only a deferred Discussion can be resumed`);
 			const { deferredReason: _deferredReason, ...rest } = state;
 			return this.artifacts.setExtra(discussionId, { ...discussion.extra, discussion: { ...rest, state: "active" } }, context)!;
 		});
@@ -167,10 +223,14 @@ export class Discussions {
 			const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
 			const state = this.extra(discussion);
 			if (state.state === "settled") throw new DiscussionError(`discussion "${discussionId}" is already settled`);
-			const updated = this.artifacts.setExtra(discussionId, {
-				...discussion.extra,
-				discussion: { ...state, state: "settled", settlement: validSettlement, settledAt: new Date().toISOString() },
-			}, context)!;
+			const updated = this.artifacts.setExtra(
+				discussionId,
+				{
+					...discussion.extra,
+					discussion: { ...state, state: "settled", settlement: validSettlement, settledAt: new Date().toISOString() },
+				},
+				context,
+			)!;
 			return this.artifacts.setStatus(discussionId, "done", context) ?? updated;
 		});
 	}
@@ -178,7 +238,8 @@ export class Discussions {
 	/** Links an existing active Discussion to a Task it blocks; refuses a non-task target or an already-settled Discussion. */
 	block(discussionId: string, taskId: string, context?: ArtifactEventContext): void {
 		const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
-		if (this.extra(discussion).state === "settled") throw new DiscussionError(`discussion "${discussionId}" is settled; it can no longer block anything`);
+		if (this.extra(discussion).state === "settled")
+			throw new DiscussionError(`discussion "${discussionId}" is settled; it can no longer block anything`);
 		const task = this.artifacts.get(taskId);
 		if (!task) throw new DiscussionError(`task "${taskId}" not found`);
 		if (task.kind !== "task" || isDiscussionArtifact(task)) throw new DiscussionError(`artifact "${taskId}" is not a task`);
@@ -211,7 +272,11 @@ export class Discussions {
 		const rows = this.artifacts.query({ kind: "task", subtype: DISCUSSION_SUBTYPE, limit });
 		if (!filter.state) return rows;
 		return rows.filter((row) => {
-			try { return this.extra(row).state === filter.state; } catch { return false; }
+			try {
+				return this.extra(row).state === filter.state;
+			} catch {
+				return false;
+			}
 		});
 	}
 }

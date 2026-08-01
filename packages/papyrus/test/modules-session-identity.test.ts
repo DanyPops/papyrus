@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-identity-store.ts";
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
-import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "../src/modules/session-identity.ts";
+import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "../src/modules/session-identity.ts";
 import { SessionIdentity } from "../src/session-identity-service.ts";
 
 function fixture() {
@@ -32,10 +32,14 @@ describe("session-identity module: registration and operation input parsing", ()
 		const { secret } = registry.get("session.register")!.execute({ session_id: "session-a" }) as { sessionId: string; secret: string };
 		expect(() => registry.get("session.release")!.execute({})).toThrow("session_id is required");
 
-		const wrongSecret = registry.get("session.release")!.execute({ session_id: "session-a", session_secret: "wrong" }) as { released: boolean };
+		const wrongSecret = registry.get("session.release")!.execute({ session_id: "session-a", session_secret: "wrong" }) as {
+			released: boolean;
+		};
 		expect(wrongSecret.released).toBe(false);
 
-		const rightSecret = registry.get("session.release")!.execute({ session_id: "session-a", session_secret: secret }) as { released: boolean };
+		const rightSecret = registry.get("session.release")!.execute({ session_id: "session-a", session_secret: secret }) as {
+			released: boolean;
+		};
 		expect(rightSecret.released).toBe(true);
 	});
 });

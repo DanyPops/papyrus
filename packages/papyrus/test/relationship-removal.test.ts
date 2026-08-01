@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
-import { openDb } from "../src/db.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
+import { openDb } from "../src/db.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { Tasks } from "../src/task-service.ts";
 
@@ -221,24 +221,29 @@ describe("cross-project Task dependency and containment edges are allowed by des
 describe("graph.link/graph.unlink preserve Note lifecycle protections", () => {
 	it("rejects linking or unlinking a Note through the low-level graph operations", async () => {
 		const service = createPapyrusService(":memory:");
-		const note = await service.execute("notes.capture", { body: "a deferred idea", project_root: PROJECT_ROOT }) as { id: string };
-		const doc = await service.execute("docs.create", { title: "Unrelated doc" }) as { id: string };
+		const note = (await service.execute("notes.capture", { body: "a deferred idea", project_root: PROJECT_ROOT })) as { id: string };
+		const doc = (await service.execute("docs.create", { title: "Unrelated doc" })) as { id: string };
 
-		await expect(service.execute("graph.link", { from: note.id, relation: "relates_to", to: doc.id }))
-			.rejects.toThrow("note relationships require a notes.* operation");
-		await expect(service.execute("graph.link", { from: doc.id, relation: "relates_to", to: note.id }))
-			.rejects.toThrow("note relationships require a notes.* operation");
-		await expect(service.execute("graph.unlink", { from: note.id, relation: "relates_to", to: doc.id }))
-			.rejects.toThrow("note relationships require a notes.* operation");
+		await expect(service.execute("graph.link", { from: note.id, relation: "relates_to", to: doc.id })).rejects.toThrow(
+			"note relationships require a notes.* operation",
+		);
+		await expect(service.execute("graph.link", { from: doc.id, relation: "relates_to", to: note.id })).rejects.toThrow(
+			"note relationships require a notes.* operation",
+		);
+		await expect(service.execute("graph.unlink", { from: note.id, relation: "relates_to", to: doc.id })).rejects.toThrow(
+			"note relationships require a notes.* operation",
+		);
 		service.close();
 	});
 
 	it("still allows notes.promote to create its own relates_to edge internally", async () => {
 		const service = createPapyrusService(":memory:");
-		const note = await service.execute("notes.capture", { body: "a deferred idea", project_root: PROJECT_ROOT }) as { id: string };
-		const doc = await service.execute("docs.create", { title: "Target doc" }) as { id: string };
+		const note = (await service.execute("notes.capture", { body: "a deferred idea", project_root: PROJECT_ROOT })) as { id: string };
+		const doc = (await service.execute("docs.create", { title: "Target doc" })) as { id: string };
 
-		const promoted = await service.execute("notes.promote", { id: note.id, target_id: doc.id, project_root: PROJECT_ROOT }) as { status: string };
+		const promoted = (await service.execute("notes.promote", { id: note.id, target_id: doc.id, project_root: PROJECT_ROOT })) as {
+			status: string;
+		};
 		expect(promoted.status).toBe("archived");
 		service.close();
 	});

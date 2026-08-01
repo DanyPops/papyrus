@@ -39,12 +39,15 @@ export function formatMetadata(value: unknown, options: MetadataFormatOptions = 
 		if (Array.isArray(current)) {
 			const lines: string[] = [];
 			for (const item of current) {
-				if (renderedItems >= maxItems) { lines.push(`${pad}…`); break; }
+				if (renderedItems >= maxItems) {
+					lines.push(`${pad}…`);
+					break;
+				}
 				renderedItems++;
-				if (isRecord(item) && typeof item["title"] === "string") {
-					const status = typeof item["status"] === "string" ? item["status"] : "";
+				if (isRecord(item) && typeof item.title === "string") {
+					const status = typeof item.status === "string" ? item.status : "";
 					const glyph = STATUS_GLYPHS[status];
-					lines.push(`${pad}- ${glyph ? `${glyph} ` : ""}${item["title"]}`);
+					lines.push(`${pad}- ${glyph ? `${glyph} ` : ""}${item.title}`);
 					const rest = Object.fromEntries(Object.entries(item).filter(([key]) => key !== "title" && key !== "status"));
 					if (Object.keys(rest).length > 0) lines.push(...render(rest, indent + 1, depth + 1));
 				} else if (Array.isArray(item) || isRecord(item)) {
@@ -60,7 +63,10 @@ export function formatMetadata(value: unknown, options: MetadataFormatOptions = 
 		if (isRecord(current)) {
 			const lines: string[] = [];
 			for (const [key, item] of Object.entries(current)) {
-				if (renderedItems >= maxItems) { lines.push(`${pad}…`); break; }
+				if (renderedItems >= maxItems) {
+					lines.push(`${pad}…`);
+					break;
+				}
 				renderedItems++;
 				if (Array.isArray(item) || isRecord(item)) {
 					lines.push(`${pad}${key}:`);

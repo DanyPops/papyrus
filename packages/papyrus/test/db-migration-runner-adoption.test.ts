@@ -7,8 +7,8 @@
  * throwaway migrations, against a real (in-memory) Papyrus database.
  */
 import { describe, expect, it } from "bun:test";
-import { runMigrations, type Migration } from "@danypops/vehicle-server/storage";
-import { dbMigrationRunner, openDb, schemaVersion, type Db } from "../src/db.ts";
+import { type Migration, runMigrations } from "@danypops/vehicle-server/storage";
+import { type Db, dbMigrationRunner, openDb, schemaVersion } from "../src/db.ts";
 
 function freshDb(): Db {
 	// openDb bootstraps a brand-new :memory: database directly at Papyrus's current schema
@@ -37,7 +37,13 @@ describe("dbMigrationRunner + vehicle-server's runMigrations, against a real Pap
 		const startVersion = schemaVersion(db);
 		let runs = 0;
 		const migrations: Migration<Db>[] = [
-			{ version: startVersion + 1, up: (handle) => { handle.exec("CREATE TABLE adoption_probe (id INTEGER PRIMARY KEY)"); runs += 1; } },
+			{
+				version: startVersion + 1,
+				up: (handle) => {
+					handle.exec("CREATE TABLE adoption_probe (id INTEGER PRIMARY KEY)");
+					runs += 1;
+				},
+			},
 		];
 
 		runMigrations(dbMigrationRunner(db), migrations);

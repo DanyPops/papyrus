@@ -1,6 +1,6 @@
-import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { Artifact } from "@danypops/papyrus";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
 import { PLAYBOOK_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
 import { matchArtifactByName } from "./domain-tools.ts";
@@ -9,7 +9,10 @@ import { callService } from "./service-client.ts";
 const PLAYBOOK_COMPLETION_MAX_CANDIDATES = 100;
 
 async function activePlaybooks(): Promise<Artifact[]> {
-	return callService<Record<string, unknown>, Artifact[]>("playbooks.list", { status: "active", limit: PLAYBOOK_COMPLETION_MAX_CANDIDATES });
+	return callService<Record<string, unknown>, Artifact[]>("playbooks.list", {
+		status: "active",
+		limit: PLAYBOOK_COMPLETION_MAX_CANDIDATES,
+	});
 }
 
 /** `/playbook <tab>` completions -- title-prefix match, since that's what a human actually types, not a full-text search of body content. */
@@ -20,7 +23,11 @@ export async function playbookArgumentCompletions(argumentPrefix: string): Promi
 		return rows
 			.filter((row) => row.title.toLowerCase().startsWith(needle))
 			.sort((a, b) => a.title.localeCompare(b.title))
-			.map((row) => ({ value: row.title, label: row.title, description: typeof row.extra["trigger"] === "string" ? row.extra["trigger"] : undefined }));
+			.map((row) => ({
+				value: row.title,
+				label: row.title,
+				description: typeof row.extra.trigger === "string" ? row.extra.trigger : undefined,
+			}));
 	} catch {
 		return null; // a Papyrus daemon hiccup degrades to "no suggestions", never breaks the command line
 	}
@@ -44,7 +51,10 @@ async function invokeAndReport(id: string, label: string, ctx: ExtensionCommandC
 
 /** `/playbook <name>` (no args opens the full browser instead): resolves by exact title, then invokes it directly -- one step, not browse-then-select-then-invoke. */
 export async function openPlaybookByName(name: string, ctx: ExtensionCommandContext): Promise<void> {
-	if (!name.trim()) { await showPlaybooks(ctx); return; }
+	if (!name.trim()) {
+		await showPlaybooks(ctx);
+		return;
+	}
 	try {
 		const id = matchArtifactByName(await activePlaybooks(), name);
 		await invokeAndReport(id, name.trim(), ctx);
@@ -60,8 +70,8 @@ function strings(value: unknown): string[] {
 }
 
 export function playbookRowMeta(playbook: Artifact): string {
-	const trigger = typeof playbook.extra["trigger"] === "string" ? `when ${playbook.extra["trigger"]}` : "manual invocation";
-	const tools = strings(playbook.extra["tools"]);
+	const trigger = typeof playbook.extra.trigger === "string" ? `when ${playbook.extra.trigger}` : "manual invocation";
+	const tools = strings(playbook.extra.tools);
 	return [trigger, tools.join(", ")].filter(Boolean).join(" \u00b7 ");
 }
 

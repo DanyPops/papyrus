@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { OperationRegistry } from "../src/module-registry.ts";
-import { notesOperations, NOTES_OPERATION_NAMES } from "../src/modules/notes.ts";
-import { Notes } from "../src/note-service.ts";
-import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { Artifact, ArtifactLink, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "../src/domain/artifact.ts";
 import type { ArtifactTrashRecord } from "../src/domain/artifact-trash.ts";
+import { OperationRegistry } from "../src/module-registry.ts";
+import { NOTES_OPERATION_NAMES, notesOperations } from "../src/modules/notes.ts";
+import { Notes } from "../src/note-service.ts";
+import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";
 
@@ -15,22 +15,36 @@ class FakeArtifactStore implements ArtifactStore {
 	create(input: CreateArtifactInput): Artifact {
 		const id = input.id ?? `note-${++this.sequence}`;
 		const artifact: Artifact = {
-			id, kind: input.kind ?? "doc", title: input.title ?? "Untitled", status: input.status ?? "draft",
-			subtype: input.subtype ?? "", body: input.body ?? "", labels: input.labels ?? [], extra: input.extra ?? {},
-			created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
+			id,
+			kind: input.kind ?? "doc",
+			title: input.title ?? "Untitled",
+			status: input.status ?? "draft",
+			subtype: input.subtype ?? "",
+			body: input.body ?? "",
+			labels: input.labels ?? [],
+			extra: input.extra ?? {},
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
 		};
 		this.artifacts.set(id, artifact);
 		return structuredClone(artifact);
 	}
-	get(id: string): Artifact | null { const artifact = this.artifacts.get(id); return artifact ? structuredClone(artifact) : null; }
+	get(id: string): Artifact | null {
+		const artifact = this.artifacts.get(id);
+		return artifact ? structuredClone(artifact) : null;
+	}
 	query(filter: ArtifactQuery): Artifact[] {
 		return [...this.artifacts.values()]
 			.filter((a) => (!filter.kind || a.kind === filter.kind) && (!filter.subtype || a.subtype === filter.subtype))
 			.map((a) => structuredClone(a));
 	}
 	link(_link: ArtifactLink): void {}
-	unlink(): boolean { return false; }
-	atomic<T>(operation: () => T): T { return operation(); }
+	unlink(): boolean {
+		return false;
+	}
+	atomic<T>(operation: () => T): T {
+		return operation();
+	}
 	setStatus(id: string, status: string): Artifact | null {
 		const artifact = this.artifacts.get(id);
 		if (!artifact) return null;
@@ -50,14 +64,28 @@ class FakeArtifactStore implements ArtifactStore {
 		if (input.body !== undefined) artifact.body = input.body;
 		return structuredClone(artifact);
 	}
-	relationships() { return []; }
-	events() { return { events: [] }; }
+	relationships() {
+		return [];
+	}
+	events() {
+		return { events: [] };
+	}
 	// Not exercised here (see test/artifact-trash.test.ts for real coverage); satisfies the port only.
-	trash(id: string): ArtifactTrashRecord { return { artifactId: id, trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" }; }
-	restore(): { restored: boolean } { return { restored: false }; }
-	trashStatus(): ArtifactTrashRecord | null { return null; }
-	listTrash(): ArtifactTrashRecord[] { return []; }
-	purgeDueTrash(): number { return 0; }
+	trash(id: string): ArtifactTrashRecord {
+		return { artifactId: id, trashedAt: "2026-01-01T00:00:00.000Z", purgeAfter: "2026-01-31T00:00:00.000Z" };
+	}
+	restore(): { restored: boolean } {
+		return { restored: false };
+	}
+	trashStatus(): ArtifactTrashRecord | null {
+		return null;
+	}
+	listTrash(): ArtifactTrashRecord[] {
+		return [];
+	}
+	purgeDueTrash(): number {
+		return 0;
+	}
 }
 
 describe("modules/notes — the first Papyrus-native registered module", () => {
@@ -80,19 +108,23 @@ describe("modules/notes — the first Papyrus-native registered module", () => {
 		const notes = new Notes(new FakeArtifactStore());
 		registry.registerAll(notesOperations(notes));
 
-		const captured = await registry.get("notes.capture")!.execute({ body: "deferred idea", title: "Title", project_root: PROJECT_ROOT }) as { id: string; status: string };
+		const captured = (await registry
+			.get("notes.capture")!
+			.execute({ body: "deferred idea", title: "Title", project_root: PROJECT_ROOT })) as { id: string; status: string };
 		expect(captured.status).toBe("draft");
 
-		const listed = await registry.get("notes.list")!.execute({ project_root: PROJECT_ROOT }) as Array<{ id: string }>;
+		const listed = (await registry.get("notes.list")!.execute({ project_root: PROJECT_ROOT })) as Array<{ id: string }>;
 		expect(listed.map((n) => n.id)).toContain(captured.id);
 
-		const shown = await registry.get("notes.show")!.execute({ id: captured.id, project_root: PROJECT_ROOT }) as { id: string };
+		const shown = (await registry.get("notes.show")!.execute({ id: captured.id, project_root: PROJECT_ROOT })) as { id: string };
 		expect(shown.id).toBe(captured.id);
 
-		const consumed = await registry.get("notes.consume")!.execute({ id: captured.id, project_root: PROJECT_ROOT }) as { status: string };
+		const consumed = (await registry.get("notes.consume")!.execute({ id: captured.id, project_root: PROJECT_ROOT })) as { status: string };
 		expect(consumed.status).toBe("active");
 
-		const history = await registry.get("notes.history")!.execute({ id: captured.id, project_root: PROJECT_ROOT, direction: "asc" }) as { events: Array<{ type: string }> };
+		const history = (await registry.get("notes.history")!.execute({ id: captured.id, project_root: PROJECT_ROOT, direction: "asc" })) as {
+			events: Array<{ type: string }>;
+		};
 		expect(history.events.map((event) => event.type)).toEqual(["captured", "consumed"]);
 	});
 

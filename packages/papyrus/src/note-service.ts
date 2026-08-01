@@ -9,13 +9,13 @@ import {
 } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import type { AppendNoteEvent, NoteEventType, NoteHistoryPage, NoteHistoryQuery } from "./domain/note-event.ts";
-import { InMemoryNoteEventStore, type NoteEventStore } from "./ports/note-event-store.ts";
-import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
+import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
+import { InMemoryNoteEventStore, type NoteEventStore } from "./ports/note-event-store.ts";
 
 export const NOTE_SUBTYPE = "note";
 export const NOTE_DISPOSITIONS = ["completed", "duplicate", "declined", "superseded"] as const;
-export type NoteDisposition = typeof NOTE_DISPOSITIONS[number];
+export type NoteDisposition = (typeof NOTE_DISPOSITIONS)[number];
 
 export interface NoteProvenance {
 	actor?: string;
@@ -60,7 +60,10 @@ function noteTitle(body: string, requested?: string): string {
 	return firstLine.slice(0, NOTE_TITLE_MAX_CHARACTERS) || "Deferred note";
 }
 
-function provenance(input: NoteProvenance, defaults: { actor: string; source: string }): Omit<AppendNoteEvent, "noteId" | "type" | "relatedId" | "disposition"> {
+function provenance(
+	input: NoteProvenance,
+	defaults: { actor: string; source: string },
+): Omit<AppendNoteEvent, "noteId" | "type" | "relatedId" | "disposition"> {
 	return {
 		actor: optionalBounded(input.actor, "note actor", NOTE_PROVENANCE_MAX_LENGTH) ?? defaults.actor,
 		source: optionalBounded(input.source, "note source", NOTE_PROVENANCE_MAX_LENGTH) ?? defaults.source,
@@ -154,7 +157,8 @@ export class Notes {
 	}
 
 	archive(id: string, input: ArchiveNoteInput): Artifact {
-		if (!NOTE_DISPOSITIONS.includes(input.disposition)) throw new Error("note disposition must be completed, duplicate, declined, or superseded");
+		if (!NOTE_DISPOSITIONS.includes(input.disposition))
+			throw new Error("note disposition must be completed, duplicate, declined, or superseded");
 		const atomic = requireAtomicArtifactStore(this.artifacts);
 		return atomic.atomic(() => {
 			const note = this.requireNote(id);
@@ -183,12 +187,12 @@ export class Notes {
 
 	private requireNote(id: string): Artifact {
 		const artifact = this.artifacts.get(id);
-		if (!artifact || artifact.kind !== "doc" || artifact.subtype !== NOTE_SUBTYPE) throw new Error(`note "${id}" not found`);
+		if (artifact?.kind !== "doc" || artifact.subtype !== NOTE_SUBTYPE) throw new Error(`note "${id}" not found`);
 		return artifact;
 	}
 
 	private requireProject(note: Artifact, projectRoot: string): void {
 		const requested = requiredBounded(projectRoot, "project_root", TASK_PROJECT_ROOT_MAX_LENGTH);
-		if (note.extra["projectRoot"] !== requested) throw new Error(`note "${note.id}" is outside project scope`);
+		if (note.extra.projectRoot !== requested) throw new Error(`note "${note.id}" is outside project scope`);
 	}
 }

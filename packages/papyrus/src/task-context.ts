@@ -1,11 +1,7 @@
+import { TASK_CONTEXT_CURRENT_LIMIT, TASK_CONTEXT_REJECTED_LIMIT, TASK_RECONCILIATION_INSTRUCTION } from "./constants.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { DISCUSSION_SUBTYPE, readDiscussionExtra } from "./domain/discussion.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
-import {
-	TASK_CONTEXT_CURRENT_LIMIT,
-	TASK_CONTEXT_REJECTED_LIMIT,
-	TASK_RECONCILIATION_INSTRUCTION,
-} from "./constants.ts";
 
 interface Gate {
 	type?: unknown;
@@ -14,8 +10,8 @@ interface Gate {
 }
 
 function gatesFrom(task: Artifact): Gate[] {
-	const gates = task.extra["gates"];
-	return Array.isArray(gates) ? gates as Gate[] : [];
+	const gates = task.extra.gates;
+	return Array.isArray(gates) ? (gates as Gate[]) : [];
 }
 
 function renderGate(gate: Gate): string {
@@ -45,14 +41,22 @@ function inScope(taskId: string, activeTaskId: string | undefined, taskIds: Set<
 	return taskIds === undefined || taskIds.has(taskId) || taskId === activeTaskId;
 }
 
-function deferredBlockingDiscussions(artifacts: ArtifactStore, activeTaskId: string | undefined, taskIds: Set<string> | undefined): string[] {
-	const discussions = artifacts.query({ kind: "task", subtype: DISCUSSION_SUBTYPE })
-		.filter((discussion) => {
-			try { return readDiscussionExtra(discussion.extra).state === "deferred"; } catch { return false; }
-		});
+function deferredBlockingDiscussions(
+	artifacts: ArtifactStore,
+	activeTaskId: string | undefined,
+	taskIds: Set<string> | undefined,
+): string[] {
+	const discussions = artifacts.query({ kind: "task", subtype: DISCUSSION_SUBTYPE }).filter((discussion) => {
+		try {
+			return readDiscussionExtra(discussion.extra).state === "deferred";
+		} catch {
+			return false;
+		}
+	});
 	if (discussions.length === 0) return [];
 
-	const blocks = artifacts.relationships({ artifactIds: discussions.map((discussion) => discussion.id) })
+	const blocks = artifacts
+		.relationships({ artifactIds: discussions.map((discussion) => discussion.id) })
 		.filter((edge) => edge.relation === "blocks");
 	const lines: string[] = [];
 	for (const discussion of discussions) {
@@ -76,8 +80,14 @@ export type TaskContextVerbosity = "summary" | "full";
  * exists and that the full plan is one explicit call away -- avoiding repeating the same
  * unchanged prose every single turn for a task that can persist across dozens of turns.
  */
-export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, taskIds?: Set<string>, verbosity: TaskContextVerbosity = "full"): string | null {
-	const tasks = artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE })
+export function taskContext(
+	artifacts: ArtifactStore,
+	activeTaskId?: string,
+	taskIds?: Set<string>,
+	verbosity: TaskContextVerbosity = "full",
+): string | null {
+	const tasks = artifacts
+		.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE })
 		.filter((task) => taskIds === undefined || taskIds.has(task.id))
 		.sort((left, right) => left.updated_at.localeCompare(right.updated_at));
 	const open = tasks.filter((task) => task.status !== "done" && task.status !== "canceled");
@@ -86,7 +96,9 @@ export function taskContext(artifacts: ArtifactStore, activeTaskId?: string, tas
 
 	const done = tasks.length - open.length;
 	const active = activeTaskId ? open.find((task) => task.id === activeTaskId) : undefined;
-	const current = active ? [active] : open.filter((task) => task.status === "in-progress" || task.status === "review").slice(0, TASK_CONTEXT_CURRENT_LIMIT);
+	const current = active
+		? [active]
+		: open.filter((task) => task.status === "in-progress" || task.status === "review").slice(0, TASK_CONTEXT_CURRENT_LIMIT);
 	const next = open.find((task) => task.status === "todo");
 	const rejected = open.filter((task) => task.status === "rejected").slice(0, TASK_CONTEXT_REJECTED_LIMIT);
 	const lines = tasks.length > 0 ? [`Progress: ${done}/${tasks.length} done`] : [];

@@ -5,19 +5,20 @@
  */
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
-import { Container, Input, Spacer, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, Input, matchesKey, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { callService } from "./service-client.ts";
-import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { showTaskDetails } from "./task-detail-view.ts";
+import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { showTaskGraph } from "./task-graph.ts";
 
 export { taskDetailsText } from "./task-detail-format.ts";
 export { showTaskDetails } from "./task-detail-view.ts";
+
 import {
-	projectTaskExecution,
 	type Artifact,
 	type GateResult,
+	projectTaskExecution,
 	type TaskCompletion,
 	type TaskGraph,
 	type TaskHistoryPage,
@@ -39,7 +40,7 @@ type TaskRow = Artifact;
 function taskChoiceLabels(tasks: readonly Artifact[]): string[] {
 	const titleCounts = new Map<string, number>();
 	for (const task of tasks) titleCounts.set(task.title, (titleCounts.get(task.title) ?? 0) + 1);
-	return tasks.map((task) => titleCounts.get(task.title)! > 1 ? `${task.title} (${task.id})` : task.title);
+	return tasks.map((task) => (titleCounts.get(task.title)! > 1 ? `${task.title} (${task.id})` : task.title));
 }
 
 export interface TaskHierarchyRow {
@@ -60,7 +61,13 @@ export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
 		if (!node) return;
 		visited.add(id);
 		const children = node.childIds.filter((childId) => byId.has(childId));
-		result.push({ task: node.task, depth, childCount: children.length, dependencies: [...node.dependencyIds], active: node.active === true });
+		result.push({
+			task: node.task,
+			depth,
+			childCount: children.length,
+			dependencies: [...node.dependencyIds],
+			active: node.active === true,
+		});
 		for (const childId of children) visit(childId, depth + 1);
 	};
 	for (const rootId of graph.rootIds) visit(rootId, 0);
@@ -68,7 +75,12 @@ export function buildTaskHierarchy(graph: TaskGraph): TaskHierarchyRow[] {
 	return result;
 }
 
-async function loadTaskGraph(projectRoot: string, sessionId: string, scope?: "project" | "graph" | "all", rootTaskId?: string): Promise<TaskGraph> {
+async function loadTaskGraph(
+	projectRoot: string,
+	sessionId: string,
+	scope?: "project" | "graph" | "all",
+	rootTaskId?: string,
+): Promise<TaskGraph> {
 	return callService<Record<string, unknown>, TaskGraph>("tasks.graph", {
 		limit: 200,
 		project_root: projectRoot,
@@ -102,7 +114,10 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 	for (;;) {
 		const action = await renderPanel(ctx, graph);
 		if (!action) return;
-		if (action.type === "refresh") { graph = await loadTaskGraph(ctx.cwd, sessionId); continue; }
+		if (action.type === "refresh") {
+			graph = await loadTaskGraph(ctx.cwd, sessionId);
+			continue;
+		}
 		if (action.type === "scope") {
 			const choice = await ctx.ui.select("Task scope", ["Current project", "Focused graph", "All projects"]);
 			if (!choice) continue;
@@ -110,7 +125,9 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			let rootTaskId: string | undefined;
 			if (scope === "graph") {
 				const projectGraph = await loadTaskGraph(ctx.cwd, sessionId, "project");
-				const roots = projectGraph.rootIds.map((id) => projectGraph.nodes.find((node) => node.task.id === id)?.task).filter((task): task is Artifact => task !== undefined);
+				const roots = projectGraph.rootIds
+					.map((id) => projectGraph.nodes.find((node) => node.task.id === id)?.task)
+					.filter((task): task is Artifact => task !== undefined);
 				const rootLabels = taskChoiceLabels(roots);
 				const selected = await ctx.ui.select("Focused root or epic", rootLabels);
 				if (!selected) continue;
@@ -121,7 +138,10 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			graph = await loadTaskGraph(ctx.cwd, sessionId);
 			continue;
 		}
-		if (action.type === "graph") { await showTaskGraph(ctx, graph); continue; }
+		if (action.type === "graph") {
+			await showTaskGraph(ctx, graph);
+			continue;
+		}
 		if (action.type !== "action" || !action.row) continue;
 
 		const rowId = action.row.id;
@@ -143,19 +163,36 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 
 		if ((choice === "Remove dependency" || choice === "Remove from parent") && node) {
 			const relatedIds = choice === "Remove dependency" ? node.dependencyIds : node.parentIds;
-			const relatedTasks = relatedIds.map((relatedId) => graph.nodes.find((entry) => entry.task.id === relatedId)?.task).filter((task): task is Artifact => task !== undefined);
+			const relatedTasks = relatedIds
+				.map((relatedId) => graph.nodes.find((entry) => entry.task.id === relatedId)?.task)
+				.filter((task): task is Artifact => task !== undefined);
 			const relatedTitles = taskChoiceLabels(relatedTasks);
-			const selected = await ctx.ui.select(choice === "Remove dependency" ? "Remove which dependency?" : "Remove from which parent?", relatedTitles);
+			const selected = await ctx.ui.select(
+				choice === "Remove dependency" ? "Remove which dependency?" : "Remove from which parent?",
+				relatedTitles,
+			);
 			if (!selected) continue;
 			const relatedTask = relatedTasks[relatedTitles.indexOf(selected)];
 			if (!relatedTask) continue;
 			const relatedId = relatedTask.id;
 			try {
 				if (choice === "Remove dependency") {
-					await callService("tasks.undepend", { id: action.row.id, dependency_id: relatedId, actor: "user", source: "tasks-tui", session_id: sessionId });
+					await callService("tasks.undepend", {
+						id: action.row.id,
+						dependency_id: relatedId,
+						actor: "user",
+						source: "tasks-tui",
+						session_id: sessionId,
+					});
 					ctx.ui.notify(`Removed dependency on ${relatedTask.title}`, "info");
 				} else {
-					await callService("tasks.uncontain", { parent_id: relatedId, child_id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+					await callService("tasks.uncontain", {
+						parent_id: relatedId,
+						child_id: action.row.id,
+						actor: "user",
+						source: "tasks-tui",
+						session_id: sessionId,
+					});
 					ctx.ui.notify(`Removed from parent ${relatedTask.title}`, "info");
 				}
 			} catch (error) {
@@ -167,7 +204,10 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 
 		if (choice === "Show details") {
 			const art = await callService<Record<string, unknown>, Artifact | null>("tasks.show", { id: action.row.id });
-			if (!art) { ctx.ui.notify("Not found", "error"); continue; }
+			if (!art) {
+				ctx.ui.notify("Not found", "error");
+				continue;
+			}
 			const history = await callService<Record<string, unknown>, TaskHistoryPage>("tasks.history", { id: art.id, direction: "desc" });
 			await showTaskDetails(ctx, art, graph, undefined, [...history.events].reverse());
 		} else if (choice === "Edit task") {
@@ -191,7 +231,13 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else if (choice === "Make active") {
 			try {
-				const focused = await callService<Record<string, unknown>, Artifact>("tasks.focus", { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId, ...sessionSecretField(sessionId) });
+				const focused = await callService<Record<string, unknown>, Artifact>("tasks.focus", {
+					id: action.row.id,
+					actor: "user",
+					source: "tasks-tui",
+					session_id: sessionId,
+					...sessionSecretField(sessionId),
+				});
 				emitTaskFocusEvent({ taskId: focused.id, sessionId, status: "focused" });
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
@@ -200,11 +246,21 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 		} else if (choice === "Pause focus" || choice === "Resume focus" || choice === "Clear focus") {
 			try {
 				if (choice === "Clear focus") {
-					await callService("tasks.clear_focus", { actor: "user", source: "tasks-tui", session_id: sessionId, ...sessionSecretField(sessionId) });
+					await callService("tasks.clear_focus", {
+						actor: "user",
+						source: "tasks-tui",
+						session_id: sessionId,
+						...sessionSecretField(sessionId),
+					});
 					emitTaskFocusEvent({ taskId: null, sessionId, status: "cleared" });
 				} else {
 					const operation = choice === "Pause focus" ? "tasks.pause" : "tasks.unpause";
-					const result = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, { actor: "user", source: "tasks-tui", session_id: sessionId, ...sessionSecretField(sessionId) });
+					const result = await callService<Record<string, unknown>, { artifact: Artifact; status: string }>(operation, {
+						actor: "user",
+						source: "tasks-tui",
+						session_id: sessionId,
+						...sessionSecretField(sessionId),
+					});
 					emitTaskFocusEvent({ taskId: result.artifact.id, sessionId, status: choice === "Pause focus" ? "paused" : "unpaused" });
 				}
 				ctx.ui.notify(choice === "Clear focus" ? "Task focus cleared" : choice, "info");
@@ -213,34 +269,48 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 			}
 		} else if (choice === "Run gates") {
 			try {
-				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", { id: action.row.id, actor: "user", source: "tasks-tui" });
-				ctx.ui.notify(`Gates:\n${results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n")}`, "info");
+				const results = await callService<Record<string, unknown>, GateResult[]>("tasks.run_gates", {
+					id: action.row.id,
+					actor: "user",
+					source: "tasks-tui",
+				});
+				ctx.ui.notify(
+					`Gates:\n${results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n")}`,
+					"info",
+				);
 			} catch (error) {
 				ctx.ui.notify(`Gates failed: ${error instanceof Error ? error.message : error}`, "error");
 			}
 		} else {
 			try {
-				const operation = choice === "Start"
-					? "tasks.start"
-					: choice === "Submit for review"
-						? "tasks.submit"
-						: choice === "Reject"
-							? "tasks.reject"
-							: choice === "Retry"
-								? "tasks.retry"
-								: choice === "Cancel"
-									? "tasks.cancel"
-									: "tasks.complete";
+				const operation =
+					choice === "Start"
+						? "tasks.start"
+						: choice === "Submit for review"
+							? "tasks.submit"
+							: choice === "Reject"
+								? "tasks.reject"
+								: choice === "Retry"
+									? "tasks.retry"
+									: choice === "Cancel"
+										? "tasks.cancel"
+										: "tasks.complete";
 				if (operation === "tasks.complete") {
-					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+					const result = await callService<Record<string, unknown>, TaskCompletion>(operation, {
+						id: action.row.id,
+						actor: "user",
+						source: "tasks-tui",
+						session_id: sessionId,
+					});
 					action.row.status = result.artifact.status;
 					const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target}`).join("\n");
 					const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}`).join("\n");
 					const focused = result.focused ? `\nActive: ${result.focused.title}` : "";
 					const taskById = new Map(graph.nodes.map((entry) => [entry.task.id, entry.task]));
-					const blocked = result.blocked.length > 0
-						? `\nWaiting: ${result.blocked.map((entry) => `${entry.artifact.title} needs ${entry.dependencyIds.map((id) => taskById.get(id)?.title ?? "unknown task").join(", ")}`).join("; ")}`
-						: "";
+					const blocked =
+						result.blocked.length > 0
+							? `\nWaiting: ${result.blocked.map((entry) => `${entry.artifact.title} needs ${entry.dependencyIds.map((id) => taskById.get(id)?.title ?? "unknown task").join(", ")}`).join("; ")}`
+							: "";
 					ctx.ui.notify(
 						result.completed
 							? `Completed ${result.artifact.title}${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`
@@ -248,7 +318,12 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 						result.completed ? "info" : "warning",
 					);
 				} else {
-					const updated = await callService<Record<string, unknown>, Artifact>(operation, { id: action.row.id, actor: "user", source: "tasks-tui", session_id: sessionId });
+					const updated = await callService<Record<string, unknown>, Artifact>(operation, {
+						id: action.row.id,
+						actor: "user",
+						source: "tasks-tui",
+						session_id: sessionId,
+					});
 					action.row.status = updated.status;
 					ctx.ui.notify(`${updated.title} → [${updated.status}]`, "info");
 				}
@@ -279,9 +354,9 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 
 		function applyFilter(): void {
 			const q = searchInput.getValue().trim().toLowerCase();
-			filtered = q ? hierarchy.filter(({ task }) =>
-				task.title.toLowerCase().includes(q) || task.id.toLowerCase().includes(q)
-			) : [...hierarchy];
+			filtered = q
+				? hierarchy.filter(({ task }) => task.title.toLowerCase().includes(q) || task.id.toLowerCase().includes(q))
+				: [...hierarchy];
 			selectedIndex = 0;
 		}
 
@@ -345,26 +420,28 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 					const execution = executionById.get(row.id);
 					const state = execution?.state ?? row.status;
 					const presentation = TASK_STATUS_PRESENTATION[row.status as TaskStatus];
-					const glyphStyled = state === "invalid"
-						? theme.fg("error", "!")
-						: presentation
-							? theme.fg(presentation.color, presentation.glyph)
-							: theme.fg("muted", "?");
+					const glyphStyled =
+						state === "invalid"
+							? theme.fg("error", "!")
+							: presentation
+								? theme.fg(presentation.color, presentation.glyph)
+								: theme.fg("muted", "?");
 					const title = selected ? theme.bold(row.title) : row.title;
 					let laterSibling = false;
 					for (let candidate = i + 1; candidate < filtered.length; candidate++) {
 						if (filtered[candidate]!.depth < entry.depth) break;
-						if (filtered[candidate]!.depth === entry.depth) { laterSibling = true; break; }
+						if (filtered[candidate]!.depth === entry.depth) {
+							laterSibling = true;
+							break;
+						}
 					}
 					const connector = taskTreeConnector({
 						depth: entry.depth,
 						hasChildren: entry.childCount > 0,
 						hasLaterSibling: laterSibling,
 					});
-					const node = entry.depth === 0 && entry.childCount > 0
-						? theme.fg("accent", connector)
-						: theme.fg("dim", connector);
-					const gates = (row.extra?.["gates"] as any[])?.length;
+					const node = entry.depth === 0 && entry.childCount > 0 ? theme.fg("accent", connector) : theme.fg("dim", connector);
+					const gates = (row.extra?.gates as any[])?.length;
 					const relationParts: string[] = [];
 					if (execution) relationParts.push(execution.layer === null ? state : `layer ${execution.layer + 1} · ${state}`);
 					if (entry.childCount > 0) relationParts.push(`${entry.childCount} subtask${entry.childCount === 1 ? "" : "s"}`);
@@ -397,24 +474,38 @@ function renderPanel(ctx: ExtensionCommandContext, graph: TaskGraph): Promise<Pa
 			invalidate: () => container.invalidate(),
 			handleInput(data: string) {
 				if (searchActive) {
-					if (matchesKey(data, "escape")) { searchActive = false; applyFilter(); }
-					else if (matchesKey(data, "enter")) { searchActive = false; }
-					else { searchInput.handleInput(data); applyFilter(); }
+					if (matchesKey(data, "escape")) {
+						searchActive = false;
+						applyFilter();
+					} else if (matchesKey(data, "enter")) {
+						searchActive = false;
+					} else {
+						searchInput.handleInput(data);
+						applyFilter();
+					}
 					tui.requestRender();
 					return;
 				}
 				if (matchesKey(data, "up")) selectedIndex = (selectedIndex - 1 + filtered.length) % Math.max(filtered.length, 1);
 				else if (matchesKey(data, "down")) selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1);
 				else if (data === "/") searchActive = true;
-				else if (data === "g") { done({ type: "graph" }); return; }
-				else if (data === "s") { done({ type: "scope" }); return; }
-				else if (data === "r") { done({ type: "refresh" }); return; }
-				else if (matchesKey(data, "enter")) {
+				else if (data === "g") {
+					done({ type: "graph" });
+					return;
+				} else if (data === "s") {
+					done({ type: "scope" });
+					return;
+				} else if (data === "r") {
+					done({ type: "refresh" });
+					return;
+				} else if (matchesKey(data, "enter")) {
 					const entry = filtered[selectedIndex];
 					if (entry) done({ type: "action", row: entry.task });
 					return;
-				} else if (matchesKey(data, "escape")) { done(undefined); return; }
-				else return;
+				} else if (matchesKey(data, "escape")) {
+					done(undefined);
+					return;
+				} else return;
 				tui.requestRender();
 			},
 		};

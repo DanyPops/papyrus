@@ -21,20 +21,27 @@
  */
 import { bindVehicleOperation, defineVehicleOperation, type VehicleOperationContext } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import type { TaskExecutionPlan } from "../task-execution.ts";
-import type { TaskCompletion, Tasks } from "../task-service.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
-import { labelsById, looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
+import type { TaskExecutionPlan } from "../task-execution.ts";
+import type { TaskCompletion, Tasks } from "../task-service.ts";
+import {
+	labelsById,
+	looseObjectSchema,
+	numberProp,
+	passthroughOutput,
+	resolveArtifactIdWidened,
+	stringProp,
+} from "./artifact-vehicle-shared.ts";
 
 const OWNER = "tasks";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 const objectProp = { type: "object" } as unknown as { type: string };
 const arrayProp = { type: "array" } as unknown as { type: string };
-const boolProp = { type: "boolean" } as unknown as { type: string };
+const _boolProp = { type: "boolean" } as unknown as { type: string };
 
 export interface TasksVehicleDeps {
 	tasks: Tasks;
@@ -79,22 +86,40 @@ function resolveRootTaskId(tasks: Tasks, projectRoot: string | undefined, rootTa
 	return resolveTaskId(tasks, { projectRoot, scope: "project" }, undefined, rootTaskName);
 }
 
-function resolveArrayField(tasks: Tasks, filter: { projectRoot?: string; scope?: TaskViewMode; rootTaskId?: string }, ids: unknown, names: unknown): string[] | undefined {
+function resolveArrayField(
+	tasks: Tasks,
+	filter: { projectRoot?: string; scope?: TaskViewMode; rootTaskId?: string },
+	ids: unknown,
+	names: unknown,
+): string[] | undefined {
 	if (Array.isArray(ids)) return ids as string[];
 	if (!Array.isArray(names) || names.length === 0) return undefined;
 	return names.map((entry) => resolveTaskId(tasks, filter, undefined, String(entry)));
 }
 
-const readSchemaProps = { status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp, session_id: stringProp, labels: arrayProp };
+const readSchemaProps = {
+	status: stringProp,
+	text: stringProp,
+	limit: numberProp,
+	project_root: stringProp,
+	scope: { type: "string", enum: ["project", "graph", "all"] },
+	root_task_id: stringProp,
+	root_task_name: stringProp,
+	session_id: stringProp,
+	labels: arrayProp,
+};
 
 /** Same gate/checklist narrative lines the removed tool built client-side. */
 function completionContentText(labels: Map<string, string>, result: TaskCompletion): string {
 	const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
-	const checklist = result.checklist.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`).join("\n");
+	const checklist = result.checklist
+		.map((item) => `${item.accepted ? "✓" : "✗"} proof: ${item.item}${item.reason ? ` — ${item.reason}` : ""}`)
+		.join("\n");
 	const focused = result.focused ? `\nActive: ${result.focused.title} (${result.focused.id})` : "";
-	const blocked = result.blocked.length > 0
-		? `\nBlocked: ${result.blocked.map((entry) => `${entry.artifact.title} (${entry.artifact.id}) waits for ${entry.dependencyIds.map((id) => labels.get(id) ?? "unknown task").join(", ")}`).join("; ")}`
-		: "";
+	const blocked =
+		result.blocked.length > 0
+			? `\nBlocked: ${result.blocked.map((entry) => `${entry.artifact.title} (${entry.artifact.id}) waits for ${entry.dependencyIds.map((id) => labels.get(id) ?? "unknown task").join(", ")}`).join("; ")}`
+			: "";
 	return `${result.completed ? "Completed" : "Rejected"}: ${result.artifact.title} (${result.artifact.id})${focused}${blocked}${checklist ? `\n${checklist}` : ""}${gates ? `\n${gates}` : ""}`;
 }
 
@@ -140,7 +165,14 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
 			limits: LIMITS,
 		});
-		registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => (execute ?? ((input: Record<string, unknown>) => call(`tasks.${action}`, input)))(resolve(context.input), context)));
+		registry.register(
+			OWNER,
+			bindVehicleOperation(
+				operation,
+				() => async (context) =>
+					(execute ?? ((input: Record<string, unknown>) => call(`tasks.${action}`, input)))(resolve(context.input), context),
+			),
+		);
 	};
 
 	/** Shared by every action taking a single id/name: resolves root_task_name first, then name -> id against the final scope. */
@@ -160,12 +192,32 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"create",
 		"Creates a Task -- work: desired outcomes, gates, checklists, and dependencies. project_root is required (no ambient cwd server-side). Prefer parent_name/depends_on_names over parent_id/depends_on -- resolved server-side.",
 		"local-write",
-		{ title: stringProp, body: stringProp, status: stringProp, labels: arrayProp, extra: objectProp, gates: arrayProp, checklist: objectProp, template_id: stringProp, parent_id: stringProp, parent_name: stringProp, depends_on: arrayProp, depends_on_names: arrayProp, project_root: stringProp, session_id: stringProp },
+		{
+			title: stringProp,
+			body: stringProp,
+			status: stringProp,
+			labels: arrayProp,
+			extra: objectProp,
+			gates: arrayProp,
+			checklist: objectProp,
+			template_id: stringProp,
+			parent_id: stringProp,
+			parent_name: stringProp,
+			depends_on: arrayProp,
+			depends_on_names: arrayProp,
+			project_root: stringProp,
+			session_id: stringProp,
+		},
 		["title", "project_root"],
 		(input) => {
 			const projectRoot = input.project_root as string;
 			const filter = { projectRoot };
-			const parentId = typeof input.parent_id === "string" && input.parent_id.length > 0 ? input.parent_id : (typeof input.parent_name === "string" && input.parent_name.length > 0 ? resolveTaskId(tasks, filter, undefined, input.parent_name) : undefined);
+			const parentId =
+				typeof input.parent_id === "string" && input.parent_id.length > 0
+					? input.parent_id
+					: typeof input.parent_name === "string" && input.parent_name.length > 0
+						? resolveTaskId(tasks, filter, undefined, input.parent_name)
+						: undefined;
 			const dependsOn = resolveArrayField(tasks, filter, input.depends_on, input.depends_on_names);
 			return { ...input, ...(parentId ? { parent_id: parentId } : {}), ...(dependsOn ? { depends_on: dependsOn } : {}) };
 		},
@@ -175,15 +227,32 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"update",
 		"Recovers an accidentally-terminal task via status=todo + reason, or changes title/body/labels, without rewriting real history. Never touches gates -- use set_gates.",
 		"local-write",
-		{ id: stringProp, name: stringProp, title: stringProp, body: stringProp, labels: arrayProp, status: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			title: stringProp,
+			body: stringProp,
+			labels: arrayProp,
+			status: stringProp,
+			reason: stringProp,
+			session_id: stringProp,
+			project_root: stringProp,
+		},
 		[],
 		resolveIdAndScope,
 	);
 
-	define("list", "Lists Tasks matching an optional status/text/labels filter, scoped to project_root. project_root is required (no ambient cwd server-side).", "read", readSchemaProps, ["project_root"], (input) => {
-		const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
-		return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
-	});
+	define(
+		"list",
+		"Lists Tasks matching an optional status/text/labels filter, scoped to project_root. project_root is required (no ambient cwd server-side).",
+		"read",
+		readSchemaProps,
+		["project_root"],
+		(input) => {
+			const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
+			return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
+		},
+	);
 
 	define(
 		"graph",
@@ -213,24 +282,60 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		},
 	);
 
-	define("show", "Shows one Task by id or title.", "read", { id: stringProp, name: stringProp, project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp }, [], resolveIdAndScope);
+	define(
+		"show",
+		"Shows one Task by id or title.",
+		"read",
+		{
+			id: stringProp,
+			name: stringProp,
+			project_root: stringProp,
+			scope: { type: "string", enum: ["project", "graph", "all"] },
+			root_task_id: stringProp,
+			root_task_name: stringProp,
+		},
+		[],
+		resolveIdAndScope,
+	);
 
 	define(
 		"history",
 		"Task's append-only lifecycle event history, cursor-paginated.",
 		"read",
-		{ id: stringProp, name: stringProp, limit: numberProp, cursor: numberProp, direction: { type: "string", enum: ["asc", "desc"] }, project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			limit: numberProp,
+			cursor: numberProp,
+			direction: { type: "string", enum: ["asc", "desc"] },
+			project_root: stringProp,
+			scope: { type: "string", enum: ["project", "graph", "all"] },
+			root_task_id: stringProp,
+			root_task_name: stringProp,
+		},
 		[],
 		resolveIdAndScope,
 	);
 
-	define("scope", "Describes the current task-view scope selection for project_root.", "read", { project_root: stringProp }, ["project_root"], (input) => input);
+	define(
+		"scope",
+		"Describes the current task-view scope selection for project_root.",
+		"read",
+		{ project_root: stringProp },
+		["project_root"],
+		(input) => input,
+	);
 
 	define(
 		"set_scope",
 		"Sets the task-view scope (project/graph/all) for project_root, optionally pinned to root_task_id.",
 		"local-write",
-		{ project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp },
+		{
+			project_root: stringProp,
+			scope: { type: "string", enum: ["project", "graph", "all"] },
+			root_task_id: stringProp,
+			root_task_name: stringProp,
+		},
 		["project_root", "scope"],
 		(input) => {
 			const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
@@ -247,8 +352,22 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
 	);
 
-	define("active", "The current active Task (the one being worked on) for this scope. project_root is required.", "read", readSchemaProps, ["project_root"], (input) => input);
-	define("focused", "The current focused Task and its focus status (focused/paused) for this session's scope. project_root is required.", "read", readSchemaProps, ["project_root"], (input) => input);
+	define(
+		"active",
+		"The current active Task (the one being worked on) for this scope. project_root is required.",
+		"read",
+		readSchemaProps,
+		["project_root"],
+		(input) => input,
+	);
+	define(
+		"focused",
+		"The current focused Task and its focus status (focused/paused) for this session's scope. project_root is required.",
+		"read",
+		readSchemaProps,
+		["project_root"],
+		(input) => input,
+	);
 
 	const focusOperation = (
 		action: "focus" | "pause" | "unpause" | "clear_focus",
@@ -268,28 +387,81 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			idempotency: { mode: "unsafe" },
 			limits: LIMITS,
 		});
-		registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => {
-			const claims = context.principal?.claims as { sessionId?: string; sessionSecret?: string } | undefined;
-			return call(`tasks.${action}`, { ...resolve(context.input), session_id: claims?.sessionId, session_secret: claims?.sessionSecret });
-		}));
+		registry.register(
+			OWNER,
+			bindVehicleOperation(operation, () => async (context) => {
+				const claims = context.principal?.claims as { sessionId?: string; sessionSecret?: string } | undefined;
+				return call(`tasks.${action}`, { ...resolve(context.input), session_id: claims?.sessionId, session_secret: claims?.sessionSecret });
+			}),
+		);
 	};
 
-	focusOperation("focus", "Sets the active Task Focus (singular per scope) to this Task. Multiple sessions can focus the same task while only one holds its lease.", { id: stringProp, name: stringProp, project_root: stringProp }, [], (input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }));
+	focusOperation(
+		"focus",
+		"Sets the active Task Focus (singular per scope) to this Task. Multiple sessions can focus the same task while only one holds its lease.",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+	);
 	focusOperation("pause", "Pauses the active Task Focus without clearing it.", { reason: stringProp }, [], (input) => input);
 	focusOperation("unpause", "Resumes a paused Task Focus.", {}, [], (input) => input);
 	focusOperation("clear_focus", "Clears the active Task Focus.", {}, [], (input) => input);
 
-	define("start", "Lifecycle transition: todo -> in-progress.", "local-write", { id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp }, [], resolveIdAndScope);
-	define("submit", "Lifecycle transition: in-progress -> review.", "local-write", { id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp }, [], resolveIdAndScope);
-	define("reject", "Lifecycle transition: review -> rejected.", "local-write", { id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp }, [], resolveIdAndScope);
-	define("retry", "Lifecycle transition: rejected -> in-progress.", "local-write", { id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp }, [], resolveIdAndScope);
-	define("cancel", "Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected.", "local-write", { id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp }, [], resolveIdAndScope);
+	define(
+		"start",
+		"Lifecycle transition: todo -> in-progress.",
+		"local-write",
+		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		[],
+		resolveIdAndScope,
+	);
+	define(
+		"submit",
+		"Lifecycle transition: in-progress -> review.",
+		"local-write",
+		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		[],
+		resolveIdAndScope,
+	);
+	define(
+		"reject",
+		"Lifecycle transition: review -> rejected.",
+		"local-write",
+		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		[],
+		resolveIdAndScope,
+	);
+	define(
+		"retry",
+		"Lifecycle transition: rejected -> in-progress.",
+		"local-write",
+		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		[],
+		resolveIdAndScope,
+	);
+	define(
+		"cancel",
+		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected.",
+		"local-write",
+		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		[],
+		resolveIdAndScope,
+	);
 
 	define(
 		"complete",
 		"Runs gates + checklist-proof review, then focuses one deterministic ready successor without claiming effort. Rejects (not completes) on gate/checklist failure.",
 		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			reason: stringProp,
+			session_id: stringProp,
+			project_root: stringProp,
+			scope: { type: "string", enum: ["project", "graph", "all"] },
+			root_task_id: stringProp,
+			root_task_name: stringProp,
+		},
 		[],
 		resolveIdAndScope,
 		async (input) => {
@@ -304,18 +476,46 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"run_gates",
 		"Runs a Task's configured gates without transitioning its status -- for checking readiness before submit/complete.",
 		"read",
-		{ id: stringProp, name: stringProp, session_id: stringProp, project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			session_id: stringProp,
+			project_root: stringProp,
+			scope: { type: "string", enum: ["project", "graph", "all"] },
+			root_task_id: stringProp,
+			root_task_name: stringProp,
+		},
 		[],
 		resolveIdAndScope,
 		async (input) => {
-			const gates = (await call("tasks.run_gates", input)) as Array<{ gate: { type: string; target: string }; passed: boolean; output: string }>;
-			const text = gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") || "No gates configured.";
+			const gates = (await call("tasks.run_gates", input)) as Array<{
+				gate: { type: string; target: string };
+				passed: boolean;
+				output: string;
+			}>;
+			const text =
+				gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n") ||
+				"No gates configured.";
 			return { gates, content: [{ type: "text" as const, text }] };
 		},
 	);
 
-	define("set_checklist", "Replaces a Task's evidence-bearing checklist (proof requirements) in full.", "local-write", { id: stringProp, name: stringProp, checklist: objectProp, project_root: stringProp }, ["checklist"], resolveIdAndScope);
-	define("set_gates", "Replaces a Task's gate commands in full.", "local-write", { id: stringProp, name: stringProp, gates: arrayProp, project_root: stringProp }, ["gates"], resolveIdAndScope);
+	define(
+		"set_checklist",
+		"Replaces a Task's evidence-bearing checklist (proof requirements) in full.",
+		"local-write",
+		{ id: stringProp, name: stringProp, checklist: objectProp, project_root: stringProp },
+		["checklist"],
+		resolveIdAndScope,
+	);
+	define(
+		"set_gates",
+		"Replaces a Task's gate commands in full.",
+		"local-write",
+		{ id: stringProp, name: stringProp, gates: arrayProp, project_root: stringProp },
+		["gates"],
+		resolveIdAndScope,
+	);
 
 	define(
 		"context",
@@ -335,7 +535,16 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"cancel_subtree",
 		"Cancels a Task and its whole containment subtree in one call, skipping tasks already done/canceled.",
 		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp, scope: { type: "string", enum: ["project", "graph", "all"] }, root_task_id: stringProp, root_task_name: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			reason: stringProp,
+			session_id: stringProp,
+			project_root: stringProp,
+			scope: { type: "string", enum: ["project", "graph", "all"] },
+			root_task_id: stringProp,
+			root_task_name: stringProp,
+		},
 		[],
 		resolveIdAndScope,
 		(input) => {
@@ -351,11 +560,23 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"depend",
 		"Adds a dependency edge (this task waits for dependency_id/dependency_name). Dependency edges form an executable DAG -- self-dependencies and cycles are rejected. A name resolved outside project_root's own scope is retried once against every project before failing, unless scope is pinned explicitly.",
 		"local-write",
-		{ id: stringProp, name: stringProp, dependency_id: stringProp, dependency_name: stringProp, project_root: stringProp, scope: scopeProp, session_id: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			dependency_id: stringProp,
+			dependency_name: stringProp,
+			project_root: stringProp,
+			scope: scopeProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => {
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return { ...input, id: resolveTaskId(tasks, filter, input.id, input.name), dependency_id: resolveTaskId(tasks, filter, input.dependency_id, input.dependency_name) };
+			return {
+				...input,
+				id: resolveTaskId(tasks, filter, input.id, input.name),
+				dependency_id: resolveTaskId(tasks, filter, input.dependency_id, input.dependency_name),
+			};
 		},
 	);
 
@@ -363,11 +584,23 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"undepend",
 		"Removes a dependency edge. Idempotent -- a no-op if the edge is already absent.",
 		"local-write",
-		{ id: stringProp, name: stringProp, dependency_id: stringProp, dependency_name: stringProp, project_root: stringProp, scope: scopeProp, session_id: stringProp },
+		{
+			id: stringProp,
+			name: stringProp,
+			dependency_id: stringProp,
+			dependency_name: stringProp,
+			project_root: stringProp,
+			scope: scopeProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => {
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return { ...input, id: resolveTaskId(tasks, filter, input.id, input.name), dependency_id: resolveTaskId(tasks, filter, input.dependency_id, input.dependency_name) };
+			return {
+				...input,
+				id: resolveTaskId(tasks, filter, input.id, input.name),
+				dependency_id: resolveTaskId(tasks, filter, input.dependency_id, input.dependency_name),
+			};
 		},
 	);
 
@@ -375,11 +608,23 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"contain",
 		"Nests a child Task inside a parent (parent_id/parent_name contains child_id/child_name) -- explicit hierarchy, distinct from depends_on execution ordering. A name resolved outside project_root's own scope is retried once against every project before failing, unless scope is pinned explicitly.",
 		"local-write",
-		{ parent_id: stringProp, parent_name: stringProp, child_id: stringProp, child_name: stringProp, project_root: stringProp, scope: scopeProp, session_id: stringProp },
+		{
+			parent_id: stringProp,
+			parent_name: stringProp,
+			child_id: stringProp,
+			child_name: stringProp,
+			project_root: stringProp,
+			scope: scopeProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => {
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return { ...input, parent_id: resolveTaskId(tasks, filter, input.parent_id, input.parent_name), child_id: resolveTaskId(tasks, filter, input.child_id, input.child_name) };
+			return {
+				...input,
+				parent_id: resolveTaskId(tasks, filter, input.parent_id, input.parent_name),
+				child_id: resolveTaskId(tasks, filter, input.child_id, input.child_name),
+			};
 		},
 	);
 
@@ -387,20 +632,87 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"uncontain",
 		"Removes a parent/child nesting. Idempotent -- a no-op if the edge is already absent.",
 		"local-write",
-		{ parent_id: stringProp, parent_name: stringProp, child_id: stringProp, child_name: stringProp, project_root: stringProp, scope: scopeProp, session_id: stringProp },
+		{
+			parent_id: stringProp,
+			parent_name: stringProp,
+			child_id: stringProp,
+			child_name: stringProp,
+			project_root: stringProp,
+			scope: scopeProp,
+			session_id: stringProp,
+		},
 		[],
 		(input) => {
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return { ...input, parent_id: resolveTaskId(tasks, filter, input.parent_id, input.parent_name), child_id: resolveTaskId(tasks, filter, input.child_id, input.child_name) };
+			return {
+				...input,
+				parent_id: resolveTaskId(tasks, filter, input.parent_id, input.parent_name),
+				child_id: resolveTaskId(tasks, filter, input.child_id, input.child_name),
+			};
 		},
 	);
 
-	define("claim", "Claims this Task's lease under owner (defaults to session_id). Throws if a different owner already holds one.", "local-write", { id: stringProp, name: stringProp, owner: stringProp, ttl_ms: numberProp, note: stringProp, project_root: stringProp, session_id: stringProp }, [], (input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name), owner: input.owner ?? input.session_id }));
-	define("heartbeat_lease", "Extends this Task's lease -- needs the exact owner/token claim() returned.", "local-write", { id: stringProp, name: stringProp, owner: stringProp, token: stringProp, ttl_ms: numberProp, project_root: stringProp, session_id: stringProp }, ["owner", "token"], (input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }));
-	define("release_lease", "Releases this Task's lease -- needs the exact owner/token claim() returned.", "local-write", { id: stringProp, name: stringProp, owner: stringProp, token: stringProp, project_root: stringProp, session_id: stringProp }, ["owner", "token"], (input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }));
-	define("lease", "Shows this Task's current lease, if any.", "read", { id: stringProp, name: stringProp, project_root: stringProp }, [], (input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }));
+	define(
+		"claim",
+		"Claims this Task's lease under owner (defaults to session_id). Throws if a different owner already holds one.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			owner: stringProp,
+			ttl_ms: numberProp,
+			note: stringProp,
+			project_root: stringProp,
+			session_id: stringProp,
+		},
+		[],
+		(input) => ({
+			...input,
+			id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+			owner: input.owner ?? input.session_id,
+		}),
+	);
+	define(
+		"heartbeat_lease",
+		"Extends this Task's lease -- needs the exact owner/token claim() returned.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			owner: stringProp,
+			token: stringProp,
+			ttl_ms: numberProp,
+			project_root: stringProp,
+			session_id: stringProp,
+		},
+		["owner", "token"],
+		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+	);
+	define(
+		"release_lease",
+		"Releases this Task's lease -- needs the exact owner/token claim() returned.",
+		"local-write",
+		{ id: stringProp, name: stringProp, owner: stringProp, token: stringProp, project_root: stringProp, session_id: stringProp },
+		["owner", "token"],
+		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+	);
+	define(
+		"lease",
+		"Shows this Task's current lease, if any.",
+		"read",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+	);
 
-	define("event_feed", "Cursor-paginated feed of raw Task lifecycle events across every task, optionally filtered by event_types.", "read", { cursor: numberProp, limit: numberProp, event_types: arrayProp }, [], (input) => input);
+	define(
+		"event_feed",
+		"Cursor-paginated feed of raw Task lifecycle events across every task, optionally filtered by event_types.",
+		"read",
+		{ cursor: numberProp, limit: numberProp, event_types: arrayProp },
+		[],
+		(input) => input,
+	);
 }
 
 /** Kept out of the registry deliberately, matching the removed tool's own ACTIONS list -- system maintenance, not an agent-facing action. Exposed via reapStale* CLI/cron paths, not a Vehicle operation. */

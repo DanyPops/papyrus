@@ -18,8 +18,22 @@ function harness() {
 describe("registerDocsVehicleOperations (wired through createPapyrusService)", () => {
 	it("registers exactly one honest VehicleOperation per real docs.* action, never an action-dispatch schema", () => {
 		const { registry, service } = harness();
-		const names = registry.manifest().operations.map((op: VehicleManifestOperation) => op.name).filter((name: string) => name.startsWith("docs.")).sort();
-		expect(names).toEqual(["docs.activate", "docs.archive", "docs.assign_project", "docs.create", "docs.link", "docs.list", "docs.reopen", "docs.show", "docs.update"]);
+		const names = registry
+			.manifest()
+			.operations.map((op: VehicleManifestOperation) => op.name)
+			.filter((name: string) => name.startsWith("docs."))
+			.sort();
+		expect(names).toEqual([
+			"docs.activate",
+			"docs.archive",
+			"docs.assign_project",
+			"docs.create",
+			"docs.link",
+			"docs.list",
+			"docs.reopen",
+			"docs.show",
+			"docs.update",
+		]);
 		service.close();
 	});
 
@@ -31,7 +45,11 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 
 	it("creates a doc (draft by default) and lists it by project", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("docs.create", 1, { title: "Architecture overview", project_root: PROJECT }, PERMS)) as { id: string; title: string; status: string };
+		const created = (await registry.invoke("docs.create", 1, { title: "Architecture overview", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			title: string;
+			status: string;
+		};
 		expect(created.title).toBe("Architecture overview");
 		expect(created.status).toBe("draft");
 
@@ -52,7 +70,10 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 
 	it("activate/archive/reopen walk the full doc lifecycle", async () => {
 		const { registry, service } = harness();
-		const created = (await registry.invoke("docs.create", 1, { title: "Lifecycle doc", project_root: PROJECT }, PERMS)) as { id: string; status: string };
+		const created = (await registry.invoke("docs.create", 1, { title: "Lifecycle doc", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			status: string;
+		};
 		expect(created.status).toBe("draft");
 
 		const activated = (await registry.invoke("docs.activate", 1, { id: created.id }, PERMS)) as { status: string };
@@ -69,9 +90,14 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 	it("link resolves both the doc and a cross-kind target (a rule) by name in one call", async () => {
 		const { registry, service } = harness();
 		const doc = (await registry.invoke("docs.create", 1, { title: "Research notes", project_root: PROJECT }, PERMS)) as { id: string };
-		const rule = (await service.execute("rules.create", { title: "Follow the research notes", project_root: PROJECT })) as { id: string };
+		const _rule = (await service.execute("rules.create", { title: "Follow the research notes", project_root: PROJECT })) as { id: string };
 
-		const linked = (await registry.invoke("docs.link", 1, { name: "Research notes", relation: "references", target_name: "Follow the research notes" }, PERMS)) as { id: string };
+		const linked = (await registry.invoke(
+			"docs.link",
+			1,
+			{ name: "Research notes", relation: "references", target_name: "Follow the research notes" },
+			PERMS,
+		)) as { id: string };
 		expect(linked.id).toBe(doc.id);
 
 		const relationships = (await service.execute("graph.tree", { id: doc.id, depth: 1 })) as unknown;

@@ -6,6 +6,7 @@ import { NOTE_BODY_MAX_CHARACTERS, NOTE_LIST_MAX_LIMIT } from "../src/constants.
 import { openDb } from "../src/db.ts";
 import { Notes } from "../src/note-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 const PROJECT = "/workspace/papyrus";
@@ -59,9 +60,16 @@ describe("Notes application service", () => {
 		]);
 
 		const target = artifacts.create({ kind: "doc", title: "Follow-up", subtype: "research" });
-		const promoted = notes.promote(captured.id, target.id, { projectRoot: PROJECT, actor: "agent", source: "notes-tool", reason: "Converted to durable research" });
+		const promoted = notes.promote(captured.id, target.id, {
+			projectRoot: PROJECT,
+			actor: "agent",
+			source: "notes-tool",
+			reason: "Converted to durable research",
+		});
 		expect(promoted.status).toBe("archived");
-		expect(promoted.extra).toMatchObject({ disposition: { kind: "promoted", targetId: target.id, reason: "Converted to durable research" } });
+		expect(promoted.extra).toMatchObject({
+			disposition: { kind: "promoted", targetId: target.id, reason: "Converted to durable research" },
+		});
 		expect(promoted.edges).toContainEqual({ from: captured.id, relation: "relates_to", to: target.id });
 		expect(notes.history(captured.id, PROJECT, { direction: "asc" }).events).toEqual([
 			expect.objectContaining({ type: "captured" }),
@@ -78,7 +86,13 @@ describe("Notes application service", () => {
 		const captured = notes.capture({ body: "Maybe later", projectRoot: PROJECT });
 		expect(() => notes.show(captured.id, OTHER_PROJECT)).toThrow("outside project scope");
 		expect(() => notes.archive(captured.id, { projectRoot: PROJECT, disposition: "" as "declined" })).toThrow("note disposition");
-		const archived = notes.archive(captured.id, { projectRoot: PROJECT, disposition: "declined", reason: "No longer needed", actor: "human", source: "command" });
+		const archived = notes.archive(captured.id, {
+			projectRoot: PROJECT,
+			disposition: "declined",
+			reason: "No longer needed",
+			actor: "human",
+			source: "command",
+		});
 		expect(archived.status).toBe("archived");
 		expect(archived.extra).toMatchObject({ disposition: { kind: "declined", reason: "No longer needed" } });
 		expect(notes.history(captured.id, PROJECT).events).toContainEqual(

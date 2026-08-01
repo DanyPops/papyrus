@@ -2,12 +2,10 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
-import {
-	discoverSkillDirectories,
-	parseSkillFrontmatter,
-	scanSkillCatalogFootprint,
-} from "../extension/src/skill-catalog-footprint.ts";
+
+import { discoverSkillDirectories, parseSkillFrontmatter, scanSkillCatalogFootprint } from "../extension/src/skill-catalog-footprint.ts";
 
 describe("parseSkillFrontmatter", () => {
 	it("extracts name and a plain single-line description", () => {
@@ -38,7 +36,8 @@ describe("parseSkillFrontmatter", () => {
 
 	it("strips matching quotes from quoted scalar values", () => {
 		expect(parseSkillFrontmatter('---\nname: x\ndescription: "Quoted description"\n---\n')).toEqual({
-			name: "x", description: "Quoted description",
+			name: "x",
+			description: "Quoted description",
 		});
 	});
 

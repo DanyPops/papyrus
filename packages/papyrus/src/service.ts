@@ -1,50 +1,48 @@
-import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
-import { VERSION } from "./version.ts";
-import { migrateDb, openDb, schemaVersion } from "./db.ts";
-import { removeArtifactSubtree } from "./artifact-subtree.ts";
-import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
-import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
+import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
+import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
+import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-store.ts";
+import { SQLiteGateRunner } from "./adapters/sqlite-gate-runner.ts";
 import { SQLiteGraphProjectionStore } from "./adapters/sqlite-graph-projection-store.ts";
+import { SQLiteLogStore } from "./adapters/sqlite-log-store.ts";
+import { SQLiteNoteEventStore } from "./adapters/sqlite-note-event-store.ts";
+import { SQLiteSessionIdentityStore } from "./adapters/sqlite-session-identity-store.ts";
+import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskLeaseStore } from "./adapters/sqlite-task-lease-store.ts";
-import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
-import { SQLiteNoteEventStore } from "./adapters/sqlite-note-event-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
-import { SQLiteSessionIdentityStore } from "./adapters/sqlite-session-identity-store.ts";
+import { removeArtifactSubtree } from "./artifact-subtree.ts";
+import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "./authority-registry.ts";
+import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
+import { migrateDb, openDb, schemaVersion } from "./db.ts";
+import { Discussions } from "./discussion-service.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
-import { AuthorityRegistry, AuthorizedArtifactWriter, type AuthorityClaim } from "./authority-registry.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
+import { listInjectableRules } from "./domain-services.ts";
+import { Logs } from "./log-service.ts";
+import { OperationRegistry } from "./module-registry.ts";
+import { DISCUSS_OPERATION_NAMES, discussOperations } from "./modules/discuss.ts";
+import { DOCS_OPERATION_NAMES, docsOperations } from "./modules/docs.ts";
+import { GRAPH_PROJECTION_OPERATION_NAMES, graphProjectionOperations } from "./modules/graph-projection.ts";
+import { LOGS_OPERATION_NAMES, logsOperations } from "./modules/logs.ts";
+import { NOTES_OPERATION_NAMES, notesOperations } from "./modules/notes.ts";
+import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "./modules/playbooks.ts";
+import { RULES_OPERATION_NAMES, rulesOperations } from "./modules/rules.ts";
+import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "./modules/session-identity.ts";
+import { TASKS_OPERATION_NAMES, tasksOperations } from "./modules/tasks.ts";
+import { NOTE_SUBTYPE, Notes } from "./note-service.ts";
 import type { ArtifactEventReader } from "./ports/artifact-event-reader.ts";
+import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { ArtifactTrashStore } from "./ports/artifact-trash-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { Tasks, type TaskStatus } from "./task-service.ts";
-import {
-	listInjectableRules,
-} from "./domain-services.ts";
-import { Notes, NOTE_SUBTYPE } from "./note-service.ts";
+import { InvalidSessionSecretError, SessionIdentity } from "./session-identity-service.ts";
+import { type TaskStatus, Tasks } from "./task-service.ts";
 import { createPapyrusVehicleRegistry } from "./vehicle/papyrus-vehicle.ts";
-import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
-import { Logs } from "./log-service.ts";
-import { SQLiteLogStore } from "./adapters/sqlite-log-store.ts";
-import { SessionIdentity, InvalidSessionSecretError } from "./session-identity-service.ts";
-import { OperationRegistry } from "./module-registry.ts";
-import { docsOperations, DOCS_OPERATION_NAMES } from "./modules/docs.ts";
-import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "./modules/graph-projection.ts";
-import { logsOperations, LOGS_OPERATION_NAMES } from "./modules/logs.ts";
-import { notesOperations, NOTES_OPERATION_NAMES } from "./modules/notes.ts";
-import { rulesOperations, RULES_OPERATION_NAMES } from "./modules/rules.ts";
-import { playbooksOperations, PLAYBOOKS_OPERATION_NAMES } from "./modules/playbooks.ts";
-import { sessionIdentityOperations, SESSION_IDENTITY_OPERATION_NAMES } from "./modules/session-identity.ts";
-import { discussOperations, DISCUSS_OPERATION_NAMES } from "./modules/discuss.ts";
-import { tasksOperations, TASKS_OPERATION_NAMES } from "./modules/tasks.ts";
-import { Discussions } from "./discussion-service.ts";
-import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-store.ts";
+import { VERSION } from "./version.ts";
 
 /**
  * Operations with no registered module: the generic, cross-cutting kernel surface
@@ -57,9 +55,21 @@ import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-s
  * @danypops/discourse package plus host adapters.
  */
 const COMPOSITION_ROOT_OPERATION_NAMES = [
-	"system.migrate", "artifact.create", "artifact.query", "artifact.show",
-	"artifact.remove", "artifact.remove_subtree", "artifact.restore", "artifact.trash_status", "artifact.trash_list",
-	"graph.link", "graph.unlink", "graph.tree", "graph.status", "graph.history", "gates.run",
+	"system.migrate",
+	"artifact.create",
+	"artifact.query",
+	"artifact.show",
+	"artifact.remove",
+	"artifact.remove_subtree",
+	"artifact.restore",
+	"artifact.trash_status",
+	"artifact.trash_list",
+	"graph.link",
+	"graph.unlink",
+	"graph.tree",
+	"graph.status",
+	"graph.history",
+	"gates.run",
 	"rules.injectable",
 ] as const;
 
@@ -85,7 +95,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...DISCUSS_OPERATION_NAMES,
 ] as const;
 
-export type OperationName = typeof EXPECTED_OPERATION_NAMES[number];
+export type OperationName = (typeof EXPECTED_OPERATION_NAMES)[number];
 type OperationInput = Record<string, unknown>;
 type OperationHandler = (input: OperationInput) => unknown;
 
@@ -107,7 +117,7 @@ function optionalString(input: OperationInput, key: string): string | undefined 
 	return value;
 }
 
-function optionalStringArray(input: OperationInput, key: string): string[] | undefined {
+function _optionalStringArray(input: OperationInput, key: string): string[] | undefined {
 	const value = input[key];
 	if (value === undefined) return undefined;
 	if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(`${key} must be an array of strings`);
@@ -128,9 +138,9 @@ function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
 
 function templateSubtype(artifacts: ArtifactStore, templateId: string | undefined): string | undefined {
 	if (!templateId) return undefined;
-	const defaults = artifacts.get(templateId)?.extra["defaults"];
+	const defaults = artifacts.get(templateId)?.extra.defaults;
 	if (typeof defaults !== "object" || defaults === null || Array.isArray(defaults)) return undefined;
-	const subtype = (defaults as Record<string, unknown>)["subtype"];
+	const subtype = (defaults as Record<string, unknown>).subtype;
 	return typeof subtype === "string" ? subtype : undefined;
 }
 
@@ -225,9 +235,9 @@ function handlers(
 	artifacts: ArtifactStore & ArtifactTrashStore & ArtifactEventReader,
 	gates: GateRunner,
 	tasks: Tasks,
-	notes: Notes,
-	events: TaskEventStore,
-	scopes: TaskScopeStore,
+	_notes: Notes,
+	_events: TaskEventStore,
+	_scopes: TaskScopeStore,
 	migrate: () => unknown,
 	moduleRegistry: OperationRegistry,
 	authority: AuthorityRegistry,
@@ -237,7 +247,10 @@ function handlers(
 	// these six entries stay in this completeness-checked table only as a thin forward so
 	// `Record<OperationName, OperationHandler>` still guarantees every operation has an entry
 	// at compile time. The actual notes.* logic now lives in the module, not here.
-	const forwardToModule = (name: OperationName): OperationHandler => (input) => moduleRegistry.get(name)!.execute(input);
+	const forwardToModule =
+		(name: OperationName): OperationHandler =>
+		(input) =>
+			moduleRegistry.get(name)!.execute(input);
 	const eventContext = (input: OperationInput): TaskEventContext => ({
 		actor: optionalString(input, "actor"),
 		source: optionalString(input, "source"),
@@ -264,30 +277,41 @@ function handlers(
 		"system.migrate": () => migrate(),
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
-			authority.requireArtifactAllowed(normalized.kind, normalized.subtype ?? templateSubtype(artifacts, normalized.templateId), "create", GENERIC_CALLER);
+			authority.requireArtifactAllowed(
+				normalized.kind,
+				normalized.subtype ?? templateSubtype(artifacts, normalized.templateId),
+				"create",
+				GENERIC_CALLER,
+			);
 			authority.requireArtifactAllowed(normalized.kind, normalized.subtype, "create", GENERIC_CALLER);
 			if (normalized.kind !== "task") return artifacts.create(normalized);
-			return tasks.create({
-				id: normalized.id,
-				title: string(input, "title"),
-				body: normalized.body,
-				subtype: normalized.subtype,
-				status: normalized.status as TaskStatus | undefined,
-				labels: normalized.labels,
-				extra: normalized.extra,
-				templateId: normalized.templateId,
-				projectRoot: string(input, "project_root"),
-				projectSource: "cwd",
-			}, eventContextFor(input, "artifact-api"));
+			return tasks.create(
+				{
+					id: normalized.id,
+					title: string(input, "title"),
+					body: normalized.body,
+					subtype: normalized.subtype,
+					status: normalized.status as TaskStatus | undefined,
+					labels: normalized.labels,
+					extra: normalized.extra,
+					templateId: normalized.templateId,
+					projectRoot: string(input, "project_root"),
+					projectSource: "cwd",
+				},
+				eventContextFor(input, "artifact-api"),
+			);
 		},
 		"artifact.query": (input) => artifacts.query(input),
-		"artifact.show": (input) => artifacts.get(string(input, "id"), {
-			tree: input["tree"] === true,
-			depth: optionalNumber(input, "depth"),
-			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
-		}),
-		"artifact.remove": (input) => artifacts.trash(string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
-		"artifact.remove_subtree": (input) => removeArtifactSubtree(artifacts, string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
+		"artifact.show": (input) =>
+			artifacts.get(string(input, "id"), {
+				tree: input.tree === true,
+				depth: optionalNumber(input, "depth"),
+				maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
+			}),
+		"artifact.remove": (input) =>
+			artifacts.trash(string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
+		"artifact.remove_subtree": (input) =>
+			removeArtifactSubtree(artifacts, string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
 		"artifact.restore": (input) => artifacts.restore(string(input, "id"), eventContext(input)),
 		"artifact.trash_status": (input) => artifacts.trashStatus(string(input, "id")),
 		"artifact.trash_list": () => artifacts.listTrash(),
@@ -310,7 +334,11 @@ function handlers(
 			genericWriter.checkLink({ from, relation, to });
 			let removed: boolean;
 			if (relation === "depends_on" && artifacts.get(from)?.kind === "task" && artifacts.get(to)?.kind === "task") {
-				const before = tasks.graph().nodes.find((node) => node.task.id === from)?.dependencyIds.includes(to) ?? false;
+				const before =
+					tasks
+						.graph()
+						.nodes.find((node) => node.task.id === from)
+						?.dependencyIds.includes(to) ?? false;
 				tasks.undepend(from, to, eventContext(input));
 				removed = before;
 			} else {
@@ -318,29 +346,29 @@ function handlers(
 			}
 			return { removed };
 		},
-		"graph.tree": (input) => artifacts.get(string(input, "id"), {
-			tree: true,
-			depth: optionalNumber(input, "depth"),
-			maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
-		}),
+		"graph.tree": (input) =>
+			artifacts.get(string(input, "id"), {
+				tree: true,
+				depth: optionalNumber(input, "depth"),
+				maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
+			}),
 		"graph.status": (input) => genericWriter.setStatus(string(input, "id"), string(input, "status"), eventContext(input)),
-		"graph.history": (input) => artifacts.events({
-			artifactId: optionalString(input, "id"),
-			actor: optionalString(input, "actor"),
-			sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
-			since: optionalString(input, "since"),
-			limit: optionalNumber(input, "limit"),
-			cursor: optionalNumber(input, "cursor"),
-			direction: optionalString(input, "direction") as "asc" | "desc" | undefined,
-		}),
+		"graph.history": (input) =>
+			artifacts.events({
+				artifactId: optionalString(input, "id"),
+				actor: optionalString(input, "actor"),
+				sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
+				since: optionalString(input, "since"),
+				limit: optionalNumber(input, "limit"),
+				cursor: optionalNumber(input, "cursor"),
+				direction: optionalString(input, "direction") as "asc" | "desc" | undefined,
+			}),
 		"gates.run": (input) => {
 			const id = string(input, "id");
-			return artifacts.get(id)?.kind === "task"
-				? tasks.runGates(id, eventContextFor(input, "gates-api"))
-				: gates.runAsync(id);
+			return artifacts.get(id)?.kind === "task" ? tasks.runGates(id, eventContextFor(input, "gates-api")) : gates.runAsync(id);
 		},
-		"rules.injectable": (input) => listInjectableRules(artifacts, tasks.active(taskFilter(input))?.id)
-			.map(({ id, title, body, extra }) => ({ id, title, body, extra })),
+		"rules.injectable": (input) =>
+			listInjectableRules(artifacts, tasks.active(taskFilter(input))?.id).map(({ id, title, body, extra }) => ({ id, title, body, extra })),
 		"tasks.create": forwardToModule("tasks.create"),
 		"tasks.update": forwardToModule("tasks.update"),
 		"tasks.list": forwardToModule("tasks.list"),
@@ -453,7 +481,16 @@ export function createPapyrusService(path: string): PapyrusService {
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const discussions = new Discussions(artifacts, new SQLiteDiscussionRoundStore(db));
 	const authority = createAuthorityRegistry();
-	const vehicle = createPapyrusVehicleRegistry({ artifacts, scopes: artifactScopes, authority, notes, events, taskScopes: scopes, tasks, sessionIdentity });
+	const vehicle = createPapyrusVehicleRegistry({
+		artifacts,
+		scopes: artifactScopes,
+		authority,
+		notes,
+		events,
+		taskScopes: scopes,
+		tasks,
+		sessionIdentity,
+	});
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
 	moduleRegistry.registerAll(logsOperations(logs));
@@ -481,8 +518,12 @@ export function createPapyrusService(path: string): PapyrusService {
 			}
 			return handler(input);
 		},
-		checkpoint: () => { db.exec("PRAGMA wal_checkpoint(PASSIVE)"); },
-		optimize: () => { db.exec("PRAGMA optimize"); },
+		checkpoint: () => {
+			db.exec("PRAGMA wal_checkpoint(PASSIVE)");
+		},
+		optimize: () => {
+			db.exec("PRAGMA optimize");
+		},
 		reapStaleFocus: () => tasks.reapStaleFocus(),
 		purgeDueTrash: () => artifacts.purgeDueTrash(),
 		close: () => {
@@ -517,7 +558,10 @@ async function readOperationBody(request: Request): Promise<{ op?: unknown; inpu
 	}
 	const bytes = new Uint8Array(size);
 	let offset = 0;
-	for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
 	return JSON.parse(new TextDecoder().decode(bytes)) as { op?: unknown; input?: unknown };
 }
 
@@ -559,7 +603,14 @@ export function createApp(deps: {
 					deps.onOperationExecuted?.(body.op, input as OperationInput);
 					return json({ result });
 				} catch (error) {
-					const status = error instanceof PayloadTooLargeError ? 413 : error instanceof UnknownOperationError ? 404 : error instanceof InvalidSessionSecretError ? 403 : 400;
+					const status =
+						error instanceof PayloadTooLargeError
+							? 413
+							: error instanceof UnknownOperationError
+								? 404
+								: error instanceof InvalidSessionSecretError
+									? 403
+									: 400;
 					return json({ error: error instanceof Error ? error.message : String(error) }, { status });
 				}
 			}

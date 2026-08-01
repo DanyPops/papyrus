@@ -1,3 +1,4 @@
+import type { ArtifactAction, AuthorityRegistry } from "./authority-registry.ts";
 import {
 	ARTIFACT_BODY_MAX_LENGTH,
 	ARTIFACT_LABEL_MAX_COUNT,
@@ -13,19 +14,18 @@ import {
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
 	SKILL_MAX_ENUM_VALUES,
 } from "./constants.ts";
-import { requireLocallyOwnedContent, type Artifact, type CreateArtifactInput } from "./domain/artifact.ts";
+import { type Artifact, requireLocallyOwnedContent } from "./domain/artifact.ts";
 import type { ArtifactEventContext } from "./domain/artifact-event.ts";
-import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import {
 	BLUEPRINT_INPUT_TYPES,
-	validateArgumentValue,
 	type BlueprintArgumentValue,
 	type BlueprintInputType,
+	validateArgumentValue,
 } from "./domain/blueprint-definition.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
-import type { ArtifactScopeStore } from "./ports/artifact-scope-store.ts";
+import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import { NOTE_SUBTYPE } from "./note-service.ts";
-import { type ArtifactAction, type AuthorityRegistry } from "./authority-registry.ts";
+import type { ArtifactScopeStore } from "./ports/artifact-scope-store.ts";
+import type { ArtifactStore } from "./ports/artifact-store.ts";
 
 export interface UpdateContentInput {
 	title?: string;
@@ -46,7 +46,8 @@ function assertTitleBounds(title: string | undefined): void {
 }
 
 function assertBodyBounds(body: string | undefined): void {
-	if (body !== undefined && body.length > ARTIFACT_BODY_MAX_LENGTH) throw new Error(`body cannot exceed ${ARTIFACT_BODY_MAX_LENGTH} characters`);
+	if (body !== undefined && body.length > ARTIFACT_BODY_MAX_LENGTH)
+		throw new Error(`body cannot exceed ${ARTIFACT_BODY_MAX_LENGTH} characters`);
 }
 
 function assertLabelsBounds(labels: string[] | undefined): void {
@@ -72,8 +73,15 @@ export interface ListFilter {
  * path unchanged, so every caller that predates project scoping keeps working exactly as
  * before.
  */
-function listScoped(artifacts: ArtifactStore, scopes: ArtifactScopeStore, kind: string, filter: ListFilter, excludeSubtype?: string): Artifact[] {
-	if (filter.projectRoot === undefined) return artifacts.query({ kind, excludeSubtype, status: filter.status, text: filter.text, limit: filter.limit });
+function listScoped(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	kind: string,
+	filter: ListFilter,
+	excludeSubtype?: string,
+): Artifact[] {
+	if (filter.projectRoot === undefined)
+		return artifacts.query({ kind, excludeSubtype, status: filter.status, text: filter.text, limit: filter.limit });
 	const limit = filter.limit ?? ARTIFACT_SCOPE_MAX_ARTIFACTS;
 	if (!Number.isInteger(limit) || limit < 1 || limit > ARTIFACT_SCOPE_MAX_ARTIFACTS) {
 		throw new Error(`list limit must be between 1 and ${ARTIFACT_SCOPE_MAX_ARTIFACTS}`);
@@ -91,9 +99,19 @@ function listScoped(artifacts: ArtifactStore, scopes: ArtifactScopeStore, kind: 
 }
 
 /** Shared by assignDocumentProject/assignRuleProject/assignPlaybookProject. */
-function assignArtifactProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, kind: string, projectRoot: string | undefined): Artifact {
+function assignArtifactProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	id: string,
+	kind: string,
+	projectRoot: string | undefined,
+): Artifact {
 	requireKind(artifacts, id, kind);
-	scopes.assign(id, projectRoot === undefined ? undefined : normalizeProjectRoot(projectRoot), projectRoot === undefined ? "unscoped" : "explicit");
+	scopes.assign(
+		id,
+		projectRoot === undefined ? undefined : normalizeProjectRoot(projectRoot),
+		projectRoot === undefined ? "unscoped" : "explicit",
+	);
 	return artifacts.get(id)!;
 }
 
@@ -108,9 +126,13 @@ function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | unde
 	if (subtype === NOTE_SUBTYPE) return true;
 	if (!templateId) return false;
 	const template = artifacts.get(templateId);
-	const defaults = template?.extra["defaults"];
-	return typeof defaults === "object" && defaults !== null && !Array.isArray(defaults)
-		&& (defaults as Record<string, unknown>)["subtype"] === NOTE_SUBTYPE;
+	const defaults = template?.extra.defaults;
+	return (
+		typeof defaults === "object" &&
+		defaults !== null &&
+		!Array.isArray(defaults) &&
+		(defaults as Record<string, unknown>).subtype === NOTE_SUBTYPE
+	);
 }
 
 /** caller never owns NOTE_SUBTYPE, so requireArtifactAllowed always throws — the trailing throw only satisfies TypeScript's control-flow analysis for a `never`-returning function. */
@@ -121,9 +143,9 @@ function requireNotesFacade(authority: AuthorityRegistry, caller: string): never
 
 function templateSubtype(artifacts: ArtifactStore, templateId: string | undefined): string | undefined {
 	if (!templateId) return undefined;
-	const defaults = artifacts.get(templateId)?.extra["defaults"];
+	const defaults = artifacts.get(templateId)?.extra.defaults;
 	if (typeof defaults !== "object" || defaults === null || Array.isArray(defaults)) return undefined;
-	const subtype = (defaults as Record<string, unknown>)["subtype"];
+	const subtype = (defaults as Record<string, unknown>).subtype;
 	return typeof subtype === "string" ? subtype : undefined;
 }
 
@@ -157,23 +179,32 @@ const DOCUMENT_TRANSITIONS: Record<DocumentTransition, { from: string[]; to: str
 	reopen: { from: ["archived"], to: "draft" },
 };
 
-export function createDocument(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreateDocumentInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+export function createDocument(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	input: CreateDocumentInput,
+	authority: AuthorityRegistry,
+	context?: ArtifactEventContext,
+): Artifact {
 	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade(authority, "docs");
 	authority.requireArtifactAllowed("doc", input.subtype ?? templateSubtype(artifacts, input.templateId), "create", "docs");
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
-	const document = artifacts.create({
-		kind: "doc",
-		// Explicit, not defaultStatusFor's "first status row by rowid" fallback -- the same
-		// heuristic that made Task creation non-deterministic on a migrated database. Every
-		// creation path that has no caller-supplied initial status must set one explicitly.
-		status: "draft",
-		title: input.title,
-		body: input.body,
-		subtype: input.subtype,
-		labels: input.labels,
-		extra: input.extra,
-		templateId: input.templateId,
-	}, context);
+	const document = artifacts.create(
+		{
+			kind: "doc",
+			// Explicit, not defaultStatusFor's "first status row by rowid" fallback -- the same
+			// heuristic that made Task creation non-deterministic on a migrated database. Every
+			// creation path that has no caller-supplied initial status must set one explicitly.
+			status: "draft",
+			title: input.title,
+			body: input.body,
+			subtype: input.subtype,
+			labels: input.labels,
+			extra: input.extra,
+			templateId: input.templateId,
+		},
+		context,
+	);
 	scopes.assign(document.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
 	return document;
 }
@@ -182,9 +213,18 @@ export function listDocuments(artifacts: ArtifactStore, scopes: ArtifactScopeSto
 	return listScoped(artifacts, scopes, "doc", filter, NOTE_SUBTYPE);
 }
 
-export function assignDocumentProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, projectRoot: string | undefined): Artifact {
+export function assignDocumentProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	id: string,
+	projectRoot: string | undefined,
+): Artifact {
 	requireDocument(artifacts, id); // rejects Notes -- project reassignment for notes goes through notes.* like everything else about them
-	scopes.assign(id, projectRoot === undefined ? undefined : normalizeProjectRoot(projectRoot), projectRoot === undefined ? "unscoped" : "explicit");
+	scopes.assign(
+		id,
+		projectRoot === undefined ? undefined : normalizeProjectRoot(projectRoot),
+		projectRoot === undefined ? "unscoped" : "explicit",
+	);
 	return artifacts.get(id)!;
 }
 
@@ -199,7 +239,13 @@ export function showDocument(artifacts: ArtifactStore, id: string): Artifact {
 	return artifacts.get(id, { tree: true })!;
 }
 
-export function transitionDocument(artifacts: ArtifactStore, id: string, action: DocumentTransition, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+export function transitionDocument(
+	artifacts: ArtifactStore,
+	id: string,
+	action: DocumentTransition,
+	authority: AuthorityRegistry,
+	context?: ArtifactEventContext,
+): Artifact {
 	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "status"));
 	const transition = DOCUMENT_TRANSITIONS[action];
 	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
@@ -212,18 +258,31 @@ export function transitionDocument(artifacts: ArtifactStore, id: string, action:
  * refuses, on purpose: rewriting it here would silently fork from whatever system actually
  * owns it (e.g. web-spider's ingested pages), with nothing to ever reconcile the two again.
  */
-export function updateDocument(artifacts: ArtifactStore, id: string, input: UpdateDocumentInput, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+export function updateDocument(
+	artifacts: ArtifactStore,
+	id: string,
+	input: UpdateDocumentInput,
+	authority: AuthorityRegistry,
+	context?: ArtifactEventContext,
+): Artifact {
 	requireContentUpdateFields(input);
 	assertTitleBounds(input.title);
 	assertBodyBounds(input.body);
 	assertLabelsBounds(input.labels);
-	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "update"));
+	const _document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "update"));
 	const updated = artifacts.updateContent(id, input, context);
 	if (!updated) throw new Error(`document "${id}" not found`);
 	return updated;
 }
 
-export function linkDocument(artifacts: ArtifactStore, id: string, relation: DocumentRelation, targetId: string, authority: AuthorityRegistry, context?: ArtifactEventContext): Artifact {
+export function linkDocument(
+	artifacts: ArtifactStore,
+	id: string,
+	relation: DocumentRelation,
+	targetId: string,
+	authority: AuthorityRegistry,
+	context?: ArtifactEventContext,
+): Artifact {
 	requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "link"));
 	const target = artifacts.get(targetId);
 	if (!target) throw new Error(`target artifact "${targetId}" not found`);
@@ -264,22 +323,30 @@ function assertRuleTextWithinBounds(condition: string | undefined, action: strin
 	}
 }
 
-export function createRule(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreateRuleInput, context?: ArtifactEventContext): Artifact {
+export function createRule(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	input: CreateRuleInput,
+	context?: ArtifactEventContext,
+): Artifact {
 	assertRuleTextWithinBounds(input.condition, input.action, input.body);
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
-	const rule = artifacts.create({
-		kind: "rule",
-		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
-		title: input.title,
-		body: input.body,
-		labels: input.labels,
-		extra: {
-			...(input.extra ?? {}),
-			...(input.condition ? { condition: input.condition } : {}),
-			...(input.action ? { action: input.action } : {}),
-			severity: input.severity ?? "info",
+	const rule = artifacts.create(
+		{
+			kind: "rule",
+			status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
+			title: input.title,
+			body: input.body,
+			labels: input.labels,
+			extra: {
+				...(input.extra ?? {}),
+				...(input.condition ? { condition: input.condition } : {}),
+				...(input.action ? { action: input.action } : {}),
+				severity: input.severity ?? "info",
+			},
 		},
-	}, context);
+		context,
+	);
 	scopes.assign(rule.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
 	return rule;
 }
@@ -288,7 +355,12 @@ export function listRules(artifacts: ArtifactStore, scopes: ArtifactScopeStore, 
 	return listScoped(artifacts, scopes, "rule", filter);
 }
 
-export function assignRuleProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, projectRoot: string | undefined): Artifact {
+export function assignRuleProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	id: string,
+	projectRoot: string | undefined,
+): Artifact {
 	return assignArtifactProject(artifacts, scopes, id, "rule", projectRoot);
 }
 
@@ -302,12 +374,12 @@ export function assignRuleProject(artifacts: ArtifactStore, scopes: ArtifactScop
  */
 export function listInjectableRules(artifacts: ArtifactStore, activeTaskId?: string): Artifact[] {
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
-		const scope = rule.extra["scope"];
+		const scope = rule.extra.scope;
 		if (scope === undefined) return true;
 		if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
 		const value = scope as Record<string, unknown>;
-		if ((value["type"] !== "skill-run" && value["type"] !== "playbook-run") || !Array.isArray(value["taskIds"])) return false;
-		return activeTaskId !== undefined && value["taskIds"].some((id) => id === activeTaskId);
+		if ((value.type !== "skill-run" && value.type !== "playbook-run") || !Array.isArray(value.taskIds)) return false;
+		return activeTaskId !== undefined && value.taskIds.some((id) => id === activeTaskId);
 	});
 }
 
@@ -318,8 +390,8 @@ export function showRule(artifacts: ArtifactStore, id: string): Artifact {
 
 export function previewRule(artifacts: ArtifactStore, id: string): string {
 	const rule = requireKind(artifacts, id, "rule");
-	const condition = typeof rule.extra["condition"] === "string" ? ` (when: ${rule.extra["condition"]})` : "";
-	const action = rule.body || (typeof rule.extra["action"] === "string" ? rule.extra["action"] : "");
+	const condition = typeof rule.extra.condition === "string" ? ` (when: ${rule.extra.condition})` : "";
+	const action = rule.body || (typeof rule.extra.action === "string" ? rule.extra.action : "");
 	return `• ${rule.title}${condition}\n  ${action}`;
 }
 
@@ -340,8 +412,8 @@ export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRu
 	assertLabelsBounds(input.labels);
 	const rule = requireLocallyOwnedContent(requireKind(artifacts, id, "rule"));
 	if (input.body !== undefined) {
-		const condition = typeof rule.extra["condition"] === "string" ? rule.extra["condition"] : undefined;
-		const action = typeof rule.extra["action"] === "string" ? rule.extra["action"] : undefined;
+		const condition = typeof rule.extra.condition === "string" ? rule.extra.condition : undefined;
+		const action = typeof rule.extra.action === "string" ? rule.extra.action : undefined;
 		assertRuleTextWithinBounds(condition, action, input.body);
 	}
 	const updated = artifacts.updateContent(id, input, context);
@@ -388,30 +460,32 @@ export interface PlaybookArgument {
 function validatePlaybookArguments(value: unknown): PlaybookArgument[] | undefined {
 	if (value === undefined) return undefined;
 	if (!Array.isArray(value)) throw new Error("playbook arguments must be an array");
-	if (value.length > PLAYBOOK_ARGUMENT_MAX_COUNT) throw new Error(`playbook arguments cannot exceed ${PLAYBOOK_ARGUMENT_MAX_COUNT} entries`);
+	if (value.length > PLAYBOOK_ARGUMENT_MAX_COUNT)
+		throw new Error(`playbook arguments cannot exceed ${PLAYBOOK_ARGUMENT_MAX_COUNT} entries`);
 	const seen = new Set<string>();
 	return value.map((entry, index) => {
-		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) throw new Error(`argument at index ${index} must be an object`);
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+			throw new Error(`argument at index ${index} must be an object`);
 		const record = entry as Record<string, unknown>;
-		const name = record["name"];
+		const name = record.name;
 		if (typeof name !== "string" || name.trim().length === 0 || name.length > PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH) {
 			throw new Error(`argument name must be between 1 and ${PLAYBOOK_ARGUMENT_NAME_MAX_LENGTH} characters`);
 		}
 		if (seen.has(name)) throw new Error(`argument name "${name}" is declared more than once`);
 		seen.add(name);
-		const description = record["description"];
+		const description = record.description;
 		if (description !== undefined && (typeof description !== "string" || description.length > PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH)) {
 			throw new Error(`argument "${name}" description cannot exceed ${PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH} characters`);
 		}
-		const required = record["required"];
+		const required = record.required;
 		if (required !== undefined && typeof required !== "boolean") throw new Error(`argument "${name}" required must be a boolean`);
-		const type = record["type"] === undefined ? "string" : record["type"];
+		const type = record.type === undefined ? "string" : record.type;
 		if (!BLUEPRINT_INPUT_TYPES.has(type as BlueprintInputType)) throw new Error(`argument "${name}" has unsupported type`);
 		const result: PlaybookArgument = { name, required: required !== false, type: type as BlueprintInputType };
 		if (description !== undefined) result.description = description as string;
-		if (record["default"] !== undefined) result.default = validateArgumentValue(name, result.type, record["default"]);
-		if (record["enum"] !== undefined) {
-			const values = record["enum"];
+		if (record.default !== undefined) result.default = validateArgumentValue(name, result.type, record.default);
+		if (record.enum !== undefined) {
+			const values = record.enum;
 			if (!Array.isArray(values) || values.length === 0 || values.length > SKILL_MAX_ENUM_VALUES) {
 				throw new Error(`argument "${name}" enum must contain 1-${SKILL_MAX_ENUM_VALUES} values`);
 			}
@@ -429,14 +503,22 @@ export type PlaybookStep =
 	| string
 	| { kind: "task"; title?: string; body: string }
 	| { kind: "doc"; title: string; body?: string; subtype?: string; labels?: string[] }
-	| { kind: "rule"; title: string; body?: string; condition?: string; action?: string; severity?: "block" | "warn" | "info"; labels?: string[] }
+	| {
+			kind: "rule";
+			title: string;
+			body?: string;
+			condition?: string;
+			action?: string;
+			severity?: "block" | "warn" | "info";
+			labels?: string[];
+	  }
 	| { kind: "call"; title: string; playbookId: string; arguments?: Record<string, unknown> };
 
 function validateStructuredStep(value: Record<string, unknown>, index: number): PlaybookStep {
-	const kind = value["kind"];
-	const title = value["title"];
+	const kind = value.kind;
+	const title = value.title;
 	if (kind === "task") {
-		const body = value["body"];
+		const body = value.body;
 		if (typeof body !== "string" || body.trim().length === 0) throw new Error(`step ${index} (task) requires a non-empty body`);
 		return { kind: "task", body, ...(typeof title === "string" && title.length > 0 ? { title } : {}) };
 	}
@@ -444,20 +526,26 @@ function validateStructuredStep(value: Record<string, unknown>, index: number): 
 		throw new Error(`step ${index} (${String(kind)}) requires a title between 1 and ${ARTIFACT_TITLE_MAX_LENGTH} characters`);
 	}
 	if (kind === "doc" || kind === "rule") {
-		const body = value["body"];
+		const body = value.body;
 		if (body !== undefined && typeof body !== "string") throw new Error(`step ${index} (${kind}) body must be a string`);
-		const labels = value["labels"];
+		const labels = value.labels;
 		if (labels !== undefined && (!Array.isArray(labels) || labels.some((label) => typeof label !== "string"))) {
 			throw new Error(`step ${index} (${kind}) labels must be a string array`);
 		}
 		if (kind === "doc") {
-			const subtype = value["subtype"];
+			const subtype = value.subtype;
 			if (subtype !== undefined && typeof subtype !== "string") throw new Error(`step ${index} (doc) subtype must be a string`);
-			return { kind: "doc", title, ...(body !== undefined ? { body: body as string } : {}), ...(subtype !== undefined ? { subtype: subtype as string } : {}), ...(labels !== undefined ? { labels: labels as string[] } : {}) };
+			return {
+				kind: "doc",
+				title,
+				...(body !== undefined ? { body: body as string } : {}),
+				...(subtype !== undefined ? { subtype: subtype as string } : {}),
+				...(labels !== undefined ? { labels: labels as string[] } : {}),
+			};
 		}
-		const condition = value["condition"];
-		const action = value["action"];
-		const severity = value["severity"];
+		const condition = value.condition;
+		const action = value.action;
+		const severity = value.severity;
 		if (condition !== undefined && typeof condition !== "string") throw new Error(`step ${index} (rule) condition must be a string`);
 		if (action !== undefined && typeof action !== "string") throw new Error(`step ${index} (rule) action must be a string`);
 		if (severity !== undefined && severity !== "block" && severity !== "warn" && severity !== "info") {
@@ -474,13 +562,18 @@ function validateStructuredStep(value: Record<string, unknown>, index: number): 
 		};
 	}
 	if (kind === "call") {
-		const playbookId = value["playbookId"];
+		const playbookId = value.playbookId;
 		if (typeof playbookId !== "string" || playbookId.trim().length === 0) throw new Error(`step ${index} (call) requires a playbookId`);
-		const callArguments = value["arguments"];
+		const callArguments = value.arguments;
 		if (callArguments !== undefined && (typeof callArguments !== "object" || callArguments === null || Array.isArray(callArguments))) {
 			throw new Error(`step ${index} (call) arguments must be an object`);
 		}
-		return { kind: "call", title, playbookId, ...(callArguments !== undefined ? { arguments: callArguments as Record<string, unknown> } : {}) };
+		return {
+			kind: "call",
+			title,
+			playbookId,
+			...(callArguments !== undefined ? { arguments: callArguments as Record<string, unknown> } : {}),
+		};
 	}
 	throw new Error(`step ${index} has unknown kind "${String(kind)}"`);
 }
@@ -495,7 +588,8 @@ function validatePlaybookSteps(value: unknown): PlaybookStep[] | undefined {
 			if (entry.trim().length === 0) throw new Error(`step ${index} must not be empty`);
 			return entry;
 		}
-		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) throw new Error(`step ${index} must be a string or a structured step object`);
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+			throw new Error(`step ${index} must be a string or a structured step object`);
 		return validateStructuredStep(entry as Record<string, unknown>, index);
 	});
 }
@@ -516,24 +610,32 @@ export interface CreatePlaybookInput {
 export type PlaybookTransition = "enable" | "disable";
 export type UpdatePlaybookInput = UpdateContentInput;
 
-export function createPlaybook(artifacts: ArtifactStore, scopes: ArtifactScopeStore, input: CreatePlaybookInput, context?: ArtifactEventContext): Artifact {
+export function createPlaybook(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	input: CreatePlaybookInput,
+	context?: ArtifactEventContext,
+): Artifact {
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 	const declaredArguments = validatePlaybookArguments(input.arguments);
 	const declaredSteps = validatePlaybookSteps(input.steps);
-	const playbook = artifacts.create({
-		kind: "playbook",
-		status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
-		title: input.title,
-		body: input.body,
-		labels: input.labels,
-		extra: {
-			...(input.extra ?? {}),
-			...(input.trigger ? { trigger: input.trigger } : {}),
-			...(declaredSteps ? { steps: declaredSteps } : {}),
-			...(input.tools ? { tools: input.tools } : {}),
-			...(declaredArguments ? { arguments: declaredArguments } : {}),
+	const playbook = artifacts.create(
+		{
+			kind: "playbook",
+			status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
+			title: input.title,
+			body: input.body,
+			labels: input.labels,
+			extra: {
+				...(input.extra ?? {}),
+				...(input.trigger ? { trigger: input.trigger } : {}),
+				...(declaredSteps ? { steps: declaredSteps } : {}),
+				...(input.tools ? { tools: input.tools } : {}),
+				...(declaredArguments ? { arguments: declaredArguments } : {}),
+			},
 		},
-	}, context);
+		context,
+	);
 	scopes.assign(playbook.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
 	return playbook;
 }
@@ -542,7 +644,12 @@ export function listPlaybooks(artifacts: ArtifactStore, scopes: ArtifactScopeSto
 	return listScoped(artifacts, scopes, "playbook", filter);
 }
 
-export function assignPlaybookProject(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string, projectRoot: string | undefined): Artifact {
+export function assignPlaybookProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	id: string,
+	projectRoot: string | undefined,
+): Artifact {
 	return assignArtifactProject(artifacts, scopes, id, "playbook", projectRoot);
 }
 
@@ -562,7 +669,12 @@ export function updatePlaybook(artifacts: ArtifactStore, id: string, input: Upda
 	return updated;
 }
 
-export function transitionPlaybook(artifacts: ArtifactStore, id: string, action: PlaybookTransition, context?: ArtifactEventContext): Artifact {
+export function transitionPlaybook(
+	artifacts: ArtifactStore,
+	id: string,
+	action: PlaybookTransition,
+	context?: ArtifactEventContext,
+): Artifact {
 	const playbook = requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
 	const expected = action === "enable" ? "deprecated" : "active";
 	const target = action === "enable" ? "active" : "deprecated";
@@ -624,23 +736,27 @@ function argumentQualifier(argument: PlaybookArgument): string {
 
 /** Renders trigger/body/arguments/steps/tools into readable guidance -- the flat, non-recursive part of a Playbook's own invocation, shared by the top-level render and by a nested composed call. */
 function playbookInvocationBody(playbook: Artifact, provided: Record<string, unknown>): string {
-	const trigger = typeof playbook.extra["trigger"] === "string" ? playbook.extra["trigger"] : "manual invocation";
-	const steps = Array.isArray(playbook.extra["steps"]) ? (playbook.extra["steps"] as PlaybookStep[]) : [];
-	const tools = Array.isArray(playbook.extra["tools"]) ? playbook.extra["tools"].filter((tool): tool is string => typeof tool === "string") : [];
-	const declaredArguments = Array.isArray(playbook.extra["arguments"]) ? (playbook.extra["arguments"] as PlaybookArgument[]) : [];
+	const trigger = typeof playbook.extra.trigger === "string" ? playbook.extra.trigger : "manual invocation";
+	const steps = Array.isArray(playbook.extra.steps) ? (playbook.extra.steps as PlaybookStep[]) : [];
+	const tools = Array.isArray(playbook.extra.tools) ? playbook.extra.tools.filter((tool): tool is string => typeof tool === "string") : [];
+	const declaredArguments = Array.isArray(playbook.extra.arguments) ? (playbook.extra.arguments as PlaybookArgument[]) : [];
 	const argumentLines = declaredArguments.map((argument) => {
 		const value = provided[argument.name];
 		if (value !== undefined) return `- ${argument.name}: ${String(value)}`;
 		return `- ${argument.name} (${argumentQualifier(argument)}${argument.description ? `: ${argument.description}` : ""}) -- not yet provided`;
 	});
-	const missingRequired = declaredArguments.filter((argument) => argument.required && provided[argument.name] === undefined && argument.default === undefined);
+	const missingRequired = declaredArguments.filter(
+		(argument) => argument.required && provided[argument.name] === undefined && argument.default === undefined,
+	);
 	return [
 		`Apply Papyrus playbook "${playbook.title}".`,
 		`Trigger: ${trigger}`,
 		...(playbook.body ? [`Context: ${playbook.body}`] : []),
 		...(argumentLines.length > 0 ? ["Arguments:", ...argumentLines] : []),
 		...(missingRequired.length > 0
-			? [`Missing required argument(s): ${missingRequired.map((argument) => argument.name).join(", ")}. Ask the human for these directly -- the discuss tool with live:true asks synchronously and gets a real answer in this same turn -- before proceeding with the steps below. Do not guess or invent a value.`]
+			? [
+					`Missing required argument(s): ${missingRequired.map((argument) => argument.name).join(", ")}. Ask the human for these directly -- the discuss tool with live:true asks synchronously and gets a real answer in this same turn -- before proceeding with the steps below. Do not guess or invent a value.`,
+				]
 			: []),
 		...(steps.length ? ["Steps:", ...steps.map((step, index) => stepText(step, index))] : []),
 		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
@@ -661,11 +777,20 @@ function playbookInvocationBody(playbook: Artifact, provided: Record<string, unk
  * to discuss (live:true) rather than guess or silently proceed. `visited` and `depth` are
  * recursion-internal; callers should not pass them.
  */
-export function playbookInvocation(artifacts: ArtifactStore, id: string, provided: Record<string, unknown> = {}, visited: Set<string> = new Set(), depth = 0): string {
+export function playbookInvocation(
+	artifacts: ArtifactStore,
+	id: string,
+	provided: Record<string, unknown> = {},
+	visited: Set<string> = new Set(),
+	depth = 0,
+): string {
 	const playbook = requireKind(artifacts, id, "playbook");
 	visited.add(id);
 
-	const edges = artifacts.relationships({ artifactIds: [id] }).filter((edge) => edge.from === id).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
+	const edges = artifacts
+		.relationships({ artifactIds: [id] })
+		.filter((edge) => edge.from === id)
+		.slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
 	const linkedArtifactLines: string[] = [];
 	const nestedSections: string[] = []; // contains -- rendered after this playbook's own body
 	const prerequisiteSections: string[] = []; // depends_on -- rendered before this playbook's own body
@@ -680,14 +805,20 @@ export function playbookInvocation(artifacts: ArtifactStore, id: string, provide
 		const bucket = edge.relation === "contains" ? nestedSections : prerequisiteSections;
 		const role = edge.relation === "contains" ? "nested" : "prerequisite";
 		if (visited.has(target.id)) {
-			bucket.push(`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- already invoked above in this chain, not repeated.`);
+			bucket.push(
+				`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- already invoked above in this chain, not repeated.`,
+			);
 		} else if (depth + 1 > PLAYBOOK_INVOCATION_MAX_CALL_DEPTH) {
-			bucket.push(`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- call depth limit reached, invoke it separately.`);
+			bucket.push(
+				`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- call depth limit reached, invoke it separately.`,
+			);
 		} else {
 			const nested = playbookInvocation(artifacts, target.id, provided, visited, depth + 1);
-			bucket.push(edge.relation === "contains"
-				? `Nested playbook (contains) "${target.title}" -- run as part of this one:\n${nested}`
-				: `Prerequisite playbook (depends_on) "${target.title}" -- complete this FIRST, before the steps below:\n${nested}`);
+			bucket.push(
+				edge.relation === "contains"
+					? `Nested playbook (contains) "${target.title}" -- run as part of this one:\n${nested}`
+					: `Prerequisite playbook (depends_on) "${target.title}" -- complete this FIRST, before the steps below:\n${nested}`,
+			);
 		}
 	}
 

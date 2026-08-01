@@ -19,8 +19,19 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 	it("registers exactly one honest VehicleOperation per real notes.* action, never an action-dispatch schema", () => {
 		const { registry, service } = harness();
 		const manifest = registry.manifest();
-		const names = manifest.operations.map((op: VehicleManifestOperation) => op.name).filter((name: string) => name.startsWith("notes.")).sort();
-		expect(names).toEqual(["notes.archive", "notes.capture", "notes.consume", "notes.history", "notes.list", "notes.promote", "notes.show"]);
+		const names = manifest.operations
+			.map((op: VehicleManifestOperation) => op.name)
+			.filter((name: string) => name.startsWith("notes."))
+			.sort();
+		expect(names).toEqual([
+			"notes.archive",
+			"notes.capture",
+			"notes.consume",
+			"notes.history",
+			"notes.list",
+			"notes.promote",
+			"notes.show",
+		]);
 		// No operation's own schema is itself an action-dispatch blob -- confirms the
 		// "God Parameters" shape audited against pi-papyrus's other domain tools
 		// doesn't recur one level down inside a single operation's own input.
@@ -52,7 +63,10 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 
 	it("capture creates a note and list finds it by project", async () => {
 		const { registry, service } = harness();
-		const captured = (await registry.invoke("notes.capture", 1, { body: "call the vet", project_root: PROJECT }, PERMS)) as { id: string; title: string };
+		const captured = (await registry.invoke("notes.capture", 1, { body: "call the vet", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			title: string;
+		};
 		expect(captured.title).toBe("call the vet");
 
 		const rows = (await registry.invoke("notes.list", 1, { project_root: PROJECT }, PERMS)) as Array<{ id: string }>;
@@ -62,7 +76,10 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 
 	it("show resolves a note by name, exactly like the id path, without a separate round trip", async () => {
 		const { registry, service } = harness();
-		const captured = (await registry.invoke("notes.capture", 1, { body: "renew the domain", project_root: PROJECT }, PERMS)) as { id: string; title: string };
+		const captured = (await registry.invoke("notes.capture", 1, { body: "renew the domain", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			title: string;
+		};
 
 		const byId = await registry.invoke("notes.show", 1, { id: captured.id, project_root: PROJECT }, PERMS);
 		const byName = await registry.invoke("notes.show", 1, { name: captured.title, project_root: PROJECT }, PERMS);
@@ -90,7 +107,9 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 		const consumed = (await registry.invoke("notes.consume", 1, { id: captured.id, project_root: PROJECT }, PERMS)) as { status: string };
 		expect(consumed.status).toBe("active");
 
-		const consumedAgain = (await registry.invoke("notes.consume", 1, { id: captured.id, project_root: PROJECT }, PERMS)) as { status: string };
+		const consumedAgain = (await registry.invoke("notes.consume", 1, { id: captured.id, project_root: PROJECT }, PERMS)) as {
+			status: string;
+		};
 		expect(consumedAgain.status).toBe("active");
 		service.close();
 	});
@@ -103,14 +122,22 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 			registry.invoke("notes.archive", 1, { id: captured.id, project_root: PROJECT, disposition: "not-a-real-disposition" }, PERMS),
 		).rejects.toThrow();
 
-		const archived = (await registry.invoke("notes.archive", 1, { id: captured.id, project_root: PROJECT, disposition: "declined" }, PERMS)) as { status: string };
+		const archived = (await registry.invoke(
+			"notes.archive",
+			1,
+			{ id: captured.id, project_root: PROJECT, disposition: "declined" },
+			PERMS,
+		)) as { status: string };
 		expect(archived.status).toBe("archived");
 		service.close();
 	});
 
 	it("promote resolves both the note and its cross-kind target by name in one call", async () => {
 		const { registry, service } = harness();
-		const captured = (await registry.invoke("notes.capture", 1, { body: "build the widget", project_root: PROJECT }, PERMS)) as { id: string; title: string };
+		const captured = (await registry.invoke("notes.capture", 1, { body: "build the widget", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			title: string;
+		};
 		// Deliberately a distinct title from the note's own -- matchArtifactByName's
 		// cross-kind lookup is case-insensitive-exact and searches across every kind,
 		// so a target sharing the note's own name (even by case) would collide with
@@ -118,9 +145,17 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 		// case another test already covers on purpose -- not what this test is about.
 		// subtype must not be NOTE_SUBTYPE -- docs.create for a note-shaped artifact is
 		// rejected by the notes AuthorityClaim ("note creation requires notes.capture").
-		const target = (await service.execute("docs.create", { title: "Widget project plan", subtype: "research" })) as { id: string; title: string };
+		const target = (await service.execute("docs.create", { title: "Widget project plan", subtype: "research" })) as {
+			id: string;
+			title: string;
+		};
 
-		const promoted = (await registry.invoke("notes.promote", 1, { name: captured.title, target_name: target.title, project_root: PROJECT }, PERMS)) as {
+		const promoted = (await registry.invoke(
+			"notes.promote",
+			1,
+			{ name: captured.title, target_name: target.title, project_root: PROJECT },
+			PERMS,
+		)) as {
 			status: string;
 		};
 
@@ -133,7 +168,9 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 		const captured = (await registry.invoke("notes.capture", 1, { body: "ping the team", project_root: PROJECT }, PERMS)) as { id: string };
 		await registry.invoke("notes.consume", 1, { id: captured.id, project_root: PROJECT }, PERMS);
 
-		const page = (await registry.invoke("notes.history", 1, { id: captured.id, project_root: PROJECT }, PERMS)) as { events: Array<{ type: string }> };
+		const page = (await registry.invoke("notes.history", 1, { id: captured.id, project_root: PROJECT }, PERMS)) as {
+			events: Array<{ type: string }>;
+		};
 
 		expect(page.events.map((event) => event.type)).toEqual(["consumed", "captured"]);
 		service.close();

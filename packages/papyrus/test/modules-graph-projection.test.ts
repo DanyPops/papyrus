@@ -5,7 +5,7 @@ import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import { GRAPH_PROJECTION_SCHEMA_VERSION } from "../src/domain/graph-projection.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
-import { graphProjectionOperations, GRAPH_PROJECTION_OPERATION_NAMES } from "../src/modules/graph-projection.ts";
+import { GRAPH_PROJECTION_OPERATION_NAMES, graphProjectionOperations } from "../src/modules/graph-projection.ts";
 
 function fixture() {
 	const db = openDb(":memory:");
@@ -30,7 +30,17 @@ describe("graph_projection module: registration and snake_case operation input p
 			producer_id: "web-spider",
 			batch_id: "b1",
 			sequence: 1,
-			artifacts: [{ external_id: "page-1", kind: "doc", subtype: "web-spider:web", title: "Page", body: "Body", labels: ["source:web-spider"], extra: { url: "https://example.com" } }],
+			artifacts: [
+				{
+					external_id: "page-1",
+					kind: "doc",
+					subtype: "web-spider:web",
+					title: "Page",
+					body: "Body",
+					labels: ["source:web-spider"],
+					extra: { url: "https://example.com" },
+				},
+			],
 			edges: [],
 		}) as { artifactsCreated: number };
 		expect(result.artifactsCreated).toBe(1);
@@ -40,8 +50,16 @@ describe("graph_projection module: registration and snake_case operation input p
 		const { registry } = fixture();
 		expect(registry.get("graph_projection.checkpoint")!.execute({ producer_id: "unseen" })).toBeNull();
 		registry.get("graph_projection.apply")!.execute({
-			schema_version: GRAPH_PROJECTION_SCHEMA_VERSION, producer_id: "web-spider", batch_id: "b1", sequence: 1, artifacts: [], edges: [],
+			schema_version: GRAPH_PROJECTION_SCHEMA_VERSION,
+			producer_id: "web-spider",
+			batch_id: "b1",
+			sequence: 1,
+			artifacts: [],
+			edges: [],
 		});
-		expect(registry.get("graph_projection.checkpoint")!.execute({ producer_id: "web-spider" })).toMatchObject({ lastSequence: 1, lastBatchId: "b1" });
+		expect(registry.get("graph_projection.checkpoint")!.execute({ producer_id: "web-spider" })).toMatchObject({
+			lastSequence: 1,
+			lastBatchId: "b1",
+		});
 	});
 });

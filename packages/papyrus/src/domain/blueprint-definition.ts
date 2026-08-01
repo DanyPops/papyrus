@@ -1,10 +1,4 @@
-import {
-	SEED_RELATIONS,
-	SKILL_MAX_BLUEPRINTS,
-	SKILL_MAX_ENUM_VALUES,
-	SKILL_MAX_INPUTS,
-	SKILL_MAX_LINKS,
-} from "../constants.ts";
+import { SEED_RELATIONS, SKILL_MAX_BLUEPRINTS, SKILL_MAX_ENUM_VALUES, SKILL_MAX_INPUTS, SKILL_MAX_LINKS } from "../constants.ts";
 
 export type BlueprintArgumentValue = string | number | boolean;
 export type BlueprintInputType = "string" | "number" | "boolean";
@@ -124,17 +118,18 @@ function validateInputs(value: unknown): Record<string, BlueprintInputDefinition
 		if (RESERVED_KEYS.has(name)) throw new Error(`reserved input name "${name}"`);
 		if (!NAME_PATTERN.test(name)) throw new Error(`invalid input name "${name}"`);
 		const input = record(raw, `input "${name}"`);
-		if (!BLUEPRINT_INPUT_TYPES.has(input["type"] as BlueprintInputType)) throw new Error(`input "${name}" has unsupported type`);
-		const type = input["type"] as BlueprintInputType;
-		if (input["required"] !== undefined && typeof input["required"] !== "boolean") {
+		if (!BLUEPRINT_INPUT_TYPES.has(input.type as BlueprintInputType)) throw new Error(`input "${name}" has unsupported type`);
+		const type = input.type as BlueprintInputType;
+		if (input.required !== undefined && typeof input.required !== "boolean") {
 			throw new Error(`input "${name}" required must be boolean`);
 		}
 		const normalized: BlueprintInputDefinition = { type };
-		if (input["required"] !== undefined) normalized.required = input["required"] as boolean;
-		if (input["default"] !== undefined) normalized.default = validateArgumentValue(name, type, input["default"]);
-		if (input["enum"] !== undefined) {
-			const values = array(input["enum"], `input "${name}" enum`);
-			if (values.length === 0 || values.length > SKILL_MAX_ENUM_VALUES) throw new Error(`input "${name}" enum must contain 1-${SKILL_MAX_ENUM_VALUES} values`);
+		if (input.required !== undefined) normalized.required = input.required as boolean;
+		if (input.default !== undefined) normalized.default = validateArgumentValue(name, type, input.default);
+		if (input.enum !== undefined) {
+			const values = array(input.enum, `input "${name}" enum`);
+			if (values.length === 0 || values.length > SKILL_MAX_ENUM_VALUES)
+				throw new Error(`input "${name}" enum must contain 1-${SKILL_MAX_ENUM_VALUES} values`);
 			normalized.enum = values.map((entry) => validateArgumentValue(name, type, entry));
 			if (normalized.default !== undefined && !normalized.enum.includes(normalized.default)) {
 				throw new Error(`input "${name}" default must be one of its enum values`);
@@ -147,9 +142,9 @@ function validateInputs(value: unknown): Record<string, BlueprintInputDefinition
 
 function validateBlueprint<T extends { ref: string; title: string }>(value: unknown, kind: string): T {
 	const source = record(value, `${kind} blueprint`);
-	const ref = string(source["ref"], `${kind} blueprint ref`);
+	const ref = string(source.ref, `${kind} blueprint ref`);
 	if (!NAME_PATTERN.test(ref)) throw new Error(`invalid blueprint ref "${ref}"`);
-	const title = string(source["title"], `${kind} blueprint title`);
+	const title = string(source.title, `${kind} blueprint title`);
 	return { ...source, ref, title } as T;
 }
 
@@ -187,22 +182,22 @@ function assertAcyclic(steps: DependentStep[]): void {
 
 function validateCallBlueprint(value: unknown): CallBlueprint {
 	const source = record(value, "call blueprint");
-	const ref = string(source["ref"], "call blueprint ref");
+	const ref = string(source.ref, "call blueprint ref");
 	if (!NAME_PATTERN.test(ref)) throw new Error(`invalid blueprint ref "${ref}"`);
-	const title = string(source["title"], "call blueprint title");
-	const targetId = string(source["targetId"] ?? source["skillId"], "call blueprint targetId");
+	const title = string(source.title, "call blueprint title");
+	const targetId = string(source.targetId ?? source.skillId, "call blueprint targetId");
 	return { ...source, ref, title, targetId } as CallBlueprint;
 }
 
 export function validateBlueprintDefinition(value: unknown): BlueprintDefinition {
 	const source = record(value, "blueprint definition");
-	if (source["version"] !== 1) throw new Error("blueprint definition version must be 1");
-	const inputs = validateInputs(source["inputs"]);
-	const rawBlueprints = record(source["blueprints"], "blueprints");
-	const docs = array(rawBlueprints["docs"] ?? [], "doc blueprints").map((entry) => validateBlueprint<DocBlueprint>(entry, "doc"));
-	const rules = array(rawBlueprints["rules"] ?? [], "rule blueprints").map((entry) => validateBlueprint<RuleBlueprint>(entry, "rule"));
-	const tasks = array(rawBlueprints["tasks"] ?? [], "task blueprints").map((entry) => validateBlueprint<TaskBlueprint>(entry, "task"));
-	const calls = array(rawBlueprints["skills"] ?? [], "call blueprints").map(validateCallBlueprint);
+	if (source.version !== 1) throw new Error("blueprint definition version must be 1");
+	const inputs = validateInputs(source.inputs);
+	const rawBlueprints = record(source.blueprints, "blueprints");
+	const docs = array(rawBlueprints.docs ?? [], "doc blueprints").map((entry) => validateBlueprint<DocBlueprint>(entry, "doc"));
+	const rules = array(rawBlueprints.rules ?? [], "rule blueprints").map((entry) => validateBlueprint<RuleBlueprint>(entry, "rule"));
+	const tasks = array(rawBlueprints.tasks ?? [], "task blueprints").map((entry) => validateBlueprint<TaskBlueprint>(entry, "task"));
+	const calls = array(rawBlueprints.skills ?? [], "call blueprints").map(validateCallBlueprint);
 	const all = [...docs, ...rules, ...tasks, ...calls];
 	if (all.length === 0 || all.length > SKILL_MAX_BLUEPRINTS) throw new Error(`blueprints must contain 1-${SKILL_MAX_BLUEPRINTS} artifacts`);
 	const refs = new Set<string>();
@@ -237,11 +232,11 @@ export function validateBlueprintDefinition(value: unknown): BlueprintDefinition
 	for (const name of placeholders(all)) {
 		if (!Object.hasOwn(inputs, name)) throw new Error(`unknown input placeholder "${name}"`);
 	}
-	const links = array(source["links"] ?? [], "links").map((entry) => {
+	const links = array(source.links ?? [], "links").map((entry) => {
 		const link = record(entry, "link");
-		const from = string(link["from"], "link from");
-		const relation = string(link["relation"], "link relation");
-		const to = string(link["to"], "link to");
+		const from = string(link.from, "link from");
+		const relation = string(link.relation, "link relation");
+		const to = string(link.to, "link to");
 		if (!refs.has(from)) throw new Error(`unknown blueprint ref "${from}"`);
 		if (!refs.has(to)) throw new Error(`unknown blueprint ref "${to}"`);
 		if (!RELATIONS.has(relation)) throw new Error(`unknown link relation "${relation}"`);

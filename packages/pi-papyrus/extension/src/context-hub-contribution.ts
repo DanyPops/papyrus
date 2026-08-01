@@ -1,5 +1,5 @@
 import type { ContextSegment, ContextSegmentItem } from "@danypops/jittor";
-import { sumItemTree, type ContextBudget } from "./context-budget.ts";
+import { type ContextBudget, sumItemTree } from "./context-budget.ts";
 import type { SkillCatalogFootprint } from "./skill-catalog-footprint.ts";
 
 /** Human-readable producer identity on Jittor's Context Hub bus -- distinct from PAPYRUS_CONTEXT_INJECTION_CHANNEL's own opaque per-process producerId, which identifies a specific injection stream rather than "which extension". */
@@ -13,7 +13,11 @@ export const PAPYRUS_CONTEXT_HUB_PRODUCER_NAME = "papyrus";
  * one -- nested as up to three drill-down item groups under a single "papyrus" segment instead,
  * preserving the same per-category fidelity the original local /context breakdown had.
  */
-export function papyrusContextSegment(ruleBudget: ContextBudget["rules"], taskItems: ContextSegmentItem[], skills: SkillCatalogFootprint): ContextSegment {
+export function papyrusContextSegment(
+	ruleBudget: ContextBudget["rules"],
+	taskItems: ContextSegmentItem[],
+	skills: SkillCatalogFootprint,
+): ContextSegment {
 	const items: ContextSegmentItem[] = [];
 	if (ruleBudget.entries.length > 0) {
 		items.push({

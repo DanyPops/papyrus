@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
-import { openDb } from "../src/db.ts";
-import type { ArtifactStore } from "../src/ports/artifact-store.ts";
-import type { ArtifactScopeStore } from "../src/ports/artifact-scope-store.ts";
-import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
 import { SKILL_WORKFLOW_MAX_NESTING_DEPTH } from "../src/constants.ts";
+import { openDb } from "../src/db.ts";
+import type { ArtifactScopeStore } from "../src/ports/artifact-scope-store.ts";
+import type { ArtifactStore } from "../src/ports/artifact-store.ts";
+import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
 
 /**
  * Skill-the-kind is fully retired. A definition-shaped workflow target is now a kind=playbook
@@ -13,7 +13,12 @@ import { SKILL_WORKFLOW_MAX_NESTING_DEPTH } from "../src/constants.ts";
  * directly here since these tests exercise instantiateSkillWorkflow's nested-pipeline resolution
  * (the shared execution engine, not retired), not Playbook's own steps/trigger authoring surface.
  */
-function createWorkflowSkillFixture(artifacts: ArtifactStore, scopes: ArtifactScopeStore, title: string, definition: unknown): { id: string } {
+function createWorkflowSkillFixture(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	title: string,
+	definition: unknown,
+): { id: string } {
 	const skill = artifacts.create({ kind: "playbook", status: "active", subtype: "workflow", title, extra: { definition } });
 	scopes.assign(skill.id, undefined, "unscoped");
 	return skill;
@@ -46,7 +51,8 @@ describe("Papyrus Skill nested pipelines: a workflow step can trigger another wo
 			version: 1,
 			inputs: {},
 			blueprints: {
-				docs: [], rules: [],
+				docs: [],
+				rules: [],
 				tasks: [{ ref: "review", title: "Review", dependsOn: ["build"] }],
 				skills: [{ ref: "build", title: "Build step", skillId: leaf.id, arguments: { target: "Papyrus" } }],
 			},
@@ -73,7 +79,9 @@ describe("Papyrus Skill nested pipelines: a workflow step can trigger another wo
 			version: 1,
 			inputs: {},
 			blueprints: {
-				docs: [], rules: [], tasks: [],
+				docs: [],
+				rules: [],
+				tasks: [],
 				skills: [{ ref: "build", title: "Build step", skillId: leaf.id, arguments: { target: "Papyrus" } }],
 			},
 			links: [],
@@ -81,7 +89,9 @@ describe("Papyrus Skill nested pipelines: a workflow step can trigger another wo
 
 		const result = instantiateSkillWorkflow(artifacts, pipeline.id, { runId: "pipe-root" });
 
-		const triggersEdges = artifacts.relationships({ artifactIds: [pipeline.id] }).filter((edge) => edge.from === pipeline.id && edge.relation === "triggers");
+		const triggersEdges = artifacts
+			.relationships({ artifactIds: [pipeline.id] })
+			.filter((edge) => edge.from === pipeline.id && edge.relation === "triggers");
 		expect(triggersEdges).toContainEqual({ from: pipeline.id, relation: "triggers", to: leaf.id });
 		// rootTaskIds reports the REAL starting point -- the nested run's own root task, not a made-up placeholder.
 		expect(result.rootTaskIds).toEqual(result.created.tasks);
@@ -94,7 +104,8 @@ describe("Papyrus Skill nested pipelines: a workflow step can trigger another wo
 			version: 1,
 			inputs: {},
 			blueprints: {
-				docs: [], rules: [],
+				docs: [],
+				rules: [],
 				tasks: [{ ref: "umbrella", title: "Umbrella" }],
 				skills: [{ ref: "build", title: "Build step", skillId: leaf.id, arguments: { target: "Papyrus" }, parent: "umbrella" }],
 			},
@@ -112,10 +123,27 @@ describe("Papyrus Skill nested pipelines: a workflow step can trigger another wo
 		const { db, artifacts, scopes } = fixture();
 		// A calls B, B calls A: a genuine cycle, only detectable once both definitions exist
 		// (the definition validator alone cannot see across skill boundaries).
-		const a = createWorkflowSkillFixture(artifacts, scopes, "A", { version: 1, inputs: {}, blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "callB", title: "Call B", skillId: "placeholder" }] }, links: [] });
-		const b = createWorkflowSkillFixture(artifacts, scopes, "B", { version: 1, inputs: {}, blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "callA", title: "Call A", skillId: a.id }] }, links: [] });
+		const a = createWorkflowSkillFixture(artifacts, scopes, "A", {
+			version: 1,
+			inputs: {},
+			blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "callB", title: "Call B", skillId: "placeholder" }] },
+			links: [],
+		});
+		const b = createWorkflowSkillFixture(artifacts, scopes, "B", {
+			version: 1,
+			inputs: {},
+			blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "callA", title: "Call A", skillId: a.id }] },
+			links: [],
+		});
 		// Patch A's definition now that B's real id is known (a genuine cross-reference cycle).
-		artifacts.setExtra(a.id, { definition: { version: 1, inputs: {}, blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "callB", title: "Call B", skillId: b.id }] }, links: [] } });
+		artifacts.setExtra(a.id, {
+			definition: {
+				version: 1,
+				inputs: {},
+				blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "callB", title: "Call B", skillId: b.id }] },
+				links: [],
+			},
+		});
 
 		const beforeCount = artifacts.query({}).length;
 		expect(() => instantiateSkillWorkflow(artifacts, a.id, { runId: "cycle-run" })).toThrow(/nesting cycle/);
@@ -130,12 +158,24 @@ describe("Papyrus Skill nested pipelines: a workflow step can trigger another wo
 		const chainLength = SKILL_WORKFLOW_MAX_NESTING_DEPTH + 2;
 		const ids: string[] = [];
 		for (let index = 0; index < chainLength; index++) {
-			ids.push(createWorkflowSkillFixture(artifacts, scopes, `Chain ${index}`, { version: 1, inputs: {}, blueprints: { docs: [], rules: [], tasks: [{ ref: "noop", title: "noop" }], skills: [] }, links: [] }).id);
+			ids.push(
+				createWorkflowSkillFixture(artifacts, scopes, `Chain ${index}`, {
+					version: 1,
+					inputs: {},
+					blueprints: { docs: [], rules: [], tasks: [{ ref: "noop", title: "noop" }], skills: [] },
+					links: [],
+				}).id,
+			);
 		}
 		// Rewire each (except the last) to call the next one instead of having its own task.
 		for (let index = 0; index < chainLength - 1; index++) {
 			artifacts.setExtra(ids[index]!, {
-				definition: { version: 1, inputs: {}, blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "next", title: "Next", skillId: ids[index + 1] }] }, links: [] },
+				definition: {
+					version: 1,
+					inputs: {},
+					blueprints: { docs: [], rules: [], tasks: [], skills: [{ ref: "next", title: "Next", skillId: ids[index + 1] }] },
+					links: [],
+				},
 			});
 		}
 		expect(() => instantiateSkillWorkflow(artifacts, ids[0]!, { runId: "deep-run" })).toThrow(/nesting exceeds/);

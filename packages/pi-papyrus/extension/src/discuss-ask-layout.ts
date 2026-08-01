@@ -127,7 +127,9 @@ function buildItemBlocks(
 		if (item.option.description && !hideDescriptions) {
 			const descriptionPrefix = "      ";
 			const descriptionLines = wrapText(item.option.description, Math.max(8, normalizedWidth - descriptionPrefix.length));
-			descriptionLines.forEach((line) => lines.push(padLine(descriptionPrefix, line)));
+			descriptionLines.forEach((line) => {
+				lines.push(padLine(descriptionPrefix, line));
+			});
 		}
 
 		return { itemIndex, lines };

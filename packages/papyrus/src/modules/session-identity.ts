@@ -29,10 +29,14 @@ export const SESSION_IDENTITY_OPERATION_NAMES = ["session.register", "session.re
 /** Registers every session.* operation against one SessionIdentity instance. */
 export function sessionIdentityOperations(sessionIdentity: SessionIdentity): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
-		name, moduleId: MODULE_ID, execute,
+		name,
+		moduleId: MODULE_ID,
+		execute,
 	});
 	return [
 		define("session.register", (input: OperationInput) => sessionIdentity.register(string(input, "session_id"))),
-		define("session.release", (input: OperationInput) => sessionIdentity.release(string(input, "session_id"), optionalString(input, "session_secret"))),
+		define("session.release", (input: OperationInput) =>
+			sessionIdentity.release(string(input, "session_id"), optionalString(input, "session_secret")),
+		),
 	];
 }

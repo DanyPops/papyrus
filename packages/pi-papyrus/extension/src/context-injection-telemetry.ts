@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, PAPYRUS_CONTEXT_INJECTION_SCHEMA, type Artifact } from "@danypops/papyrus";
-import { ruleInjectionPreview } from "./rules.ts";
+import { type Artifact, CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, PAPYRUS_CONTEXT_INJECTION_SCHEMA } from "@danypops/papyrus";
 import { playbookInjectionPreview } from "./playbook-bridge.ts";
+import { ruleInjectionPreview } from "./rules.ts";
 
 export interface ContextPayloadSize {
 	characters: number;

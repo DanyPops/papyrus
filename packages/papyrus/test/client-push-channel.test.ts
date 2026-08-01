@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { loadOrCreateToken, writeDaemonPort } from "../src/daemon-state.ts";
 import { resolvePushChannelTarget } from "../src/client.ts";
+import { loadOrCreateToken, writeDaemonPort } from "../src/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 describe("resolvePushChannelTarget", () => {

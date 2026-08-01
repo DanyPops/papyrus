@@ -2,46 +2,55 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
+
 import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
+import {
+	assignDocumentProject,
+	assignPlaybookProject,
+	assignRuleProject,
+	containPlaybook,
+	createDocument,
+	createPlaybook,
+	createRule,
+	dependPlaybook,
+	gateTaskWithRule,
+	linkDocument,
+	listDocuments,
+	listPlaybooks,
+	listRules,
+	playbookInvocation,
+	previewRule,
+	showPlaybook,
+	transitionDocument,
+	transitionPlaybook,
+	transitionRule,
+	uncontainPlaybook,
+	undependPlaybook,
+	updateDocument,
+	updatePlaybook,
+	updateRule,
+} from "../src/domain-services.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
 import { Tasks } from "../src/task-service.ts";
-import {
-	createDocument,
-	listDocuments,
-	transitionDocument,
-	linkDocument,
-	assignDocumentProject,
-	updateDocument,
-	createRule,
-	listRules,
-	previewRule,
-	transitionRule,
-	gateTaskWithRule,
-	assignRuleProject,
-	updateRule,
-	createPlaybook,
-	listPlaybooks,
-	showPlaybook,
-	transitionPlaybook,
-	assignPlaybookProject,
-	updatePlaybook,
-	playbookInvocation,
-	containPlaybook,
-	uncontainPlaybook,
-	dependPlaybook,
-	undependPlaybook,
-} from "../src/domain-services.ts";
 
 function fixture() {
 	const dir = tempDir("papyrus-domain-service-");
 	const db = openDb(join(dir, "papyrus.db"));
 	const artifacts = new SQLiteArtifactStore(db);
-	return { db, dir, artifacts, scopes: new SQLiteArtifactScopeStore(db), authority: new AuthorityRegistry(), tasks: new Tasks(artifacts, new SQLiteGateRunner(db)) };
+	return {
+		db,
+		dir,
+		artifacts,
+		scopes: new SQLiteArtifactScopeStore(db),
+		authority: new AuthorityRegistry(),
+		tasks: new Tasks(artifacts, new SQLiteGateRunner(db)),
+	};
 }
 
 describe("tasks application API", () => {
@@ -89,7 +98,7 @@ describe("tasks application API", () => {
 		db.close();
 	});
 
-	it("excludes Discussions, which now share kind \"task\" but are not real work items", () => {
+	it('excludes Discussions, which now share kind "task" but are not real work items', () => {
 		const { db, artifacts, tasks } = fixture();
 		tasks.create({ title: "Real task" });
 		artifacts.create({ kind: "task", subtype: "discussion", title: "Some discussion" });
@@ -101,7 +110,12 @@ describe("tasks application API", () => {
 describe("rules domain service", () => {
 	it("owns rule lifecycle, injection preview, and task gating", () => {
 		const { db, artifacts, scopes, tasks } = fixture();
-		const rule = createRule(artifacts, scopes, { title: "Test before commit", condition: "before commit", action: "Run bun test", severity: "block" });
+		const rule = createRule(artifacts, scopes, {
+			title: "Test before commit",
+			condition: "before commit",
+			action: "Run bun test",
+			severity: "block",
+		});
 		const task = tasks.create({ title: "Ship" });
 		expect(rule.kind).toBe("rule");
 		expect(previewRule(artifacts, rule.id)).toContain("• Test before commit (when: before commit)\n  Run bun test");
@@ -118,20 +132,29 @@ describe("rules domain service", () => {
 		expect(() => createRule(artifacts, scopes, { title: "Bloated", body: oversized })).toThrow(/4000-character bound/);
 		// A rule right at the boundary, or comfortably under it, is unaffected.
 		expect(() => createRule(artifacts, scopes, { title: "Fits", body: "x".repeat(4000) })).not.toThrow();
-		expect(() => createRule(artifacts, scopes, { title: "Small", condition: "before commit", action: "Run tests", body: "Short reasoning" })).not.toThrow();
+		expect(() =>
+			createRule(artifacts, scopes, { title: "Small", condition: "before commit", action: "Run tests", body: "Short reasoning" }),
+		).not.toThrow();
 		// The bound is on the SUM of condition+action+body, not any single field alone.
-		expect(() => createRule(artifacts, scopes, {
-			title: "Split across fields",
-			condition: "x".repeat(1500),
-			action: "x".repeat(1500),
-			body: "x".repeat(1500),
-		})).toThrow(/4000-character bound/);
+		expect(() =>
+			createRule(artifacts, scopes, {
+				title: "Split across fields",
+				condition: "x".repeat(1500),
+				action: "x".repeat(1500),
+				body: "x".repeat(1500),
+			}),
+		).toThrow(/4000-character bound/);
 		db.close();
 	});
 
 	it("updates a rule's title/body/labels, still enforcing the combined context-tax bound against its existing condition/action", () => {
 		const { db, artifacts, scopes } = fixture();
-		const rule = createRule(artifacts, scopes, { title: "Test before commit", condition: "x".repeat(1900), action: "x".repeat(1900), body: "short" });
+		const rule = createRule(artifacts, scopes, {
+			title: "Test before commit",
+			condition: "x".repeat(1900),
+			action: "x".repeat(1900),
+			body: "short",
+		});
 		const updated = updateRule(artifacts, rule.id, { title: "Test before commit v2", labels: ["reviewed"] });
 		expect(updated.title).toBe("Test before commit v2");
 		expect(updated.labels).toEqual(["reviewed"]);
@@ -162,7 +185,12 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 	it("owns playbook lifecycle and renders trigger/steps/tools plus real linked context on invocation", () => {
 		const { db, artifacts, scopes } = fixture();
 		const linked = artifacts.create({ kind: "doc", title: "Reference doc", status: "draft" });
-		const playbook = createPlaybook(artifacts, scopes, { title: "New Project", trigger: "starting something from scratch", steps: ["Frame the problem", "State the goal"], tools: ["discuss"] });
+		const playbook = createPlaybook(artifacts, scopes, {
+			title: "New Project",
+			trigger: "starting something from scratch",
+			steps: ["Frame the problem", "State the goal"],
+			tools: ["discuss"],
+		});
 		expect(playbook.kind).toBe("playbook");
 		artifacts.link({ from: playbook.id, relation: "references", to: linked.id });
 
@@ -188,7 +216,11 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 	it("playbooks nest via contains: invoking the parent recursively runs the child's own steps as part of it", () => {
 		const { db, artifacts, scopes } = fixture();
 		const child = createPlaybook(artifacts, scopes, { title: "Child playbook", trigger: "never directly", steps: ["Do the child thing"] });
-		const parent = createPlaybook(artifacts, scopes, { title: "Parent playbook", trigger: "starting work", steps: ["Do the parent thing"] });
+		const parent = createPlaybook(artifacts, scopes, {
+			title: "Parent playbook",
+			trigger: "starting work",
+			steps: ["Do the parent thing"],
+		});
 		const contained = containPlaybook(artifacts, parent.id, child.id);
 		expect(contained.edges).toContainEqual({ from: parent.id, relation: "contains", to: child.id });
 		expect(contained.edges).toContainEqual({ from: child.id, relation: "part_of", to: parent.id });
@@ -211,13 +243,23 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 
 	it("playbooks chain via depends_on: invoking the dependent recursively runs the prerequisite's steps FIRST", () => {
 		const { db, artifacts, scopes } = fixture();
-		const prerequisite = createPlaybook(artifacts, scopes, { title: "Prerequisite playbook", trigger: "never directly", steps: ["Do the prerequisite thing"] });
-		const dependent = createPlaybook(artifacts, scopes, { title: "Dependent playbook", trigger: "starting work", steps: ["Do the dependent thing"] });
+		const prerequisite = createPlaybook(artifacts, scopes, {
+			title: "Prerequisite playbook",
+			trigger: "never directly",
+			steps: ["Do the prerequisite thing"],
+		});
+		const dependent = createPlaybook(artifacts, scopes, {
+			title: "Dependent playbook",
+			trigger: "starting work",
+			steps: ["Do the dependent thing"],
+		});
 		const depended = dependPlaybook(artifacts, dependent.id, prerequisite.id);
 		expect(depended.edges).toContainEqual({ from: dependent.id, relation: "depends_on", to: prerequisite.id });
 
 		const invocation = playbookInvocation(artifacts, dependent.id);
-		expect(invocation).toContain('Prerequisite playbook (depends_on) "Prerequisite playbook" -- complete this FIRST, before the steps below:');
+		expect(invocation).toContain(
+			'Prerequisite playbook (depends_on) "Prerequisite playbook" -- complete this FIRST, before the steps below:',
+		);
 		expect(invocation).toContain('Apply Papyrus playbook "Prerequisite playbook"');
 		expect(invocation).toContain('Apply Papyrus playbook "Dependent playbook"');
 		// Chaining renders BEFORE the dependent's own body -- it must complete first.
@@ -287,9 +329,15 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 	it("rejects malformed argument declarations at creation: not an array, too many, duplicate names, bad required type", () => {
 		const { db, artifacts, scopes } = fixture();
 		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: "nope" })).toThrow("playbook arguments must be an array");
-		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: Array.from({ length: 21 }, (_, i) => ({ name: `a${i}` })) })).toThrow(/cannot exceed 20 entries/);
-		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{ name: "x" }, { name: "x" }] })).toThrow('argument name "x" is declared more than once');
-		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{ name: "x", required: "yes" }] })).toThrow('argument "x" required must be a boolean');
+		expect(() =>
+			createPlaybook(artifacts, scopes, { title: "Bad", arguments: Array.from({ length: 21 }, (_, i) => ({ name: `a${i}` })) }),
+		).toThrow(/cannot exceed 20 entries/);
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{ name: "x" }, { name: "x" }] })).toThrow(
+			'argument name "x" is declared more than once',
+		);
+		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{ name: "x", required: "yes" }] })).toThrow(
+			'argument "x" required must be a boolean',
+		);
 		expect(() => createPlaybook(artifacts, scopes, { title: "Bad", arguments: [{}] })).toThrow(/argument name must be between/);
 		db.close();
 	});
@@ -306,7 +354,9 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		expect(() => updatePlaybook(artifacts, playbook.id, {})).toThrow("update requires title, body, or labels");
 
 		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
-		expect(() => updatePlaybook(artifacts, projected.id, { title: "Edited locally" })).toThrow(/read-only projection from some-external-system/);
+		expect(() => updatePlaybook(artifacts, projected.id, { title: "Edited locally" })).toThrow(
+			/read-only projection from some-external-system/,
+		);
 		db.close();
 	});
 
@@ -347,7 +397,12 @@ describe("documents domain service", () => {
 	it("updates a document's title, body, and labels, and refuses an empty update", () => {
 		const { db, artifacts, scopes, authority } = fixture();
 		const document = createDocument(artifacts, scopes, { title: "Architecture v1", body: "draft notes" }, authority);
-		const updated = updateDocument(artifacts, document.id, { title: "Architecture v2", body: "revised notes", labels: ["reviewed"] }, authority);
+		const updated = updateDocument(
+			artifacts,
+			document.id,
+			{ title: "Architecture v2", body: "revised notes", labels: ["reviewed"] },
+			authority,
+		);
 		expect(updated.title).toBe("Architecture v2");
 		expect(updated.body).toBe("revised notes");
 		expect(updated.labels).toEqual(["reviewed"]);
@@ -358,8 +413,15 @@ describe("documents domain service", () => {
 
 	it("refuses to update a Doc that is a read-only projection from an external system", () => {
 		const { db, artifacts, scopes, authority } = fixture();
-		const document = createDocument(artifacts, scopes, { title: "Ingested page", labels: ["source:web-spider", "domain:example.com"] }, authority);
-		expect(() => updateDocument(artifacts, document.id, { title: "Edited locally" }, authority)).toThrow(/read-only projection from web-spider/);
+		const document = createDocument(
+			artifacts,
+			scopes,
+			{ title: "Ingested page", labels: ["source:web-spider", "domain:example.com"] },
+			authority,
+		);
+		expect(() => updateDocument(artifacts, document.id, { title: "Edited locally" }, authority)).toThrow(
+			/read-only projection from web-spider/,
+		);
 		db.close();
 	});
 
@@ -406,7 +468,9 @@ describe("documents domain service", () => {
 		const authority = createAuthorityRegistry();
 		const document = createDocument(artifacts, scopes, { title: "Design notes" }, authority);
 		const note = artifacts.create({ kind: "doc", subtype: "note", title: "A note", status: "active" });
-		expect(() => linkDocument(artifacts, document.id, "references", note.id, authority)).toThrow("note relationships require a notes.* operation");
+		expect(() => linkDocument(artifacts, document.id, "references", note.id, authority)).toThrow(
+			"note relationships require a notes.* operation",
+		);
 		db.close();
 	});
 
@@ -430,7 +494,11 @@ describe("Docs/Rules/Skills project scoping (papyrus-defect-docs-and-likely-rule
 		const unscoped = createDocument(artifacts, scopes, { title: "Unscoped doc" }, authority);
 		expect(listDocuments(artifacts, scopes, { projectRoot: "/workspace/papyrus" }).map((doc) => doc.id)).toEqual([scoped.id]);
 		expect(listDocuments(artifacts, scopes, { projectRoot: "/workspace/other" })).toEqual([]);
-		expect(listDocuments(artifacts, scopes, {}).map((doc) => doc.id).sort()).toEqual([scoped.id, unscoped.id].sort());
+		expect(
+			listDocuments(artifacts, scopes, {})
+				.map((doc) => doc.id)
+				.sort(),
+		).toEqual([scoped.id, unscoped.id].sort());
 		db.close();
 	});
 
@@ -448,7 +516,9 @@ describe("Docs/Rules/Skills project scoping (papyrus-defect-docs-and-likely-rule
 	it("rejects reassigning a Note's project through docs.assign_project -- notes go through notes.* like everything else about them", () => {
 		const { db, artifacts, scopes } = fixture();
 		const note = artifacts.create({ kind: "doc", subtype: "note", status: "draft", title: "A note" });
-		expect(() => assignDocumentProject(artifacts, scopes, note.id, "/workspace/papyrus")).toThrow("note access requires a notes.* operation");
+		expect(() => assignDocumentProject(artifacts, scopes, note.id, "/workspace/papyrus")).toThrow(
+			"note access requires a notes.* operation",
+		);
 		db.close();
 	});
 
@@ -472,7 +542,9 @@ describe("Docs/Rules/Skills project scoping (papyrus-defect-docs-and-likely-rule
 
 	it("rejects a non-absolute project_root, matching Tasks' own validation", () => {
 		const { db, artifacts, scopes, authority } = fixture();
-		expect(() => createDocument(artifacts, scopes, { title: "Bad", projectRoot: "relative/path" }, authority)).toThrow("project_root must be an absolute path");
+		expect(() => createDocument(artifacts, scopes, { title: "Bad", projectRoot: "relative/path" }, authority)).toThrow(
+			"project_root must be an absolute path",
+		);
 		db.close();
 	});
 });

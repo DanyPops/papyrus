@@ -94,7 +94,9 @@ export function externalSourceOf(artifact: Pick<Artifact, "labels">): string | u
 export function requireLocallyOwnedContent(artifact: Artifact): Artifact {
 	const system = externalSourceOf(artifact);
 	if (system !== undefined) {
-		throw new Error(`"${artifact.title}" is a read-only projection from ${system}; edit it there, or capture a correction as a new linked Doc, until a write-back capability is integrated`);
+		throw new Error(
+			`"${artifact.title}" is a read-only projection from ${system}; edit it there, or capture a correction as a new linked Doc, until a write-back capability is integrated`,
+		);
 	}
 	return artifact;
 }

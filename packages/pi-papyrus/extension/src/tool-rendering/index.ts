@@ -1,12 +1,8 @@
-import type {
-	AgentToolResult,
-	Theme,
-	ToolRenderResultOptions,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { ArtifactCard } from "./artifact-card.ts";
 import { ArtifactListCard, TaskHierarchyPreview } from "./artifact-list.ts";
-import { parsePapyrusToolDetails, type PapyrusToolDetails } from "./render-model.ts";
+import { type PapyrusToolDetails, parsePapyrusToolDetails } from "./render-model.ts";
 
 const CALL_VALUE_MAX_CHARACTERS = 80;
 

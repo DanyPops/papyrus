@@ -1,5 +1,5 @@
 export const GATE_TYPES = ["file-exists", "command", "contains", "test"] as const;
-export type GateType = typeof GATE_TYPES[number];
+export type GateType = (typeof GATE_TYPES)[number];
 
 export interface Gate {
 	type: GateType;
@@ -20,19 +20,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function validateGates(value: unknown): Gate[] {
 	if (!Array.isArray(value)) throw new Error("gates must be an array");
 	return value.map((entry, index) => {
-		if (!isRecord(entry) || !GATE_TYPES.includes(entry["type"] as GateType)) {
+		if (!isRecord(entry) || !GATE_TYPES.includes(entry.type as GateType)) {
 			throw new Error(`gate at index ${index} requires a valid type (${GATE_TYPES.join(", ")})`);
 		}
-		if (typeof entry["target"] !== "string" || entry["target"].trim().length === 0) {
+		if (typeof entry.target !== "string" || entry.target.trim().length === 0) {
 			throw new Error(`gate at index ${index} requires a non-empty target`);
 		}
-		if (entry["expect"] !== undefined && typeof entry["expect"] !== "string") {
+		if (entry.expect !== undefined && typeof entry.expect !== "string") {
 			throw new Error(`gate at index ${index} expect must be a string`);
 		}
 		return {
-			type: entry["type"] as GateType,
-			target: entry["target"],
-			...(typeof entry["expect"] === "string" ? { expect: entry["expect"] } : {}),
+			type: entry.type as GateType,
+			target: entry.target,
+			...(typeof entry.expect === "string" ? { expect: entry.expect } : {}),
 		};
 	});
 }

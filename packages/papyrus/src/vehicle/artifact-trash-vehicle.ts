@@ -3,7 +3,7 @@
  * artifact's kind. Registered once here, shared by every domain, instead of
  * duplicated as rules.remove/docs.remove/etc.
  */
-import { defineVehicleOperation, bindVehicleOperation } from "@danypops/vehicle-core";
+import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { removeArtifactSubtree } from "../artifact-subtree.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -14,9 +14,9 @@ const OWNER = "artifact";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 function eventContext(input: Record<string, unknown>): { actor?: string; source?: string; sessionId?: string } {
-	const actor = input["actor"];
-	const source = input["source"];
-	const sessionId = input["session_id"] ?? input["sessionId"];
+	const actor = input.actor;
+	const source = input.source;
+	const sessionId = input.session_id ?? input.sessionId;
 	return {
 		actor: typeof actor === "string" ? actor : undefined,
 		source: typeof source === "string" ? source : undefined,
@@ -25,7 +25,7 @@ function eventContext(input: Record<string, unknown>): { actor?: string; source?
 }
 
 function requireId(input: Record<string, unknown>): string {
-	const id = input["id"];
+	const id = input.id;
 	if (typeof id !== "string" || id.length === 0) throw new Error("id is required");
 	return id;
 }
@@ -50,7 +50,10 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
 			limits: LIMITS,
 		});
-		registry.register(OWNER, bindVehicleOperation(operation, () => async (context) => execute(context.input)));
+		registry.register(
+			OWNER,
+			bindVehicleOperation(operation, () => async (context) => execute(context.input)),
+		);
 	};
 
 	define(
@@ -59,11 +62,12 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 		"read",
 		{ id: stringProp, tree: { type: "boolean" } as unknown as { type: string }, depth: numberProp, max_nodes: numberProp },
 		["id"],
-		(input) => artifacts.get(requireId(input), {
-			tree: input["tree"] === true,
-			depth: typeof input["depth"] === "number" ? input["depth"] : undefined,
-			maxNodes: typeof input["max_nodes"] === "number" ? input["max_nodes"] : undefined,
-		}),
+		(input) =>
+			artifacts.get(requireId(input), {
+				tree: input.tree === true,
+				depth: typeof input.depth === "number" ? input.depth : undefined,
+				maxNodes: typeof input.max_nodes === "number" ? input.max_nodes : undefined,
+			}),
 	);
 
 	define(
@@ -72,7 +76,11 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 		"local-write",
 		{ id: stringProp, reason: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		["id"],
-		(input) => artifacts.trash(requireId(input), { reason: typeof input["reason"] === "string" ? input["reason"] : undefined, context: eventContext(input) }),
+		(input) =>
+			artifacts.trash(requireId(input), {
+				reason: typeof input.reason === "string" ? input.reason : undefined,
+				context: eventContext(input),
+			}),
 	);
 
 	define(
@@ -81,7 +89,11 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 		"local-write",
 		{ id: stringProp, reason: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		["id"],
-		(input) => removeArtifactSubtree(artifacts, requireId(input), { reason: typeof input["reason"] === "string" ? input["reason"] : undefined, context: eventContext(input) }),
+		(input) =>
+			removeArtifactSubtree(artifacts, requireId(input), {
+				reason: typeof input.reason === "string" ? input.reason : undefined,
+				context: eventContext(input),
+			}),
 	);
 
 	define(

@@ -32,7 +32,7 @@ import {
 export const DISCUSSION_SUBTYPE = "discussion";
 
 export const DISCUSSION_STATES = ["active", "deferred", "settled"] as const;
-export type DiscussionState = typeof DISCUSSION_STATES[number];
+export type DiscussionState = (typeof DISCUSSION_STATES)[number];
 
 /**
  * A round can pose a choice (options + optionsMode) the way opencode's QuestionV2 poses
@@ -40,7 +40,7 @@ export type DiscussionState = typeof DISCUSSION_STATES[number];
  * (exactly one pick); "multi" allows several -- see constants.ts.
  */
 export const DISCUSSION_OPTIONS_MODES = ["single", "multi"] as const;
-export type DiscussionOptionsMode = typeof DISCUSSION_OPTIONS_MODES[number];
+export type DiscussionOptionsMode = (typeof DISCUSSION_OPTIONS_MODES)[number];
 
 /** Persisted in a discussion Doc's `extra.discussion`. pendingOptions/-Mode is the current-state cache of "is there an unanswered posed choice right now" -- cleared once answered, set again whenever a round poses a new one. */
 export interface DiscussionExtra {
@@ -113,7 +113,11 @@ export function validateSettlement(settlement: string): string {
 /** Validates a freshly-posed choice: 2..DISCUSSION_OPTIONS_MAX_COUNT unique, bounded-length
  * options, a real mode, and a non-empty description for every option once
  * DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT or more are posed. */
-export function validateDiscussionOptions(options: string[], mode: string, optionDescriptions?: string[]): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } {
+export function validateDiscussionOptions(
+	options: string[],
+	mode: string,
+	optionDescriptions?: string[],
+): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } {
 	if (!(DISCUSSION_OPTIONS_MODES as readonly string[]).includes(mode)) {
 		throw new Error(`options_mode must be one of ${DISCUSSION_OPTIONS_MODES.join(", ")}`);
 	}
@@ -123,20 +127,35 @@ export function validateDiscussionOptions(options: string[], mode: string, optio
 	for (const option of options) boundedString(option, "option", DISCUSSION_OPTION_MAX_LENGTH);
 	if (new Set(options).size !== options.length) throw new Error("options must not repeat an entry");
 	const descriptionsRequired = options.length >= DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT;
-	if (descriptionsRequired && (optionDescriptions === undefined || optionDescriptions.some((description) => description.trim().length === 0))) {
-		throw new Error(`option_descriptions is required, with a non-empty entry for every option, once ${DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT} or more options are posed`);
+	if (
+		descriptionsRequired &&
+		(optionDescriptions === undefined || optionDescriptions.some((description) => description.trim().length === 0))
+	) {
+		throw new Error(
+			`option_descriptions is required, with a non-empty entry for every option, once ${DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT} or more options are posed`,
+		);
 	}
 	if (optionDescriptions !== undefined) {
-		if (optionDescriptions.length !== options.length) throw new Error("option_descriptions must have exactly one entry per option (use an empty string for none)");
+		if (optionDescriptions.length !== options.length)
+			throw new Error("option_descriptions must have exactly one entry per option (use an empty string for none)");
 		for (const description of optionDescriptions) {
-			if (description.length > DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH) throw new Error(`option description must be at most ${DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH} characters`);
+			if (description.length > DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH)
+				throw new Error(`option description must be at most ${DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH} characters`);
 		}
 	}
-	return { options: [...options], mode: mode as DiscussionOptionsMode, ...(optionDescriptions !== undefined ? { optionDescriptions: [...optionDescriptions] } : {}) };
+	return {
+		options: [...options],
+		mode: mode as DiscussionOptionsMode,
+		...(optionDescriptions !== undefined ? { optionDescriptions: [...optionDescriptions] } : {}),
+	};
 }
 
 /** Validates an answer against the Discussion's currently pending posed choice, if any. */
-export function validateSelectedOptions(selected: string[], pendingOptions: string[] | undefined, pendingMode: DiscussionOptionsMode | undefined): string[] {
+export function validateSelectedOptions(
+	selected: string[],
+	pendingOptions: string[] | undefined,
+	pendingMode: DiscussionOptionsMode | undefined,
+): string[] {
 	if (!pendingOptions || pendingOptions.length === 0 || !pendingMode) {
 		throw new Error("this Discussion has no pending options to select from");
 	}
@@ -155,26 +174,26 @@ export function isDiscussionArtifact(artifact: { kind: string; subtype: string }
 
 /** Reads and defensively validates the extra.discussion shape; throws on a corrupt/foreign shape rather than silently treating it as some default state. */
 export function readDiscussionExtra(extra: Record<string, unknown>): DiscussionExtra {
-	const raw = extra["discussion"];
+	const raw = extra.discussion;
 	if (typeof raw !== "object" || raw === null) throw new Error("artifact is not a Discussion (missing extra.discussion)");
 	const record = raw as Record<string, unknown>;
-	const state = record["state"];
+	const state = record.state;
 	if (typeof state !== "string" || !(DISCUSSION_STATES as readonly string[]).includes(state)) {
 		throw new Error(`invalid Discussion state "${String(state)}"`);
 	}
-	const roundCount = record["roundCount"];
+	const roundCount = record.roundCount;
 	if (typeof roundCount !== "number" || !Number.isInteger(roundCount) || roundCount < 0) {
 		throw new Error("invalid Discussion roundCount");
 	}
-	const pendingOptions = record["pendingOptions"];
+	const pendingOptions = record.pendingOptions;
 	if (pendingOptions !== undefined && (!Array.isArray(pendingOptions) || pendingOptions.some((entry) => typeof entry !== "string"))) {
 		throw new Error("invalid Discussion pendingOptions");
 	}
-	const pendingOptionsMode = record["pendingOptionsMode"];
+	const pendingOptionsMode = record.pendingOptionsMode;
 	if (pendingOptionsMode !== undefined && !(DISCUSSION_OPTIONS_MODES as readonly unknown[]).includes(pendingOptionsMode)) {
 		throw new Error("invalid Discussion pendingOptionsMode");
 	}
-	const pendingOptionDescriptions = record["pendingOptionDescriptions"];
+	const pendingOptionDescriptions = record.pendingOptionDescriptions;
 	if (pendingOptionDescriptions !== undefined) {
 		if (!Array.isArray(pendingOptionDescriptions) || pendingOptionDescriptions.some((entry) => typeof entry !== "string")) {
 			throw new Error("invalid Discussion pendingOptionDescriptions");
@@ -186,9 +205,9 @@ export function readDiscussionExtra(extra: Record<string, unknown>): DiscussionE
 	return {
 		state: state as DiscussionState,
 		roundCount,
-		...(typeof record["deferredReason"] === "string" ? { deferredReason: record["deferredReason"] } : {}),
-		...(typeof record["settlement"] === "string" ? { settlement: record["settlement"] } : {}),
-		...(typeof record["settledAt"] === "string" ? { settledAt: record["settledAt"] } : {}),
+		...(typeof record.deferredReason === "string" ? { deferredReason: record.deferredReason } : {}),
+		...(typeof record.settlement === "string" ? { settlement: record.settlement } : {}),
+		...(typeof record.settledAt === "string" ? { settledAt: record.settledAt } : {}),
 		...(pendingOptions !== undefined ? { pendingOptions: pendingOptions as string[] } : {}),
 		...(pendingOptionsMode !== undefined ? { pendingOptionsMode: pendingOptionsMode as DiscussionOptionsMode } : {}),
 		...(pendingOptionDescriptions !== undefined ? { pendingOptionDescriptions: pendingOptionDescriptions as string[] } : {}),

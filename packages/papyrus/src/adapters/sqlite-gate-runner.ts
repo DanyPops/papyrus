@@ -1,7 +1,7 @@
 import type { Db } from "../db.ts";
 import type { GateResult, GateRunOptions } from "../domain/gate.ts";
-import type { GateRunner } from "../ports/gate-runner.ts";
 import { runGates, runGatesAsync } from "../ops.ts";
+import type { GateRunner } from "../ports/gate-runner.ts";
 
 export class SQLiteGateRunner implements GateRunner {
 	constructor(private readonly db: Db) {}

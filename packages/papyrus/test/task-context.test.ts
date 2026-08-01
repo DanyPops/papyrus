@@ -4,6 +4,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { taskContext } from "../src/task-context.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 function fixture() {
@@ -68,7 +69,7 @@ describe("task context reconciliation", () => {
 		db.close();
 	});
 
-	it("full verbosity (the default, and what tasks(action=\"context\") returns on demand) is unchanged", () => {
+	it('full verbosity (the default, and what tasks(action="context") returns on demand) is unchanged', () => {
 		const { db, artifacts } = fixture();
 		const active = artifacts.create({
 			kind: "task",
@@ -110,7 +111,10 @@ describe("task context reconciliation", () => {
 		const { db, artifacts } = fixture();
 		const task = artifacts.create({ kind: "task", title: "Ship the release" });
 		const discussion = artifacts.create({
-			kind: "task", subtype: "discussion", title: "Which rollout strategy?", status: "in-progress",
+			kind: "task",
+			subtype: "discussion",
+			title: "Which rollout strategy?",
+			status: "in-progress",
 			extra: { discussion: { state: "deferred", roundCount: 1 } },
 		});
 		artifacts.link({ from: discussion.id, relation: "blocks", to: task.id });
@@ -121,6 +125,7 @@ describe("task context reconciliation", () => {
 		expect(context).toContain("Ship the release");
 		expect(context).not.toContain(discussion.id);
 		expect(context).not.toContain(task.id);
+		db.close();
 	});
 
 	it("omits a deferred Discussion blocking a task outside the current scope", () => {
@@ -129,7 +134,10 @@ describe("task context reconciliation", () => {
 		artifacts.setStatus(inScope.id, "in-progress");
 		const outOfScope = artifacts.create({ kind: "task", title: "Out of scope task" });
 		const discussion = artifacts.create({
-			kind: "task", subtype: "discussion", title: "Unrelated decision", status: "in-progress",
+			kind: "task",
+			subtype: "discussion",
+			title: "Unrelated decision",
+			status: "in-progress",
 			extra: { discussion: { state: "deferred", roundCount: 1 } },
 		});
 		artifacts.link({ from: discussion.id, relation: "blocks", to: outOfScope.id });
@@ -144,7 +152,10 @@ describe("task context reconciliation", () => {
 		const task = artifacts.create({ kind: "task", title: "Ship the release" });
 		artifacts.setStatus(task.id, "in-progress");
 		const discussion = artifacts.create({
-			kind: "task", subtype: "discussion", title: "Still being discussed", status: "in-progress",
+			kind: "task",
+			subtype: "discussion",
+			title: "Still being discussed",
+			status: "in-progress",
 			extra: { discussion: { state: "active", roundCount: 1 } },
 		});
 		artifacts.link({ from: discussion.id, relation: "blocks", to: task.id });

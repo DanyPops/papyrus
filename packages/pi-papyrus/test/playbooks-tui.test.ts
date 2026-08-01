@@ -6,19 +6,35 @@ import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from ".
 afterEach(resetPapyrusClientForTests);
 
 function playbook(overrides: Partial<Artifact> & { id: string; title: string }): Artifact {
-	return { kind: "playbook", status: "active", subtype: "", body: "", labels: [], extra: {}, created_at: "x", updated_at: "x", ...overrides };
+	return {
+		kind: "playbook",
+		status: "active",
+		subtype: "",
+		body: "",
+		labels: [],
+		extra: {},
+		created_at: "x",
+		updated_at: "x",
+		...overrides,
+	};
 }
 
-function mockList(playbooks: Artifact[], invoke: (id: string) => unknown = (id) => ({ entryTaskId: `entry-${id}`, created: { tasks: [`entry-${id}`] } })): Array<{ operation: string; input: unknown }> {
+function mockList(
+	playbooks: Artifact[],
+	invoke: (id: string) => unknown = (id) => ({ entryTaskId: `entry-${id}`, created: { tasks: [`entry-${id}`] } }),
+): Array<{ operation: string; input: unknown }> {
 	const calls: Array<{ operation: string; input: unknown }> = [];
-	setPapyrusClientConnectorForTests(async () => ({
-		async call(operation: string, input: any) {
-			calls.push({ operation, input });
-			if (operation === "playbooks.list") return playbooks;
-			if (operation === "playbooks.invoke") return invoke(input.id);
-			throw new Error(`unexpected operation ${operation}`);
-		},
-	}) as any);
+	setPapyrusClientConnectorForTests(
+		async () =>
+			({
+				async call(operation: string, input: any) {
+					calls.push({ operation, input });
+					if (operation === "playbooks.list") return playbooks;
+					if (operation === "playbooks.invoke") return invoke(input.id);
+					throw new Error(`unexpected operation ${operation}`);
+				},
+			}) as any,
+	);
 	return calls;
 }
 
@@ -43,7 +59,14 @@ describe("/playbook command: argument completions and open-by-name", () => {
 	});
 
 	it("degrades to null (no suggestions), never throws, on a daemon error", async () => {
-		setPapyrusClientConnectorForTests(async () => ({ async call() { throw new Error("daemon unreachable"); } }) as any);
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						throw new Error("daemon unreachable");
+					},
+				}) as any,
+		);
 		expect(await playbookArgumentCompletions("x")).toBeNull();
 	});
 
@@ -58,7 +81,14 @@ describe("/playbook command: argument completions and open-by-name", () => {
 		mockList([playbook({ id: "p1", title: "New Project" })], (id) => ({ entryTaskId: `entry-${id}`, created: { tasks: [`entry-${id}`] } }));
 		let editorText: string | undefined;
 		const notifications: string[] = [];
-		const ctx = { ui: { setEditorText: (text: string) => { editorText = text; }, notify: (message: string) => notifications.push(message) } } as any;
+		const ctx = {
+			ui: {
+				setEditorText: (text: string) => {
+					editorText = text;
+				},
+				notify: (message: string) => notifications.push(message),
+			},
+		} as any;
 		await openPlaybookByName("New Project", ctx);
 		expect(editorText).toBe('Run the "New Project" playbook -- work on the currently focused task.');
 		expect(notifications).toEqual(['"New Project" invoked: entry task entry-p1 focused']);
@@ -67,7 +97,14 @@ describe("/playbook command: argument completions and open-by-name", () => {
 	it("notifies an error, never throws, when the name doesn't match exactly one playbook", async () => {
 		mockList([playbook({ id: "p1", title: "New Project" })]);
 		const notifications: string[] = [];
-		const ctx = { ui: { setEditorText: () => { throw new Error("must not be called"); }, notify: (message: string) => notifications.push(message) } } as any;
+		const ctx = {
+			ui: {
+				setEditorText: () => {
+					throw new Error("must not be called");
+				},
+				notify: (message: string) => notifications.push(message),
+			},
+		} as any;
 		await openPlaybookByName("Nonexistent", ctx);
 		expect(notifications[0]).toContain('no artifact named "Nonexistent"');
 	});

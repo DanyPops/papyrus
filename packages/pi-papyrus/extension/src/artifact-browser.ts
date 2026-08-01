@@ -1,10 +1,9 @@
+import { type Artifact, type OperationName, SEED_RELATIONS } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { SEED_RELATIONS, type Artifact, type OperationName } from "@danypops/papyrus";
-import type { StatusPresentation } from "./artifact-status-presentation.ts";
-import { artifactDetailsText } from "./artifact-detail-format.ts";
 import { showArtifactDetailView } from "./artifact-detail-view.ts";
+import type { StatusPresentation } from "./artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 
 export { artifactDetailsText } from "./artifact-detail-format.ts";
@@ -29,14 +28,11 @@ export interface ArtifactBrowserConfig {
 export function filterArtifactRows(rows: Artifact[], query: string): Artifact[] {
 	const needle = query.trim().toLowerCase();
 	if (!needle) return [...rows];
-	return rows.filter((row) => [
-		row.id,
-		row.title,
-		row.body,
-		row.subtype,
-		row.labels.join(" "),
-		JSON.stringify(row.extra),
-	].some((value) => value.toLowerCase().includes(needle)));
+	return rows.filter((row) =>
+		[row.id, row.title, row.body, row.subtype, row.labels.join(" "), JSON.stringify(row.extra)].some((value) =>
+			value.toLowerCase().includes(needle),
+		),
+	);
 }
 
 export function statusSummary(rows: Artifact[], order: string[]): Array<{ status: string; count: number }> {
@@ -53,10 +49,7 @@ async function loadArtifacts(config: ArtifactBrowserConfig): Promise<Artifact[]>
 	});
 }
 
-export type ArtifactDetailLoader = (
-	operation: OperationName,
-	input: Record<string, unknown>,
-) => Promise<Artifact | null>;
+export type ArtifactDetailLoader = (operation: OperationName, input: Record<string, unknown>) => Promise<Artifact | null>;
 
 const loadArtifactDetails: ArtifactDetailLoader = (operation, input) =>
 	callService<Record<string, unknown>, Artifact | null>(operation, input);
@@ -76,7 +69,10 @@ export async function showArtifactDetails(
 			depth: DETAIL_GRAPH_DEPTH,
 			max_nodes: DETAIL_GRAPH_NODES,
 		});
-		if (!artifact) { ctx.ui.notify("Artifact not found", "error"); return; }
+		if (!artifact) {
+			ctx.ui.notify("Artifact not found", "error");
+			return;
+		}
 		await showArtifactDetailView(ctx, artifact);
 	} catch (error) {
 		ctx.ui.notify(`Show details failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -86,7 +82,7 @@ export async function showArtifactDetails(
 export async function linkFromArtifact(ctx: ExtensionCommandContext, fromId: string, fixedRelation?: string): Promise<void> {
 	const target = await ctx.ui.input("Target artifact id:", "");
 	if (!target) return;
-	const relation = fixedRelation ?? await ctx.ui.select("Relation", [...SEED_RELATIONS]);
+	const relation = fixedRelation ?? (await ctx.ui.select("Relation", [...SEED_RELATIONS]));
 	if (!relation) return;
 	try {
 		await callService("graph.link", { from: fromId, relation, to: target });
@@ -99,7 +95,10 @@ export async function linkFromArtifact(ctx: ExtensionCommandContext, fromId: str
 export async function setArtifactStatus(ctx: ExtensionCommandContext, id: string, status: string): Promise<void> {
 	try {
 		const artifact = await callService<Record<string, unknown>, Artifact | null>("graph.status", { id, status });
-		if (!artifact) { ctx.ui.notify("Artifact not found", "error"); return; }
+		if (!artifact) {
+			ctx.ui.notify("Artifact not found", "error");
+			return;
+		}
 		ctx.ui.notify(`${artifact.title} → [${artifact.status}]`, "info");
 	} catch (error) {
 		ctx.ui.notify(`Status change failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -120,7 +119,10 @@ export async function showArtifactBrowser(ctx: ExtensionCommandContext, config: 
 	for (;;) {
 		const selected = await renderPanel(ctx, rows, config);
 		if (selected === undefined) return;
-		if (selected === "refresh") { rows = await loadArtifacts(config); continue; }
+		if (selected === "refresh") {
+			rows = await loadArtifacts(config);
+			continue;
+		}
 		const choices = config.actions(selected);
 		const choice = await ctx.ui.select(selected.title, choices);
 		if (!choice) continue;
@@ -151,8 +153,9 @@ function renderPanel(
 				const title = theme.bold(config.title);
 				const hint = searchActive
 					? rawKeyHint("esc", "clear")
-					: [rawKeyHint("enter", "actions"), rawKeyHint("/", "filter"), rawKeyHint("r", "refresh"), rawKeyHint("esc", "close")]
-						.join(theme.fg("muted", " · "));
+					: [rawKeyHint("enter", "actions"), rawKeyHint("/", "filter"), rawKeyHint("r", "refresh"), rawKeyHint("esc", "close")].join(
+							theme.fg("muted", " · "),
+						);
 				const spacing = Math.max(1, width - visibleWidth(title) - visibleWidth(hint));
 				const summary = statusSummary(rows, config.statusOrder)
 					.map(({ status, count }) => {
@@ -205,20 +208,40 @@ function renderPanel(
 			invalidate: () => container.invalidate(),
 			handleInput(data: string) {
 				if (searchActive) {
-					if (data === "\x1b") { searchActive = false; applyFilter(); }
-					else if (data === "\r") searchActive = false;
-					else { input.handleInput(data); applyFilter(); }
+					if (data === "\x1b") {
+						searchActive = false;
+						applyFilter();
+					} else if (data === "\r") searchActive = false;
+					else {
+						input.handleInput(data);
+						applyFilter();
+					}
 					tui.requestRender();
 					return;
 				}
 				switch (data) {
-					case "\x1b[A": selectedIndex = (selectedIndex - 1 + filtered.length) % Math.max(filtered.length, 1); break;
-					case "\x1b[B": selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1); break;
-					case "/": searchActive = true; break;
-					case "r": done("refresh"); return;
-					case "\r": { const row = filtered[selectedIndex]; if (row) done(row); return; }
-					case "\x1b": done(undefined); return;
-					default: return;
+					case "\x1b[A":
+						selectedIndex = (selectedIndex - 1 + filtered.length) % Math.max(filtered.length, 1);
+						break;
+					case "\x1b[B":
+						selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1);
+						break;
+					case "/":
+						searchActive = true;
+						break;
+					case "r":
+						done("refresh");
+						return;
+					case "\r": {
+						const row = filtered[selectedIndex];
+						if (row) done(row);
+						return;
+					}
+					case "\x1b":
+						done(undefined);
+						return;
+					default:
+						return;
 				}
 				tui.requestRender();
 			},

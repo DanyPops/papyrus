@@ -1,5 +1,18 @@
-import { connectPushChannel, createRetryingClient, type PushChannelClient, type PushChannelState, type RetryingClient } from "@danypops/vehicle-client/daemon-client";
-import { connectPapyrusClient, resolvePushChannelTarget, resolveVehicleClientTarget, type OperationName, type PapyrusClient, type VehicleClientTarget } from "@danypops/papyrus";
+import {
+	connectPapyrusClient,
+	type OperationName,
+	type PapyrusClient,
+	resolvePushChannelTarget,
+	resolveVehicleClientTarget,
+	type VehicleClientTarget,
+} from "@danypops/papyrus";
+import {
+	connectPushChannel,
+	createRetryingClient,
+	type PushChannelClient,
+	type PushChannelState,
+	type RetryingClient,
+} from "@danypops/vehicle-client/daemon-client";
 
 type ClientConnector = () => Promise<PapyrusClient>;
 
@@ -10,10 +23,7 @@ export async function papyrusClient(): Promise<PapyrusClient> {
 	return client.call(async (resolved) => resolved);
 }
 
-export async function callService<Input extends Record<string, unknown>, Output>(
-	operation: OperationName,
-	input: Input,
-): Promise<Output> {
+export async function callService<Input extends Record<string, unknown>, Output>(operation: OperationName, input: Input): Promise<Output> {
 	return client.call((resolved) => resolved.call<Input, Output>(operation, input));
 }
 
@@ -66,7 +76,10 @@ export function currentVehicleClientTarget(): VehicleClientTarget | undefined {
  * tolerates "daemon not running" and falls back to its existing poll. A caller
  * should retry this on a later poll tick once the daemon is confirmed reachable.
  */
-export function subscribeTaskPushChannel(onMessage: () => void, onStateChange?: (state: PushChannelState) => void): PushChannelClient | undefined {
+export function subscribeTaskPushChannel(
+	onMessage: () => void,
+	onStateChange?: (state: PushChannelState) => void,
+): PushChannelClient | undefined {
 	const target = pushChannelTargetResolver();
 	if (!target) return undefined;
 	return connectPushChannel({
@@ -80,7 +93,9 @@ export function subscribeTaskPushChannel(onMessage: () => void, onStateChange?: 
 		},
 		token: target.token,
 		topics: ["tasks"],
-		onMessage: (topic) => { if (topic === "tasks") onMessage(); },
+		onMessage: (topic) => {
+			if (topic === "tasks") onMessage();
+		},
 		onStateChange,
 	});
 }

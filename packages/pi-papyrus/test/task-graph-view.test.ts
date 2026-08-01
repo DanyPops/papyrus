@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { projectTaskGraph, type Artifact, type TaskGraph, type TaskNode } from "@danypops/papyrus";
+import { type Artifact, projectTaskGraph, type TaskGraph, type TaskNode } from "@danypops/papyrus";
 import { BeautifulMermaidRenderer, mermaidSource } from "../extension/src/beautiful-mermaid-renderer.ts";
 
 function artifact(id: string, title: string): Artifact {

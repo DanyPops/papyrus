@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { daemonStateDir, loadOrCreateToken, readDaemonHandle, writeDaemonPort } from "../src/daemon-state.ts";
 import { renderSystemdUnit } from "../src/cli.ts";
+import { daemonStateDir, loadOrCreateToken, readDaemonHandle, writeDaemonPort } from "../src/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 describe("Papyrus daemon state", () => {

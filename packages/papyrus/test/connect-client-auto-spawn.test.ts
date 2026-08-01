@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { readDaemonHandle } from "../src/daemon-state.ts";
 import { connectPapyrusClient } from "../src/client.ts";
+import { readDaemonHandle } from "../src/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
 afterAll(cleanupTempDirs);
 
 /**
@@ -35,7 +36,13 @@ describe("connectPapyrusClient -- real subprocess auto-spawn", () => {
 			expect(health.ok).toBe(true);
 		} finally {
 			const handle = readDaemonHandle(dir);
-			if (handle?.pid) { try { process.kill(handle.pid, "SIGTERM"); } catch { /* already gone */ } }
+			if (handle?.pid) {
+				try {
+					process.kill(handle.pid, "SIGTERM");
+				} catch {
+					/* already gone */
+				}
+			}
 		}
 	}, 15_000);
 
@@ -54,6 +61,12 @@ describe("connectPapyrusClient -- real subprocess auto-spawn", () => {
 
 		expect(handleAfterSecond).toEqual(handleAfterFirst);
 
-		if (handleAfterFirst?.pid) { try { process.kill(handleAfterFirst.pid, "SIGTERM"); } catch { /* already gone */ } }
+		if (handleAfterFirst?.pid) {
+			try {
+				process.kill(handleAfterFirst.pid, "SIGTERM");
+			} catch {
+				/* already gone */
+			}
+		}
 	}, 15_000);
 });

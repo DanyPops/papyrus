@@ -18,7 +18,11 @@ function harness() {
 describe("registerArtifactTrashOperations (wired through createPapyrusService) -- shared, kind-agnostic", () => {
 	it("registers exactly one honest VehicleOperation per real artifact.* action", () => {
 		const { registry, service } = harness();
-		const names = registry.manifest().operations.map((op: VehicleManifestOperation) => op.name).filter((name: string) => name.startsWith("artifact.")).sort();
+		const names = registry
+			.manifest()
+			.operations.map((op: VehicleManifestOperation) => op.name)
+			.filter((name: string) => name.startsWith("artifact."))
+			.sort();
 		expect(names).toEqual(["artifact.remove", "artifact.remove_subtree", "artifact.restore", "artifact.show"]);
 		service.close();
 	});

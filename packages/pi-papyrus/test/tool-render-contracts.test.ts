@@ -1,5 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import {
+	type Artifact,
+	TOOL_DETAILS_BODY_MAX_CHARACTERS,
+	TOOL_DETAILS_MAX_EDGES,
+	TOOL_DETAILS_MAX_ITEMS,
+	TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS,
+	TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS,
+	TOOL_MODEL_CONTENT_MAX_CHARACTERS,
+} from "@danypops/papyrus";
+import {
 	createArtifactDetails,
 	createArtifactListDetails,
 	createErrorDetails,
@@ -11,15 +20,6 @@ import {
 	createTransitionDetails,
 	parsePapyrusToolDetails,
 } from "../extension/src/tool-rendering/render-model.ts";
-import {
-	TOOL_DETAILS_BODY_MAX_CHARACTERS,
-	TOOL_DETAILS_MAX_EDGES,
-	TOOL_DETAILS_MAX_ITEMS,
-	TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS,
-	TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS,
-	TOOL_MODEL_CONTENT_MAX_CHARACTERS,
-	type Artifact,
-} from "@danypops/papyrus";
 
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {
@@ -44,7 +44,9 @@ describe("Papyrus tool render contracts", () => {
 			createArtifactListDetails("tasks.list", [artifact()], 1),
 			createTransitionDetails("tasks.start", artifact({ status: "in-progress" }), "todo", "in-progress"),
 			createGraphDetails("tasks.graph", [artifact()], [{ from: "task-1", relation: "depends_on", to: "task-2" }]),
-			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{ passed: true, type: "command", target: "bun test", output: "ok" }]),
+			createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [
+				{ passed: true, type: "command", target: "bun test", output: "ok" },
+			]),
 			createInvocationDetails("playbooks.invoke", "run-1", { tasks: ["task-1"], docs: [], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task was not found."),
@@ -86,12 +88,14 @@ describe("Papyrus tool render contracts", () => {
 		expect(graph.edges).toHaveLength(TOOL_DETAILS_MAX_EDGES);
 		expect(graph.edgeCompleteness).toEqual({ truncated: true, omitted: 2 });
 
-		const gateRun = createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [{
-			passed: false,
-			type: "command",
-			target: "bun test",
-			output: "o".repeat(TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS + 10),
-		}]);
+		const gateRun = createGateRunDetails("tasks.run_gates", "task-1", "Ship the feature", [
+			{
+				passed: false,
+				type: "command",
+				target: "bun test",
+				output: "o".repeat(TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS + 10),
+			},
+		]);
 		expect(gateRun.gates[0]?.output).toHaveLength(TOOL_DETAILS_ROW_OUTPUT_MAX_CHARACTERS);
 
 		const content = createModelContent("x".repeat(TOOL_MODEL_CONTENT_MAX_CHARACTERS + 20));
@@ -104,23 +108,27 @@ describe("Papyrus tool render contracts", () => {
 		expect(parsePapyrusToolDetails(null)).toBeUndefined();
 		expect(parsePapyrusToolDetails({ schemaVersion: "papyrus.tool-details/v2", kind: "artifact" })).toBeUndefined();
 		expect(parsePapyrusToolDetails({ schemaVersion: "papyrus.tool-details/v1", kind: "surprise" })).toBeUndefined();
-		expect(parsePapyrusToolDetails({
-			schemaVersion: "papyrus.tool-details/v1",
-			kind: "preview",
-			operation: "rules.preview",
-			title: "Preview",
-			content: "x".repeat(TOOL_DETAILS_BODY_MAX_CHARACTERS + 1),
-			completeness: { truncated: false, omitted: 0 },
-		})).toBeUndefined();
+		expect(
+			parsePapyrusToolDetails({
+				schemaVersion: "papyrus.tool-details/v1",
+				kind: "preview",
+				operation: "rules.preview",
+				title: "Preview",
+				content: "x".repeat(TOOL_DETAILS_BODY_MAX_CHARACTERS + 1),
+				completeness: { truncated: false, omitted: 0 },
+			}),
+		).toBeUndefined();
 
 		const cyclic: Record<string, unknown> = {};
 		cyclic.self = cyclic;
 		expect(parsePapyrusToolDetails(cyclic)).toBeUndefined();
 
 		const oversized = createPreviewDetails("rules.preview", "Preview", "bounded");
-		expect(parsePapyrusToolDetails({
-			...oversized,
-			unexpected: "x".repeat(TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS),
-		})).toBeUndefined();
+		expect(
+			parsePapyrusToolDetails({
+				...oversized,
+				unexpected: "x".repeat(TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS),
+			}),
+		).toBeUndefined();
 	});
 });

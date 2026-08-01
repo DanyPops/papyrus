@@ -6,6 +6,10 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "bun run --filter '*' typecheck",
+    "format": "biome format --write .",
+    "lint": "biome lint . && eslint packages --max-warnings 0",
+    "check": "biome check --write . && eslint packages --max-warnings 0",
+    "check:ci": "biome ci . && eslint packages --max-warnings 0",
     "guard:install": "git config core.hooksPath .githooks"
   },
   "pi": {
@@ -16,7 +20,12 @@
     "url": "git+https://github.com/DanyPops/papyrus.git"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
     "bun-types": "latest",
-    "typescript": "^5.7.3"
+    "eslint": "^10.8.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.65.0"
   }
 }

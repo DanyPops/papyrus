@@ -1,5 +1,6 @@
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
+import type { Logger } from "@danypops/vehicle-server/logging";
 import { SQLiteArtifactScopeStore } from "./adapters/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "./adapters/sqlite-artifact-store.ts";
 import { SQLiteDiscussionRoundStore } from "./adapters/sqlite-discussion-round-store.ts";
@@ -575,9 +576,11 @@ export function createApp(deps: {
 	 * (daemon.ts) wires this to a PushChannel; tests and other embedders can ignore it.
 	 */
 	onOperationExecuted?: (operation: string, input: OperationInput) => void;
+	/** Defaults to a no-op (createVehicleHttpApp's own default) -- daemon.ts wires vehicleLogger() so a failed invocation is actually logged, not silently discarded. */
+	logger?: Logger;
 }): { fetch(request: Request): Promise<Response> } {
 	// Same Bearer token, daemon, and port as the rest of this API -- see ./vehicle/papyrus-vehicle.ts.
-	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicle, token: deps.token });
+	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicle, token: deps.token, logger: deps.logger });
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (request.headers.get("authorization") !== `Bearer ${deps.token}`) {

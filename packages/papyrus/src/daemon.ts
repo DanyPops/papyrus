@@ -1,7 +1,7 @@
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
-import { logEvent } from "./log.ts";
+import { logEvent, vehicleLogger } from "./log.ts";
 import { createApp, createPapyrusService } from "./service.ts";
 
 /**
@@ -39,6 +39,7 @@ export function serveMain(): void {
 				pushChannel.publish("tasks", { operation });
 			}
 		},
+		logger: vehicleLogger(),
 	});
 	const server = Bun.serve({
 		hostname: DAEMON_HOST,

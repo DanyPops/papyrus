@@ -563,12 +563,11 @@ export default async function (pi: ExtensionAPI) {
 	// ── Interactive artifact browsers ──────────────────────────────────
 
 	// Lazy imports keep TUI components out of non-interactive startup paths.
-	const [tasksModule, docsModule, notesModule, rulesModule, skillsModule, playbooksModule, discussModule] = await Promise.all([
+	const [tasksModule, docsModule, notesModule, rulesModule, playbooksModule, discussModule] = await Promise.all([
 		import("./tasks.ts"),
 		import("./docs.ts"),
 		import("./notes.ts"),
 		import("./rules.ts"),
-		import("./skills.ts"),
 		import("./playbooks.ts"),
 		import("./discuss.ts"),
 	]);
@@ -606,10 +605,6 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("rules", {
 		description: "Browse, preview, and toggle Papyrus rules (interactive)",
 		handler: async (_args, ctx) => { await rulesModule.showRules(ctx); },
-	});
-	pi.registerCommand("skills", {
-		description: "Browse and invoke Papyrus skills and templates (interactive)",
-		handler: async (_args, ctx) => { await skillsModule.showSkills(ctx); },
 	});
 	pi.registerCommand("playbooks", {
 		description: "Browse, edit, and invoke Papyrus playbooks -- trigger/steps guidance an agent reads and follows (interactive)",

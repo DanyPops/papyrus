@@ -15,14 +15,12 @@ import { discussionRoundCountOf, discussionStateOf } from "../extension/src/disc
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
 import { NOTE_LIST_MAX_LIMIT } from "@danypops/papyrus";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
-import { skillInvocationPrompt, skillRowMeta, skillRunTaskGraph } from "../extension/src/skills.ts";
 import {
 	DISCUSSION_STATE_PRESENTATION,
 	DOC_STATUS_PRESENTATION,
 	NOTE_STATUS_PRESENTATION,
 	RULE_STATUS_PRESENTATION,
 	severityColor,
-	SKILL_STATUS_PRESENTATION,
 } from "../extension/src/artifact-status-presentation.ts";
 import type { Artifact } from "@danypops/papyrus";
 
@@ -123,49 +121,6 @@ describe("kind-specific frontend projections", () => {
 		expect(colorsUsed.size).toBe(3); // block, warn, info each get a genuinely different color, not the same fallback
 	});
 
-	it("projects skills and produces an invocation prompt", () => {
-		const skill = artifact({
-			kind: "skill",
-			title: "TDD workflow",
-			extra: { trigger: "writing code", tools: ["bun test", "tsc"], steps: ["Write failing test", "Implement"] },
-		});
-		expect(skillRowMeta(skill)).toBe("when writing code · bun test, tsc");
-		expect(skillInvocationPrompt(skill)).toContain("Apply Papyrus skill \"TDD workflow\"");
-		expect(skillInvocationPrompt(skill)).toContain("1. Write failing test");
-	});
-
-	it("identifies executable workflows in the skills browser", () => {
-		const workflow = artifact({
-			kind: "skill",
-			subtype: "workflow",
-			extra: {
-				definition: {
-					inputs: { project: { type: "string" } },
-					blueprints: { tasks: [{ ref: "work", title: "Work" }], docs: [], rules: [] },
-				},
-			},
-		});
-		expect(skillRowMeta(workflow)).toBe("workflow · 1 inputs · 1 tasks");
-		expect(skillInvocationPrompt(workflow)).toContain("action=run");
-		const task = artifact({ id: "run-work", kind: "task", title: "Work", status: "todo" });
-		const graph = skillRunTaskGraph({
-			skillId: workflow.id,
-			runId: "run",
-			arguments: { project: "Papyrus" },
-			created: { docs: ["run-context"], rules: ["run-rule"], tasks: [task.id], skillRuns: [] },
-			rootTaskIds: [task.id],
-			execution: {
-				layers: [[task.id]],
-				cycleIds: [],
-				nodes: [{
-					id: task.id, title: task.title, status: "todo", active: false, state: "ready", layer: 0,
-					prerequisiteIds: [], successorIds: [],
-				}],
-			},
-		}, [task]);
-		expect(graph.rootIds).toEqual([task.id]);
-		expect(graph.nodes[0]).toMatchObject({ task: { id: task.id }, dependencyIds: [] });
-	});
 });
 
 describe("status presentation: every browsable kind's statuses are colored, not just glyphed", () => {
@@ -173,7 +128,6 @@ describe("status presentation: every browsable kind's statuses are colored, not 
 		["rule", RULE_STATUS_PRESENTATION],
 		["doc", DOC_STATUS_PRESENTATION],
 		["note", NOTE_STATUS_PRESENTATION],
-		["skill", SKILL_STATUS_PRESENTATION],
 		["discussion", DISCUSSION_STATE_PRESENTATION],
 	] as const) {
 		it(`${kindLabel}: every status has a distinct color from every other status in the same kind`, () => {
@@ -192,10 +146,8 @@ describe("status presentation: every browsable kind's statuses are colored, not 
 		// This is the exact, literal complaint this feature closes: "hard to understand which
 		// rules are active" traces to active/deprecated differing only by glyph shape (filled vs
 		// hollow circle), not color. Lock in that active always reads as success-green.
-		for (const presentation of [RULE_STATUS_PRESENTATION, SKILL_STATUS_PRESENTATION]) {
-			expect(presentation["active"]!.color).toBe("success");
-			expect(presentation["deprecated"]!.color).not.toBe("success");
-		}
+		expect(RULE_STATUS_PRESENTATION["active"]!.color).toBe("success");
+		expect(RULE_STATUS_PRESENTATION["deprecated"]!.color).not.toBe("success");
 		expect(DOC_STATUS_PRESENTATION["active"]!.color).toBe("success");
 		expect(NOTE_STATUS_PRESENTATION["active"]!.color).toBe("success");
 	});
@@ -206,15 +158,6 @@ describe("status presentation: every browsable kind's statuses are colored, not 
 		expect(severityColor("info")).toBe("accent");
 		expect(severityColor("BLOCK")).toBe("error"); // case-insensitive, since severity is often stored uppercased for display
 		expect(severityColor("unknown-severity")).toBe("muted");
-	});
-});
-
-describe("kind-specific frontend projections (continued)", () => {
-	it("identifies artifact templates in the skills browser", () => {
-		const template = artifact({ kind: "skill", subtype: "artifact-template", extra: { targetKind: "task" } });
-		expect(skillRowMeta(template)).toBe("template → task");
-		expect(skillInvocationPrompt(template)).toContain("template_name: Architecture");
-		expect(skillInvocationPrompt(template)).not.toContain(template.id);
 	});
 });
 
@@ -343,7 +286,7 @@ describe("registerXTool: each domain tool is independently registrable, not just
 		expect(registeredToolNames(registerDiscussTool)).toEqual(["discuss"]);
 	});
 
-	it("registerDomainTools registers the one remaining action-dispatch tool, in the same shape as calling it individually -- docs, rules, skills, playbooks, and tasks migrated onto Vehicle, no longer here", () => {
+	it("registerDomainTools registers the one remaining action-dispatch tool, in the same shape as calling it individually -- docs, rules, playbooks, and tasks migrated onto Vehicle, no longer here", () => {
 		expect(registeredToolNames(registerDomainTools)).toEqual(["discuss"]);
 	});
 });

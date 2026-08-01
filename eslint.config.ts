@@ -19,9 +19,12 @@ export default tseslint.config(
 		},
 		rules: {
 			"import-x/no-cycle": ["error", { maxDepth: 3, ignoreExternal: true }],
+			// regex (not group globs), anchored with $: a bare glob like "../index" also matches an
+			// unrelated "../index/some-other-file.ts" (ESLint's `ignore`-package matcher treats an
+			// index-named directory as fully matched, including its contents).
 			"no-restricted-imports": ["error", {
 				patterns: [{
-					group: ["../index", "../index.js", "../../index", "../../index.js"],
+					regex: "^(\\.\\.?/)+index(\\.(js|ts))?$",
 					message: "Do not import from barrel files. Import from the source module, or a dedicated package.json subpath, instead.",
 				}],
 			}],

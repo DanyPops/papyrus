@@ -10,8 +10,16 @@
  * Uses service-client.ts's currentVehicleClientTarget() (test-injectable) rather
  * than resolveVehicleClientTarget() directly, so a test exercising the full
  * extension entrypoint doesn't resolve a real daemonStateDir().
+ *
+ * The client itself is wrapped in createReconnectingVehicleClient(), re-resolving
+ * currentVehicleClientTarget() on every reconnect attempt rather than closing over
+ * one target captured here at session_start -- confirmed live: the daemon rebinds
+ * a new random port on every restart, and a bare RemoteVehicleClient built once had
+ * no way to notice its baseUrl had died, breaking every Vehicle tool call for the
+ * rest of the Pi session until a full extension reload.
  */
 
+import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerVehicleTools } from "@danypops/vehicle-client-pi";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -42,7 +50,11 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 	const target = currentVehicleClientTarget();
 	if (!target) return;
 	try {
-		const client = new RemoteVehicleClient({ baseUrl: target.baseUrl, token: target.token });
+		const client = createReconnectingVehicleClient(async () => {
+			const resolved = currentVehicleClientTarget();
+			if (!resolved) throw new Error("Papyrus daemon is not running");
+			return new RemoteVehicleClient({ baseUrl: resolved.baseUrl, token: resolved.token });
+		});
 		await registerVehicleTools(pi, client, {
 			permissions: REGISTERED_PERMISSIONS,
 			principal: { id: "pi-papyrus" },

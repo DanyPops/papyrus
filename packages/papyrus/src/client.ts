@@ -1,9 +1,13 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { connectWithPolicy, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import { connectWithVersionCheck, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import { readPackageVersion } from "@danypops/vehicle-client/version";
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
 import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon-state.ts";
 import type { OperationName, SchemaState } from "./service.ts";
+
+/** Compared against the running daemon's /health-reported version by connectWithVersionCheck below -- a long-lived daemon holds whatever code was loaded at its own start. */
+const PAPYRUS_VERSION = readPackageVersion(new URL("../package.json", import.meta.url), "Papyrus");
 
 export type FetchAdapter = (request: Request) => Promise<Response>;
 
@@ -64,6 +68,16 @@ function papyrusCliPath(): string {
 	return fileURLToPath(new URL("cli.ts", import.meta.url));
 }
 
+/** connectWithVersionCheck's killStaleProcess callback, factored out for a direct unit test -- a real spawned daemon can't be made to report a mismatched version without a second build. */
+export function killStalePapyrusDaemon(handle: Pick<DaemonHandle, "pid">): void {
+	if (handle.pid <= 0) return; // daemon-state.ts's inert "unknown pid" sentinel -- never a real process.
+	try {
+		process.kill(handle.pid, "SIGTERM");
+	} catch {
+		// Caller's handle-file poll is the real guarantee, not this call succeeding.
+	}
+}
+
 export interface ConnectPapyrusClientOptions {
 	/**
 	 * Environment passed to an auto-spawned daemon child. Defaults to the current
@@ -74,6 +88,8 @@ export interface ConnectPapyrusClientOptions {
 	 * silently diverge from wherever the child actually starts writing its handle.
 	 */
 	env?: Record<string, string | undefined>;
+	/** Overrides the version connectWithVersionCheck compares against. Defaults to PAPYRUS_VERSION; test-only -- lets a test force a mismatch against a real daemon without a second build. */
+	expectedVersion?: string;
 }
 
 /**
@@ -91,23 +107,30 @@ export async function connectPapyrusClient(
 	dir: string = daemonStateDir(),
 	options: ConnectPapyrusClientOptions = {},
 ): Promise<PapyrusClient> {
-	return connectWithPolicy({
-		readHandle: () => readDaemonHandle(dir) ?? null,
-		buildClient: probedPapyrusClient,
-		autoStart: true,
-		spawn: () => {
-			spawnDetachedDaemon({
-				binPath: papyrusCliPath(),
-				args: ["serve"],
-				env: { ...(options.env ?? process.env), [DAEMON_DIR_ENV]: dir },
-				spawn: (command, args, spawnOptions) => {
-					const child = spawnProcess(command, args, spawnOptions);
-					child.unref();
-				},
-			});
+	return connectWithVersionCheck(
+		{
+			readHandle: () => readDaemonHandle(dir) ?? null,
+			buildClient: probedPapyrusClient,
+			autoStart: true,
+			spawn: () => {
+				spawnDetachedDaemon({
+					binPath: papyrusCliPath(),
+					args: ["serve"],
+					env: { ...(options.env ?? process.env), [DAEMON_DIR_ENV]: dir },
+					spawn: (command, args, spawnOptions) => {
+						const child = spawnProcess(command, args, spawnOptions);
+						child.unref();
+					},
+				});
+			},
+			fallbackMessage: "Papyrus daemon failed to start automatically; run `papyrus service install` or `papyrus serve` manually.",
 		},
-		fallbackMessage: "Papyrus daemon failed to start automatically; run `papyrus service install` or `papyrus serve` manually.",
-	});
+		{
+			expectedVersion: options.expectedVersion ?? PAPYRUS_VERSION,
+			readVersion: async (client) => (await client.health()).version,
+			killStaleProcess: killStalePapyrusDaemon,
+		},
+	);
 }
 
 export interface PushChannelTarget {

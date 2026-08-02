@@ -1,14 +1,13 @@
 /**
  * Composition root for every domain projected onto Vehicle -- one VehicleRegistry,
  * one HTTP mount (see service.ts's createApp). Operation names are already globally
- * unique via their own dotted prefix (notes.*, rules.*, docs.*, playbooks.*, artifact.*),
- * so merging costs nothing and avoids a separate registry/mount/client per domain.
- *
- * discuss still registers via pi-papyrus's own pi.registerTool() in domain-tools.ts,
- * not here -- see the papyrus Vehicle migration task for why.
+ * unique via their own dotted prefix (notes.*, rules.*, docs.*, playbooks.*, discuss.*,
+ * artifact.*), so merging costs nothing and avoids a separate registry/mount/client
+ * per domain.
  */
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { AuthorityRegistry } from "../authority-registry.ts";
+import type { Discussions } from "../discussion-service.ts";
 import type { Notes } from "../note-service.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
@@ -18,6 +17,7 @@ import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
 import type { Tasks } from "../task-service.ts";
 import { registerArtifactTrashOperations } from "./artifact-trash-vehicle.ts";
+import { registerDiscussVehicleOperations } from "./discuss-vehicle.ts";
 import { registerDocsVehicleOperations } from "./docs-vehicle.ts";
 import { registerNotesVehicleOperations } from "./notes-vehicle.ts";
 import { registerPlaybooksVehicleOperations } from "./playbooks-vehicle.ts";
@@ -32,6 +32,7 @@ export interface PapyrusVehicleDeps {
 	events: TaskEventStore;
 	taskScopes: TaskScopeStore;
 	tasks: Tasks;
+	discussions: Discussions;
 	sessionIdentity: SessionIdentity;
 }
 
@@ -53,6 +54,7 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 		sessionIdentity: deps.sessionIdentity,
 	});
 	registerTasksVehicleOperations(registry, { tasks: deps.tasks, artifacts: deps.artifacts, sessionIdentity: deps.sessionIdentity });
+	registerDiscussVehicleOperations(registry, deps.discussions, deps.artifacts);
 	registerArtifactTrashOperations(registry, deps.artifacts);
 	return registry;
 }

@@ -490,6 +490,7 @@ export function createPapyrusService(path: string): PapyrusService {
 		events,
 		taskScopes: scopes,
 		tasks,
+		discussions,
 		sessionIdentity,
 	});
 	const moduleRegistry = new OperationRegistry();

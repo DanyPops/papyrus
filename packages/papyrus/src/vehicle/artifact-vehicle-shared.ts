@@ -3,7 +3,7 @@
  * VehicleRegistry projection (notes-vehicle.ts, rules-vehicle.ts, docs-vehicle.ts,
  * artifact-trash-vehicle.ts).
  */
-import { defineVehicleSchema, VehicleError, type VehicleContentBlock, type VehicleSchemaCodec } from "@danypops/vehicle-core";
+import { defineVehicleSchema, type VehicleContentBlock, VehicleError, type VehicleSchemaCodec } from "@danypops/vehicle-core";
 import type { Artifact } from "../domain/artifact.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskExecutionPlan } from "../task-execution.ts";

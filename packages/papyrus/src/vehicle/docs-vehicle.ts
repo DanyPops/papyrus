@@ -10,7 +10,14 @@ import { listDocuments } from "../domain-services.ts";
 import { docsOperations } from "../modules/docs.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./artifact-vehicle-shared.ts";
+import {
+	looseObjectSchema,
+	numberProp,
+	passthroughOutput,
+	resolveArtifactIdWidened,
+	stringProp,
+	validationError,
+} from "./artifact-vehicle-shared.ts";
 
 const OWNER = "docs";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };

@@ -10,7 +10,7 @@ import { listRules } from "../domain-services.ts";
 import { rulesOperations } from "../modules/rules.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
+import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "rules";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
@@ -24,7 +24,7 @@ function resolveRuleId(
 	name: unknown,
 ): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
+	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	return resolveArtifactIdWidened(
 		name,
 		() => listRules(artifacts, scopes, { text: name, projectRoot }),
@@ -151,7 +151,7 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 		[],
 		(input) => {
 			const taskId = resolveTaskId(artifacts, input.project_root as string | undefined, input.task_id, input.task_name);
-			if (!taskId) throw new Error("task_id or task_name is required");
+			if (!taskId) throw validationError("task_id or task_name is required");
 			return {
 				...input,
 				id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name),

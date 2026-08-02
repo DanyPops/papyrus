@@ -10,7 +10,7 @@ import { listDocuments } from "../domain-services.ts";
 import { docsOperations } from "../modules/docs.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
+import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "docs";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
@@ -23,7 +23,7 @@ function resolveDocId(
 	name: unknown,
 ): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
+	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	return resolveArtifactIdWidened(
 		name,
 		() => listDocuments(artifacts, scopes, { text: name, projectRoot }),
@@ -34,7 +34,7 @@ function resolveDocId(
 /** Cross-kind resolution for a link target -- can be a doc, task, rule, or playbook. Unscoped, matching the exact behavior of the artifact.query-backed resolution it replaces. */
 function resolveTargetId(artifacts: ArtifactStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("target_id or target_name is required");
+	if (typeof name !== "string" || name.length === 0) throw validationError("target_id or target_name is required");
 	return resolveArtifactIdWidened(name, () => artifacts.query({ text: name }));
 }
 

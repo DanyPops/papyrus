@@ -34,6 +34,7 @@ import {
 	passthroughOutput,
 	resolveArtifactIdWidened,
 	stringProp,
+	validationError,
 } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "tasks";
@@ -70,8 +71,8 @@ function resolveTaskId(
 	name: unknown,
 ): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
-	if (!filter.projectRoot) throw new Error("project_root is required when resolving a task by name");
+	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
+	if (!filter.projectRoot) throw validationError("project_root is required when resolving a task by name");
 	return resolveArtifactIdWidened(
 		name,
 		() => tasks.list({ ...filter, text: name }),

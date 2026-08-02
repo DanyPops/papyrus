@@ -104,8 +104,15 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		const { registry, service } = harness();
 		await registry.invoke("tasks.create", 1, { title: "Scoped only", project_root: PROJECT }, PERMS);
 		const rejection = await registry.invoke("tasks.show", 1, { name: "Scoped only" }, PERMS).catch((error: unknown) => error);
-		expect(rejection).toBeInstanceOf(Error);
-		expect((rejection as { cause?: Error }).cause?.message).toContain("project_root is required");
+		// A validation failure inside name resolution must surface as its own VehicleError (code
+		// validation-failed, category validation), not get swallowed into vehicle-registry's generic
+		// handler-failed wrap -- the wrap is for a genuine unexpected crash, not an ordinary,
+		// expected input-validation miss. Real incident: this used to arrive only inside .cause of
+		// an opaque "tasks.show@1 handler failed", with the actual reason invisible to any caller.
+		expect((rejection as { code?: string }).code).toBe("validation-failed");
+		expect((rejection as { category?: string }).category).toBe("validation");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain("project_root is required");
 		service.close();
 	});
 
@@ -220,8 +227,28 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		const rejection = await registry
 			.invoke("tasks.depend", 1, { id: from.id, dependency_name: "Elsewhere", project_root: PROJECT, scope: "project" }, PERMS)
 			.catch((error: unknown) => error);
-		expect(rejection).toBeInstanceOf(Error);
-		expect((rejection as { cause?: Error }).cause?.message).toContain('no artifact named "Elsewhere"');
+		// Same real-incident fix as the show-by-name case above: a not-found/ambiguous name
+		// resolution failure must surface directly, unwrapped -- matchArtifactByName's own
+		// VehicleError("artifact-not-found", ...) passes vehicle-registry's dispatch unchanged.
+		expect((rejection as { code?: string }).code).toBe("artifact-not-found");
+		expect((rejection as { category?: string }).category).toBe("not_found");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain('no artifact named "Elsewhere"');
+		service.close();
+	});
+
+	it("an ambiguous dependency_name reports every matching id instead of an opaque handler-failed wrap", async () => {
+		const { registry, service } = harness();
+		const from = (await registry.invoke("tasks.create", 1, { title: "Ambiguous from", project_root: PROJECT }, PERMS)) as { id: string };
+		const first = (await registry.invoke("tasks.create", 1, { title: "Dup", project_root: PROJECT }, PERMS)) as { id: string };
+		const second = (await registry.invoke("tasks.create", 1, { title: "Dup", project_root: PROJECT }, PERMS)) as { id: string };
+		const rejection = await registry
+			.invoke("tasks.depend", 1, { id: from.id, dependency_name: "Dup", project_root: PROJECT }, PERMS)
+			.catch((error: unknown) => error);
+		expect((rejection as { code?: string }).code).toBe("artifact-name-ambiguous");
+		expect((rejection as { category?: string }).category).toBe("conflict");
+		expect((rejection as Error).message).toContain(first.id);
+		expect((rejection as Error).message).toContain(second.id);
 		service.close();
 	});
 

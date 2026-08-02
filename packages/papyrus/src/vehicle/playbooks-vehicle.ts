@@ -37,6 +37,7 @@ import {
 	passthroughOutput,
 	resolveArtifactIdWidened,
 	stringProp,
+	validationError,
 } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "playbooks";
@@ -54,7 +55,7 @@ export interface PlaybooksVehicleDeps {
 /** Unscoped resolution -- a Playbook is commonly cross-project (e.g. a lab-deploy playbook), matching the hand-rolled tool's own resolutionRequest choice. */
 function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
+	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	return resolveArtifactIdWidened(name, () => listPlaybooks(artifacts, scopes, { text: name }));
 }
 

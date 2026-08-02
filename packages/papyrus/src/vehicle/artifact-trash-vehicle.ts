@@ -8,7 +8,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { removeArtifactSubtree } from "../artifact-subtree.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, stringProp } from "./artifact-vehicle-shared.ts";
+import { looseObjectSchema, numberProp, passthroughOutput, stringProp, validationError } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "artifact";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
@@ -26,7 +26,7 @@ function eventContext(input: Record<string, unknown>): { actor?: string; source?
 
 function requireId(input: Record<string, unknown>): string {
 	const id = input.id;
-	if (typeof id !== "string" || id.length === 0) throw new Error("id is required");
+	if (typeof id !== "string" || id.length === 0) throw validationError("id is required");
 	return id;
 }
 

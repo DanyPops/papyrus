@@ -3,7 +3,7 @@
  * VehicleRegistry projection (notes-vehicle.ts, rules-vehicle.ts, docs-vehicle.ts,
  * artifact-trash-vehicle.ts).
  */
-import { defineVehicleSchema, type VehicleContentBlock, type VehicleSchemaCodec } from "@danypops/vehicle-core";
+import { defineVehicleSchema, VehicleError, type VehicleContentBlock, type VehicleSchemaCodec } from "@danypops/vehicle-core";
 import type { Artifact } from "../domain/artifact.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskExecutionPlan } from "../task-execution.ts";
@@ -47,6 +47,19 @@ export const passthroughOutput: VehicleSchemaCodec<unknown> = defineVehicleSchem
 export const stringProp = { type: "string" } as const;
 export const numberProp = { type: "number" } as const;
 
+/**
+ * A plain `throw new Error(...)` inside any resolve()/execute() step here is caught by
+ * vehicle-registry.ts's generic dispatch and re-wrapped as VehicleError("handler-failed",
+ * `${key} handler failed`, {category: "internal"}) -- built to catch a genuine crash, but
+ * it can't distinguish that from an ordinary, expected validation/lookup failure, so it
+ * discards the original message and category either way. Every guard clause and name
+ * resolution below must throw a VehicleError directly so it passes through that dispatch
+ * unchanged (vehicle-registry.ts only rewraps errors that are NOT already a VehicleError).
+ */
+export function validationError(message: string): VehicleError {
+	return new VehicleError("validation-failed", message, { category: "validation" });
+}
+
 /** A known LLM tool-calling quirk: a nested-object field arrives JSON-stringified rather than as a real object. Mutates input[key] in place when it's a string, leaves it untouched otherwise. */
 export function normalizeJsonEncodedField(input: Record<string, unknown>, key: string): void {
 	const value = input[key];
@@ -54,7 +67,7 @@ export function normalizeJsonEncodedField(input: Record<string, unknown>, key: s
 	try {
 		input[key] = JSON.parse(value);
 	} catch {
-		throw new Error(`${key} must be valid JSON`);
+		throw validationError(`${key} must be valid JSON`);
 	}
 }
 
@@ -62,10 +75,14 @@ export function normalizeJsonEncodedField(input: Record<string, unknown>, key: s
 export function matchArtifactByName(candidates: readonly Artifact[], name: string): string {
 	const needle = name.trim().toLowerCase();
 	const matches = candidates.filter((artifact) => artifact.title.trim().toLowerCase() === needle);
-	if (matches.length === 0) throw new Error(`no artifact named "${name}" found in this scope`);
+	if (matches.length === 0) {
+		throw new VehicleError("artifact-not-found", `no artifact named "${name}" found in this scope`, { category: "not_found" });
+	}
 	if (matches.length > 1) {
-		throw new Error(
+		throw new VehicleError(
+			"artifact-name-ambiguous",
 			`${matches.length} artifacts are named "${name}": ${matches.map((a) => `${a.title} (${a.id})`).join(", ")} -- use id to disambiguate`,
+			{ category: "conflict" },
 		);
 	}
 	return matches[0]!.id;
@@ -85,7 +102,7 @@ export function resolveArtifactIdWidened(
 	try {
 		return matchArtifactByName(fetchCandidates(), name);
 	} catch (error) {
-		if (!(error instanceof Error) || !error.message.startsWith("no artifact named") || !fetchWidened) throw error;
+		if (!(error instanceof VehicleError) || error.code !== "artifact-not-found" || !fetchWidened) throw error;
 		return matchArtifactByName(fetchWidened(), name);
 	}
 }

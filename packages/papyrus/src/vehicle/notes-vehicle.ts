@@ -12,7 +12,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { notesOperations } from "../modules/notes.ts";
 import { NOTE_DISPOSITIONS, type Notes } from "../note-service.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp } from "./artifact-vehicle-shared.ts";
+import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./artifact-vehicle-shared.ts";
 
 const OWNER = "notes";
 
@@ -21,14 +21,14 @@ const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes:
 /** Resolves a note's id from either an explicit id or its title within projectRoot. */
 function resolveNoteId(notes: Notes, projectRoot: string, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("id or name is required");
+	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	return resolveArtifactIdWidened(name, () => notes.list({ projectRoot, text: name }));
 }
 
 /** Cross-kind equivalent for a promotion target -- a target can be a task, doc, rule, or playbook, not just a note. Unscoped by project, matching the exact behavior of the artifact.query-backed resolution it replaces. */
 function resolveArtifactId(artifacts: ArtifactStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw new Error("target_id or target_name is required");
+	if (typeof name !== "string" || name.length === 0) throw validationError("target_id or target_name is required");
 	return resolveArtifactIdWidened(name, () => artifacts.query({ text: name }));
 }
 

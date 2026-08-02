@@ -88,14 +88,15 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 		service.close();
 	});
 
-	it("show by an unknown name fails clearly instead of resolving to nothing -- the real cause survives as the wrapped VehicleError's cause", async () => {
+	it("show by an unknown name fails clearly instead of resolving to nothing -- a real VehicleError, not the opaque generic handler-failed wrap", async () => {
 		const { registry, service } = harness();
 		try {
 			await registry.invoke("notes.show", 1, { name: "does not exist", project_root: PROJECT }, PERMS);
 			throw new Error("expected invoke to reject");
 		} catch (error) {
-			expect((error as Error).message).toContain("handler failed");
-			expect(((error as Error).cause as Error)?.message).toMatch(/no artifact named/);
+			expect((error as { code?: string }).code).toBe("artifact-not-found");
+			expect((error as { category?: string }).category).toBe("not_found");
+			expect((error as Error).message).toMatch(/no artifact named/);
 		}
 		service.close();
 	});

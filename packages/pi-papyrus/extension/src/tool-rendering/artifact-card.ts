@@ -20,13 +20,21 @@ const STATUS_GLYPHS: Readonly<Record<string, string>> = {
 	draft: "○",
 	archived: "·",
 	deprecated: "·",
+	// Task Execution's own state vocabulary (projectTaskExecution) --
+	// distinct from an artifact's own lifecycle status above (a task's
+	// literal `status` field is always todo/in-progress/review/rejected/
+	// done/canceled; ready/blocked/invalid only ever appear as the derived
+	// execution `state` a plan computes for a still-todo task).
+	ready: "▶",
+	blocked: "◼",
+	invalid: "!",
 };
 
 type SemanticColor = "success" | "error" | "warning" | "accent" | "muted";
 
-function statusColor(status: string): SemanticColor {
-	if (status === "done" || status === "active") return "success";
-	if (status === "rejected" || status === "canceled") return "error";
+export function statusColor(status: string): SemanticColor {
+	if (status === "done" || status === "active" || status === "ready") return "success";
+	if (status === "rejected" || status === "canceled" || status === "invalid") return "error";
 	if (status === "review") return "warning";
 	if (status === "in-progress") return "accent";
 	return "muted";

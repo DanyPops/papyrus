@@ -13,12 +13,14 @@
  */
 
 import type { Artifact } from "@danypops/papyrus";
+import { TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
 import type { VehicleToolRenderers } from "@danypops/vehicle-client-pi";
 import { renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
-import { ArtifactCard } from "./tool-rendering/artifact-card.ts";
+import { type DagEdge, type DagNode, DagView } from "malevich-tui-components";
+import { ArtifactCard, expandHint, statusColor, statusGlyph } from "./tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "./tool-rendering/artifact-list.ts";
 import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
 
@@ -71,6 +73,75 @@ function renderNoFocusedTask(theme: Theme): Component {
 	return new Text(theme.fg("dim", "No focused task."), 0, 0);
 }
 
+/** tasks.plan's own TaskExecutionPlan shape (projectTaskExecution) -- a
+ * genuinely structured topological-execution view, never artifact-shaped,
+ * detected the same name-independent way as the others in this file. */
+interface TaskExecutionNodeOutput {
+	id: string;
+	title: string;
+	status: string;
+	active: boolean;
+	state: string;
+	layer: number | null;
+	prerequisiteIds: string[];
+	successorIds: string[];
+}
+
+interface TaskExecutionPlanOutput {
+	nodes: TaskExecutionNodeOutput[];
+	layers: string[][];
+	cycleIds: string[];
+}
+
+function isTaskExecutionNode(value: unknown): value is TaskExecutionNodeOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return (
+		typeof row.id === "string" &&
+		typeof row.title === "string" &&
+		typeof row.status === "string" &&
+		typeof row.active === "boolean" &&
+		typeof row.state === "string" &&
+		(row.layer === null || typeof row.layer === "number") &&
+		Array.isArray(row.prerequisiteIds) &&
+		Array.isArray(row.successorIds)
+	);
+}
+
+function isTaskExecutionPlan(value: unknown): value is TaskExecutionPlanOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return (
+		Array.isArray(row.nodes) &&
+		row.nodes.every(isTaskExecutionNode) &&
+		Array.isArray(row.layers) &&
+		row.layers.every((layer) => Array.isArray(layer) && layer.every((id) => typeof id === "string")) &&
+		Array.isArray(row.cycleIds) &&
+		row.cycleIds.every((id) => typeof id === "string")
+	);
+}
+
+function renderTaskExecutionPlan(plan: TaskExecutionPlanOutput, theme: Theme, expanded: boolean): Component {
+	const nodes: DagNode[] = plan.nodes.map((node) => ({
+		id: node.id,
+		label: `${theme.fg(statusColor(node.state), statusGlyph(node.state))} ${theme.fg("text", node.title)}`,
+	}));
+	const edges: DagEdge[] = plan.nodes.flatMap((node) => node.prerequisiteIds.map((from) => ({ from, to: node.id })));
+	return new DagView({
+		layers: plan.layers,
+		nodes,
+		edges,
+		cycleIds: plan.cycleIds,
+		defaultStyle: (s) => theme.fg("text", s),
+		edgeStyle: (s) => theme.fg("dim", s),
+		layerHeaderStyle: (s) => theme.fg("toolTitle", theme.bold(s)),
+		cycleHeaderStyle: (s) => theme.fg("error", theme.bold(s)),
+		expanded,
+		visibleNodeCount: TOOL_COLLAPSED_ROW_LIMIT,
+		moreLine: (hiddenCount) => theme.fg("dim", `${hiddenCount} more · ${expandHint()}`),
+	});
+}
+
 export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor): VehicleToolRenderers {
 	return {
 		renderResult(result, options, theme, context) {
@@ -94,6 +165,9 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
 				// (e.g. a not-found lookup) is never mislabeled as a focus state.
 				if (output === null && descriptor.name === "tasks.focused") {
 					return renderNoFocusedTask(theme);
+				}
+				if (isTaskExecutionPlan(output)) {
+					return renderTaskExecutionPlan(output, theme, options.expanded);
 				}
 			}
 			return renderVehicleResult(descriptor, result, options, theme, context);

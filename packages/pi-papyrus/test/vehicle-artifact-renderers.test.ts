@@ -172,4 +172,41 @@ describe("papyrusVehicleRenderers", () => {
 		);
 		expect(component.render(80).join("\n").toLowerCase()).not.toContain("focused");
 	});
+
+	it("renders tasks.plan's TaskExecutionPlan through DagView -- layers, a blocked node's dependency, and a cycle section", () => {
+		const { renderResult: renderPlan } = papyrusVehicleRenderers(descriptor("tasks.plan"));
+		const plan = {
+			nodes: [
+				{ id: "a", title: "Task A", status: "todo", active: false, state: "ready", layer: 0, prerequisiteIds: [], successorIds: ["b"] },
+				{
+					id: "b",
+					title: "Task B",
+					status: "todo",
+					active: false,
+					state: "blocked",
+					layer: 1,
+					prerequisiteIds: ["a"],
+					successorIds: [],
+				},
+				{ id: "x", title: "Task X", status: "todo", active: false, state: "invalid", layer: null, prerequisiteIds: [], successorIds: [] },
+				{ id: "y", title: "Task Y", status: "todo", active: false, state: "invalid", layer: null, prerequisiteIds: [], successorIds: [] },
+			],
+			layers: [["a"], ["b"]],
+			cycleIds: ["x", "y"],
+		};
+		const component = renderPlan!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: plan } },
+			{ isPartial: false, expanded: true },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Task A");
+		expect(text).toContain("Task B");
+		expect(text).toContain("depends on");
+		expect(text.split("depends on")[1]).toContain("Task A");
+		expect(text).toContain("Task X");
+		expect(text).toContain("Task Y");
+		expect(text).toContain("Cycle");
+	});
 });

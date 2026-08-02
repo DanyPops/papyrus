@@ -14,13 +14,7 @@ import {
 import { discussionRowMeta } from "../extension/src/discuss.ts";
 import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
-import {
-	artifactLines,
-	artifactLine as domainToolsArtifactLine,
-	matchArtifactByName,
-	registerDiscussTool,
-	registerDomainTools,
-} from "../extension/src/domain-tools.ts";
+import { artifactLines, artifactLine as domainToolsArtifactLine, matchArtifactByName } from "../extension/src/domain-tools.ts";
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 
@@ -204,9 +198,9 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 		);
 	});
 
-	it("registers name-based equivalents for discuss (still an action-dispatch pi.registerTool())", () => {
-		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
-		expect(tools).toContain("blocks_task_names:");
+	it("registers name-based equivalents for discuss server-side, in @danypops/papyrus's own discuss-vehicle.ts", () => {
+		const discussVehicle = readFileSync(new URL("../../papyrus/src/vehicle/discuss-vehicle.ts", import.meta.url), "utf8");
+		expect(discussVehicle).toContain("blocks_task_names");
 	});
 
 	it("registers name-based equivalents server-side for rules/docs/playbooks/tasks, migrated onto Vehicle -- target_name/task_name/parent_name/child_name/dependency_name/root_task_name/depends_on_names now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
@@ -271,48 +265,15 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 		expect(discussionRowMeta(discussion("active", 1), theme)).not.toContain("awaiting");
 	});
 
-	it("registers the /discuss command and the discuss domain tool exposing every discuss.* operation", () => {
+	it("registers the /discuss command; every discuss action is a Vehicle-namespaced operation, not a domain-tools.ts action-dispatch tool", () => {
 		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
-		const tools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
+		const domainTools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
+		const discussVehicle = readFileSync(new URL("../../papyrus/src/vehicle/discuss-vehicle.ts", import.meta.url), "utf8");
 		expect(extension).toContain('registerCommand("discuss"');
-		expect(tools).toContain('name: "discuss"');
-		for (const operation of [
-			"discuss.open",
-			"discuss.reply",
-			"discuss.defer",
-			"discuss.resume",
-			"discuss.settle",
-			"discuss.block",
-			"discuss.unblock",
-			"discuss.show",
-			"discuss.rounds",
-			"discuss.list",
-		]) {
-			expect(tools).toContain(operation);
+		expect(domainTools).not.toContain('name: "discuss"');
+		expect(discussVehicle).toContain("name: `discuss."); // e.g. `discuss.${action}` -- namespaced, not a bare "discuss" action-dispatch tool
+		for (const action of ["open", "reply", "defer", "resume", "settle", "block", "unblock", "show", "rounds", "list"]) {
+			expect(discussVehicle).toContain(`"${action}",`);
 		}
-	});
-});
-
-/**
- * Each domain's tool registers independently: no domain depends on another's having been
- * registered first, and registerDomainTools is a thin orchestrator over the rest. notes/
- * rules/docs/skills/playbooks/tasks have no registerXTool counterpart here -- they're
- * Vehicle-projected (see ../extension/src/vehicle-notes-client.ts), not action-dispatch
- * pi.registerTool()s. discuss is the one remaining hand-rolled tool: live:true needs an
- * interactive UI round-trip a stateless Vehicle operation can't express.
- */
-describe("registerXTool: each domain tool is independently registrable, not just reachable via the orchestrator", () => {
-	function registeredToolNames(register: (pi: any) => void): string[] {
-		const names: string[] = [];
-		register({ registerTool: (tool: { name: string }) => names.push(tool.name) } as any);
-		return names;
-	}
-
-	it("registers exactly its own tool, nothing from any other domain", () => {
-		expect(registeredToolNames(registerDiscussTool)).toEqual(["discuss"]);
-	});
-
-	it("registerDomainTools registers the one remaining action-dispatch tool, in the same shape as calling it individually -- docs, rules, playbooks, and tasks migrated onto Vehicle, no longer here", () => {
-		expect(registeredToolNames(registerDomainTools)).toEqual(["discuss"]);
 	});
 });

@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@danypops/jittor": "^0.14.0",
-    "@danypops/papyrus": "^0.43.0",
+    "@danypops/papyrus": "^0.44.0",
     "@danypops/vehicle-client": "^0.5.0",
     "@danypops/vehicle-client-pi": "^0.13.0",
     "@danypops/vehicle-core": "^0.10.0",

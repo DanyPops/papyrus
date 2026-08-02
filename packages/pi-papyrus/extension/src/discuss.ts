@@ -1,16 +1,18 @@
 /**
  * discuss.ts — /discuss interactive panel.
  * Reuses the generic artifact browser (artifact-browser.ts), same as docs.ts/rules.ts/notes.ts:
- * a Discussion is a `doc` artifact, so the browser's list/filter/refresh/select-action loop
- * applies unchanged. The one real wrinkle is that Discuss's meaningful lifecycle state
- * (active/deferred/settled) lives in extra.discussion, not the shared doc status column the
- * browser colors its row glyph by (see artifact-status-presentation.ts's DISCUSSION_STATE_PRESENTATION
- * comment) -- so the real state is surfaced in rowMeta text instead, the same way rules.ts
- * surfaces severity and notes.ts surfaces history count, both also not the row glyph.
+ * a Discussion is a `task` artifact (subtype "discussion"), so the browser's
+ * list/filter/refresh/select-action loop applies unchanged. The one real wrinkle is that
+ * Discuss's meaningful lifecycle state (active/deferred/settled) lives in extra.discussion, not
+ * the shared status column the browser colors its row glyph by (see
+ * artifact-status-presentation.ts's DISCUSSION_STATE_PRESENTATION comment) -- so the real state
+ * is surfaced in rowMeta text instead, the same way rules.ts surfaces severity and notes.ts
+ * surfaces history count, both also not the row glyph.
  *
- * Creating a new Discussion is left to the agent (the discuss tool), matching docs.ts/rules.ts/
- * playbooks.ts precedent -- Notes is the one kind with a human-facing creation command (/note),
- * because Notes exists specifically as a human-authored inbox.
+ * Creating a new Discussion is left to the agent (discuss_open, Vehicle-projected -- see
+ * vehicle-notes-client.ts), matching docs.ts/rules.ts/playbooks.ts precedent -- Notes is the one
+ * kind with a human-facing creation command (/note), because Notes exists specifically as a
+ * human-authored inbox.
  */
 
 import { type Artifact, type DiscussionAndRounds, readDiscussionExtra } from "@danypops/papyrus";
@@ -82,7 +84,7 @@ function discussionActions(discussion: Artifact): string[] {
 
 export async function showDiscussions(ctx: ExtensionCommandContext): Promise<void> {
 	await showArtifactBrowser(ctx, {
-		kind: "doc",
+		kind: "discussion",
 		title: "Discussions",
 		listOperation: "discuss.list",
 		statusOrder: ["draft", "active", "archived"],

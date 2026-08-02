@@ -163,15 +163,15 @@ describe("Papyrus native tool rendering", () => {
 	it("wires every native Papyrus tool to the dual-channel renderer and native failures", () => {
 		const domainTools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
 		const lowLevelTools = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
-		// discuss only -- notes/rules/docs/skills/playbooks/tasks are Vehicle-projected,
-		// no renderCall/renderResult of their own in this file.
-		expect(domainTools.match(/renderCall\(/g)).toHaveLength(1);
-		expect(domainTools.match(/renderResult\(/g)).toHaveLength(1);
+		// domain-tools.ts has zero pi.registerTool()s left -- notes/rules/docs/skills/
+		// playbooks/tasks/discuss are all Vehicle-projected now, none with a renderCall/
+		// renderResult of their own in this file (see vehicle-render.ts's generic renderer
+		// instead, or vehicle-artifact-renderers.ts's papyrus-specific override).
+		expect(domainTools.match(/renderCall\(/g)).toBeNull();
+		expect(domainTools.match(/renderResult\(/g)).toBeNull();
 		expect(lowLevelTools.match(/renderCall\(/g)).toHaveLength(3);
 		expect(lowLevelTools.match(/renderResult\(/g)).toHaveLength(3);
 		expect(`${domainTools}\n${lowLevelTools}`).not.toMatch(/return text\(`[^`]*failed:/);
-		expect(domainTools).toContain("createArtifactDetails");
-		expect(domainTools).toContain("createArtifactListDetails");
 		expect(lowLevelTools).toContain("createGraphDetails");
 	});
 });

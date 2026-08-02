@@ -37,7 +37,7 @@ import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
 import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context-hub-contribution.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
-import { registerDomainTools, resolveNameFields } from "./domain-tools.ts";
+import { resolveNameFields } from "./domain-tools.ts";
 import { renderNoteWidgetLines } from "./note-widget.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
@@ -351,7 +351,6 @@ export class NoteOverlay {
 
 export default async function (pi: ExtensionAPI) {
 	setTaskFocusEventBus(pi);
-	registerDomainTools(pi);
 	registerPlaybookBridge(pi);
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();

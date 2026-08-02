@@ -1,7 +1,8 @@
 /**
  * Registers every Vehicle-projected domain (notes.*, rules.*, docs.*, playbooks.*,
- * tasks.*, artifact.*) as real Pi tools -- see @danypops/papyrus's
- * src/vehicle/papyrus-vehicle.ts.
+ * tasks.*, discuss.*, artifact.*) as real Pi tools -- see @danypops/papyrus's
+ * src/vehicle/papyrus-vehicle.ts. discuss.* is the last of the six domains to
+ * migrate off pi-papyrus's own retired hand-rolled pi.registerTool() mega-tool.
  *
  * Fails silently on a stale/unreachable daemon handle instead of aborting extension
  * setup: Papyrus's daemon doesn't auto-spawn, and a tool that failed to register
@@ -23,6 +24,7 @@ import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerVehicleTools } from "@danypops/vehicle-client-pi";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { discussLiveFollowUp } from "./discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "./service-client.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
@@ -39,6 +41,8 @@ const REGISTERED_PERMISSIONS = [
 	"playbooks:write",
 	"tasks:read",
 	"tasks:write",
+	"discuss:read",
+	"discuss:write",
 	"artifact:read",
 	"artifact:write",
 ];
@@ -92,6 +96,15 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 			// token-cost router correlating its own telemetry with the currently focused task)
 			// -- has no Vehicle-transport equivalent, so it's emitted here, client-side, rather
 			// than from the operation's own output.
+			// discuss.open/discuss.reply's own live:true synchronous human round-trip --
+			// see discuss-live-follow-up.ts. Every other operation's resolver call
+			// returns undefined, meaning zero behavior change for the other 5 domains.
+			interactiveFollowUps: (descriptor) =>
+				descriptor.name === "discuss.open" || descriptor.name === "discuss.reply" ? discussLiveFollowUp : undefined,
+			// The retired discuss tool declared executionMode: "sequential" so the model
+			// couldn't batch a live ask alongside other tool calls in the same turn and
+			// let those run before the human sees the prompt -- same reasoning here.
+			executionMode: (descriptor) => (descriptor.name === "discuss.open" || descriptor.name === "discuss.reply" ? "sequential" : undefined),
 			onInvoked: ({ descriptor }, output) => {
 				if (descriptor.name === "tasks.focus") {
 					const artifact = output as { id: string } | undefined;

@@ -35,7 +35,7 @@
       "version": "0.45.0",
       "dependencies": {
         "@danypops/jittor": "^0.14.0",
-        "@danypops/papyrus": "^0.43.0",
+        "@danypops/papyrus": "^0.44.0",
         "@danypops/vehicle-client": "^0.5.0",
         "@danypops/vehicle-client-pi": "^0.13.0",
         "@danypops/vehicle-core": "^0.10.0",
@@ -616,8 +616,6 @@
     "@danypops/jittor/@danypops/vehicle-client": ["@danypops/vehicle-client@0.1.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.1.0", "@danypops/vehicle-server": "^0.1.1" } }, "sha512-A1Jl1CQZqgaVDbj/BLMPqRDrZUKFtPlI34YMQfOJQYa7zRbTUEvxdOBDEmivDm6vKQinKt7ifaUO9c5VdwKJSQ=="],
 
     "@danypops/jittor/@danypops/vehicle-server": ["@danypops/vehicle-server@0.3.2", "", { "dependencies": { "@danypops/vehicle-core": "^0.1.1", "pino": "^10.3.1" } }, "sha512-EmeYP2zd1+MAMkeJeqR2rC2KoqI6Ws2qhzPflRPgZlb7wx8SSjXNYghTLx84APepd+ljlADMLvM8JvGn/HJG2g=="],
-
-    "@danypops/pi-papyrus/@danypops/papyrus": ["@danypops/papyrus@0.43.0", "", { "dependencies": { "@danypops/vehicle-client": "^0.5.0", "@danypops/vehicle-core": "^0.10.0", "@danypops/vehicle-server": "^0.11.0" }, "bin": { "papyrus": "src/cli.ts" } }, "sha512-o8nOgUml192W1UxhoUGWmss/gbQ7d4NW/LjMZbDjTGiLX48ZmtuInUXRr5pzUU2twGY930gu/URGNOsBmd4wKg=="],
 
     "@danypops/vehicle-client-pi/malevich-tui-components": ["malevich-tui-components@0.19.1", "", {}, "sha512-4WPZ268h3dhz2deI+bdcmkxNG+DRrjGS4R71wLLDQwyrOPCmOjefgNvNbTthfBcu+wy4ih40vglmuVOt9I+xag=="],
 

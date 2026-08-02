@@ -32,6 +32,17 @@ function statusColor(status: string): SemanticColor {
 	return "muted";
 }
 
+function focusLine(focus: ArtifactToolDetails["focus"], theme: Theme): string {
+	if (!focus) return "";
+	// Focus's own active/paused dimension is separate from the artifact's
+	// lifecycle status shown in the header above -- never merge the two.
+	if (focus.status === "paused") {
+		const reason = focus.pauseReason ? ` — ${focus.pauseReason}` : "";
+		return theme.fg("warning", `‖ focus paused${reason}`);
+	}
+	return theme.fg("accent", `▶ focus ${focus.status}`);
+}
+
 export function kindGlyph(kind: string): string {
 	return KIND_GLYPHS[kind] ?? "•";
 }
@@ -90,6 +101,10 @@ export class ArtifactCard implements Component {
 		].join("  ");
 		const lines = [truncateToWidth(header, safeWidth)];
 		lines.push(truncateToWidth(this.theme.fg("text", artifact.title), safeWidth));
+
+		if (this.details.focus) {
+			lines.push(truncateToWidth(focusLine(this.details.focus, this.theme), safeWidth));
+		}
 
 		if (this.expanded) {
 			const metadata = [artifact.subtype, ...artifact.labels].filter(Boolean).join(" · ");

@@ -104,4 +104,72 @@ describe("papyrusVehicleRenderers", () => {
 		);
 		expect(component.render(80).join("\n")).toContain("backend unreachable");
 	});
+
+	it("renders tasks.focused/pause/unpause's {artifact, status, updatedAt} wrapper as the curated artifact card, not a raw JSON dump", () => {
+		const { renderResult: renderFocused } = papyrusVehicleRenderers(descriptor("tasks.focused"));
+		const component = renderFocused!(
+			{
+				content: [],
+				details: {
+					vehicle: vehicleIdentity,
+					output: { artifact: artifact({ title: "Focused task" }), status: "active", updatedAt: "2026-01-02T00:00:00.000Z" },
+				},
+			},
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Focused task");
+		expect(text).toContain("focus active");
+	});
+
+	it("distinguishes a paused focus, including its reason, from the artifact's own lifecycle status", () => {
+		const { renderResult: renderPause } = papyrusVehicleRenderers(descriptor("tasks.pause"));
+		const component = renderPause!(
+			{
+				content: [],
+				details: {
+					vehicle: vehicleIdentity,
+					output: {
+						artifact: artifact({ title: "Paused task", status: "in-progress" }),
+						status: "paused",
+						updatedAt: "2026-01-02T00:00:00.000Z",
+						pauseReason: "waiting on review",
+					},
+				},
+			},
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("in-progress"); // the artifact's own lifecycle status, unchanged
+		expect(text).toContain("focus paused");
+		expect(text).toContain("waiting on review");
+	});
+
+	it("renders a friendly message for tasks.focused's null (nothing focused) output, not the literal word 'null'", () => {
+		const { renderResult: renderFocused } = papyrusVehicleRenderers(descriptor("tasks.focused"));
+		const component = renderFocused!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: null } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text.toLowerCase()).toContain("no focused task");
+		expect(text).not.toBe("null");
+	});
+
+	it("does not misrender an unrelated null output as a focus state -- scoped to tasks.focused by name", () => {
+		const { renderResult: renderShow } = papyrusVehicleRenderers(descriptor("docs.show"));
+		const component = renderShow!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: null } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		expect(component.render(80).join("\n").toLowerCase()).not.toContain("focused");
+	});
 });

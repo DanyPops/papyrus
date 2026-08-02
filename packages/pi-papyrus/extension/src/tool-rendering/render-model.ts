@@ -37,10 +37,22 @@ interface ToolDetailsBase {
 	kind: string;
 }
 
+/** Distinct from the artifact's own lifecycle status (todo/in-progress/done/...) --
+ * this is Task Focus's own separate active/paused dimension, carried by
+ * tasks.focused/tasks.pause/tasks.unpause's {artifact, status, updatedAt}
+ * wrapper shape. Never conflate the two: an artifact can be "in-progress"
+ * while its focus is "paused". */
+export interface ArtifactFocusAnnotation {
+	status: string;
+	updatedAt: string;
+	pauseReason?: string;
+}
+
 export interface ArtifactToolDetails extends ToolDetailsBase {
 	kind: "artifact";
 	artifact: ToolArtifact;
 	completeness: ResultCompleteness;
+	focus?: ArtifactFocusAnnotation;
 }
 
 export interface ArtifactListToolDetails extends ToolDetailsBase {
@@ -150,7 +162,7 @@ function artifactSummary(artifact: Artifact): ToolArtifactSummary {
 	};
 }
 
-export function createArtifactDetails(operation: string, artifact: Artifact): ArtifactToolDetails {
+export function createArtifactDetails(operation: string, artifact: Artifact, focus?: ArtifactFocusAnnotation): ArtifactToolDetails {
 	const body = boundedText(artifact.body, TOOL_DETAILS_BODY_MAX_CHARACTERS);
 	return {
 		schemaVersion: PAPYRUS_TOOL_DETAILS_SCHEMA,
@@ -163,6 +175,7 @@ export function createArtifactDetails(operation: string, artifact: Artifact): Ar
 			updatedAt: artifact.updated_at,
 		},
 		completeness: body.completeness,
+		...(focus ? { focus } : {}),
 	};
 }
 
@@ -334,6 +347,15 @@ function isToolArtifact(value: unknown): value is ToolArtifact {
 	);
 }
 
+function isFocusAnnotation(value: unknown): value is ArtifactFocusAnnotation {
+	return (
+		isRecord(value) &&
+		isBoundedString(value.status) &&
+		isBoundedString(value.updatedAt) &&
+		(value.pauseReason === undefined || isBoundedString(value.pauseReason))
+	);
+}
+
 function isGraphEdge(value: unknown): value is ToolGraphEdge {
 	return isRecord(value) && isBoundedString(value.from) && isBoundedString(value.relation) && isBoundedString(value.to);
 }
@@ -371,7 +393,11 @@ export function parsePapyrusToolDetails(value: unknown): PapyrusToolDetails | un
 
 	switch (value.kind) {
 		case "artifact":
-			return isToolArtifact(value.artifact) && isCompleteness(value.completeness) ? (value as unknown as ArtifactToolDetails) : undefined;
+			return isToolArtifact(value.artifact) &&
+				isCompleteness(value.completeness) &&
+				(value.focus === undefined || isFocusAnnotation(value.focus))
+				? (value as unknown as ArtifactToolDetails)
+				: undefined;
 		case "artifact-list":
 			return isBoundedArray(value.rows, TOOL_DETAILS_MAX_ITEMS, isArtifactSummary) &&
 				Number.isSafeInteger(value.total) &&

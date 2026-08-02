@@ -16,9 +16,11 @@ import type { Artifact } from "@danypops/papyrus";
 import type { VehicleToolRenderers } from "@danypops/vehicle-client-pi";
 import { renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, Text } from "@earendil-works/pi-tui";
 import { ArtifactCard } from "./tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "./tool-rendering/artifact-list.ts";
-import { createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
+import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
 
 function isArtifact(value: unknown): value is Artifact {
 	if (typeof value !== "object" || value === null) return false;
@@ -40,6 +42,35 @@ function isArtifactArray(value: unknown): value is Artifact[] {
 	return Array.isArray(value) && value.every(isArtifact);
 }
 
+/** tasks.focused/tasks.pause/tasks.unpause's own wrapper shape -- an Artifact
+ * plus Task Focus's separate active/paused dimension. Detected the same
+ * name-independent, shape-based way as isArtifact/isArtifactArray above. */
+interface TaskFocusOutput {
+	artifact: Artifact;
+	status: string;
+	updatedAt: string;
+	pauseReason?: string;
+}
+
+function isTaskFocus(value: unknown): value is TaskFocusOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return (
+		isArtifact(row.artifact) &&
+		typeof row.status === "string" &&
+		typeof row.updatedAt === "string" &&
+		(row.pauseReason === undefined || typeof row.pauseReason === "string")
+	);
+}
+
+function focusAnnotation(output: TaskFocusOutput): ArtifactFocusAnnotation {
+	return { status: output.status, updatedAt: output.updatedAt, ...(output.pauseReason ? { pauseReason: output.pauseReason } : {}) };
+}
+
+function renderNoFocusedTask(theme: Theme): Component {
+	return new Text(theme.fg("dim", "No focused task."), 0, 0);
+}
+
 export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor): VehicleToolRenderers {
 	return {
 		renderResult(result, options, theme, context) {
@@ -50,6 +81,19 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
 				}
 				if (isArtifact(output)) {
 					return new ArtifactCard(createArtifactDetails(descriptor.name, output), theme, options.expanded);
+				}
+				if (isTaskFocus(output)) {
+					return new ArtifactCard(
+						createArtifactDetails(descriptor.name, output.artifact, focusAnnotation(output)),
+						theme,
+						options.expanded,
+					);
+				}
+				// tasks.focused specifically returns null for "nothing focused" --
+				// scoped to this one operation so an unrelated null-output operation
+				// (e.g. a not-found lookup) is never mislabeled as a focus state.
+				if (output === null && descriptor.name === "tasks.focused") {
+					return renderNoFocusedTask(theme);
 				}
 			}
 			return renderVehicleResult(descriptor, result, options, theme, context);

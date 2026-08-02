@@ -9,7 +9,6 @@ import {
 	expandHint,
 	kindGlyph,
 	statusGlyph,
-	treeConnector,
 } from "../extension/src/tool-rendering/artifact-card.ts";
 import { createArtifactDetails } from "../extension/src/tool-rendering/render-model.ts";
 
@@ -73,8 +72,6 @@ describe("Papyrus tool rendering primitives", () => {
 		expect(statusGlyph("rejected")).toBe("✗");
 		expect(countSummary(3, 10)).toBe("3 of 10");
 		expect(emptyState("tasks")).toBe("No tasks.");
-		expect(treeConnector(true)).toBe("└─");
-		expect(treeConnector(false)).toBe("├─");
 		expect(expandHint()).toBe("expand for details");
 	});
 });

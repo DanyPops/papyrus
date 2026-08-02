@@ -59,10 +59,6 @@ export function emptyState(noun: string): string {
 	return `No ${noun}.`;
 }
 
-export function treeConnector(last: boolean): string {
-	return last ? "└─" : "├─";
-}
-
 export function expandHint(): string {
 	return "expand for details";
 }

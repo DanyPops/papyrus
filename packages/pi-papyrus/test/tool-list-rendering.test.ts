@@ -63,4 +63,13 @@ describe("Papyrus list and hierarchy rendering", () => {
 			expect(lines.join("\n")).toContain("└─");
 		}
 	});
+
+	it("surfaces a non-containment edge (e.g. depends_on) as an annotation, where it previously vanished silently", () => {
+		const nodes = [artifact(0), artifact(1)];
+		const graph = createGraphDetails("tasks.graph", nodes, [{ from: "task-0", relation: "depends_on", to: "task-1" }]);
+		const preview = new TaskHierarchyPreview(graph, theme, false);
+		const text = preview.render(120).join("\n");
+		expect(text).toContain("depends on");
+		expect(text).toContain("Task 0 with enough title text to exercise narrow rendering");
+	});
 });

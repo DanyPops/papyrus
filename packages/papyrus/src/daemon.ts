@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
 import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
@@ -28,6 +30,12 @@ const TASK_READ_ONLY_OPERATIONS = new Set([
 /** Start the supervised, long-running Papyrus service. */
 export function serveMain(): void {
 	const stateDir = daemonStateDir();
+	const lockPath = join(stateDir, "daemon.lock");
+	const lock = acquireDaemonLock(lockPath);
+	if (!lock.acquired) {
+		logEvent("info", "already_running", { holderPid: lock.holderPid });
+		return;
+	}
 	const token = loadOrCreateToken(stateDir);
 	const service = createPapyrusService(dbPath());
 	const pushChannel = new PushChannel({ token });
@@ -54,6 +62,7 @@ export function serveMain(): void {
 	});
 	if (!server.port) {
 		service.close();
+		releaseDaemonLock(lockPath);
 		throw new Error("Papyrus daemon failed to bind a listener");
 	}
 	writeDaemonPort(stateDir, server.port);
@@ -101,6 +110,7 @@ export function serveMain(): void {
 		clearInterval(reapFocusTimer);
 		clearInterval(purgeTrashTimer);
 		clearDaemonPort(stateDir);
+		releaseDaemonLock(lockPath);
 		service.close();
 		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare
 		// unhandled-rejection warning into a real, queryable shutdown-failure log line.

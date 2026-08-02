@@ -1,6 +1,6 @@
 {
   "name": "@danypops/papyrus",
-  "version": "0.44.0",
+  "version": "0.44.1",
   "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
   "type": "module",
   "keywords": ["pi-package"],
@@ -36,6 +36,6 @@
   "dependencies": {
     "@danypops/vehicle-core": "^0.10.0",
     "@danypops/vehicle-client": "^0.5.0",
-    "@danypops/vehicle-server": "^0.11.0"
+    "@danypops/vehicle-server": "^0.13.0"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@danypops/pi-papyrus",
-  "version": "0.43.5",
+  "version": "0.43.6",
   "description": "Pi host extension for Papyrus: native tools, TUI panels, and context injection over the daemon-backed graph store",
   "type": "module",
   "keywords": ["pi-package"],

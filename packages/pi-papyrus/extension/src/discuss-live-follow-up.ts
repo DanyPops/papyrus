@@ -16,6 +16,8 @@ import { readDiscussionExtra } from "@danypops/papyrus";
 import type { PiVehicleInteractiveFollowUp } from "@danypops/vehicle-client-pi";
 import { askQuestion } from "./discuss-ask-view.ts";
 
+const LIVE_REPLY_PERMISSIONS = ["discuss:read", "discuss:write"] as const;
+
 export const discussLiveFollowUp: PiVehicleInteractiveFollowUp = async (request, output, client) => {
 	const live = (request.input as { live?: unknown } | undefined)?.live === true;
 	if (!live || !request.context.hasUI) return undefined;
@@ -52,13 +54,22 @@ export const discussLiveFollowUp: PiVehicleInteractiveFollowUp = async (request,
 	});
 	if (!answer) return undefined; // canceled, or no UI capable of answering -- default content/details stand
 
-	const answered = (await client.invoke("discuss.reply", 1, {
-		id: result.discussion.id,
-		actor: "human",
-		content: answer.content,
-		...(answer.selected ? { selected: answer.selected } : {}),
-		source: "discuss-live",
-	})) as DiscussionAndRounds;
+	const answered = (await client.invoke(
+		"discuss.reply",
+		1,
+		{
+			id: result.discussion.id,
+			actor: "human",
+			content: answer.content,
+			...(answer.selected ? { selected: answer.selected } : {}),
+			source: "discuss-live",
+		},
+		{
+			permissions: LIVE_REPLY_PERMISSIONS,
+			principal: { id: "pi-papyrus" },
+			signal: request.signal,
+		},
+	)) as DiscussionAndRounds;
 	return {
 		content: [{ type: "text", text: `"${answered.discussion.title}": ${answer.content}` }],
 		output: answered,

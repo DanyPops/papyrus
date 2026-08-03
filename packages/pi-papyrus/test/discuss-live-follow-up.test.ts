@@ -33,12 +33,15 @@ function fakeRequest(overrides: Partial<PiVehicleInvocationRequest> = {}): PiVeh
 	};
 }
 
-function fakeClient(overrides: Partial<VehicleClient> = {}): { client: VehicleClient; calls: Array<{ name: string; input: unknown }> } {
-	const calls: Array<{ name: string; input: unknown }> = [];
+function fakeClient(overrides: Partial<VehicleClient> = {}): {
+	client: VehicleClient;
+	calls: Array<{ name: string; input: unknown; options: unknown }>;
+} {
+	const calls: Array<{ name: string; input: unknown; options: unknown }> = [];
 	const client: VehicleClient = {
 		manifest: async () => ({ name: "papyrus", version: "1.0.0", description: "", operations: [] }),
-		invoke: (async (name: string, _version: number, input: unknown) => {
-			calls.push({ name, input });
+		invoke: (async (name: string, _version: number, input: unknown, options: unknown) => {
+			calls.push({ name, input, options });
 			if (name === "discuss.reply") {
 				return {
 					discussion: { ...OPENED_DISCUSSION, title: "Ship or not?" },
@@ -116,6 +119,10 @@ describe("discussLiveFollowUp", () => {
 		expect(result?.content[0]).toMatchObject({ text: '"Ship or not?": Yes, ship Friday' });
 		const replyCall = calls.find((call) => call.name === "discuss.reply");
 		expect(replyCall?.input).toMatchObject({ id: "d1", actor: "human", content: "Yes, ship Friday", source: "discuss-live" });
+		expect(replyCall?.options).toMatchObject({
+			permissions: ["discuss:read", "discuss:write"],
+			principal: { id: "pi-papyrus" },
+		});
 	});
 
 	it("live:true with a pending structured choice: renders the picker (ctx.ui.select for single mode), never freeform", async () => {

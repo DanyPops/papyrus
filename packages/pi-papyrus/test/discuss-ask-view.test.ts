@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { driveComponent, renderToTerminal } from "@danypops/pi-tui-harness";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
+import { type Component, KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import {
 	askQuestion,
 	ensureTypingCourtesyTracking,
@@ -38,7 +39,7 @@ const ESCAPE = "\x1b";
 
 /**
  * setEditorComponent as the real interactive TUI would run it, exercising the genuine
- * AskComponent/WrappedSingleSelectList/MultiSelectList code the same way a real session would.
+ * AskComponent/WrappedSingleSelectList/DiscussionMultiSelectList code the same way a real session would.
  * Ignores the SECOND setEditorComponent call (restoring the previous factory once answered)
  * rather than treating it as a new ask.
  */
@@ -168,6 +169,71 @@ describe("discuss-ask-view: Discuss's own live:true ask UI, owned end-to-end", (
 			allowMultiple: true,
 		});
 		expect(answer).toEqual({ content: "us-east, eu-west", selected: ["us-east", "eu-west"] });
+	});
+
+	it("multi-select: moving past the four-row viewport keeps the focused topic visible and toggleable", async () => {
+		const tui = { terminal: { rows: 20 }, requestRender: () => {} };
+		let component: Component | undefined;
+		const ctx = {
+			cwd: "/tmp",
+			hasUI: true,
+			ui: {
+				select: async () => {
+					throw new Error("unexpected dialog fallback");
+				},
+				input: async () => {
+					throw new Error("unexpected dialog fallback");
+				},
+				notify: () => {},
+				theme,
+				getEditorText: () => "",
+				getEditorComponent: () => undefined,
+				setEditorComponent: (factory: any) => {
+					if (factory) component = factory(tui, { borderColor: (s: string) => s, selectList: {} }, keybindings);
+				},
+			} as any,
+		} as ExtensionContext;
+		const topics = [
+			"Per-item output budgeting",
+			"Persisted-graph reliability",
+			"TypeScript call-hierarchy failure handling",
+			"Symbol and dataflow history",
+			"Cross-workspace symbol search",
+			"Package-source cache lifecycle",
+			"Workspace annotation freshness",
+		];
+		const pending = askQuestion(ctx, {
+			question: "Triage Lector notes into concrete tasks",
+			options: topics.map((title) => ({ title })),
+			allowMultiple: true,
+		});
+		const driven = driveComponent(component!);
+		const visibleText = async (): Promise<string> => {
+			const frame = driven.render(100);
+			const terminal = await renderToTerminal(frame, { cols: 100, rows: frame.length });
+			try {
+				return terminal.plainLines().join("\n");
+			} finally {
+				terminal.dispose();
+			}
+		};
+
+		const initial = await visibleText();
+		expect(initial).toContain("4. [ ] Symbol and dataflow history");
+		expect(initial).not.toContain("5. [ ] Cross-workspace symbol search");
+
+		driven.pressKeys(["down", "down", "down", "down"]);
+		expect(await visibleText()).toContain("→ 5. [ ] Cross-workspace symbol search");
+
+		driven.pressKey("space");
+		expect(await visibleText()).toContain("→ 5. [✓] Cross-workspace symbol search");
+		driven.pressKey("space");
+		expect(await visibleText()).toContain("→ 5. [ ] Cross-workspace symbol search");
+		driven.pressKeys(["space", "enter"]);
+		expect(await pending).toEqual({
+			content: "Cross-workspace symbol search",
+			selected: ["Cross-workspace symbol search"],
+		});
 	});
 
 	it("escape cancels the picker -- resolves to undefined, never a fabricated answer", async () => {

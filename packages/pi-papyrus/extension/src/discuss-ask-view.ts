@@ -1,15 +1,17 @@
 /**
- * discuss-ask-view.ts — Discuss's own live:true synchronous ask UI: searchable single-select
- * with a split-pane description preview, a checkbox multi-select, an integrated freeform
- * editor, an optional post-selection comment, docked in the real input editor (never a floating
- * overlay), and an auto-dismiss timeout. Owned end-to-end by Papyrus/Discuss -- no runtime
- * dependency on or delegation to another package's registered tool.
+ * Discuss's live:true prompt orchestration: searchable single-select, checkbox multi-select,
+ * freeform replies, and optional comments docked in Pi's input editor. Multi-select state and
+ * viewport behavior come from Vehicle's Pi binding of Malevich; this module owns only
+ * Discussion-specific modes and response mapping.
  *
- * Substantially adapted from pi-ask-user's index.ts (MIT, Copyright (c) 2026 Enzo Lucchesi --
- * full notice in THIRD_PARTY_LICENSES.md), with the standalone-tool plumbing (schema, tool
- * registration, its own event emission, malformed-options recovery for other tools' schemas)
- * removed since Discuss already owns its schema, persistence, and rendering.
+ * The single-select/editor flow is adapted from pi-ask-user (MIT, Copyright (c) 2026 Enzo
+ * Lucchesi; full notice in THIRD_PARTY_LICENSES.md).
  */
+import {
+	createMultiSelectList,
+	type MultiSelectListItem,
+	type MultiSelectList as SharedMultiSelectList,
+} from "@danypops/vehicle-client-pi/multi-select-list";
 import type { AgentToolUpdateCallback, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
@@ -283,185 +285,98 @@ function matchesSelectDown(data: string, keybindings: KeybindingsManager): boole
 	return keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.tab) || matchesKey(data, VIM_SELECT_DOWN_KEY);
 }
 
-class MultiSelectList implements Component {
-	private selectedIndex = 0;
-	private checked = new Set<number>();
+type DiscussionMultiSelectChoice =
+	| { readonly kind: "option"; readonly option: AskOption }
+	| { readonly kind: "comment" }
+	| { readonly kind: "freeform" };
+
+class DiscussionMultiSelectList implements Component {
+	private readonly list: SharedMultiSelectList<DiscussionMultiSelectChoice>;
+	private readonly commentIndex: number | undefined;
 	private commentEnabled = false;
-	private cachedWidth?: number;
-	private cachedLines?: string[];
 
 	public onCancel?: () => void;
 	public onSubmit?: (result: string[]) => void;
 	public onEnterFreeform?: () => void;
 
 	constructor(
-		private options: AskOption[],
-		private allowFreeform: boolean,
-		private allowComment: boolean,
-		private theme: Theme,
-		private keybindings: KeybindingsManager,
-		private commentToggle: ResolvedShortcut,
-	) {}
+		options: AskOption[],
+		allowFreeform: boolean,
+		allowComment: boolean,
+		theme: Theme,
+		keybindings: KeybindingsManager,
+		private readonly commentToggle: ResolvedShortcut,
+	) {
+		const items: Array<MultiSelectListItem<DiscussionMultiSelectChoice>> = options.map((option, index) => ({
+			value: { kind: "option", option },
+			label: option.title,
+			...(option.description ? { description: option.description } : {}),
+			...(index < 9 ? { shortcut: String(index + 1) } : {}),
+			numberLabel: String(index + 1),
+		}));
+		if (allowComment) {
+			this.commentIndex = items.length;
+			items.push({
+				value: { kind: "comment" },
+				label: COMMENT_TOGGLE_LABEL,
+				includeInSelection: false,
+				confirmAction: "toggle",
+				numberLabel: false,
+			});
+		}
+		if (allowFreeform) {
+			items.push({
+				value: { kind: "freeform" },
+				label: "Type something.",
+				description: "Enter a custom response",
+				toggleable: false,
+				confirmAction: "activate",
+				numberLabel: false,
+			});
+		}
+		this.list = createMultiSelectList<DiscussionMultiSelectChoice>({
+			items,
+			theme,
+			keybindings,
+			onCancel: () => this.onCancel?.(),
+			onToggle: (item: MultiSelectListItem<DiscussionMultiSelectChoice>, checked: boolean) => {
+				if (item.value.kind === "comment") this.commentEnabled = checked;
+			},
+			onActivate: (item: MultiSelectListItem<DiscussionMultiSelectChoice>) => {
+				if (item.value.kind === "freeform") this.onEnterFreeform?.();
+			},
+			onSubmit: (choices: DiscussionMultiSelectChoice[]) => {
+				const titles = choices
+					.filter((choice): choice is Extract<DiscussionMultiSelectChoice, { kind: "option" }> => choice.kind === "option")
+					.map((choice) => choice.option.title);
+				if (titles.length > 0) this.onSubmit?.(titles);
+				else this.onCancel?.();
+			},
+		});
+	}
 
 	public isCommentEnabled(): boolean {
 		return this.commentEnabled;
 	}
+
+	setMaxVisibleRows(rows: number): void {
+		this.list.setMaxVisibleRows(rows);
+	}
+
 	invalidate(): void {
-		this.cachedWidth = undefined;
-		this.cachedLines = undefined;
-	}
-
-	private getItemCount(): number {
-		return this.options.length + (this.allowComment ? 1 : 0) + (this.allowFreeform ? 1 : 0);
-	}
-	private getCommentToggleIndex(): number | null {
-		return this.allowComment ? this.options.length : null;
-	}
-	private getFreeformIndex(): number {
-		return this.options.length + (this.allowComment ? 1 : 0);
-	}
-	private isCommentToggleRow(index: number): boolean {
-		const i = this.getCommentToggleIndex();
-		return i !== null && index === i;
-	}
-	private isFreeformRow(index: number): boolean {
-		return this.allowFreeform && index === this.getFreeformIndex();
-	}
-
-	private toggle(index: number): void {
-		if (index < 0 || index >= this.options.length) return;
-		if (this.checked.has(index)) this.checked.delete(index);
-		else this.checked.add(index);
-	}
-
-	private toggleComment(): void {
-		if (!this.allowComment) return;
-		this.commentEnabled = !this.commentEnabled;
-		this.invalidate();
+		this.list.invalidate();
 	}
 
 	handleInput(data: string): void {
-		if (this.keybindings.matches(data, "tui.select.cancel")) {
-			this.onCancel?.();
+		if (this.commentIndex !== undefined && !this.commentToggle.disabled && this.commentToggle.matches(data)) {
+			this.list.setChecked(this.commentIndex, !this.commentEnabled);
 			return;
 		}
-		const count = this.getItemCount();
-		if (count === 0) {
-			this.onCancel?.();
-			return;
-		}
-		if (this.allowComment && !this.commentToggle.disabled && this.commentToggle.matches(data)) {
-			this.toggleComment();
-			return;
-		}
-
-		if (matchesSelectUp(data, this.keybindings)) {
-			this.selectedIndex = this.selectedIndex === 0 ? count - 1 : this.selectedIndex - 1;
-			this.invalidate();
-			return;
-		}
-		if (matchesSelectDown(data, this.keybindings)) {
-			this.selectedIndex = this.selectedIndex === count - 1 ? 0 : this.selectedIndex + 1;
-			this.invalidate();
-			return;
-		}
-
-		const numMatch = data.match(/^[1-9]$/);
-		if (numMatch) {
-			const idx = Number.parseInt(numMatch[0], 10) - 1;
-			if (idx >= 0 && idx < this.options.length) {
-				this.toggle(idx);
-				this.selectedIndex = Math.min(idx, count - 1);
-				this.invalidate();
-			}
-			return;
-		}
-
-		if (matchesKey(data, Key.space)) {
-			if (this.isCommentToggleRow(this.selectedIndex)) {
-				this.toggleComment();
-				return;
-			}
-			if (this.isFreeformRow(this.selectedIndex)) {
-				this.onEnterFreeform?.();
-				return;
-			}
-			this.toggle(this.selectedIndex);
-			this.invalidate();
-			return;
-		}
-
-		if (this.keybindings.matches(data, "tui.select.confirm")) {
-			if (this.isCommentToggleRow(this.selectedIndex)) {
-				this.toggleComment();
-				return;
-			}
-			if (this.isFreeformRow(this.selectedIndex)) {
-				this.onEnterFreeform?.();
-				return;
-			}
-			const selectedTitles = [...this.checked]
-				.sort((a, b) => a - b)
-				.map((i) => this.options[i]?.title)
-				.filter((t): t is string => !!t);
-			const fallback = this.options[this.selectedIndex]?.title;
-			const result = selectedTitles.length > 0 ? selectedTitles : fallback ? [fallback] : [];
-			if (result.length > 0) this.onSubmit?.(result);
-			else this.onCancel?.();
-		}
+		this.list.handleInput(data);
 	}
 
 	render(width: number): string[] {
-		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
-		const theme = this.theme;
-		const count = this.getItemCount();
-		const maxVisible = Math.min(count, 10);
-		if (count === 0) {
-			this.cachedLines = [theme.fg("warning", "No options")];
-			this.cachedWidth = width;
-			return this.cachedLines;
-		}
-
-		const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), count - maxVisible));
-		const endIndex = Math.min(startIndex + maxVisible, count);
-		const lines: string[] = [];
-
-		for (let i = startIndex; i < endIndex; i++) {
-			const isSelected = i === this.selectedIndex;
-			const prefix = isSelected ? theme.fg("accent", "→") : " ";
-
-			if (this.isCommentToggleRow(i)) {
-				const checkbox = this.commentEnabled ? theme.fg("success", "[✓]") : theme.fg("dim", "[ ]");
-				const label = isSelected
-					? theme.fg("accent", theme.bold(COMMENT_TOGGLE_LABEL))
-					: theme.fg("text", theme.bold(COMMENT_TOGGLE_LABEL));
-				lines.push(truncateToWidth(`${prefix}   ${checkbox} ${label}`, width, ""));
-				continue;
-			}
-			if (this.isFreeformRow(i)) {
-				const label = theme.fg("text", theme.bold("Type something."));
-				const desc = theme.fg("muted", "Enter a custom response");
-				lines.push(truncateToWidth(`${prefix}   ${label} ${theme.fg("dim", "—")} ${desc}`, width, ""));
-				continue;
-			}
-			const option = this.options[i];
-			if (!option) continue;
-			const checkbox = this.checked.has(i) ? theme.fg("success", "[✓]") : theme.fg("dim", "[ ]");
-			const num = theme.fg("dim", `${i + 1}.`);
-			const title = isSelected ? theme.fg("accent", theme.bold(option.title)) : theme.fg("text", theme.bold(option.title));
-			lines.push(truncateToWidth(`${prefix} ${num} ${checkbox} ${title}`, width, ""));
-			if (option.description) {
-				const indent = "      ";
-				for (const w of wrapTextWithAnsi(option.description, Math.max(10, width - indent.length)))
-					lines.push(truncateToWidth(indent + theme.fg("muted", w), width, ""));
-			}
-		}
-
-		if (startIndex > 0 || endIndex < count)
-			lines.push(theme.fg("dim", truncateToWidth(`  (${this.selectedIndex + 1}/${count})`, width, "")));
-		this.cachedWidth = width;
-		this.cachedLines = lines;
-		return lines;
+		return this.list.render(width);
 	}
 }
 
@@ -740,7 +655,7 @@ class AskComponent extends Container {
 	private helpText: Text;
 
 	private singleSelectList?: WrappedSingleSelectList;
-	private multiSelectList?: MultiSelectList;
+	private multiSelectList?: DiscussionMultiSelectList;
 	private editor?: Editor;
 
 	private _focused = false;
@@ -906,7 +821,8 @@ class AskComponent extends Container {
 		const safeBudget = Math.max(0, Math.floor(budget));
 		if (safeBudget <= 0) return [];
 		if (this.mode === "select") {
-			if (!this.allowMultiple) this.ensureSingleSelectList().setMaxVisibleRows(Math.max(1, safeBudget));
+			if (this.allowMultiple) this.ensureMultiSelectList().setMaxVisibleRows(Math.max(1, safeBudget));
+			else this.ensureSingleSelectList().setMaxVisibleRows(Math.max(1, safeBudget));
 			return this.limitLines(this.modeContainer.render(width), safeBudget, width, true);
 		}
 		return this.renderEditorModeLines(width, safeBudget);
@@ -1119,9 +1035,9 @@ class AskComponent extends Container {
 		return list;
 	}
 
-	private ensureMultiSelectList(): MultiSelectList {
+	private ensureMultiSelectList(): DiscussionMultiSelectList {
 		if (this.multiSelectList) return this.multiSelectList;
-		const list = new MultiSelectList(
+		const list = new DiscussionMultiSelectList(
 			this.options,
 			this.allowFreeform,
 			this.allowComment,

@@ -10,9 +10,9 @@ import {
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "./constants.ts";
-import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./discussions/discussion.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "./domain/checklist.ts";
+import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
 import { type Gate, type GateResult, validateGates } from "./domain/gate.ts";
 import type {
 	AppendTaskEvent,

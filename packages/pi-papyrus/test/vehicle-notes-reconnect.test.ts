@@ -17,12 +17,31 @@
  * file), then invoke the SAME already-registered tool again.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import type { PapyrusClient } from "@danypops/papyrus";
 import { bindVehicleOperation, defineVehicleOperation, defineVehicleSchema } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import registerPapyrus from "../extension/src/index.ts";
-import { resetVehicleClientTargetResolverForTests, setVehicleClientTargetResolverForTests } from "../extension/src/service-client.ts";
+import {
+	resetPapyrusClientForTests,
+	resetVehicleClientTargetResolverForTests,
+	setPapyrusClientConnectorForTests,
+	setVehicleClientTargetResolverForTests,
+} from "../extension/src/service-client.ts";
+
+/**
+ * session_start also calls callService("session.register", ...) through the OLD action-dispatch
+ * path (see index.ts), unrelated to the Vehicle target this test overrides below -- left
+ * unmocked, it hits the real connectPapyrusClient() and auto-spawns a real daemon subprocess
+ * against this machine's real, ambient daemonStateDir(). See vehicle-notes-session-start.test.ts
+ * for the same fix and its full rationale.
+ */
+function fakeSessionRegisterClient(): PapyrusClient {
+	return {
+		call: () => Promise.resolve({ sessionId: "session-a", secret: "test-secret" }),
+	} as unknown as PapyrusClient;
+}
 
 const passthroughSchema = defineVehicleSchema<Record<string, unknown>>({
 	jsonSchema: { type: "object" },
@@ -57,12 +76,14 @@ function startServer(instanceLabel: string): { baseUrl: string; stop: () => void
 describe("registerNotesVehicle survives a daemon restart without a Pi extension reload", () => {
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
+		resetPapyrusClientForTests();
 	});
 
 	it("a tool registered against the original daemon keeps working after it restarts on a new port", async () => {
 		let current = startServer("first");
 		let resolvedBaseUrl = current.baseUrl;
 		setVehicleClientTargetResolverForTests(() => ({ baseUrl: resolvedBaseUrl, token: "test-token" }));
+		setPapyrusClientConnectorForTests(() => Promise.resolve(fakeSessionRegisterClient()));
 
 		const registeredTools = new Map<string, ToolDefinition<never, never>>();
 		const sessionStartHandlers: Array<(event: unknown, ctx: unknown) => unknown> = [];

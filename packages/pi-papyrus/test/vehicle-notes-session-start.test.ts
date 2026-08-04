@@ -16,9 +16,32 @@
  * no-op'ing on an unresolved target.
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import type { PapyrusClient } from "@danypops/papyrus";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerPapyrus from "../extension/src/index.ts";
-import { resetVehicleClientTargetResolverForTests, setVehicleClientTargetResolverForTests } from "../extension/src/service-client.ts";
+import {
+	resetPapyrusClientForTests,
+	resetVehicleClientTargetResolverForTests,
+	setPapyrusClientConnectorForTests,
+	setVehicleClientTargetResolverForTests,
+} from "../extension/src/service-client.ts";
+
+/**
+ * session_start also calls callService("session.register", ...) (see index.ts) through the
+ * OLD action-dispatch path, not Vehicle -- unlike setVehicleClientTargetResolverForTests, that
+ * path defaults to the real connectPapyrusClient(), which auto-spawns a real daemon subprocess
+ * against this machine's real, ambient daemonStateDir() when nothing else is running. That real
+ * spawn+poll is exactly what every other test file touching callService() already avoids via
+ * this same override (see service-client.test.ts, task-widget.test.ts, etc.) -- confirmed live:
+ * omitting it here let this test's timing depend on whether a real Papyrus daemon happened to
+ * already be running on the machine running it, passing in under 150ms locally (a real daemon
+ * usually is) while a machine with none hits the real autostart poll instead.
+ */
+function fakeSessionRegisterClient(): PapyrusClient {
+	return {
+		call: () => Promise.resolve({ sessionId: "session-a", secret: "test-secret" }),
+	} as unknown as PapyrusClient;
+}
 
 function emptyManifestServer(): { baseUrl: string; stop: () => void } {
 	const server = Bun.serve({
@@ -36,12 +59,14 @@ function emptyManifestServer(): { baseUrl: string; stop: () => void } {
 describe("registerNotesVehicle is deferred to session_start, not called from the top-level factory body", () => {
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
+		resetPapyrusClientForTests();
 	});
 
 	it("never touches pi.getAllTools/getActiveTools/setActiveTools until a session_start handler actually fires", async () => {
 		const { baseUrl, stop } = emptyManifestServer();
 		try {
 			setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));
+			setPapyrusClientConnectorForTests(() => Promise.resolve(fakeSessionRegisterClient()));
 
 			let actionMethodCalls = 0;
 			const sessionStartHandlers: Array<(event: unknown, ctx: unknown) => unknown> = [];

@@ -1,7 +1,13 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { fileURLToPath } from "node:url";
+import { spawnCompanionDaemon } from "@danypops/pi-process-harness";
 import { connectPapyrusClient } from "../src/client.ts";
+import { DAEMON_DIR_ENV } from "../src/constants.ts";
 import { readDaemonHandle } from "../src/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
+/** connectPapyrusClient's own connectWithPolicy default -- see @danypops/vehicle-client's daemon-client.ts. A cold boot must finish well inside this or a real caller sees the exact CI-only hang this test guards against. */
+const AUTOSTART_POLL_CEILING_MS = 5_000;
 
 afterAll(cleanupTempDirs);
 
@@ -67,6 +73,58 @@ describe("connectPapyrusClient -- real subprocess auto-spawn", () => {
 			} catch {
 				/* already gone */
 			}
+		}
+	}, 15_000);
+});
+
+/**
+ * Regression for a real CI failure: pi-papyrus's own vehicle-notes-*.test.ts files called
+ * registerPapyrus(api) + fired session_start without mocking callService's daemon connector, so
+ * session_start's session.register call fell through to this exact real cold-boot path. Locally
+ * that always raced against a real Papyrus daemon already running for unrelated reasons (fast:
+ * a live health check, no spawn at all); a from-scratch CI runner has no such daemon and
+ * exercises the real spawn+poll every time. Those two tests are now hermetic (see
+ * vehicle-notes-session-start.test.ts / vehicle-notes-reconnect.test.ts) and no longer depend on
+ * this timing at all -- this is the durable, harness-based replacement for the ad hoc bash timing
+ * probes used to diagnose that failure, so a future regression in cli.ts's own boot path is
+ * caught here directly instead of surfacing as an unexplained downstream CI hang.
+ */
+describe("cli.ts serve -- real subprocess cold-boot timing", () => {
+	it("becomes ready (handle written, /health answering) well inside connectPapyrusClient's own autostart poll ceiling", async () => {
+		const root = tempDir("papyrus-cold-boot-");
+		const dir = `${root}/daemon-dir`;
+		const env = { ...isolatedEnv(root), [DAEMON_DIR_ENV]: dir };
+
+		let healthyBaseUrl: string | undefined;
+		const startedAt = Date.now();
+		const daemon = await spawnCompanionDaemon({
+			command: "bun",
+			args: [fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "serve"],
+			env,
+			isReady: async () => {
+				const handle = readDaemonHandle(dir);
+				if (!handle) return false;
+				try {
+					const response = await fetch(`${handle.baseUrl}/health`, { headers: { authorization: `Bearer ${handle.token}` } });
+					if (!response.ok) return false;
+					healthyBaseUrl = handle.baseUrl;
+					return true;
+				} catch {
+					return false;
+				}
+			},
+			readyTimeoutMs: AUTOSTART_POLL_CEILING_MS,
+		});
+		const elapsedMs = Date.now() - startedAt;
+
+		try {
+			expect(healthyBaseUrl).toBeDefined();
+			// A real regression margin, not a tight race against the ceiling itself: a boot legitimately
+			// this slow already leaves no headroom for connectPapyrusClient's own health probe
+			// (DAEMON_PROBE_TIMEOUT_MS) and version check on top, so treat half the ceiling as the real bound.
+			expect(elapsedMs).toBeLessThan(AUTOSTART_POLL_CEILING_MS / 2);
+		} finally {
+			if (daemon.exitCode === null) await daemon.dispose();
 		}
 	}, 15_000);
 });

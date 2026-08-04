@@ -26,13 +26,14 @@
         "@danypops/vehicle-server": "^0.13.0",
       },
       "devDependencies": {
+        "@danypops/pi-process-harness": "^0.1.0",
         "bun-types": "latest",
         "typescript": "^5.7.3",
       },
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.45.2",
+      "version": "0.45.3",
       "dependencies": {
         "@danypops/jittor": "^0.14.0",
         "@danypops/papyrus": "^0.44.0",
@@ -135,6 +136,8 @@
     "@danypops/papyrus": ["@danypops/papyrus@workspace:packages/papyrus"],
 
     "@danypops/pi-papyrus": ["@danypops/pi-papyrus@workspace:packages/pi-papyrus"],
+
+    "@danypops/pi-process-harness": ["@danypops/pi-process-harness@0.1.0", "", { "dependencies": { "@earendil-works/pi-ai": "*" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*" } }, "sha512-CAGoKVm0WfP/foX+8I3kfYEnIgkzNfLaAK3+DTmA54WkFZbgAF7Zs9PjSl/+qqrv+Hr/VvjAqB1G8V61Gi/i8Q=="],
 
     "@danypops/pi-tui-harness": ["@danypops/pi-tui-harness@0.0.2", "", { "dependencies": { "@xterm/headless": "^6.0.0" }, "peerDependencies": { "@earendil-works/pi-tui": "*" } }, "sha512-XIQI2qNiH6/DSOXWOu27P7CG+ptXJsafbsEiS2LZMmuEMG9Ve5bpVhbC4xgOu8wuZF9ysAZEi8p5L6ZOoK50vw=="],
 

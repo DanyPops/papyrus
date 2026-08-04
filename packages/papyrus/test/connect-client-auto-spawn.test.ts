@@ -95,26 +95,47 @@ describe("cli.ts serve -- real subprocess cold-boot timing", () => {
 		const dir = `${root}/daemon-dir`;
 		const env = { ...isolatedEnv(root), [DAEMON_DIR_ENV]: dir };
 
+		// spawnCompanionDaemon disposes its process and rethrows on a readiness timeout without
+		// exposing it to the caller -- this closure is the only diagnostic surface left for "why"
+		// once that happens, so every attempt's own outcome is tracked here instead of discarded.
 		let healthyBaseUrl: string | undefined;
+		let attempts = 0;
+		let lastObservation = "isReady was never called";
 		const startedAt = Date.now();
-		const daemon = await spawnCompanionDaemon({
-			command: "bun",
-			args: [fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "serve"],
-			env,
-			isReady: async () => {
-				const handle = readDaemonHandle(dir);
-				if (!handle) return false;
-				try {
-					const response = await fetch(`${handle.baseUrl}/health`, { headers: { authorization: `Bearer ${handle.token}` } });
-					if (!response.ok) return false;
-					healthyBaseUrl = handle.baseUrl;
-					return true;
-				} catch {
-					return false;
-				}
-			},
-			readyTimeoutMs: AUTOSTART_POLL_CEILING_MS,
-		});
+		let daemon: Awaited<ReturnType<typeof spawnCompanionDaemon>> | undefined;
+		try {
+			daemon = await spawnCompanionDaemon({
+				command: "bun",
+				args: [fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "serve"],
+				env,
+				isReady: async () => {
+					attempts++;
+					const handle = readDaemonHandle(dir);
+					if (!handle) {
+						lastObservation = `attempt ${attempts}: no handle file yet at ${dir}`;
+						return false;
+					}
+					try {
+						const response = await fetch(`${handle.baseUrl}/health`, { headers: { authorization: `Bearer ${handle.token}` } });
+						if (!response.ok) {
+							lastObservation = `attempt ${attempts}: handle=${handle.baseUrl} health returned HTTP ${response.status}`;
+							return false;
+						}
+						healthyBaseUrl = handle.baseUrl;
+						return true;
+					} catch (error) {
+						lastObservation = `attempt ${attempts}: handle=${handle.baseUrl} fetch threw: ${error instanceof Error ? error.message : String(error)}`;
+						return false;
+					}
+				},
+				readyTimeoutMs: AUTOSTART_POLL_CEILING_MS,
+			});
+		} catch (error) {
+			throw new Error(
+				`cli.ts serve never became ready after ${Date.now() - startedAt}ms (${attempts} attempts). Last observation: ${lastObservation}`,
+				{ cause: error },
+			);
+		}
 		const elapsedMs = Date.now() - startedAt;
 
 		try {

@@ -251,15 +251,32 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		service.close();
 	});
 
+	it("invoking a playbook whose own composition tree contains a depends_on cycle reports its own classified error instead of an opaque handler-failed wrap", async () => {
+		const { registry, service } = harness();
+		const first = (await registry.invoke("playbooks.create", 1, { title: "Cycle A", steps: ["Step"] }, PERMS)) as { id: string };
+		const second = (await registry.invoke("playbooks.create", 1, { title: "Cycle B", steps: ["Step"] }, PERMS)) as { id: string };
+		await registry.invoke("playbooks.depend", 1, { id: first.id, dependency_id: second.id }, PERMS);
+		await registry.invoke("playbooks.depend", 1, { id: second.id, dependency_id: first.id }, PERMS);
+
+		const rejection = await registry.invoke("playbooks.invoke", 1, { id: first.id }, PERMS).catch((error: unknown) => error);
+		// Real incident: this used to arrive only as an opaque "playbooks.invoke@1 handler failed" --
+		// see playbook-definition.ts's compileNode, which throws PlaybookCompositionError for exactly this.
+		expect((rejection as { code?: string }).code).toBe("playbook-composition-invalid");
+		expect((rejection as { category?: string }).category).toBe("validation");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain("composition cycle");
+		service.close();
+	});
+
 	it("invoke authorizes its internal focus write via principal.claims.sessionId/sessionSecret, never a model-visible input field", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("playbooks.create", 1, { title: "Session-scoped", steps: ["Step"] }, PERMS)) as { id: string };
 
 		const { secret } = (await service.execute("session.register", { session_id: "session-1" })) as { sessionId: string; secret: string };
 
-		// A wrong secret for a REGISTERED session id is refused -- assertAuthorized's real check runs.
-		// VehicleRegistry wraps the real domain error in a generic "handler failed" VehicleError,
-		// with the original preserved as .cause.
+		// A wrong secret for a REGISTERED session id is refused -- assertAuthorized's real check runs
+		// and must surface as its own classified VehicleError directly, not buried inside .cause of an
+		// opaque "handler failed" wrap invisible to a caller that doesn't already know to dig for it.
 		const rejection = await registry
 			.invoke(
 				"playbooks.invoke",
@@ -271,9 +288,10 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 				},
 			)
 			.catch((error: unknown) => error);
-		expect(rejection).toBeInstanceOf(Error);
-		expect((rejection as { cause?: unknown }).cause).toBeInstanceOf(Error);
-		expect((rejection as { cause: Error }).cause.message).toContain("session_secret");
+		expect((rejection as { code?: string }).code).toBe("invalid-session-secret");
+		expect((rejection as { category?: string }).category).toBe("authorization");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain("session_secret");
 
 		// The real cached secret authorizes it.
 		const invocation = (await registry.invoke(

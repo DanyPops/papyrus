@@ -21,7 +21,7 @@ import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { projectTaskExecution, type TaskExecutionPlan } from "./task-execution.ts";
+import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskGraph, TaskNode, TaskStatus } from "./task-service.ts";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -304,7 +304,7 @@ export function materializeWorkflowDefinition(
 		rendered.blueprints.tasks.filter((task) => (task.dependsOn?.length ?? 0) === 0).length +
 		rendered.blueprints.skills.filter((call) => (call.dependsOn?.length ?? 0) === 0).length;
 	if (relationshipCount > TASK_EXECUTION_MAX_EDGES) {
-		throw new Error(`workflow run exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
+		throw new TaskExecutionBoundExceededError(`workflow run exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
 	}
 
 	const docs = rendered.blueprints.docs.map((blueprint) =>

@@ -31,6 +31,9 @@ import type { SessionIdentity } from "../session-identity-service.ts";
 import type { Tasks } from "../task-service.ts";
 import {
 	buildWorkflowRunContent,
+	classifyPlaybookComposition,
+	classifySessionAuthorization,
+	classifyTaskExecutionBounds,
 	looseObjectSchema,
 	normalizeJsonEncodedField,
 	numberProp,
@@ -64,7 +67,19 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 	const moduleOperations = new Map(
 		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }).map((op) => [op.name, op]),
 	);
-	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
+	/**
+	 * Every playbooks.* action funnels through here. invoke's own module handler re-runs
+	 * sessionIdentity.assertAuthorized directly (see this file's own doc comment) and its
+	 * blueprint-materialization engine (workflow-execution.ts) can hit the same execution-graph
+	 * bounds tasks-vehicle.ts's own operations do -- classifying both reviewed domain error classes
+	 * at this one choke point covers every action that can throw them. Anything else propagates
+	 * unchanged -- vehicle-registry's own secure-by-default handler-failed opacity still applies to a
+	 * genuine unexpected crash (see artifact-vehicle-shared.ts's classify* helpers).
+	 */
+	const call = (name: string, input: Record<string, unknown>): unknown =>
+		classifySessionAuthorization(() =>
+			classifyTaskExecutionBounds(() => classifyPlaybookComposition(() => moduleOperations.get(name)!.execute(input))),
+		);
 
 	const define = (
 		action: string,

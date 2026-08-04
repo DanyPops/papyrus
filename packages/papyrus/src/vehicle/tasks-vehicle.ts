@@ -28,6 +28,9 @@ import type { SessionIdentity } from "../session-identity-service.ts";
 import type { TaskExecutionPlan } from "../task-execution.ts";
 import type { TaskCompletion, Tasks } from "../task-service.ts";
 import {
+	classifySessionAuthorization,
+	classifyTaskDependencyCycles,
+	classifyTaskExecutionBounds,
 	labelsById,
 	looseObjectSchema,
 	numberProp,
@@ -144,7 +147,17 @@ function planContentText(plan: TaskExecutionPlan): string {
 export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: TasksVehicleDeps): void {
 	const { tasks, artifacts, sessionIdentity } = deps;
 	const moduleOperations = new Map(tasksOperations(tasks, artifacts, sessionIdentity).map((op) => [op.name, op]));
-	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
+	/**
+	 * Every tasks.* action funnels through here, so classifying a handful of reviewed domain error
+	 * classes (execution-graph bounds, dependency cycles, Task Focus authorization) at this one
+	 * choke point covers every action that can throw them. Anything else propagates unchanged --
+	 * vehicle-registry's own secure-by-default handler-failed opacity still applies to a genuine
+	 * unexpected crash (see artifact-vehicle-shared.ts's classify* helpers).
+	 */
+	const call = (name: string, input: Record<string, unknown>): unknown =>
+		classifySessionAuthorization(() =>
+			classifyTaskExecutionBounds(() => classifyTaskDependencyCycles(() => moduleOperations.get(name)!.execute(input))),
+		);
 
 	const define = (
 		action: string,

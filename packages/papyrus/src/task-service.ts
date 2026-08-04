@@ -10,9 +10,9 @@ import {
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "./constants.ts";
+import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./discussions/discussion.ts";
 import type { Artifact } from "./domain/artifact.ts";
 import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "./domain/checklist.ts";
-import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
 import { type Gate, type GateResult, validateGates } from "./domain/gate.ts";
 import type {
 	AppendTaskEvent,
@@ -37,7 +37,7 @@ import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "./ports/task-focus-store.ts";
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "./ports/task-lease-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "./ports/task-scope-store.ts";
-import { assertDependencyEdgeAllowed } from "./task-execution.ts";
+import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
 
 export interface UpdateTaskInput {
 	title?: string;
@@ -625,21 +625,38 @@ export class Tasks {
 		return this.events.atomic(() => {
 			this.require(id);
 			this.require(dependencyId);
-			const graph = this.graph();
+			const graph = this.dependencyCheckGraph(id, dependencyId);
 			assertDependencyEdgeAllowed(graph, id, dependencyId);
 			const node = graph.nodes.find((entry) => entry.task.id === id)!;
 			if (node.dependencyIds.includes(dependencyId)) return this.show(id);
 			if (node.dependencyIds.length >= TASK_EXECUTION_MAX_DEGREE) {
-				throw new Error(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
+				throw new TaskExecutionBoundExceededError(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
 			}
 			const successorCount = graph.nodes.filter((entry) => entry.dependencyIds.includes(dependencyId)).length;
 			if (successorCount >= TASK_EXECUTION_MAX_DEGREE) {
-				throw new Error(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
+				throw new TaskExecutionBoundExceededError(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
 			}
 			this.artifacts.link({ from: id, relation: "depends_on", to: dependencyId }, context);
 			this.appendEvent({ taskId: id, type: "dependency_added", reason: context.reason }, context);
 			return this.show(id);
 		});
+	}
+
+	/**
+	 * Scopes the cycle-check graph to the two endpoints' shared project when they have one, instead
+	 * of building the whole daemon's graph -- a small project's own dependency check must never fail
+	 * just because unrelated tasks in other projects pushed the daemon-wide total over
+	 * TASK_EXECUTION_MAX_NODES. Falls back to the unscoped graph when the endpoints don't share a
+	 * known project (a genuine cross-project dependency), preserving the prior, correct behavior for
+	 * that rarer case.
+	 */
+	private dependencyCheckGraph(id: string, dependencyId: string): TaskGraph {
+		const sourceProject = this.scopes.get(id)?.projectRoot;
+		const targetProject = this.scopes.get(dependencyId)?.projectRoot;
+		if (sourceProject !== undefined && sourceProject === targetProject) {
+			return this.graph({ projectRoot: sourceProject, scope: "project" });
+		}
+		return this.graph();
 	}
 
 	/** Idempotent: undepending an already-absent dependency is a no-op. Never starts, completes, or focuses work — only removes the edge. */
@@ -875,7 +892,7 @@ export class Tasks {
 	}
 
 	/**
-	 * Discuss's forcing behavior (see domain/discussion.ts): an active Discussion doc that
+	 * Discuss's forcing behavior (see discussions/discussion.ts): an active Discussion doc that
 	 * `blocks` this task refuses its completion until settled or deferred. A discussion whose
 	 * extra.discussion shape is missing or corrupt is treated as non-blocking rather than
 	 * crashing completion -- the same fail-open posture Task Focus's opt-in armor uses for an

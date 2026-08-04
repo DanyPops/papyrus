@@ -1,6 +1,22 @@
 import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import type { TaskGraph } from "./task-service.ts";
 
+/** A task execution graph is too large or too densely connected to process safely -- a distinct class (not a plain Error) so the Vehicle adapter layer can classify it into a capacity-category failure instead of an opaque handler-failed. */
+export class TaskExecutionBoundExceededError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "TaskExecutionBoundExceededError";
+	}
+}
+
+/** The requested dependency edge is invalid: a self-dependency, a cycle, or an endpoint missing from the graph it was checked against. */
+export class TaskDependencyCycleError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "TaskDependencyCycleError";
+	}
+}
+
 export type TaskExecutionState = "todo" | "in-progress" | "review" | "rejected" | "done" | "canceled" | "ready" | "blocked" | "invalid";
 
 export interface TaskExecutionNode {
@@ -31,16 +47,16 @@ function executionState(status: string, invalid: boolean, prerequisitesDone: boo
 
 function assertBounds(graph: TaskGraph): void {
 	if (graph.nodes.length > TASK_EXECUTION_MAX_NODES) {
-		throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
+		throw new TaskExecutionBoundExceededError(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
 	}
 	for (const node of graph.nodes) {
 		if (node.dependencyIds.length > TASK_EXECUTION_MAX_DEGREE) {
-			throw new Error(`task "${node.task.id}" exceeds ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
+			throw new TaskExecutionBoundExceededError(`task "${node.task.id}" exceeds ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
 		}
 	}
 	const edgeCount = graph.nodes.reduce((count, node) => count + node.dependencyIds.length, 0);
 	if (edgeCount > TASK_EXECUTION_MAX_EDGES) {
-		throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_EDGES} dependency edges`);
+		throw new TaskExecutionBoundExceededError(`task execution graph exceeds ${TASK_EXECUTION_MAX_EDGES} dependency edges`);
 	}
 }
 
@@ -61,7 +77,7 @@ export function projectTaskExecution(graph: TaskGraph): TaskExecutionPlan {
 		for (const prerequisiteId of prerequisites) {
 			const dependentIds = successors.get(prerequisiteId)!;
 			if (dependentIds.length >= TASK_EXECUTION_MAX_DEGREE) {
-				throw new Error(`task "${prerequisiteId}" exceeds ${TASK_EXECUTION_MAX_DEGREE} successors`);
+				throw new TaskExecutionBoundExceededError(`task "${prerequisiteId}" exceeds ${TASK_EXECUTION_MAX_DEGREE} successors`);
 			}
 			dependentIds.push(node.task.id);
 		}
@@ -113,15 +129,16 @@ export function projectTaskExecution(graph: TaskGraph): TaskExecutionPlan {
 /** Reject a dependency edge when the prerequisite already reaches the dependent. */
 export function assertDependencyEdgeAllowed(graph: TaskGraph, id: string, dependencyId: string): void {
 	assertBounds(graph);
-	if (id === dependencyId) throw new Error(`task "${id}" cannot depend on itself`);
+	if (id === dependencyId) throw new TaskDependencyCycleError(`task "${id}" cannot depend on itself`);
 	const byId = new Map(graph.nodes.map((node) => [node.task.id, node]));
-	if (!byId.has(id) || !byId.has(dependencyId)) throw new Error("dependency endpoints must be present in the task graph");
+	if (!byId.has(id) || !byId.has(dependencyId))
+		throw new TaskDependencyCycleError("dependency endpoints must be present in the task graph");
 
 	const pending = [dependencyId];
 	const visited = new Set<string>();
 	while (pending.length > 0) {
 		const current = pending.pop()!;
-		if (current === id) throw new Error(`dependency cycle: "${id}" cannot depend on "${dependencyId}"`);
+		if (current === id) throw new TaskDependencyCycleError(`dependency cycle: "${id}" cannot depend on "${dependencyId}"`);
 		if (visited.has(current)) continue;
 		visited.add(current);
 		for (const prerequisiteId of byId.get(current)?.dependencyIds ?? []) pending.push(prerequisiteId);

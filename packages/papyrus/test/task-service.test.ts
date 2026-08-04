@@ -410,6 +410,37 @@ describe("Tasks port behavior", () => {
 		expect(artifacts.edges).not.toContainEqual({ from: first.id, relation: "depends_on", to: third.id });
 	});
 
+	it("links a dependency between two tasks sharing one small project, unaffected by unrelated tasks elsewhere pushing the daemon-wide total over the execution-graph bound", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+
+		// TASK_EXECUTION_MAX_NODES is 1000 -- this alone would already break an unscoped graph build.
+		for (let index = 0; index < 1001; index++) {
+			tasks.create({ title: `Filler ${index}`, projectRoot: "/tmp/unrelated-project" });
+		}
+
+		const prerequisite = tasks.create({ title: "Prerequisite", projectRoot: "/tmp/small-project" });
+		const dependent = tasks.create({ title: "Dependent", projectRoot: "/tmp/small-project" });
+
+		expect(() => tasks.depend(dependent.id, prerequisite.id)).not.toThrow();
+		const graph = tasks.graph({ projectRoot: "/tmp/small-project", scope: "project" });
+		expect(graph.nodes.find((node) => node.task.id === dependent.id)?.dependencyIds).toContain(prerequisite.id);
+	});
+
+	it("still enforces the execution-graph bound for a genuine cross-project dependency, which falls back to the unscoped daemon-wide graph", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		for (let index = 0; index < 1001; index++) {
+			tasks.create({ title: `Filler ${index}`, projectRoot: "/tmp/unrelated-project" });
+		}
+		const fromOtherProject = tasks.create({ title: "From project A", projectRoot: "/tmp/project-a" });
+		const toOtherProject = tasks.create({ title: "From project B", projectRoot: "/tmp/project-b" });
+
+		// The two endpoints don't share a project, so the scoping fix's fast path doesn't apply --
+		// this must still fall back to (and correctly enforce) the unscoped daemon-wide bound.
+		expect(() => tasks.depend(fromOtherProject.id, toOtherProject.id)).toThrow("exceeds 1000 nodes");
+	});
+
 	it("starts only tasks whose complete prerequisite set is done", () => {
 		const artifacts = new FakeArtifactStore();
 		const tasks = new Tasks(artifacts, new FakeGateRunner());

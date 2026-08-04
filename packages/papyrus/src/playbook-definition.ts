@@ -45,6 +45,14 @@ export interface PlaybookExternalLink {
 	ownerIsFrom: boolean;
 }
 
+/** A Playbook's own composition tree (contains/depends_on nesting, step-level argument merging) is invalid: a cycle, excessive nesting depth, too many materialized tasks/linked artifacts, or conflicting argument types across nodes -- an ordinary, expected authoring mistake, not an unexpected crash. */
+export class PlaybookCompositionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "PlaybookCompositionError";
+	}
+}
+
 export interface CompiledPlaybook {
 	definition: BlueprintDefinition;
 	/** The very first real leaf task in the whole tree's reading order -- what a caller should focus once materialized. */
@@ -118,7 +126,7 @@ interface CompileNodeResult {
 function mergeArgument(inputs: Record<string, BlueprintInputDefinition>, argument: PlaybookArgument): void {
 	const existing = inputs[argument.name];
 	if (existing && existing.type !== argument.type) {
-		throw new Error(
+		throw new PlaybookCompositionError(
 			`playbook composition declares conflicting types for argument "${argument.name}" (${existing.type} vs ${argument.type})`,
 		);
 	}
@@ -139,9 +147,9 @@ function compileNode(
 	parentRef: string | undefined,
 	incomingPrecedingRefs: string[],
 ): CompileNodeResult {
-	if (ancestorIds.has(playbookId)) throw new Error(`playbook composition cycle includes "${playbookId}"`);
+	if (ancestorIds.has(playbookId)) throw new PlaybookCompositionError(`playbook composition cycle includes "${playbookId}"`);
 	if (depth > PLAYBOOK_INVOCATION_MAX_CALL_DEPTH)
-		throw new Error(`playbook composition exceeds ${PLAYBOOK_INVOCATION_MAX_CALL_DEPTH} levels`);
+		throw new PlaybookCompositionError(`playbook composition exceeds ${PLAYBOOK_INVOCATION_MAX_CALL_DEPTH} levels`);
 	const nextAncestors = new Set([...ancestorIds, playbookId]);
 
 	const playbook = requirePlaybook(artifacts, playbookId);
@@ -156,7 +164,7 @@ function compileNode(
 	};
 	ctx.tasks.push(rootBlueprint);
 	if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS)
-		throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
+		throw new PlaybookCompositionError(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
 
 	const edges = artifacts.relationships({ artifactIds: [playbookId] }).slice(0, PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS);
 	const composablePlaybookIds = nonTrashedPlaybookIds(
@@ -201,7 +209,7 @@ function compileNode(
 			const stepRef = `${rootRef}-s${index}`;
 			ctx.tasks.push({ ref: stepRef, title, body, parent: rootRef, dependsOn: cursorPrecedingRefs });
 			if (ctx.tasks.length > PLAYBOOK_INVOCATION_MAX_CREATED_TASKS)
-				throw new Error(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
+				throw new PlaybookCompositionError(`playbook invocation exceeds ${PLAYBOOK_INVOCATION_MAX_CREATED_TASKS} tasks`);
 			if (headRef === undefined) headRef = stepRef;
 			cursorPrecedingRefs = [stepRef];
 			tailRef = stepRef;

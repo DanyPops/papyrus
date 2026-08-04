@@ -5,8 +5,10 @@
  */
 import { defineVehicleSchema, type VehicleContentBlock, VehicleError, type VehicleSchemaCodec } from "@danypops/vehicle-core";
 import type { Artifact } from "../domain/artifact.ts";
+import { PlaybookCompositionError } from "../playbook-definition.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import type { TaskExecutionPlan } from "../task-execution.ts";
+import { InvalidSessionSecretError } from "../session-identity-service.ts";
+import { TaskDependencyCycleError, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task-execution.ts";
 
 /**
  * VehicleRegistry only ever calls a schema's own safeParse -- jsonSchema is
@@ -58,6 +60,69 @@ export const numberProp = { type: "number" } as const;
  */
 export function validationError(message: string): VehicleError {
 	return new VehicleError("validation-failed", message, { category: "validation" });
+}
+
+/**
+ * tasks.focus/pause/unpause/clear_focus and playbooks.invoke all re-run
+ * sessionIdentity.assertAuthorized(session_id, session_secret) directly, bypassing the guarded
+ * tasks.focus operation (see modules/tasks.ts's guardFocusMutation and modules/playbooks.ts's own
+ * doc comment) -- a real, registered session's own auth failure is an ordinary, expected outcome,
+ * not an unexpected crash, so it must surface as its own classified VehicleError. Real incident:
+ * this used to arrive only inside .cause of an opaque "... handler failed", invisible to a caller
+ * that doesn't already know to dig for it. Anything else propagates unchanged, so vehicle-registry's
+ * own secure-by-default handler-failed opacity still applies to a genuine unexpected crash.
+ */
+export function classifySessionAuthorization<T>(run: () => T): T {
+	try {
+		return run();
+	} catch (error) {
+		if (error instanceof InvalidSessionSecretError) {
+			throw new VehicleError("invalid-session-secret", error.message, { category: "authorization" });
+		}
+		throw error;
+	}
+}
+
+/**
+ * A task execution graph (or a workflow/playbook run materializing one) that exceeds its own
+ * node/edge/degree bound is an ordinary, expected capacity failure, not an unexpected crash --
+ * must surface as its own classified VehicleError instead of vehicle-registry's generic
+ * handler-failed. Shared by tasks-vehicle.ts (create/depend/contain/graph/plan/complete) and
+ * playbooks-vehicle.ts (invoke, which materializes Tasks through the same shared engine).
+ */
+export function classifyTaskExecutionBounds<T>(run: () => T): T {
+	try {
+		return run();
+	} catch (error) {
+		if (error instanceof TaskExecutionBoundExceededError) {
+			throw new VehicleError("task-execution-bound-exceeded", error.message, { category: "capacity" });
+		}
+		throw error;
+	}
+}
+
+/** A self-dependency or dependency-cycle rejection (tasks.depend/undepend/create) is an ordinary, expected validation failure, not an unexpected crash. */
+export function classifyTaskDependencyCycles<T>(run: () => T): T {
+	try {
+		return run();
+	} catch (error) {
+		if (error instanceof TaskDependencyCycleError) {
+			throw new VehicleError("task-dependency-cycle", error.message, { category: "validation" });
+		}
+		throw error;
+	}
+}
+
+/** A Playbook's own composition tree (contains/depends_on nesting) is invalid -- a cycle, excessive depth/size, or conflicting argument types -- an ordinary, expected authoring mistake caught at playbooks.invoke/preview compile time, not an unexpected crash. */
+export function classifyPlaybookComposition<T>(run: () => T): T {
+	try {
+		return run();
+	} catch (error) {
+		if (error instanceof PlaybookCompositionError) {
+			throw new VehicleError("playbook-composition-invalid", error.message, { category: "validation" });
+		}
+		throw error;
+	}
 }
 
 /** A known LLM tool-calling quirk: a nested-object field arrives JSON-stringified rather than as a real object. Mutates input[key] in place when it's a string, leaves it untouched otherwise. */

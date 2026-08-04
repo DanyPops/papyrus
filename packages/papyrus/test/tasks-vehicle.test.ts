@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { VehicleManifestOperation } from "@danypops/vehicle-core";
+import { TASK_EXECUTION_MAX_DEGREE } from "../src/constants.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
@@ -252,6 +253,43 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("a dependency cycle reports its own classified error instead of an opaque handler-failed wrap", async () => {
+		const { registry, service } = harness();
+		const first = (await registry.invoke("tasks.create", 1, { title: "First", project_root: PROJECT }, PERMS)) as { id: string };
+		const second = (await registry.invoke("tasks.create", 1, { title: "Second", project_root: PROJECT }, PERMS)) as { id: string };
+		await registry.invoke("tasks.depend", 1, { id: second.id, dependency_id: first.id, project_root: PROJECT }, PERMS);
+		const rejection = await registry
+			.invoke("tasks.depend", 1, { id: first.id, dependency_id: second.id, project_root: PROJECT }, PERMS)
+			.catch((error: unknown) => error);
+		// Real incident: this used to arrive only as an opaque "tasks.depend@1 handler failed", the
+		// real message and category buried in .cause -- see task-execution.ts's assertDependencyEdgeAllowed.
+		expect((rejection as { code?: string }).code).toBe("task-dependency-cycle");
+		expect((rejection as { category?: string }).category).toBe("validation");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain("dependency cycle");
+		service.close();
+	});
+
+	it("exceeding the prerequisite degree bound reports its own classified error instead of an opaque handler-failed wrap", async () => {
+		const { registry, service } = harness();
+		const dependent = (await registry.invoke("tasks.create", 1, { title: "Dependent", project_root: PROJECT }, PERMS)) as { id: string };
+		for (let index = 0; index < TASK_EXECUTION_MAX_DEGREE; index++) {
+			const prerequisite = (await registry.invoke("tasks.create", 1, { title: `Prerequisite ${index}`, project_root: PROJECT }, PERMS)) as {
+				id: string;
+			};
+			await registry.invoke("tasks.depend", 1, { id: dependent.id, dependency_id: prerequisite.id, project_root: PROJECT }, PERMS);
+		}
+		const oneMore = (await registry.invoke("tasks.create", 1, { title: "One more", project_root: PROJECT }, PERMS)) as { id: string };
+		const rejection = await registry
+			.invoke("tasks.depend", 1, { id: dependent.id, dependency_id: oneMore.id, project_root: PROJECT }, PERMS)
+			.catch((error: unknown) => error);
+		expect((rejection as { code?: string }).code).toBe("task-execution-bound-exceeded");
+		expect((rejection as { category?: string }).category).toBe("capacity");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain(`exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
+		service.close();
+	});
+
 	it("depend/undepend resolve dependency_name server-side and are idempotent", async () => {
 		const { registry, service } = harness();
 		const a = (await registry.invoke("tasks.create", 1, { title: "A", project_root: PROJECT }, PERMS)) as { id: string };
@@ -282,9 +320,13 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 				},
 			)
 			.catch((error: unknown) => error);
-		expect(rejection).toBeInstanceOf(Error);
-		expect((rejection as { cause?: unknown }).cause).toBeInstanceOf(Error);
-		expect((rejection as { cause: Error }).cause.message).toContain("session_secret");
+		// A wrong secret for a REGISTERED session id is refused -- assertAuthorized's real check runs
+		// and must surface as its own classified VehicleError directly, not buried inside .cause of an
+		// opaque "handler failed" wrap invisible to a caller that doesn't already know to dig for it.
+		expect((rejection as { code?: string }).code).toBe("invalid-session-secret");
+		expect((rejection as { category?: string }).category).toBe("authorization");
+		expect((rejection as { cause?: unknown }).cause).toBeUndefined();
+		expect((rejection as Error).message).toContain("session_secret");
 
 		const focused = (await registry.invoke(
 			"tasks.focus",

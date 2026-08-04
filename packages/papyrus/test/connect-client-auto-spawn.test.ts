@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { spawnCompanionDaemon } from "@danypops/pi-process-harness";
 import { connectPapyrusClient } from "../src/client.ts";
 import { DAEMON_DIR_ENV } from "../src/constants.ts";
 import { readDaemonHandle } from "../src/daemon-state.ts";
@@ -95,57 +95,71 @@ describe("cli.ts serve -- real subprocess cold-boot timing", () => {
 		const dir = `${root}/daemon-dir`;
 		const env = { ...isolatedEnv(root), [DAEMON_DIR_ENV]: dir };
 
-		// spawnCompanionDaemon disposes its process and rethrows on a readiness timeout without
-		// exposing it to the caller -- this closure is the only diagnostic surface left for "why"
-		// once that happens, so every attempt's own outcome is tracked here instead of discarded.
-		let healthyBaseUrl: string | undefined;
-		let attempts = 0;
-		let lastObservation = "isReady was never called";
+		// Spawned directly with node:child_process rather than @danypops/pi-process-harness's
+		// spawnCompanionDaemon: that helper disposes its process and rethrows on a readiness
+		// timeout without ever exposing it to the caller, so a real CI failure here previously
+		// gave zero signal beyond "timed out" -- exactly the diagnostic gap that made a real,
+		// 100%-reproducing CI regression (every real-daemon-spawn test in this file, including
+		// the two above that predate this one, failing in GitHub Actions while passing locally)
+		// take multiple blind round-trips to even localize. This keeps its own bounded stdout/
+		// stderr capture and a diagnostic poll window well past the real regression bound below,
+		// so a failure here always says exactly what the process did instead of just "timeout".
+		const DIAGNOSTIC_POLL_TIMEOUT_MS = 20_000;
+		const child = spawn("bun", [fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "serve"], {
+			env,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk: Buffer) => {
+			stdout = (stdout + chunk.toString("utf8")).slice(-4_000);
+		});
+		child.stderr.on("data", (chunk: Buffer) => {
+			stderr = (stderr + chunk.toString("utf8")).slice(-4_000);
+		});
+		let exitCode: number | null = null;
+		let exitSignal: NodeJS.Signals | null = null;
+		child.on("exit", (code, signal) => {
+			exitCode = code;
+			exitSignal = signal;
+		});
+
 		const startedAt = Date.now();
-		let daemon: Awaited<ReturnType<typeof spawnCompanionDaemon>> | undefined;
-		try {
-			daemon = await spawnCompanionDaemon({
-				command: "bun",
-				args: [fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "serve"],
-				env,
-				isReady: async () => {
-					attempts++;
-					const handle = readDaemonHandle(dir);
-					if (!handle) {
-						lastObservation = `attempt ${attempts}: no handle file yet at ${dir}`;
-						return false;
-					}
-					try {
-						const response = await fetch(`${handle.baseUrl}/health`, { headers: { authorization: `Bearer ${handle.token}` } });
-						if (!response.ok) {
-							lastObservation = `attempt ${attempts}: handle=${handle.baseUrl} health returned HTTP ${response.status}`;
-							return false;
-						}
+		let attempts = 0;
+		let healthyBaseUrl: string | undefined;
+		let healthyAfterMs: number | undefined;
+		while (Date.now() - startedAt < DIAGNOSTIC_POLL_TIMEOUT_MS) {
+			attempts++;
+			const handle = readDaemonHandle(dir);
+			if (handle) {
+				try {
+					const response = await fetch(`${handle.baseUrl}/health`, { headers: { authorization: `Bearer ${handle.token}` } });
+					if (response.ok) {
 						healthyBaseUrl = handle.baseUrl;
-						return true;
-					} catch (error) {
-						lastObservation = `attempt ${attempts}: handle=${handle.baseUrl} fetch threw: ${error instanceof Error ? error.message : String(error)}`;
-						return false;
+						healthyAfterMs = Date.now() - startedAt;
+						break;
 					}
-				},
-				readyTimeoutMs: AUTOSTART_POLL_CEILING_MS,
-			});
-		} catch (error) {
-			throw new Error(
-				`cli.ts serve never became ready after ${Date.now() - startedAt}ms (${attempts} attempts). Last observation: ${lastObservation}`,
-				{ cause: error },
-			);
+				} catch {
+					// keep polling -- a connection racing the daemon's own bind is expected early on.
+				}
+			}
+			if (exitCode !== null || exitSignal !== null) break; // no point polling a dead process further.
+			await new Promise((resolve) => setTimeout(resolve, 100));
 		}
-		const elapsedMs = Date.now() - startedAt;
 
 		try {
-			expect(healthyBaseUrl).toBeDefined();
-			// A real regression margin, not a tight race against the ceiling itself: a boot legitimately
-			// this slow already leaves no headroom for connectPapyrusClient's own health probe
-			// (DAEMON_PROBE_TIMEOUT_MS) and version check on top, so treat half the ceiling as the real bound.
-			expect(elapsedMs).toBeLessThan(AUTOSTART_POLL_CEILING_MS / 2);
+			if (!healthyBaseUrl) {
+				throw new Error(
+					`cli.ts serve never became ready after ${Date.now() - startedAt}ms (${attempts} attempts, dir=${dir}). ` +
+						`Process exit: code=${exitCode} signal=${exitSignal}. stdout: ${stdout || "(empty)"} stderr: ${stderr || "(empty)"}`,
+				);
+			}
+			// A real regression margin, not a tight race against connectPapyrusClient's own
+			// AUTOSTART_POLL_CEILING_MS: a boot legitimately this slow already leaves no headroom for
+			// its own health probe (DAEMON_PROBE_TIMEOUT_MS) and version check on top of this.
+			expect(healthyAfterMs).toBeLessThan(AUTOSTART_POLL_CEILING_MS / 2);
 		} finally {
-			if (daemon.exitCode === null) await daemon.dispose();
+			if (exitCode === null && exitSignal === null) child.kill("SIGTERM");
 		}
-	}, 15_000);
+	}, 25_000);
 });

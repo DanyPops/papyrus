@@ -1,13 +1,19 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { connectWithVersionCheck, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
-import { readPackageVersion } from "@danypops/vehicle-client/version";
+import { connectWithVersionCheck, type ExpectedVersion, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import { createLiveVersionExpectation } from "@danypops/vehicle-client/version";
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
 import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon-state.ts";
 import type { OperationName, SchemaState } from "./service.ts";
 
-/** Compared against the running daemon's /health-reported version by connectWithVersionCheck below -- a long-lived daemon holds whatever code was loaded at its own start. */
-const PAPYRUS_VERSION = readPackageVersion(new URL("../package.json", import.meta.url), "Papyrus");
+/**
+ * Compared against the running daemon's /health-reported version by connectWithVersionCheck
+ * below. Re-read fresh on every call, not cached -- a module-level `const` here was the exact
+ * bug that caused repeated, never-self-healing daemon kill/respawn churn on any process that
+ * outlived an `npm update` (a respawned daemon runs the same source and reports the same real
+ * version, so a stale cached expectation never converges).
+ */
+const papyrusExpectedVersion = createLiveVersionExpectation(new URL("../package.json", import.meta.url), "Papyrus");
 
 export type FetchAdapter = (request: Request) => Promise<Response>;
 
@@ -89,7 +95,7 @@ export interface ConnectPapyrusClientOptions {
 	 */
 	env?: Record<string, string | undefined>;
 	/** Overrides the version connectWithVersionCheck compares against. Defaults to PAPYRUS_VERSION; test-only -- lets a test force a mismatch against a real daemon without a second build. */
-	expectedVersion?: string;
+	expectedVersion?: ExpectedVersion;
 }
 
 /**
@@ -126,7 +132,7 @@ export async function connectPapyrusClient(
 			fallbackMessage: "Papyrus daemon failed to start automatically; run `papyrus service install` or `papyrus serve` manually.",
 		},
 		{
-			expectedVersion: options.expectedVersion ?? PAPYRUS_VERSION,
+			expectedVersion: options.expectedVersion ?? papyrusExpectedVersion,
 			readVersion: async (client) => (await client.health()).version,
 			killStaleProcess: killStalePapyrusDaemon,
 		},

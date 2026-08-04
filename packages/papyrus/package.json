@@ -34,8 +34,8 @@
   },
   "files": ["src", "README.md"],
   "dependencies": {
+    "@danypops/vehicle-client": "^0.6.1",
     "@danypops/vehicle-core": "^0.10.0",
-    "@danypops/vehicle-client": "^0.6.0",
     "@danypops/vehicle-server": "^0.13.0"
   }
 }

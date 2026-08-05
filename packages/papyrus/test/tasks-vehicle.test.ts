@@ -157,6 +157,44 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	/**
+	 * Bug 09d21959: tasks.update's recovery path and tasks.pause both throw a plain, genuinely
+	 * informative Error ("cannot recover task creation from in-progress", "no focused task") for an
+	 * ordinary caller mistake -- but vehicle-registry's generic handler wrap wasn't previously
+	 * configured to expose that message, so every caller saw only an opaque "tasks.update@1 handler
+	 * failed" with the real reason hidden. createPapyrusService now opts in to
+	 * setExposeHandlerFailureDetails(true) (see service.ts) -- safe because no Papyrus domain error
+	 * message ever embeds a session_secret or other credential (only session_id, a bare
+	 * correlation id, ever appears).
+	 */
+	it("an ordinary caller mistake -- recovering a task that wasn't terminal at creation -- surfaces its real reason as causeMessage instead of a bare handler-failed", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("tasks.create", 1, { title: "In flight", project_root: PROJECT }, PERMS)) as { id: string };
+		await registry.invoke("tasks.start", 1, { id: created.id, actor: "user", source: "test" }, PERMS);
+		const rejection = (await registry
+			.invoke("tasks.update", 1, { id: created.id, status: "todo", reason: "parking it", actor: "user", source: "test" }, PERMS)
+			.catch((error: { toFailure(): { code: string; causeMessage?: string } }) => error.toFailure())) as {
+			code: string;
+			causeMessage?: string;
+		};
+		expect(rejection.code).toBe("handler-failed");
+		expect(rejection.causeMessage).toBe("cannot recover task creation from in-progress");
+		service.close();
+	});
+
+	it("pausing with no focused task surfaces its real reason as causeMessage instead of a bare handler-failed", async () => {
+		const { registry, service } = harness();
+		const rejection = (await registry
+			.invoke("tasks.pause", 1, { actor: "user", source: "test", reason: "whatever" }, PERMS)
+			.catch((error: { toFailure(): { code: string; causeMessage?: string } }) => error.toFailure())) as {
+			code: string;
+			causeMessage?: string;
+		};
+		expect(rejection.code).toBe("handler-failed");
+		expect(rejection.causeMessage).toBe("no focused task");
+		service.close();
+	});
+
 	it("a genuinely daemon-wide-exceeding cross-project depend surfaces a classified capacity error, not an opaque handler-failed", async () => {
 		const { registry, service } = harness();
 		for (let index = 0; index < 600; index++) {

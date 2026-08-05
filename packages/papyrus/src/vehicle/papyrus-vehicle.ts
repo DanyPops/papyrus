@@ -42,6 +42,11 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 		version: "1.0.0",
 		description: "Papyrus's graph-artifact domains, one honest operation per real action.",
 	});
+	// An unexpected handler exception's message becomes the classified failure's causeMessage
+	// instead of vanishing into an opaque "<op>@N handler failed". Safe here: no Papyrus domain
+	// error ever embeds a session_secret or other credential in its message (only a bare
+	// session_id, a correlation id, not a secret -- see session-identity-service.ts).
+	registry.setExposeHandlerFailureDetails(true);
 	registerNotesVehicleOperations(registry, deps.notes, deps.artifacts);
 	registerRulesVehicleOperations(registry, deps.artifacts, deps.scopes);
 	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority);

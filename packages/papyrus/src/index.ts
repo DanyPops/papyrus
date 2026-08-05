@@ -30,9 +30,9 @@ export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playb
 export type { ArtifactStore } from "./ports/artifact-store.ts";
 export type { GraphRenderer } from "./ports/graph-renderer.ts";
 export type { OperationName, SchemaState } from "./service.ts";
-export { taskContext } from "./task-context.ts";
-export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState } from "./task-execution.ts";
-export { projectTaskGraph, type TaskGraphView } from "./task-graph-view.ts";
-export { fallbackLabel, projectTaskRelationships } from "./task-relationship-view.ts";
-export type { TaskCompletion, TaskGraph, TaskNode, TaskStatus } from "./task-service.ts";
+export { taskContext } from "./task/task-context.ts";
+export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState } from "./task/task-execution.ts";
+export { projectTaskGraph, type TaskGraphView } from "./task/task-graph-view.ts";
+export { fallbackLabel, projectTaskRelationships } from "./task/task-relationship-view.ts";
+export type { TaskCompletion, TaskGraph, TaskNode, TaskStatus } from "./task/task-service.ts";
 export type { WorkflowRunResult } from "./workflow-execution.ts";

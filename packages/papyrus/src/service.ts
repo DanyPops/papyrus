@@ -44,7 +44,7 @@ import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
 import { InvalidSessionSecretError, SessionIdentity } from "./session-identity-service.ts";
-import { type TaskStatus, Tasks } from "./task-service.ts";
+import { type TaskStatus, Tasks } from "./task/task-service.ts";
 import { VERSION } from "./version.ts";
 
 /**

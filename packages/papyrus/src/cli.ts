@@ -10,8 +10,8 @@ import { daemonStateDir, vehicleHandlePath } from "./daemon-state.ts";
 import { openDb } from "./db.ts";
 import type { GateResult } from "./domain/gate.ts";
 import { applyIdMigration, type IdMigrationPlan, mirrorDatabase, planIdMigration, verifyIdMigration } from "./id-migration.ts";
-import type { TaskExecutionPlan } from "./task-execution.ts";
-import type { TaskBlockage, TaskCompletion } from "./task-service.ts";
+import type { TaskExecutionPlan } from "./task/task-execution.ts";
+import type { TaskBlockage, TaskCompletion } from "./task/task-service.ts";
 import { VERSION } from "./version.ts";
 
 export interface SystemdUnitOptions {

@@ -24,9 +24,9 @@ import type { TaskViewMode } from "../domain/task-scope.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
-import { taskContext } from "../task-context.ts";
-import { projectTaskExecution } from "../task-execution.ts";
-import type { TaskStatus, Tasks } from "../task-service.ts";
+import { taskContext } from "../task/task-context.ts";
+import { projectTaskExecution } from "../task/task-execution.ts";
+import type { TaskStatus, Tasks } from "../task/task-service.ts";
 
 const MODULE_ID = "tasks";
 

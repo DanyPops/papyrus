@@ -37,7 +37,7 @@ import {
 	updateRule,
 } from "../src/domain-services.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {
 	const dir = tempDir("papyrus-domain-service-");

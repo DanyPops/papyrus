@@ -1,4 +1,4 @@
-import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
+import { TASK_EXECUTION_MAX_DEGREE, TASK_EXECUTION_MAX_EDGES, TASK_EXECUTION_MAX_NODES } from "../constants.ts";
 import type { TaskGraph } from "./task-service.ts";
 
 /** A task execution graph is too large or too densely connected to process safely -- a distinct class (not a plain Error) so the Vehicle adapter layer can classify it into a capacity-category failure instead of an opaque handler-failed. */

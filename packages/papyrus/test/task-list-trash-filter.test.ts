@@ -5,7 +5,7 @@ import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
 import { openDb } from "../src/db.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 const gates: GateRunner = { run: () => [], runAsync: async () => [] };
 const PROJECT = "/work/papyrus";

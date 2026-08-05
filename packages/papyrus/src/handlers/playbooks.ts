@@ -28,7 +28,7 @@ import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
-import type { Tasks } from "../task-service.ts";
+import type { Tasks } from "../task/task-service.ts";
 import {
 	buildWorkflowRunContent,
 	classifyPlaybookComposition,

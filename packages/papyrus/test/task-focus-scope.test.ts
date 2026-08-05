@@ -4,7 +4,7 @@ import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts
 import { migrateDb, openDb } from "../src/db.ts";
 import { InMemoryTaskFocusStore, normalizeFocusScope } from "../src/ports/task-focus-store.ts";
 import { createPapyrusService } from "../src/service.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";
 

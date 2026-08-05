@@ -9,11 +9,11 @@ import {
 	TASK_LABEL_MAX_LENGTH,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
-} from "./constants.ts";
-import type { Artifact } from "./domain/artifact.ts";
-import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "./domain/checklist.ts";
-import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "./domain/discussion.ts";
-import { type Gate, type GateResult, validateGates } from "./domain/gate.ts";
+} from "../constants.ts";
+import type { Artifact } from "../domain/artifact.ts";
+import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "../domain/checklist.ts";
+import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "../domain/discussion.ts";
+import { type Gate, type GateResult, validateGates } from "../domain/gate.ts";
 import type {
 	AppendTaskEvent,
 	TaskEventContext,
@@ -22,21 +22,21 @@ import type {
 	TaskHistoryPage,
 	TaskHistoryQuery,
 	TaskLifecycleStatus,
-} from "./domain/task-event.ts";
-import type { TaskLease } from "./domain/task-lease.ts";
+} from "../domain/task-event.ts";
+import type { TaskLease } from "../domain/task-lease.ts";
 import {
 	normalizeProjectRoot,
 	type TaskScopeSource,
 	type TaskViewMode,
 	type TaskViewSelection,
 	taskScopeLabel,
-} from "./domain/task-scope.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
-import type { GateRunner } from "./ports/gate-runner.ts";
-import { InMemoryTaskEventStore, type TaskEventStore } from "./ports/task-event-store.ts";
-import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "./ports/task-focus-store.ts";
-import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "./ports/task-lease-store.ts";
-import { InMemoryTaskScopeStore, type TaskScopeStore } from "./ports/task-scope-store.ts";
+} from "../domain/task-scope.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
+import type { GateRunner } from "../ports/gate-runner.ts";
+import { InMemoryTaskEventStore, type TaskEventStore } from "../ports/task-event-store.ts";
+import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../ports/task-focus-store.ts";
+import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../ports/task-lease-store.ts";
+import { InMemoryTaskScopeStore, type TaskScopeStore } from "../ports/task-scope-store.ts";
 import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
 
 export interface UpdateTaskInput {

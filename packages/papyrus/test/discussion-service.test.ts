@@ -10,7 +10,7 @@ import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { DISCUSSION_ROUNDS_DEFAULT_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { DiscussionError, Discussions } from "../src/discussion-service.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

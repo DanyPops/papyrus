@@ -14,8 +14,8 @@ import type { ArtifactTrashRecord } from "../src/domain/artifact-trash.ts";
 import type { GateResult } from "../src/domain/gate.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
-import { projectTaskExecution } from "../src/task-execution.ts";
-import { Tasks } from "../src/task-service.ts";
+import { projectTaskExecution } from "../src/task/task-execution.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 class FakeArtifactStore implements ArtifactStore {
 	private sequence = 0;

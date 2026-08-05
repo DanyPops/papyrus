@@ -9,7 +9,7 @@ import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 const passingGates: GateRunner = {
 	run: () => [],

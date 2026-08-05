@@ -15,7 +15,7 @@ import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
-import type { Tasks } from "../task-service.ts";
+import type { Tasks } from "../task/task-service.ts";
 import { registerArtifactTrashOperations } from "./artifact-trash.ts";
 import { registerDiscussVehicleOperations } from "./discuss.ts";
 import { registerDocsVehicleOperations } from "./docs.ts";

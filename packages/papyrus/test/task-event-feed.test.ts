@@ -6,7 +6,7 @@ import { TASK_EVENT_FEED_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
 import { InMemoryTaskEventStore } from "../src/ports/task-event-store.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

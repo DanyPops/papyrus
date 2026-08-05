@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact } from "../src/domain/artifact.ts";
-import { projectTaskRelationships } from "../src/task-relationship-view.ts";
-import type { TaskGraph } from "../src/task-service.ts";
+import { projectTaskRelationships } from "../src/task/task-relationship-view.ts";
+import type { TaskGraph } from "../src/task/task-service.ts";
 
 function task(id: string, title: string): Artifact {
 	return {

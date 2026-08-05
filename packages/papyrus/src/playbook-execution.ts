@@ -11,7 +11,7 @@ import type { BlueprintArgumentValue } from "./domain/blueprint-definition.ts";
 import { compilePlaybookDefinition } from "./playbook-definition.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import type { TaskExecutionPlan } from "./task-execution.ts";
+import type { TaskExecutionPlan } from "./task/task-execution.ts";
 import {
 	applyPlaybookExternalLinks,
 	materializeWorkflowDefinition,

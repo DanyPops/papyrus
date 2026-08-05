@@ -21,8 +21,8 @@ import type { ArtifactStore } from "./ports/artifact-store.ts";
 import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "./task-execution.ts";
-import type { TaskGraph, TaskNode, TaskStatus } from "./task-service.ts";
+import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "./task/task-execution.ts";
+import type { TaskGraph, TaskNode, TaskStatus } from "./task/task-service.ts";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const EXACT_PLACEHOLDER_PATTERN = /^{{\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*}}$/;

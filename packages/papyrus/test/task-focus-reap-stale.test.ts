@@ -4,7 +4,7 @@ import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts
 import { TASK_FOCUS_STALE_AFTER_MS } from "../src/constants.ts";
 import { type Db, openDb } from "../src/db.ts";
 import { InMemoryTaskFocusStore } from "../src/ports/task-focus-store.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 const gates = { run: () => [], runAsync: async () => [] };
 

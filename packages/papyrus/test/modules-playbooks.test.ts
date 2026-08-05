@@ -11,7 +11,7 @@ import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "../src/modules/playbooks.ts";
 import { SessionIdentity } from "../src/session-identity-service.ts";
-import { Tasks } from "../src/task-service.ts";
+import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

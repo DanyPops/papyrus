@@ -5,8 +5,8 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
 import { Tasks } from "../src/task/task-service.ts";
 

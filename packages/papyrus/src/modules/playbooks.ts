@@ -9,6 +9,9 @@
  * playbook/workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
  * playbook/playbook-definition.ts for the full rationale.
  */
+
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
 	assignPlaybookProject,
 	containPlaybook,
@@ -24,8 +27,6 @@ import {
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import { invokePlaybook } from "../playbook/playbook-execution.ts";
-import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";

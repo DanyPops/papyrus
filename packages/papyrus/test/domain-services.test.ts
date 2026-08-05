@@ -5,9 +5,9 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
+import { SQLiteArtifactScopeStore } from "../src/artifact/sqlite-artifact-scope-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import {

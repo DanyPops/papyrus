@@ -1,7 +1,7 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import type { TaskScopeSource } from "../domain/task-scope.ts";
-import type { ArtifactScope, ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
+import type { ArtifactScope, ArtifactScopeStore } from "./artifact-scope-store.ts";
 
 export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 	constructor(private readonly db: Db) {}

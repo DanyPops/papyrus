@@ -7,8 +7,8 @@ import type {
 	CreateArtifactInput,
 	RelationshipQuery,
 	UpdateArtifactInput,
-} from "../domain/artifact.ts";
-import type { ArtifactEventContext } from "../domain/artifact-event.ts";
+} from "./artifact.ts";
+import type { ArtifactEventContext } from "./artifact-event.ts";
 
 /** Core CRUD/graph operations every domain-service module needs. Trash lifecycle and event-log
  * reading are separate ports (ArtifactTrashStore, ArtifactEventReader) -- only the composition

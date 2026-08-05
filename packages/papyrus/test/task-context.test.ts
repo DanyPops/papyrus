@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { taskContext } from "../src/task/task-context.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";

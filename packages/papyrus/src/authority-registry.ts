@@ -19,9 +19,9 @@
  * already lives, matching "the core has generic registries" from the decision doc.
  */
 
-import type { Artifact, ArtifactLink } from "./domain/artifact.ts";
-import type { ArtifactEventContext } from "./domain/artifact-event.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
+import type { Artifact, ArtifactLink } from "./artifact/artifact.ts";
+import type { ArtifactEventContext } from "./artifact/artifact-event.ts";
+import type { ArtifactStore } from "./artifact/artifact-store.ts";
 
 export type ArtifactAction = "create" | "link" | "status" | "update";
 

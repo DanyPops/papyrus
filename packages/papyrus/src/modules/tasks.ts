@@ -18,11 +18,12 @@
  * set by modules/notes.ts: a module does not import another module's infrastructure,
  * including the composition root's own helpers.
  */
+
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { Checklist } from "../domain/checklist.ts";
 import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../domain/task-event.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import { taskContext } from "../task/task-context.ts";
 import { projectTaskExecution } from "../task/task-execution.ts";

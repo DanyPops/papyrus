@@ -5,6 +5,8 @@
  * src/domain/graph-projection.ts and src/graph-projection-service.ts for the protocol
  * itself; this file only parses/validates raw operation input into that typed shape.
  */
+
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import type {
 	GRAPH_PROJECTION_SCHEMA_VERSION,
@@ -14,7 +16,6 @@ import type {
 } from "../domain/graph-projection.ts";
 import { GraphProjection } from "../graph-projection/graph-projection-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";
 
 const MODULE_ID = "graph_projection";

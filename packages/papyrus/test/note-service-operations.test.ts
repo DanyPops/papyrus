@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
+import type { Artifact } from "../src/artifact/artifact.ts";
 import { PapyrusClient } from "../src/client.ts";
-import type { Artifact } from "../src/domain/artifact.ts";
 import { createApp, createPapyrusService, EXPECTED_OPERATION_NAMES } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 

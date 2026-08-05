@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 

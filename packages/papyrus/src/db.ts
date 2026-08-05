@@ -2,8 +2,8 @@ import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { runMigrations, type SqliteMigrationRunner } from "@danypops/vehicle-server/storage";
+import { generateUniqueAlias, slugify } from "./artifact/artifact-alias.ts";
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
-import { generateUniqueAlias, slugify } from "./domain/artifact-alias.ts";
 
 const require_ = createRequire(import.meta.url);
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";

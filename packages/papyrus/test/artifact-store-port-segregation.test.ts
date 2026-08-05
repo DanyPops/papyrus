@@ -7,9 +7,9 @@ import type {
 	CreateArtifactInput,
 	RelationshipQuery,
 	UpdateArtifactInput,
-} from "../src/domain/artifact.ts";
+} from "../src/artifact/artifact.ts";
+import type { ArtifactStore } from "../src/artifact/artifact-store.ts";
 import { Notes } from "../src/note/note-service.ts";
-import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 
 /**
  * Minimal in-memory fake implementing ONLY the narrow ArtifactStore -- deliberately no

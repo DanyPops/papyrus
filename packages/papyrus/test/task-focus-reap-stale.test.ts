@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { TASK_FOCUS_STALE_AFTER_MS } from "../src/constants.ts";
 import { type Db, openDb } from "../src/db.ts";
 import { InMemoryTaskFocusStore } from "../src/ports/task-focus-store.ts";

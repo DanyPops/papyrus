@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { generateUniqueAlias, isValidAlias, slugify } from "../src/domain/artifact-alias.ts";
+import { generateUniqueAlias, isValidAlias, slugify } from "../src/artifact/artifact-alias.ts";
 
 describe("slugify", () => {
 	it("lowercases, hyphenates, and strips punctuation", () => {

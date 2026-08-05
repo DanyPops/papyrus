@@ -20,11 +20,11 @@
  */
 import { bindVehicleOperation, defineVehicleOperation, type VehicleOperationContext } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { listPlaybooks } from "../domain-services.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
-import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";

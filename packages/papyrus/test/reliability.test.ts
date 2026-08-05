@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { SQLITE_BUSY_TIMEOUT_MS } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { createApp, createPapyrusService } from "../src/service.ts";

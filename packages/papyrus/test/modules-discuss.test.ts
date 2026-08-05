@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteDiscussionRoundStore } from "../src/adapters/sqlite-discussion-round-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { Discussions } from "../src/discussion/discussion-service.ts";
 import { OperationRegistry } from "../src/module-registry.ts";

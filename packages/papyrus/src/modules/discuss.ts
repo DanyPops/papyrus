@@ -3,8 +3,8 @@
  * domain/discussion.ts and discussion-service.ts for the full design.
  */
 
+import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { Discussions } from "../discussion/discussion-service.ts";
-import type { ArtifactEventContext } from "../domain/artifact-event.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 
 const MODULE_ID = "discuss";

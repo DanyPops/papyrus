@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
-import { migrateDb, openDb } from "../src/db.ts";
 import {
 	ARTIFACT_EVENT_DEFAULT_ACTOR,
 	ARTIFACT_EVENT_DEFAULT_SOURCE,
 	type ArtifactEvent,
 	normalizeArtifactEventQuery,
 	resolveArtifactEvent,
-} from "../src/domain/artifact-event.ts";
+} from "../src/artifact/artifact-event.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
+import { migrateDb, openDb } from "../src/db.ts";
 import { createPapyrusService } from "../src/service.ts";
 
 describe("generic mutation event log — domain validation", () => {

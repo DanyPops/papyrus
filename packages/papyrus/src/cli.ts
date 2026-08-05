@@ -467,7 +467,7 @@ export async function runGraphCli(args: string[], client: TaskCliClient): Promis
 		return json ? JSON.stringify(artifact) : `Updated ${artifact.id} → [${artifact.status}]`;
 	}
 	if (action !== "history") throw new Error("graph action must be link, unlink, tree, status, or history");
-	const page = await client.call<Record<string, unknown>, import("./domain/artifact-event.ts").ArtifactEventPage>("graph.history", input);
+	const page = await client.call<Record<string, unknown>, import("./artifact/artifact-event.ts").ArtifactEventPage>("graph.history", input);
 	if (json) return JSON.stringify(page);
 	if (page.events.length === 0) return "No recorded events.";
 	return page.events

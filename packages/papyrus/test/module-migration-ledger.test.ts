@@ -5,7 +5,7 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { SQLITE_SCHEMA_VERSION } from "../src/constants.ts";
 import { migrateDb, migrationLedger, openDb, schemaVersion } from "../src/db.ts";
 

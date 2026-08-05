@@ -4,9 +4,9 @@
  * artifact-trash-vehicle.ts).
  */
 import { defineVehicleSchema, type VehicleContentBlock, VehicleError, type VehicleSchemaCodec } from "@danypops/vehicle-core";
-import type { Artifact } from "../domain/artifact.ts";
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { PlaybookCompositionError } from "../playbook/playbook-definition.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import { InvalidSessionSecretError } from "../session-identity/session-identity-service.ts";
 import { TaskDependencyCycleError, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 

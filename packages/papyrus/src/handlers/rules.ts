@@ -6,10 +6,10 @@
  */
 import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { listRules } from "../domain-services.ts";
 import { rulesOperations } from "../modules/rules.ts";
-import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "rules";

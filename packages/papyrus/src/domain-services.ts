@@ -1,3 +1,7 @@
+import { type Artifact, requireLocallyOwnedContent } from "./artifact/artifact.ts";
+import type { ArtifactEventContext } from "./artifact/artifact-event.ts";
+import type { ArtifactScopeStore } from "./artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "./artifact/artifact-store.ts";
 import type { ArtifactAction, AuthorityRegistry } from "./authority-registry.ts";
 import {
 	ARTIFACT_BODY_MAX_LENGTH,
@@ -14,8 +18,6 @@ import {
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
 	SKILL_MAX_ENUM_VALUES,
 } from "./constants.ts";
-import { type Artifact, requireLocallyOwnedContent } from "./domain/artifact.ts";
-import type { ArtifactEventContext } from "./domain/artifact-event.ts";
 import {
 	BLUEPRINT_INPUT_TYPES,
 	type BlueprintArgumentValue,
@@ -24,8 +26,6 @@ import {
 } from "./domain/blueprint-definition.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
 import { NOTE_SUBTYPE } from "./note/note-service.ts";
-import type { ArtifactScopeStore } from "./ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
 
 export interface UpdateContentInput {
 	title?: string;

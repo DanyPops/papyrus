@@ -1,3 +1,5 @@
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
 	TASK_BODY_MAX_LENGTH,
 	TASK_CANCEL_SUBTREE_MAX_NODES,
@@ -10,7 +12,6 @@ import {
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "../constants.ts";
-import type { Artifact } from "../domain/artifact.ts";
 import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "../domain/checklist.ts";
 import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "../domain/discussion.ts";
 import { type Gate, type GateResult, validateGates } from "../domain/gate.ts";
@@ -31,7 +32,6 @@ import {
 	type TaskViewSelection,
 	taskScopeLabel,
 } from "../domain/task-scope.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { GateRunner } from "../ports/gate-runner.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "../ports/task-event-store.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../ports/task-focus-store.ts";

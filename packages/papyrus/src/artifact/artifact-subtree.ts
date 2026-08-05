@@ -6,9 +6,9 @@
  * so it applies to any kind that participates in `contains` (task, playbook), not just Task.
  */
 import { ARTIFACT_REMOVE_SUBTREE_MAX_NODES } from "../constants.ts";
-import type { ArtifactEventContext } from "../domain/artifact-event.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
+import type { ArtifactEventContext } from "./artifact-event.ts";
+import type { ArtifactStore } from "./artifact-store.ts";
+import type { ArtifactTrashStore } from "./artifact-trash-store.ts";
 
 export interface RemoveSubtreeResult {
 	removed: string[];

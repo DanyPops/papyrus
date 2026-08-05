@@ -5,9 +5,9 @@
  */
 import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { removeArtifactSubtree } from "../artifact/artifact-subtree.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
+import type { ArtifactTrashStore } from "../artifact/artifact-trash-store.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "artifact";

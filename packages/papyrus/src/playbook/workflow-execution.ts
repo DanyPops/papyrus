@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import { requireAtomicArtifactStore } from "../artifact/atomic-artifact-store.ts";
 import {
 	SKILL_MAX_RENDERED_BYTES,
 	SKILL_RUN_ID_MAX_LENGTH,
 	SKILL_WORKFLOW_MAX_NESTING_DEPTH,
 	TASK_EXECUTION_MAX_EDGES,
 } from "../constants.ts";
-import type { Artifact } from "../domain/artifact.ts";
 import {
 	type BlueprintArgumentValue,
 	type BlueprintDefinition,
@@ -16,8 +18,6 @@ import {
 import { validateChecklist } from "../domain/checklist.ts";
 import type { TaskEventContext } from "../domain/task-event.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { requireAtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-store.ts";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import type { ArtifactScopeStore } from "../src/artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../src/artifact/artifact-store.ts";
+import { SQLiteArtifactScopeStore } from "../src/artifact/sqlite-artifact-scope-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { instantiateSkillWorkflow } from "../src/playbook/workflow-execution.ts";
-import type { ArtifactScopeStore } from "../src/ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 
 /**
  * Skill-the-kind is fully retired. A definition-shaped workflow target is now a kind=playbook

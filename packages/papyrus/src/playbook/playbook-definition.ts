@@ -18,12 +18,14 @@
  * independently by workflow-execution.ts, exactly like a workflow-definition target's own
  * nested pipeline step, since its target's own definition is not knowable at this compile time.
  */
+
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
 	PLAYBOOK_INVOCATION_MAX_CALL_DEPTH,
 	PLAYBOOK_INVOCATION_MAX_CREATED_TASKS,
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 } from "../constants.ts";
-import type { Artifact } from "../domain/artifact.ts";
 import type {
 	BlueprintDefinition,
 	BlueprintInputDefinition,
@@ -34,7 +36,6 @@ import type {
 } from "../domain/blueprint-definition.ts";
 import { validateBlueprintDefinition } from "../domain/blueprint-definition.ts";
 import type { PlaybookArgument, PlaybookStep } from "../domain-services.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 
 /** A non-composing edge touching a playbook node, to be mirrored onto that node's generated root task once real task ids exist -- e.g. a Rule `gates` this playbook, or this playbook `references`/`documents` a Doc. Direction is preserved exactly: `from`/`to` name whichever side is NOT the playbook, and `ownerIsFrom` says which side the playbook (now the generated root task) occupies. */
 export interface PlaybookExternalLink {

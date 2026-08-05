@@ -3,14 +3,14 @@
  * Enforces the schema protocol (kinds, statuses, relations) via FK + app validation.
  */
 import { createRequire } from "node:module";
+import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./artifact/artifact.ts";
+import { generateUniqueAlias, isValidAlias, slugify } from "./artifact/artifact-alias.ts";
+import type { ArtifactTrashRecord } from "./artifact/artifact-trash.ts";
 import { ARTIFACT_TRASH_RETENTION_MS, DEFAULT_STATUS_BY_KIND } from "./constants.ts";
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
-import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
-import { generateUniqueAlias, isValidAlias, slugify } from "./domain/artifact-alias.ts";
-import type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
 
-export type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
+export type { ArtifactTrashRecord } from "./artifact/artifact-trash.ts";
 
 import {
 	type AppendArtifactEvent,
@@ -21,10 +21,10 @@ import {
 	type ArtifactEventType,
 	normalizeArtifactEventQuery,
 	resolveArtifactEvent,
-} from "./domain/artifact-event.ts";
+} from "./artifact/artifact-event.ts";
 import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 
-export type { Artifact } from "./domain/artifact.ts";
+export type { Artifact } from "./artifact/artifact.ts";
 export type { Gate, GateResult } from "./domain/gate.ts";
 export type CreateInput = CreateArtifactInput;
 

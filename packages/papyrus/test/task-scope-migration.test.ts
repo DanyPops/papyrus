@@ -4,7 +4,7 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
 
 describe("task project scope migration", () => {

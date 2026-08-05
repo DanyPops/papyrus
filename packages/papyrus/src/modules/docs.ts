@@ -6,6 +6,9 @@
  * Imports only src/domain-services.ts's Doc functions, which are already generic
  * ArtifactStore-based with no other module's concrete class dependency.
  */
+
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import {
 	assignDocumentProject,
@@ -18,8 +21,6 @@ import {
 	updateDocument,
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 
 const MODULE_ID = "docs";
 

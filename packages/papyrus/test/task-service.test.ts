@@ -8,11 +8,11 @@ import type {
 	CreateArtifactInput,
 	RelationshipQuery,
 	UpdateArtifactInput,
-} from "../src/domain/artifact.ts";
-import type { ArtifactEventPage, ArtifactEventQuery } from "../src/domain/artifact-event.ts";
-import type { ArtifactTrashRecord } from "../src/domain/artifact-trash.ts";
+} from "../src/artifact/artifact.ts";
+import type { ArtifactEventPage, ArtifactEventQuery } from "../src/artifact/artifact-event.ts";
+import type { ArtifactStore } from "../src/artifact/artifact-store.ts";
+import type { ArtifactTrashRecord } from "../src/artifact/artifact-trash.ts";
 import type { GateResult } from "../src/domain/gate.ts";
-import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
 import { projectTaskExecution } from "../src/task/task-execution.ts";
 import { Tasks } from "../src/task/task-service.ts";

@@ -1,7 +1,7 @@
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { TASK_CONTEXT_CURRENT_LIMIT, TASK_CONTEXT_REJECTED_LIMIT, TASK_RECONCILIATION_INSTRUCTION } from "../constants.ts";
-import type { Artifact } from "../domain/artifact.ts";
 import { DISCUSSION_SUBTYPE, readDiscussionExtra } from "../domain/discussion.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 
 interface Gate {
 	type?: unknown;

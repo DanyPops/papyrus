@@ -10,6 +10,9 @@
  * into this module or introducing a premature "modules call each other through the
  * registry" convention.
  */
+
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
 	assignRuleProject,
 	createRule,
@@ -21,8 +24,6 @@ import {
 	updateRule,
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 
 const MODULE_ID = "rules";
 

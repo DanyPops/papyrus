@@ -6,12 +6,12 @@
  * per domain.
  */
 import { VehicleRegistry } from "@danypops/vehicle-server";
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import type { ArtifactTrashStore } from "../artifact/artifact-trash-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import type { Discussions } from "../discussion/discussion-service.ts";
 import type { Notes } from "../note/note-service.ts";
-import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";

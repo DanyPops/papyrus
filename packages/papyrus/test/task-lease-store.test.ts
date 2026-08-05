@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskLeaseStore } from "../src/adapters/sqlite-task-lease-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { TASK_LEASE_MAX_TTL_MS, TASK_LEASE_MIN_TTL_MS, TASK_LEASE_OWNER_MAX_LENGTH } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../src/ports/task-lease-store.ts";

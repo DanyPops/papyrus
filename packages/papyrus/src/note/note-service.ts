@@ -1,3 +1,6 @@
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import { requireAtomicArtifactStore } from "../artifact/atomic-artifact-store.ts";
 import {
 	NOTE_BODY_MAX_CHARACTERS,
 	NOTE_LIST_DEFAULT_LIMIT,
@@ -7,10 +10,7 @@ import {
 	NOTE_TITLE_MAX_CHARACTERS,
 	TASK_PROJECT_ROOT_MAX_LENGTH,
 } from "../constants.ts";
-import type { Artifact } from "../domain/artifact.ts";
 import type { AppendNoteEvent, NoteEventType, NoteHistoryPage, NoteHistoryQuery } from "../domain/note-event.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { requireAtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
 import { InMemoryNoteEventStore, type NoteEventStore } from "../ports/note-event-store.ts";
 
 export const NOTE_SUBTYPE = "note";

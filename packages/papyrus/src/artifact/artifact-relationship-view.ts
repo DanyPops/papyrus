@@ -1,6 +1,6 @@
-import type { Artifact } from "../domain/artifact.ts";
 import type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode } from "../domain/display-graph.ts";
 import { fallbackLabel } from "../task/task-relationship-view.ts";
+import type { Artifact } from "./artifact.ts";
 
 /**
  * The generic-artifact counterpart to projectTaskRelationships: unlike a Task, which already

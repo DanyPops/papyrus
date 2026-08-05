@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteNoteEventStore } from "../src/adapters/sqlite-note-event-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { NOTE_BODY_MAX_CHARACTERS, NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { Notes } from "../src/note/note-service.ts";

@@ -1,5 +1,5 @@
-import type { ArtifactEventContext } from "../domain/artifact-event.ts";
-import type { ArtifactTrashRecord } from "../domain/artifact-trash.ts";
+import type { ArtifactEventContext } from "./artifact-event.ts";
+import type { ArtifactTrashRecord } from "./artifact-trash.ts";
 
 /** Trash lifecycle for artifacts -- split out of ArtifactStore since only the composition root
  * (daemon.ts, service.ts) needs it; every domain-service module depends on core CRUD/graph only. */

@@ -1,17 +1,5 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import type {
-	Artifact,
-	ArtifactEdge,
-	ArtifactGraphOptions,
-	ArtifactLink,
-	ArtifactQuery,
-	CreateArtifactInput,
-	RelationshipQuery,
-	UpdateArtifactInput,
-} from "../domain/artifact.ts";
-import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "../domain/artifact-event.ts";
-import type { ArtifactTrashRecord } from "../domain/artifact-trash.ts";
 import {
 	createArtifact,
 	getArtifact,
@@ -29,9 +17,21 @@ import {
 	updateExtra,
 	updateStatus,
 } from "../ops.ts";
-import type { ArtifactEventReader } from "../ports/artifact-event-reader.ts";
-import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
-import type { AtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
+import type {
+	Artifact,
+	ArtifactEdge,
+	ArtifactGraphOptions,
+	ArtifactLink,
+	ArtifactQuery,
+	CreateArtifactInput,
+	RelationshipQuery,
+	UpdateArtifactInput,
+} from "./artifact.ts";
+import type { ArtifactEventContext, ArtifactEventPage, ArtifactEventQuery } from "./artifact-event.ts";
+import type { ArtifactEventReader } from "./artifact-event-reader.ts";
+import type { ArtifactTrashRecord } from "./artifact-trash.ts";
+import type { ArtifactTrashStore } from "./artifact-trash-store.ts";
+import type { AtomicArtifactStore } from "./atomic-artifact-store.ts";
 
 export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashStore, ArtifactEventReader {
 	constructor(private readonly db: Db) {}

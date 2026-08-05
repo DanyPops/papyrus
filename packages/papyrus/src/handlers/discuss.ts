@@ -15,11 +15,11 @@
  */
 import { bindVehicleOperation, defineVehicleOperation, type VehicleContentBlock } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { DiscussionAndRounds, Discussions } from "../discussion/discussion-service.ts";
-import type { Artifact } from "../domain/artifact.ts";
 import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../domain/discussion.ts";
 import { discussOperations } from "../modules/discuss.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "discuss";

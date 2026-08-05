@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { Artifact } from "../src/domain/artifact.ts";
+import type { Artifact } from "../src/artifact/artifact.ts";
 import { projectTaskRelationships } from "../src/task/task-relationship-view.ts";
 import type { TaskGraph } from "../src/task/task-service.ts";
 

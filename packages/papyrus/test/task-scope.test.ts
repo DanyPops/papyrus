@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
+import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import type { GateRunner } from "../src/ports/gate-runner.ts";
 import { Tasks } from "../src/task/task-service.ts";

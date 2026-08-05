@@ -4,6 +4,8 @@
  * documented, deliberate scope limits of this first walking-skeleton slice.
  */
 
+import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import { requireAtomicArtifactStore } from "../artifact/atomic-artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import {
 	GRAPH_PROJECTION_ID_MAX_LENGTH,
@@ -11,8 +13,6 @@ import {
 	GRAPH_PROJECTION_MAX_EDGES_PER_BATCH,
 } from "../constants.ts";
 import { GRAPH_PROJECTION_SCHEMA_VERSION, type GraphProjectionBatch, type GraphProjectionResult } from "../domain/graph-projection.ts";
-import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { requireAtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
 import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";
 
 function boundedId(value: string, label: string): string {

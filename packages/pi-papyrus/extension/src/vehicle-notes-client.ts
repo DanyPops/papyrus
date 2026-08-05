@@ -24,7 +24,7 @@ import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerVehicleTools } from "@danypops/vehicle-client-pi";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { discussLiveFollowUp } from "./discuss-live-follow-up.ts";
+import { discussLiveFollowUp } from "./discuss/discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "./service-client.ts";
 import { sessionSecretField } from "./session-identity.ts";
 import { emitTaskFocusEvent } from "./task/task-focus-events.ts";
@@ -97,7 +97,7 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 			// -- has no Vehicle-transport equivalent, so it's emitted here, client-side, rather
 			// than from the operation's own output.
 			// discuss.open/discuss.reply's own live:true synchronous human round-trip --
-			// see discuss-live-follow-up.ts. Every other operation's resolver call
+			// see discuss/discuss-live-follow-up.ts. Every other operation's resolver call
 			// returns undefined, meaning zero behavior change for the other 5 domains.
 			interactiveFollowUps: (descriptor) =>
 				descriptor.name === "discuss.open" || descriptor.name === "discuss.reply" ? discussLiveFollowUp : undefined,

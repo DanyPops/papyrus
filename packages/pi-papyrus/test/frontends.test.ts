@@ -11,8 +11,8 @@ import {
 	RULE_STATUS_PRESENTATION,
 	severityColor,
 } from "../extension/src/artifact/artifact-status-presentation.ts";
-import { discussionRowMeta } from "../extension/src/discuss.ts";
-import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
+import { discussionRowMeta } from "../extension/src/discuss/discuss.ts";
+import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discuss/discussion-detail-view.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
 import { artifactLines, artifactLine as domainToolsArtifactLine, matchArtifactByName } from "../extension/src/domain-tools.ts";
 import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";

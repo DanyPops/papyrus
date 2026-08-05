@@ -3,7 +3,7 @@ import type { DiscussionAndRounds } from "@danypops/papyrus";
 import type { PiVehicleInvocationRequest } from "@danypops/vehicle-client-pi";
 import type { VehicleClient } from "@danypops/vehicle-core";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { discussLiveFollowUp } from "../extension/src/discuss-live-follow-up.ts";
+import { discussLiveFollowUp } from "../extension/src/discuss/discuss-live-follow-up.ts";
 
 const OPENED_DISCUSSION = {
 	id: "d1",

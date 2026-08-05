@@ -19,8 +19,8 @@ import {
 } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
-import { DISCUSSION_STATE_PRESENTATION } from "./artifact/artifact-status-presentation.ts";
-import { type ActiveTheme, renderMarkdownBody } from "./markdown.ts";
+import { DISCUSSION_STATE_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
+import { type ActiveTheme, renderMarkdownBody } from "../markdown.ts";
 
 interface TranscriptLine {
 	text: string;

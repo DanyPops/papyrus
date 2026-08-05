@@ -10,7 +10,7 @@ import {
 	resetTypingCourtesyTrackingForTests,
 	setTypingCourtesyTimingForTests,
 	waitForTypingCourtesy,
-} from "../extension/src/discuss-ask-view.ts";
+} from "../extension/src/discuss/discuss-ask-view.ts";
 
 const originalEnv = { ...process.env };
 // The ambient keystroke clock is module-level state (deliberately -- see ensureTypingCourtesyTracking's

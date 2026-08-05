@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact, DiscussionRound } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { showDiscussionDetailView } from "../extension/src/discussion-detail-view.ts";
+import { showDiscussionDetailView } from "../extension/src/discuss/discussion-detail-view.ts";
 
 const theme = {
 	bold: (text: string) => text,

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
-import { blockedTaskChoices, openTaskChoices, pickTaskByName } from "../extension/src/discuss.ts";
+import { blockedTaskChoices, openTaskChoices, pickTaskByName } from "../extension/src/discuss/discuss.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
 afterEach(resetPapyrusClientForTests);

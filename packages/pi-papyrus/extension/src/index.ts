@@ -30,7 +30,7 @@ import { BoundedPoll } from "./bounded-poll.ts";
 import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
 import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context-hub-contribution.ts";
 import { buildContextInjection } from "./context-injection-telemetry.ts";
-import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss-ask-view.ts";
+import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss/discuss-ask-view.ts";
 import { resolveNameFields } from "./domain-tools.ts";
 import { renderNoteWidgetLines } from "./note-widget.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
@@ -371,7 +371,7 @@ export default async function (pi: ExtensionAPI) {
 		// ctx.isIdle() means "not streaming a model response" -- it reads true while a live discuss
 		// ask is still genuinely pending, blocked on the human. Queuing a "continue the active task"
 		// nudge here would start a second, concurrent turn reasoning about the very Discussion this
-		// live ask is already resolving. See discuss-ask-view.ts's isLiveAskPending() doc comment.
+		// live ask is already resolving. See discuss/discuss-ask-view.ts's isLiveAskPending() doc comment.
 		if (isLiveAskPending()) return;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
@@ -632,7 +632,7 @@ export default async function (pi: ExtensionAPI) {
 		import("./notes.ts"),
 		import("./rules.ts"),
 		import("./playbooks.ts"),
-		import("./discuss.ts"),
+		import("./discuss/discuss.ts"),
 	]);
 	let overlay: TaskOverlay | undefined;
 	let noteOverlay: NoteOverlay | undefined;

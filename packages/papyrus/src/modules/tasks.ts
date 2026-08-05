@@ -13,10 +13,10 @@
  *
  * Task-domain-internal files (task-context.ts, task-execution.ts, domain/task-event.ts,
  * domain/task-scope.ts) are imported directly — they belong to this bounded context,
- * unlike a different module's infrastructure. Generic input-parsing helpers are
- * duplicated locally rather than imported from src/service.ts, matching the precedent
- * set by modules/notes.ts: a module does not import another module's infrastructure,
- * including the composition root's own helpers.
+ * unlike a different module's infrastructure. Generic input-parsing helpers come from
+ * ./operation-input.ts, a peer utility at this same modules/ layer with no domain logic
+ * of its own -- not "another module's infrastructure" or the composition root's helpers,
+ * the actual thing this module avoids importing.
  */
 
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
@@ -28,37 +28,9 @@ import type { SessionIdentity } from "../session-identity/session-identity-servi
 import { taskContext } from "../task/task-context.ts";
 import { projectTaskExecution } from "../task/task-execution.ts";
 import type { TaskStatus, Tasks } from "../task/task-service.ts";
+import { type OperationInput, optionalNumber, optionalString, optionalStringArray, string } from "./operation-input.ts";
 
 const MODULE_ID = "tasks";
-
-type OperationInput = Record<string, unknown>;
-
-function string(input: OperationInput, key: string): string {
-	const value = input[key];
-	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
-	return value;
-}
-
-function optionalString(input: OperationInput, key: string): string | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new Error(`${key} must be a string`);
-	return value;
-}
-
-function optionalStringArray(input: OperationInput, key: string): string[] | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(`${key} must be an array of strings`);
-	return value as string[];
-}
-
-function optionalNumber(input: OperationInput, key: string): number | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a number`);
-	return value;
-}
 
 const eventContext = (input: OperationInput): TaskEventContext => ({
 	actor: optionalString(input, "actor"),

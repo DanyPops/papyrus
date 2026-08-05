@@ -31,30 +31,9 @@ import type { SessionIdentity } from "../session-identity/session-identity-servi
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
+import { type OperationInput, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "playbooks";
-
-type OperationInput = Record<string, unknown>;
-
-function string(input: OperationInput, key: string): string {
-	const value = input[key];
-	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
-	return value;
-}
-
-function optionalString(input: OperationInput, key: string): string | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new Error(`${key} must be a string`);
-	return value;
-}
-
-function optionalNumber(input: OperationInput, key: string): number | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a number`);
-	return value;
-}
 
 const eventContext = (input: OperationInput) => ({
 	actor: optionalString(input, "actor"),

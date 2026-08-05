@@ -5,23 +5,9 @@
  */
 import type { OperationDefinition } from "../module-registry.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import { type OperationInput, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "session-identity";
-
-type OperationInput = Record<string, unknown>;
-
-function string(input: OperationInput, key: string): string {
-	const value = input[key];
-	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
-	return value;
-}
-
-function optionalString(input: OperationInput, key: string): string | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new Error(`${key} must be a string`);
-	return value;
-}
 
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const SESSION_IDENTITY_OPERATION_NAMES = ["session.register", "session.release"] as const;

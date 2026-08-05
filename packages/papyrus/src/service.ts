@@ -25,6 +25,7 @@ import { DOCS_OPERATION_NAMES, docsOperations } from "./modules/docs.ts";
 import { GRAPH_PROJECTION_OPERATION_NAMES, graphProjectionOperations } from "./modules/graph-projection.ts";
 import { LOGS_OPERATION_NAMES, logsOperations } from "./modules/logs.ts";
 import { NOTES_OPERATION_NAMES, notesOperations } from "./modules/notes.ts";
+import { type OperationInput, optionalNumber, optionalString, string } from "./modules/operation-input.ts";
 import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "./modules/playbooks.ts";
 import { RULES_OPERATION_NAMES, rulesOperations } from "./modules/rules.ts";
 import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "./modules/session-identity.ts";
@@ -99,40 +100,12 @@ export const EXPECTED_OPERATION_NAMES = [
 ] as const;
 
 export type OperationName = (typeof EXPECTED_OPERATION_NAMES)[number];
-type OperationInput = Record<string, unknown>;
 type OperationHandler = (input: OperationInput) => unknown;
 
 export class UnknownOperationError extends Error {}
 export class MigrationRequiredError extends Error {}
 export class PayloadTooLargeError extends Error {}
 export { InvalidSessionSecretError };
-
-function string(input: OperationInput, key: string): string {
-	const value = input[key];
-	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
-	return value;
-}
-
-function optionalString(input: OperationInput, key: string): string | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new Error(`${key} must be a string`);
-	return value;
-}
-
-function _optionalStringArray(input: OperationInput, key: string): string[] | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(`${key} must be an array of strings`);
-	return value as string[];
-}
-
-function optionalNumber(input: OperationInput, key: string): number | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a number`);
-	return value;
-}
 
 function normalizeCreateInput(input: OperationInput): CreateArtifactInput {
 	const { template_id, ...rest } = input;

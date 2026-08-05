@@ -6,41 +6,20 @@
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { Discussions } from "../discussion/discussion-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
+import { type OperationInput, optionalNumber, optionalString, optionalStringArray } from "./operation-input.ts";
 
 const MODULE_ID = "discuss";
-
-type OperationInput = Record<string, unknown>;
-
-function string(input: OperationInput, key: string): string {
-	const value = input[key];
-	if (typeof value !== "string" || value.length === 0)
-		throw new Error(`${key} is required${REQUIRED_FIELD_HINTS[key] ? ` (${REQUIRED_FIELD_HINTS[key]})` : ""}`);
-	return value;
-}
 
 /** Fields whose name alone doesn't say what a valid value looks like -- everything else (title, content, id, settlement) is self-explanatory. */
 const REQUIRED_FIELD_HINTS: Record<string, string> = {
 	actor: 'a display name for who is posting, e.g. "alice" or "agent"',
 };
 
-function optionalString(input: OperationInput, key: string): string | undefined {
+/** Same contract as the shared string() in ./operation-input.ts, plus a field-specific hint on failure -- discuss's own operations are the one surface where a bare "actor is required" isn't self-explanatory. */
+function string(input: OperationInput, key: string): string {
 	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new Error(`${key} must be a string`);
-	return value;
-}
-
-function optionalStringArray(input: OperationInput, key: string): string[] | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(`${key} must be an array of strings`);
-	return value as string[];
-}
-
-function optionalNumber(input: OperationInput, key: string): number | undefined {
-	const value = input[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a number`);
+	if (typeof value !== "string" || value.length === 0)
+		throw new Error(`${key} is required${REQUIRED_FIELD_HINTS[key] ? ` (${REQUIRED_FIELD_HINTS[key]})` : ""}`);
 	return value;
 }
 

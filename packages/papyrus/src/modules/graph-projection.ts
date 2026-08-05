@@ -17,16 +17,9 @@ import type {
 import { GraphProjection } from "../graph-projection/graph-projection-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { GraphProjectionStore } from "../stores/graph-projection-store.ts";
+import { type OperationInput, string } from "./operation-input.ts";
 
 const MODULE_ID = "graph_projection";
-
-type OperationInput = Record<string, unknown>;
-
-function string(input: OperationInput, key: string): string {
-	const value = input[key];
-	if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
-	return value;
-}
 
 function number(input: OperationInput, key: string): number {
 	const value = input[key];

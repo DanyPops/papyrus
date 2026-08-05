@@ -20,7 +20,7 @@
 
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { callService } from "./service-client.ts";
+import { callService } from "../service-client.ts";
 
 export const PLAYBOOK_BRIDGE_MAX_PLAYBOOKS = 100;
 

@@ -33,7 +33,7 @@ import { buildContextInjection } from "./context-injection-telemetry.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss/discuss-ask-view.ts";
 import { resolveNameFields } from "./domain-tools.ts";
 import { renderNoteWidgetLines } from "./note/note-widget.ts";
-import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
+import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook/playbook-bridge.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
 import {
@@ -631,7 +631,7 @@ export default async function (pi: ExtensionAPI) {
 		import("./docs.ts"),
 		import("./note/notes.ts"),
 		import("./rules.ts"),
-		import("./playbooks.ts"),
+		import("./playbook/playbooks.ts"),
 		import("./discuss/discuss.ts"),
 	]);
 	let overlay: TaskOverlay | undefined;

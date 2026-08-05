@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { planPlaybookCommandRegistrations, playbookCommandName, registerPlaybookBridge } from "../extension/src/playbook-bridge.ts";
+import {
+	planPlaybookCommandRegistrations,
+	playbookCommandName,
+	registerPlaybookBridge,
+} from "../extension/src/playbook/playbook-bridge.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
 afterEach(resetPapyrusClientForTests);

@@ -1,10 +1,10 @@
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import { showArtifactBrowser, showArtifactDetails } from "./artifact/artifact-browser.ts";
-import { PLAYBOOK_STATUS_PRESENTATION } from "./artifact/artifact-status-presentation.ts";
-import { matchArtifactByName } from "./domain-tools.ts";
-import { callService } from "./service-client.ts";
+import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
+import { PLAYBOOK_STATUS_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
+import { matchArtifactByName } from "../domain-tools.ts";
+import { callService } from "../service-client.ts";
 
 const PLAYBOOK_COMPLETION_MAX_CANDIDATES = 100;
 

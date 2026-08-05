@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
-import { openPlaybookByName, playbookArgumentCompletions } from "../extension/src/playbooks.ts";
+import { openPlaybookByName, playbookArgumentCompletions } from "../extension/src/playbook/playbooks.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
 afterEach(resetPapyrusClientForTests);

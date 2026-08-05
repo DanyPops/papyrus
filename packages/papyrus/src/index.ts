@@ -5,7 +5,7 @@
  * purposeful API, not "everything happens to be reachable."
  */
 
-export { projectArtifactRelationships } from "./artifact-relationship-view.ts";
+export { projectArtifactRelationships } from "./artifact/artifact-relationship-view.ts";
 export {
 	connectPapyrusClient,
 	type PapyrusClient,

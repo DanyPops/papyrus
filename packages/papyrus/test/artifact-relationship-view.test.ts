@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { projectArtifactRelationships } from "../src/artifact-relationship-view.ts";
+import { projectArtifactRelationships } from "../src/artifact/artifact-relationship-view.ts";
 import type { Artifact } from "../src/domain/artifact.ts";
 
 function doc(id: string, title: string, overrides: Partial<Artifact> = {}): Artifact {

@@ -14,7 +14,7 @@ import { SQLiteTaskEventStore } from "./adapters/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "./adapters/sqlite-task-focus-store.ts";
 import { SQLiteTaskLeaseStore } from "./adapters/sqlite-task-lease-store.ts";
 import { SQLiteTaskScopeStore } from "./adapters/sqlite-task-scope-store.ts";
-import { removeArtifactSubtree } from "./artifact-subtree.ts";
+import { removeArtifactSubtree } from "./artifact/artifact-subtree.ts";
 import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "./authority-registry.ts";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";

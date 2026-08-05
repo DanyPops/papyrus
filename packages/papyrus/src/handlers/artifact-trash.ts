@@ -5,7 +5,7 @@
  */
 import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import { removeArtifactSubtree } from "../artifact-subtree.ts";
+import { removeArtifactSubtree } from "../artifact/artifact-subtree.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, stringProp, validationError } from "./shared.ts";

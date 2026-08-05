@@ -4,7 +4,7 @@ import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { showArtifactDetailView } from "../extension/src/artifact-detail-view.ts";
+import { showArtifactDetailView } from "../extension/src/artifact/artifact-detail-view.ts";
 import { createPapyrusMarkdownTheme, renderMarkdownBody } from "../extension/src/markdown.ts";
 import { showTaskDetails } from "../extension/src/task-detail-view.ts";
 
@@ -208,7 +208,7 @@ describe("Papyrus Markdown detail rendering", () => {
 	it("contains no hardcoded ANSI colors in the Markdown adapter path", () => {
 		for (const path of [
 			"../extension/src/markdown.ts",
-			"../extension/src/artifact-detail-view.ts",
+			"../extension/src/artifact/artifact-detail-view.ts",
 			"../extension/src/task-detail-view.ts",
 		]) {
 			const source = readFileSync(new URL(path, import.meta.url), "utf8");

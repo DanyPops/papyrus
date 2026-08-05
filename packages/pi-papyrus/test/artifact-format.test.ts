@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { formatMetadata } from "../extension/src/artifact-format.ts";
+import { formatMetadata } from "../extension/src/artifact/artifact-format.ts";
 
 describe("nested artifact metadata formatter", () => {
 	it("renders nested checklists with status glyphs", () => {

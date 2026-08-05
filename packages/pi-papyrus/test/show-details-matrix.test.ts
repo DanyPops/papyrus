@@ -2,8 +2,8 @@ import { describe, expect, it } from "bun:test";
 import type { Artifact, OperationName } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { artifactDetailsText, showArtifactDetails } from "../extension/src/artifact-browser.ts";
-import { buildArtifactRelationshipLines } from "../extension/src/artifact-relationship-lines.ts";
+import { artifactDetailsText, showArtifactDetails } from "../extension/src/artifact/artifact-browser.ts";
+import { buildArtifactRelationshipLines } from "../extension/src/artifact/artifact-relationship-lines.ts";
 import { BeautifulMermaidRenderer } from "../extension/src/beautiful-mermaid-renderer.ts";
 import { showTaskDetails } from "../extension/src/tasks.ts";
 

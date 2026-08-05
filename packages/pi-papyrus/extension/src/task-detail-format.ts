@@ -1,5 +1,5 @@
 import { type Artifact, checklistEntries, type ProofReference, type TaskEvent } from "@danypops/papyrus";
-import { formatMetadata } from "./artifact-format.ts";
+import { formatMetadata } from "./artifact/artifact-format.ts";
 
 const TASK_STATUS_GLYPHS: Record<string, string> = {
 	todo: "○",

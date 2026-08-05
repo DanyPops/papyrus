@@ -9,10 +9,10 @@ import {
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
+import { BeautifulMermaidRenderer } from "../beautiful-mermaid-renderer.ts";
+import { type ActiveTheme, renderMarkdownBody } from "../markdown.ts";
 import { type ArtifactDetailContent, artifactDetailContent, artifactDetailsText } from "./artifact-detail-format.ts";
 import { buildArtifactRelationshipLines } from "./artifact-relationship-lines.ts";
-import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
-import { type ActiveTheme, renderMarkdownBody } from "./markdown.ts";
 
 interface ArtifactDetailLine {
 	text: string;

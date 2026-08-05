@@ -17,8 +17,8 @@
 
 import { type Artifact, type DiscussionAndRounds, readDiscussionExtra } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { showArtifactBrowser } from "./artifact-browser.ts";
-import { DISCUSSION_STATE_PRESENTATION, DOC_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
+import { showArtifactBrowser } from "./artifact/artifact-browser.ts";
+import { DISCUSSION_STATE_PRESENTATION, DOC_STATUS_PRESENTATION } from "./artifact/artifact-status-presentation.ts";
 import { askQuestion } from "./discuss-ask-view.ts";
 import { discussionRoundCountOf, discussionStateOf, showDiscussionDetailView } from "./discussion-detail-view.ts";
 import { callService } from "./service-client.ts";

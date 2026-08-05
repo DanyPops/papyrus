@@ -31,7 +31,7 @@ import {
 	automaticPauseReason,
 	shouldResumeFocusOnHumanInput,
 } from "./active-task-continuation.ts";
-import { formatMetadata } from "./artifact-format.ts";
+import { formatMetadata } from "./artifact/artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
 import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
 import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context-hub-contribution.ts";

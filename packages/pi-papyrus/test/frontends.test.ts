@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import type { Artifact } from "@danypops/papyrus";
 import { NOTE_LIST_MAX_LIMIT } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { filterArtifactRows, statusSummary } from "../extension/src/artifact-browser.ts";
+import { filterArtifactRows, statusSummary } from "../extension/src/artifact/artifact-browser.ts";
 import {
 	DISCUSSION_STATE_PRESENTATION,
 	DOC_STATUS_PRESENTATION,
 	NOTE_STATUS_PRESENTATION,
 	RULE_STATUS_PRESENTATION,
 	severityColor,
-} from "../extension/src/artifact-status-presentation.ts";
+} from "../extension/src/artifact/artifact-status-presentation.ts";
 import { discussionRowMeta } from "../extension/src/discuss.ts";
 import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discussion-detail-view.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";

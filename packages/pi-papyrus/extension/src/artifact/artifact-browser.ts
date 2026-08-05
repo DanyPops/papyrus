@@ -2,9 +2,9 @@ import { type Artifact, type OperationName, SEED_RELATIONS } from "@danypops/pap
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { callService } from "../service-client.ts";
 import { showArtifactDetailView } from "./artifact-detail-view.ts";
 import type { StatusPresentation } from "./artifact-status-presentation.ts";
-import { callService } from "./service-client.ts";
 
 export { artifactDetailsText } from "./artifact-detail-format.ts";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact, DisplayGraph, GraphRenderer, RenderedGraph } from "@danypops/papyrus";
-import { buildArtifactRelationshipLines } from "../extension/src/artifact-relationship-lines.ts";
+import { buildArtifactRelationshipLines } from "../extension/src/artifact/artifact-relationship-lines.ts";
 
 function doc(id: string, title: string, overrides: Partial<Artifact> = {}): Artifact {
 	return {

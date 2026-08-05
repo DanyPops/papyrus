@@ -1,7 +1,7 @@
 /**
  * discussion-detail-view.ts — the transcript view for a single Discussion.
  *
- * The generic artifact detail view (artifact-detail-view.ts) formats an artifact's own
+ * The generic artifact detail view (artifact/artifact-detail-view.ts) formats an artifact's own
  * fields (title, body, extra as JSON, edges); it has no way to show a Discussion's rounds,
  * since those live in a dedicated child table fetched separately (discuss.show / discuss.rounds),
  * not in the artifact row itself. Tasks needed the same kind of dedicated view for the same
@@ -19,7 +19,7 @@ import {
 } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
-import { DISCUSSION_STATE_PRESENTATION } from "./artifact-status-presentation.ts";
+import { DISCUSSION_STATE_PRESENTATION } from "./artifact/artifact-status-presentation.ts";
 import { type ActiveTheme, renderMarkdownBody } from "./markdown.ts";
 
 interface TranscriptLine {

@@ -1,7 +1,7 @@
 import { type Artifact, NOTE_DISPOSITIONS, NOTE_LIST_MAX_LIMIT } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { showArtifactBrowser, showArtifactDetails } from "./artifact-browser.ts";
-import { NOTE_STATUS_PRESENTATION } from "./artifact-status-presentation.ts";
+import { showArtifactBrowser, showArtifactDetails } from "./artifact/artifact-browser.ts";
+import { NOTE_STATUS_PRESENTATION } from "./artifact/artifact-status-presentation.ts";
 import { callService } from "./service-client.ts";
 
 export function noteRowMeta(note: Artifact): string {

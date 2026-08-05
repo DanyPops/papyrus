@@ -209,4 +209,62 @@ describe("papyrusVehicleRenderers", () => {
 		expect(text).toContain("Task Y");
 		expect(text).toContain("Cycle");
 	});
+
+	it("renders playbooks.invoke's PlaybookInvocationResult through DagView with a created-summary line, not raw JSON", () => {
+		const { renderResult: renderInvoke } = papyrusVehicleRenderers(descriptor("playbooks.invoke"));
+		const result = {
+			playbookId: "pb-1",
+			runId: "run-1",
+			arguments: {},
+			created: { docs: ["d1"], rules: [], tasks: ["t1", "t2"] },
+			rootTaskIds: ["t1"],
+			entryTaskId: "t1",
+			execution: {
+				nodes: [
+					{ id: "t1", title: "Step one", status: "todo", active: true, state: "ready", layer: 0, prerequisiteIds: [], successorIds: ["t2"] },
+					{
+						id: "t2",
+						title: "Step two",
+						status: "todo",
+						active: false,
+						state: "blocked",
+						layer: 1,
+						prerequisiteIds: ["t1"],
+						successorIds: [],
+					},
+				],
+				layers: [["t1"], ["t2"]],
+				cycleIds: [],
+			},
+			content: [{ type: "text", text: "Invoked playbook run run-1" }],
+		};
+		const component = renderInvoke!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: result } },
+			{ isPartial: false, expanded: true },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Step one");
+		expect(text).toContain("Step two");
+		expect(text).toContain("depends on");
+		expect(text).toContain("2 task");
+		expect(text).toContain("1 doc");
+		expect(text).not.toContain("{");
+	});
+
+	it("renders playbooks.invoke's missingArguments case as a clear warning, not raw JSON", () => {
+		const { renderResult: renderInvoke } = papyrusVehicleRenderers(descriptor("playbooks.invoke"));
+		const result = { playbookId: "pb-1", missingArguments: ["jira_ticket"], content: [{ type: "text", text: "Missing required argument(s)" }] };
+		const component = renderInvoke!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: result } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text.toLowerCase()).toContain("missing");
+		expect(text).toContain("jira_ticket");
+		expect(text).not.toContain("{");
+	});
 });

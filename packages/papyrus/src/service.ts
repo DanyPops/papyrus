@@ -1,3 +1,4 @@
+import { VehicleError } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
@@ -22,6 +23,7 @@ import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
 import { listInjectableRules } from "./domain-services.ts";
+import { logEvent } from "./log.ts";
 import { Logs } from "./log-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
 import { DISCUSS_OPERATION_NAMES, discussOperations } from "./modules/discuss.ts";
@@ -588,7 +590,23 @@ export function createApp(deps: {
 				return json({ error: "missing or invalid bearer token" }, { status: 401 });
 			}
 			const url = new URL(request.url);
-			if (url.pathname.startsWith("/vehicle/")) return vehicleApp.fetch(request);
+			if (url.pathname.startsWith("/vehicle/")) {
+				// Every domain (tasks/docs/rules/discuss/notes/playbooks) is reachable here directly
+				// (registry.invoke()), bypassing execute()'s own migrationRequired guard below entirely --
+				// a stale schema surfaced as an opaque handler-failed (or worse, a silent wrong answer)
+				// the moment a request touched a column/table the old schema never had, instead of the
+				// same clear, actionable error execute() already gives. Real incident: restarting the
+				// live daemon onto new code without running `papyrus migrate schema` first.
+				if (deps.service.schemaState().migrationRequired) {
+					logEvent("warn", "vehicle_invoke_blocked_migration_required", { path: url.pathname, schema: deps.service.schemaState() });
+					const failure = new VehicleError("migration-required", "database migration required; run `papyrus migrate schema`", {
+						category: "unavailable",
+						retryable: false,
+					}).toFailure();
+					return json({ error: failure, operationId: crypto.randomUUID() }, { status: 503 });
+				}
+				return vehicleApp.fetch(request);
+			}
 			if (request.method === "GET" && url.pathname === "/health") {
 				return json({ ok: true, version: VERSION, schema: deps.service.schemaState() });
 			}

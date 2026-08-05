@@ -114,6 +114,44 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
+	/**
+	 * Real incident: restarting the live daemon onto new code without running `papyrus migrate
+	 * schema` first left the real production database at an older schema version. The legacy
+	 * execute()/`/api/v1/ops` path already refuses cleanly (see the migration test above) --
+	 * but every domain (tasks/docs/rules/discuss/notes/playbooks) is now ALSO reachable through
+	 * `/vehicle/invoke` directly (registry.invoke(), bypassing execute() entirely), which had no
+	 * equivalent guard: a stale schema surfaced as an opaque "handler-failed" (or worse, silent
+	 * success) the moment a request touched a column/table the old schema never had, instead of
+	 * the same clear, actionable message the legacy path already gives.
+	 */
+	it("refuses every /vehicle/invoke call with a clear, classified error when the database needs an explicit migration, matching the legacy execute() path", async () => {
+		const dir = tempDir("papyrus-service-vehicle-migration-");
+		const path = join(dir, "papyrus.db");
+		const legacy = openDb(path);
+		legacy.exec(`DROP INDEX IF EXISTS artifacts_alias_idx; ALTER TABLE artifacts DROP COLUMN alias; PRAGMA user_version = 23;`);
+		legacy.close();
+
+		const service = createPapyrusService(path);
+		const app = createApp({ service, token: "test-token" });
+		expect(service.schemaState()).toEqual({ current: 23, required: 24, migrationRequired: true });
+
+		const response = await request(app, "/vehicle/invoke", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "tasks.show",
+				version: 1,
+				input: { name: "Anything", project_root: PROJECT_ROOT },
+				permissions: ["tasks:read", "tasks:write"],
+			}),
+		});
+		expect(response.status).toBe(503);
+		const body = (await response.json()) as { error: { code: string; category: string; message: string } };
+		expect(body.error.code).toBe("migration-required");
+		expect(body.error.category).toBe("unavailable");
+		expect(body.error.message).toContain("papyrus migrate schema");
+		service.close();
+	});
+
 	it("requires explicit project scope on Task view and creation boundaries", async () => {
 		const { service } = fixture();
 		await expect(service.execute("tasks.create", { title: "Unscoped by accident" })).rejects.toThrow("project_root is required");

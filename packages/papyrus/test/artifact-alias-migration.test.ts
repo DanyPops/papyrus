@@ -19,8 +19,11 @@ describe("artifact-aliases migration: every existing row is backfilled with a re
 			INSERT INTO artifacts (id, kind, title, status, subtype, body, labels, extra, created_at, updated_at)
 			VALUES ('task-b', 'task', 'Fix the timeout bug', 'todo', '', '', '[]', '{}', ?, ?)
 		`).run(now, now);
-		// Simulate a pre-migration database: drop the column this migration itself adds.
+		// Simulate a pre-migration database: drop the column (and its unique index, which must go
+		// first -- SQLite's DROP COLUMN silently fails to actually remove an indexed column
+		// otherwise) this migration itself adds.
 		db.exec(`
+			DROP INDEX IF EXISTS artifacts_alias_idx;
 			ALTER TABLE artifacts DROP COLUMN alias;
 			PRAGMA user_version = 23;
 		`);

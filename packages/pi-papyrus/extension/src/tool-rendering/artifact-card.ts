@@ -1,7 +1,19 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection, type DetailViewTheme } from "malevich-tui-components";
+import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection, type DetailViewTheme, type TextMeasure } from "malevich-tui-components";
 import type { ArtifactToolDetails } from "./render-model.ts";
+
+/**
+ * Real ANSI-aware measurement/wrapping -- without this, buildDetailLines falls back to
+ * Malevich's own asciiTextMeasure, which is documented as having "no ANSI-code awareness"
+ * and is only meant for short, unstyled labels. A themed multi-paragraph body (this file's
+ * own Body: section) styles the whole text once before wrapping; the ASCII fallback then
+ * slices that already-colored string by raw character index, so only the first and last
+ * resulting physical lines keep the color escape -- every line in between renders in the
+ * terminal's default color. wrapTextWithAnsi re-injects the active codes on every wrapped
+ * line instead.
+ */
+const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
 /** Shared by every buildDetailLines caller in this extension (ArtifactCard, and
  * tools/vehicle-artifact-renderers.ts's discuss/tasks.complete renderers) -- one Theme -> DetailViewTheme
@@ -143,6 +155,7 @@ export class ArtifactCard implements Component {
 			sections: this.sections(),
 			alignFields: true,
 			theme: detailViewTheme(theme),
+			measure,
 		});
 
 		if (this.details.focus) {

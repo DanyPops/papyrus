@@ -183,7 +183,11 @@ function isPlaybookInvocationResult(value: unknown): value is PlaybookInvocation
 function isPlaybookMissingArguments(value: unknown): value is PlaybookMissingArgumentsOutput {
 	if (typeof value !== "object" || value === null) return false;
 	const row = value as Record<string, unknown>;
-	return typeof row.playbookId === "string" && Array.isArray(row.missingArguments) && row.missingArguments.every((entry) => typeof entry === "string");
+	return (
+		typeof row.playbookId === "string" &&
+		Array.isArray(row.missingArguments) &&
+		row.missingArguments.every((entry) => typeof entry === "string")
+	);
 }
 
 function renderPlaybookInvocationResult(result: PlaybookInvocationResultOutput, theme: Theme, expanded: boolean): Component {

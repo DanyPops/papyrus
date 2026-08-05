@@ -221,7 +221,16 @@ describe("papyrusVehicleRenderers", () => {
 			entryTaskId: "t1",
 			execution: {
 				nodes: [
-					{ id: "t1", title: "Step one", status: "todo", active: true, state: "ready", layer: 0, prerequisiteIds: [], successorIds: ["t2"] },
+					{
+						id: "t1",
+						title: "Step one",
+						status: "todo",
+						active: true,
+						state: "ready",
+						layer: 0,
+						prerequisiteIds: [],
+						successorIds: ["t2"],
+					},
 					{
 						id: "t2",
 						title: "Step two",
@@ -255,7 +264,11 @@ describe("papyrusVehicleRenderers", () => {
 
 	it("renders playbooks.invoke's missingArguments case as a clear warning, not raw JSON", () => {
 		const { renderResult: renderInvoke } = papyrusVehicleRenderers(descriptor("playbooks.invoke"));
-		const result = { playbookId: "pb-1", missingArguments: ["jira_ticket"], content: [{ type: "text", text: "Missing required argument(s)" }] };
+		const result = {
+			playbookId: "pb-1",
+			missingArguments: ["jira_ticket"],
+			content: [{ type: "text", text: "Missing required argument(s)" }],
+		};
 		const component = renderInvoke!(
 			{ content: [], details: { vehicle: vehicleIdentity, output: result } },
 			{ isPartial: false, expanded: false },

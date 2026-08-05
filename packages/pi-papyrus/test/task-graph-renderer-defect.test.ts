@@ -3,7 +3,7 @@ import type { GraphRenderer, TaskGraph } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { BeautifulMermaidRenderer } from "../extension/src/beautiful-mermaid-renderer.ts";
-import { TaskGraphViewport } from "../extension/src/task-graph.ts";
+import { TaskGraphViewport } from "../extension/src/task/task-graph.ts";
 
 const graph: TaskGraph = {
 	nodes: [

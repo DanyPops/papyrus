@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { Artifact, TaskGraph } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { showTaskDetails, taskDetailsText } from "../extension/src/tasks.ts";
+import { showTaskDetails, taskDetailsText } from "../extension/src/task/tasks.ts";
 
 const task: Artifact = {
 	id: "build-router-n23w",

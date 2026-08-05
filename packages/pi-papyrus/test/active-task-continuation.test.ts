@@ -4,7 +4,7 @@ import {
 	type ActiveTaskMarker,
 	automaticPauseReason,
 	shouldResumeFocusOnHumanInput,
-} from "../extension/src/active-task-continuation.ts";
+} from "../extension/src/task/active-task-continuation.ts";
 
 const active = (updatedAt = "2026-01-01T00:00:00.000Z"): ActiveTaskMarker => ({
 	id: "task-1",

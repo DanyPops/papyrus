@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { showTaskGraph } from "../extension/src/task-graph.ts";
+import { showTaskGraph } from "../extension/src/task/task-graph.ts";
 
 function task(id: string, title: string): Artifact {
 	return {

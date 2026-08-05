@@ -9,7 +9,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setPushChannelTargetResolverForTests,
 } from "../extension/src/service-client.ts";
-import { buildTaskWidgetProjection } from "../extension/src/task-widget.ts";
+import { buildTaskWidgetProjection } from "../extension/src/task/task-widget.ts";
 
 // Every TaskOverlay.refresh() call now also attempts to establish a push-channel
 // subscription -- without this, these unit tests would fall through to the real

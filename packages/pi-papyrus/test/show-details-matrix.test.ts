@@ -5,7 +5,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { artifactDetailsText, showArtifactDetails } from "../extension/src/artifact/artifact-browser.ts";
 import { buildArtifactRelationshipLines } from "../extension/src/artifact/artifact-relationship-lines.ts";
 import { BeautifulMermaidRenderer } from "../extension/src/beautiful-mermaid-renderer.ts";
-import { showTaskDetails } from "../extension/src/tasks.ts";
+import { showTaskDetails } from "../extension/src/task/tasks.ts";
 
 const theme = {
 	bold: (text: string) => text,

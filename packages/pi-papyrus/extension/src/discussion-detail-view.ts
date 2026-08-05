@@ -5,7 +5,7 @@
  * fields (title, body, extra as JSON, edges); it has no way to show a Discussion's rounds,
  * since those live in a dedicated child table fetched separately (discuss.show / discuss.rounds),
  * not in the artifact row itself. Tasks needed the same kind of dedicated view for the same
- * underlying reason (task-detail-view.ts) -- this mirrors that scrolling-viewport idiom rather
+ * underlying reason (task/task-detail-view.ts) -- this mirrors that scrolling-viewport idiom rather
  * than inventing a new one.
  */
 

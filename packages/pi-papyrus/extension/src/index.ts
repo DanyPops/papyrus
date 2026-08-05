@@ -25,12 +25,6 @@ import type { PushChannelClient } from "@danypops/vehicle-client/daemon-client";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import {
-	ActiveTaskContinuation,
-	type ActiveTaskMarker,
-	automaticPauseReason,
-	shouldResumeFocusOnHumanInput,
-} from "./active-task-continuation.ts";
 import { formatMetadata } from "./artifact/artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
 import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
@@ -42,9 +36,15 @@ import { renderNoteWidgetLines } from "./note-widget.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook-bridge.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
-import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task-focus-events.ts";
-import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task-presentation.ts";
-import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task-widget.ts";
+import {
+	ActiveTaskContinuation,
+	type ActiveTaskMarker,
+	automaticPauseReason,
+	shouldResumeFocusOnHumanInput,
+} from "./task/active-task-continuation.ts";
+import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task/task-focus-events.ts";
+import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task/task-presentation.ts";
+import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task/task-widget.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
 	createArtifactDetails,
@@ -627,7 +627,7 @@ export default async function (pi: ExtensionAPI) {
 
 	// Lazy imports keep TUI components out of non-interactive startup paths.
 	const [tasksModule, docsModule, notesModule, rulesModule, playbooksModule, discussModule] = await Promise.all([
-		import("./tasks.ts"),
+		import("./task/tasks.ts"),
 		import("./docs.ts"),
 		import("./notes.ts"),
 		import("./rules.ts"),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
-import { buildTaskHierarchy } from "../extension/src/tasks.ts";
+import { buildTaskHierarchy } from "../extension/src/task/tasks.ts";
 
 function task(id: string, title: string): Artifact {
 	return {

@@ -6,7 +6,7 @@ import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { showArtifactDetailView } from "../extension/src/artifact/artifact-detail-view.ts";
 import { createPapyrusMarkdownTheme, renderMarkdownBody } from "../extension/src/markdown.ts";
-import { showTaskDetails } from "../extension/src/task-detail-view.ts";
+import { showTaskDetails } from "../extension/src/task/task-detail-view.ts";
 
 const markdown = [
 	"# Themed heading",
@@ -209,7 +209,7 @@ describe("Papyrus Markdown detail rendering", () => {
 		for (const path of [
 			"../extension/src/markdown.ts",
 			"../extension/src/artifact/artifact-detail-view.ts",
-			"../extension/src/task-detail-view.ts",
+			"../extension/src/task/task-detail-view.ts",
 		]) {
 			const source = readFileSync(new URL(path, import.meta.url), "utf8");
 			expect(source).not.toContain("\\x1b[");

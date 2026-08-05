@@ -6,8 +6,8 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Input, matchesKey, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { callService } from "./service-client.ts";
-import { sessionSecretField } from "./session-identity.ts";
+import { callService } from "../service-client.ts";
+import { sessionSecretField } from "../session-identity.ts";
 import { showTaskDetails } from "./task-detail-view.ts";
 import { emitTaskFocusEvent } from "./task-focus-events.ts";
 import { showTaskGraph } from "./task-graph.ts";

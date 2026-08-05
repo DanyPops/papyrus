@@ -26,7 +26,7 @@ describe("task scope frontends", () => {
 
 	it("requires project_root explicitly server-side now that tasks is Vehicle-projected (no ambient Pi cwd there), while the browser scope control and status widget keep routing Pi's own cwd", () => {
 		const tasksVehicle = readFileSync(new URL("../src/handlers/tasks.ts", import.meta.url), "utf8");
-		const browser = readFileSync(new URL("../../pi-papyrus/extension/src/tasks.ts", import.meta.url), "utf8");
+		const browser = readFileSync(new URL("../../pi-papyrus/extension/src/task/tasks.ts", import.meta.url), "utf8");
 		const extension = readFileSync(new URL("../../pi-papyrus/extension/src/index.ts", import.meta.url), "utf8");
 		expect(tasksVehicle).toContain('"set_scope"');
 		expect(tasksVehicle).toContain("no ambient cwd server-side");

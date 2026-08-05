@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "../extension/src/task-presentation.ts";
+import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "../extension/src/task/task-presentation.ts";
 
 describe("task lifecycle presentation", () => {
 	it("maps every lifecycle to the requested semantic color", () => {

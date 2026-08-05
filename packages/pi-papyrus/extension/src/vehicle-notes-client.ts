@@ -27,7 +27,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discussLiveFollowUp } from "./discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "./service-client.ts";
 import { sessionSecretField } from "./session-identity.ts";
-import { emitTaskFocusEvent } from "./task-focus-events.ts";
+import { emitTaskFocusEvent } from "./task/task-focus-events.ts";
 import { papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
 const REGISTERED_PERMISSIONS = [

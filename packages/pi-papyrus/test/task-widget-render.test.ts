@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { renderTaskWidgetLines } from "../extension/src/index.ts";
-import type { TaskWidgetProjection } from "../extension/src/task-widget.ts";
+import type { TaskWidgetProjection } from "../extension/src/task/task-widget.ts";
 
 const theme = {
 	fg: (_color: string, text: string) => text,

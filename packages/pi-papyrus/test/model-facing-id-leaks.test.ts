@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { type Artifact, type ArtifactStore, taskContext } from "@danypops/papyrus";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { ActiveTaskContinuation } from "../extension/src/active-task-continuation.ts";
 import registerPapyrus from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,
@@ -9,6 +8,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
+import { ActiveTaskContinuation } from "../extension/src/task/active-task-continuation.ts";
 
 const TASK_ID = "0d6cc36a-2755-474c-b955-6a5534d5f66d";
 const OTHER_ID = "899fdd09-1340-450b-ae60-e1816f9b481e";

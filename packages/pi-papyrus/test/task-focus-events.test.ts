@@ -5,7 +5,7 @@ import {
 	emitTaskFocusEvent,
 	resetTaskFocusEventBusForTests,
 	setTaskFocusEventBus,
-} from "../extension/src/task-focus-events.ts";
+} from "../extension/src/task/task-focus-events.ts";
 
 afterEach(() => resetTaskFocusEventBusForTests());
 

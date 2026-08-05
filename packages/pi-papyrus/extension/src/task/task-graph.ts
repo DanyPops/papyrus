@@ -10,7 +10,7 @@ import {
 } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { BeautifulMermaidRenderer } from "./beautiful-mermaid-renderer.ts";
+import { BeautifulMermaidRenderer } from "../beautiful-mermaid-renderer.ts";
 import { TASK_STATUS_PRESENTATION } from "./task-presentation.ts";
 
 const GRAPH_VIEWS: TaskGraphView[] = ["execution", "dependencies", "composition"];

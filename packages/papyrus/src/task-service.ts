@@ -329,11 +329,17 @@ export class Tasks {
 			throw new Error(`task graph limit must be between 1 and ${TASK_EXECUTION_MAX_NODES + 1}`);
 		}
 		const tasks = this.list({ ...filter, limit: requestedLimit });
+		return this.buildGraph(tasks, scope, filter.sessionId);
+	}
+
+	/** Shared by graph() and dependencyCheckGraph() -- the latter builds a graph from an
+	 * explicitly assembled task list (a union of two projects) rather than one filter's own scope. */
+	private buildGraph(tasks: Artifact[], scope: TaskViewSelection, sessionId?: string): TaskGraph {
 		if (tasks.length > TASK_EXECUTION_MAX_NODES) {
-			throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
+			throw new TaskExecutionBoundExceededError(`task execution graph exceeds ${TASK_EXECUTION_MAX_NODES} nodes`);
 		}
 		const byId = new Map(tasks.map((task) => [task.id, task]));
-		const focus = this.focusStore.get(filter.sessionId);
+		const focus = this.focusStore.get(sessionId);
 		const focusedId = focus?.taskId;
 		const focusStatus = focus?.status;
 		const nodes = new Map(
@@ -355,7 +361,7 @@ export class Tasks {
 			limit: TASK_EXECUTION_MAX_EDGES + 1,
 		});
 		if (relationships.length > TASK_EXECUTION_MAX_EDGES) {
-			throw new Error(`task execution graph exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
+			throw new TaskExecutionBoundExceededError(`task execution graph exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
 		}
 		for (const edge of relationships) {
 			if (!byId.has(edge.from) || !byId.has(edge.to)) continue;
@@ -655,6 +661,18 @@ export class Tasks {
 		const targetProject = this.scopes.get(dependencyId)?.projectRoot;
 		if (sourceProject !== undefined && sourceProject === targetProject) {
 			return this.graph({ projectRoot: sourceProject, scope: "project" });
+		}
+		if (sourceProject !== undefined && targetProject !== undefined) {
+			// A genuine cross-project pair: the union of both endpoints' own project scopes
+			// covers every prerequisite/successor edge relevant to THIS pair's own cycle check,
+			// without pulling in every unrelated project's tasks -- those can push the daemon-wide
+			// total over TASK_EXECUTION_MAX_NODES for reasons that have nothing to do with these
+			// two tasks. A cycle threading through a third, uninvolved project is not covered by
+			// this union; falls back to the fully unscoped graph only when a project is unknown.
+			const limit = TASK_EXECUTION_MAX_NODES + 1;
+			const merged = new Map(this.list({ projectRoot: sourceProject, scope: "project", limit }).map((task) => [task.id, task]));
+			for (const task of this.list({ projectRoot: targetProject, scope: "project", limit })) merged.set(task.id, task);
+			return this.buildGraph([...merged.values()], { mode: "all", label: taskScopeLabel("all") });
 		}
 		return this.graph();
 	}

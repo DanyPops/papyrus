@@ -427,7 +427,7 @@ describe("Tasks port behavior", () => {
 		expect(graph.nodes.find((node) => node.task.id === dependent.id)?.dependencyIds).toContain(prerequisite.id);
 	});
 
-	it("still enforces the execution-graph bound for a genuine cross-project dependency, which falls back to the unscoped daemon-wide graph", () => {
+	it("links a genuine cross-project dependency unaffected by an unrelated third project pushing the daemon-wide total over the execution-graph bound", () => {
 		const artifacts = new FakeArtifactStore();
 		const tasks = new Tasks(artifacts, new FakeGateRunner());
 		for (let index = 0; index < 1001; index++) {
@@ -436,8 +436,29 @@ describe("Tasks port behavior", () => {
 		const fromOtherProject = tasks.create({ title: "From project A", projectRoot: "/tmp/project-a" });
 		const toOtherProject = tasks.create({ title: "From project B", projectRoot: "/tmp/project-b" });
 
-		// The two endpoints don't share a project, so the scoping fix's fast path doesn't apply --
-		// this must still fall back to (and correctly enforce) the unscoped daemon-wide bound.
+		// The two endpoints don't share a project, but both are known -- dependencyCheckGraph
+		// scopes to the union of their own two projects instead of the full unscoped daemon graph,
+		// so an unrelated third project's own task count is irrelevant to this pair.
+		expect(() => tasks.depend(fromOtherProject.id, toOtherProject.id)).not.toThrow();
+		// show() reads edges directly (tree: true), not through graph()'s own bound-checked
+		// build -- the full unscoped graph here would itself exceed 1000 nodes (1001 filler +
+		// 2 real), which is exactly the daemon-wide cost this fix avoids paying just to verify.
+		const shown = tasks.show(fromOtherProject.id);
+		expect(shown.edges).toContainEqual({ from: fromOtherProject.id, relation: "depends_on", to: toOtherProject.id });
+	});
+
+	it("still enforces the execution-graph bound when the union of two genuinely large cross-project scopes itself exceeds it", () => {
+		const artifacts = new FakeArtifactStore();
+		const tasks = new Tasks(artifacts, new FakeGateRunner());
+		for (let index = 0; index < 600; index++) {
+			tasks.create({ title: `A filler ${index}`, projectRoot: "/tmp/project-a" });
+		}
+		for (let index = 0; index < 600; index++) {
+			tasks.create({ title: `B filler ${index}`, projectRoot: "/tmp/project-b" });
+		}
+		const fromOtherProject = tasks.create({ title: "From project A", projectRoot: "/tmp/project-a" });
+		const toOtherProject = tasks.create({ title: "From project B", projectRoot: "/tmp/project-b" });
+
 		expect(() => tasks.depend(fromOtherProject.id, toOtherProject.id)).toThrow("exceeds 1000 nodes");
 	});
 

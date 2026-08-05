@@ -136,6 +136,47 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("depend succeeds across project_root boundaries even once an unrelated project pushes the daemon-wide task count over the execution-graph bound", async () => {
+		const { registry, service } = harness();
+		for (let index = 0; index < 1001; index++) {
+			await registry.invoke("tasks.create", 1, { title: `Filler ${index}`, project_root: "/tmp/filler-project" }, PERMS);
+		}
+		const fromA = (await registry.invoke("tasks.create", 1, { title: "From A", project_root: "/tmp/project-a" }, PERMS)) as {
+			id: string;
+		};
+		const fromB = (await registry.invoke("tasks.create", 1, { title: "From B", project_root: "/tmp/project-b" }, PERMS)) as {
+			id: string;
+		};
+		await registry.invoke("tasks.depend", 1, { id: fromA.id, dependency_id: fromB.id }, PERMS);
+		// tasks.show reads edges directly, not through the bound-checked graph build -- the full
+		// unscoped graph here would itself exceed 1000 nodes, the exact daemon-wide cost this fix avoids.
+		const shown = (await registry.invoke("tasks.show", 1, { id: fromA.id }, PERMS)) as {
+			edges: Array<{ from: string; relation: string; to: string }>;
+		};
+		expect(shown.edges).toContainEqual({ from: fromA.id, relation: "depends_on", to: fromB.id });
+		service.close();
+	});
+
+	it("a genuinely daemon-wide-exceeding cross-project depend surfaces a classified capacity error, not an opaque handler-failed", async () => {
+		const { registry, service } = harness();
+		for (let index = 0; index < 600; index++) {
+			await registry.invoke("tasks.create", 1, { title: `A filler ${index}`, project_root: "/tmp/project-a" }, PERMS);
+		}
+		for (let index = 0; index < 600; index++) {
+			await registry.invoke("tasks.create", 1, { title: `B filler ${index}`, project_root: "/tmp/project-b" }, PERMS);
+		}
+		const fromA = (await registry.invoke("tasks.create", 1, { title: "From A", project_root: "/tmp/project-a" }, PERMS)) as {
+			id: string;
+		};
+		const fromB = (await registry.invoke("tasks.create", 1, { title: "From B", project_root: "/tmp/project-b" }, PERMS)) as {
+			id: string;
+		};
+		const rejection = await registry.invoke("tasks.depend", 1, { id: fromA.id, dependency_id: fromB.id }, PERMS).catch((error) => error);
+		expect(rejection).toMatchObject({ code: "task-execution-bound-exceeded", category: "capacity" });
+		expect((rejection as Error).message).toContain("exceeds 1000 nodes");
+		service.close();
+	});
+
 	it("start/submit/complete drive the full lifecycle, and complete's output carries a model-facing content summary", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("tasks.create", 1, { title: "Do the work", project_root: PROJECT }, PERMS)) as { id: string };

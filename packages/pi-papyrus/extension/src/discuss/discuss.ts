@@ -10,7 +10,7 @@
  * surfaces history count, both also not the row glyph.
  *
  * Creating a new Discussion is left to the agent (discuss_open, Vehicle-projected -- see
- * vehicle-notes-client.ts), matching docs.ts/rules.ts/playbooks.ts precedent -- Notes is the one
+ * ../tools/vehicle-notes-client.ts), matching docs.ts/rules.ts/playbooks.ts precedent -- Notes is the one
  * kind with a human-facing creation command (/note), because Notes exists specifically as a
  * human-authored inbox.
  */

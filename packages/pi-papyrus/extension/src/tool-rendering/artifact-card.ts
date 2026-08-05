@@ -4,7 +4,7 @@ import { buildDetailLines, type DetailField, type DetailSection, type DetailView
 import type { ArtifactToolDetails } from "./render-model.ts";
 
 /** Shared by every buildDetailLines caller in this extension (ArtifactCard, and
- * vehicle-artifact-renderers.ts's discuss/tasks.complete renderers) -- one Theme -> DetailViewTheme
+ * tools/vehicle-artifact-renderers.ts's discuss/tasks.complete renderers) -- one Theme -> DetailViewTheme
  * mapping instead of the same four-field object literal re-typed at each call site. */
 export function detailViewTheme(theme: Theme): DetailViewTheme {
 	return {

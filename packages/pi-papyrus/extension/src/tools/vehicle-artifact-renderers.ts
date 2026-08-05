@@ -20,9 +20,9 @@ import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DagEdge, type DagNode, DagView, type DetailField, type DetailSection } from "malevich-tui-components";
-import { ArtifactCard, detailViewTheme, expandHint, statusColor, statusGlyph } from "./tool-rendering/artifact-card.ts";
-import { ArtifactListCard } from "./tool-rendering/artifact-list.ts";
-import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
+import { ArtifactCard, detailViewTheme, expandHint, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
+import { ArtifactListCard } from "../tool-rendering/artifact-list.ts";
+import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "../tool-rendering/render-model.ts";
 
 function isArtifact(value: unknown): value is Artifact {
 	if (typeof value !== "object" || value === null) return false;

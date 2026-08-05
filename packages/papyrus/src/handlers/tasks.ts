@@ -10,7 +10,7 @@
  *  - session_secret authorizes which session's Task Focus row gets mutated
  *    (modules/tasks.ts's own guardFocusMutation). It must never be a model-visible
  *    input field -- it travels through VehicleInvocationOptions.principal.claims,
- *    the same mechanism playbooks.invoke uses (see vehicle-notes-client.ts).
+ *    the same mechanism playbooks.invoke uses (see pi-papyrus's tools/vehicle-notes-client.ts).
  *  - papyrus.task-focus.v1 is a same-process Pi extension event bus broadcast (a
  *    token-cost router or similar can correlate its own telemetry with the
  *    currently focused task) with no Vehicle-transport equivalent -- fired from

@@ -2,7 +2,7 @@
  * discuss.open/discuss.reply's live:true synchronous human round-trip -- the
  * one piece of discuss's own retired pi.registerTool() the plain
  * request/response Vehicle projection can't express on its own, wired in via
- * vehicle-client-pi's interactiveFollowUps hook (vehicle-notes-client.ts).
+ * vehicle-client-pi's interactiveFollowUps hook (../tools/vehicle-notes-client.ts).
  *
  * The primary invoke() always durably records the round first, exactly like
  * every other Vehicle operation -- this only ever adds an OPTIONAL synchronous

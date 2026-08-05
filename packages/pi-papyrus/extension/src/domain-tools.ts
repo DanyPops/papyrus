@@ -111,7 +111,7 @@ export async function resolveNameFields(
 }
 
 // notes.*, rules.*, docs.*, playbooks.*, tasks.*, discuss.*, and the shared artifact.*
-// are all registered as Vehicles (see ../vehicle-notes-client.ts and @danypops/papyrus's
+// are all registered as Vehicles (see ./tools/vehicle-notes-client.ts and @danypops/papyrus's
 // src/handlers/registry.ts) -- no domain has a hand-rolled pi.registerTool() left
 // in this file. What remains here (above) is name-resolution machinery still used
 // directly by index.ts's own low-level tools (papyrus_graph).

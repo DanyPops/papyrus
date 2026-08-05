@@ -53,7 +53,7 @@ import {
 	createModelContent,
 	createPreviewDetails,
 } from "./tool-rendering/render-model.ts";
-import { registerNotesVehicle } from "./vehicle-notes-client.ts";
+import { registerNotesVehicle } from "./tools/vehicle-notes-client.ts";
 
 function text(value: string, details: unknown = {}) {
 	const modelContent = createModelContent(value);

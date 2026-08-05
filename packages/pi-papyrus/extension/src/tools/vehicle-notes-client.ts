@@ -24,10 +24,10 @@ import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { registerVehicleTools } from "@danypops/vehicle-client-pi";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { discussLiveFollowUp } from "./discuss/discuss-live-follow-up.ts";
-import { currentVehicleClientTarget } from "./service-client.ts";
-import { sessionSecretField } from "./session-identity.ts";
-import { emitTaskFocusEvent } from "./task/task-focus-events.ts";
+import { discussLiveFollowUp } from "../discuss/discuss-live-follow-up.ts";
+import { currentVehicleClientTarget } from "../service-client.ts";
+import { sessionSecretField } from "../session-identity.ts";
+import { emitTaskFocusEvent } from "../task/task-focus-events.ts";
 import { papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
 const REGISTERED_PERMISSIONS = [

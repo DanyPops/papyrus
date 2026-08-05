@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { papyrusVehicleRenderers } from "../extension/src/vehicle-artifact-renderers.ts";
+import { papyrusVehicleRenderers } from "../extension/src/tools/vehicle-artifact-renderers.ts";
 
 const fakeTheme = {
 	fg: (_color: string, text: string) => text,

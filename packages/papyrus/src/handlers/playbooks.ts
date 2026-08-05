@@ -9,7 +9,7 @@
  * Those two fields never belong in this operation's model-visible inputSchema -- a model
  * has no business knowing or supplying a session secret. Instead they travel through
  * VehicleInvocationOptions.principal.claims, populated by pi-papyrus's own
- * resolveInvocation hook (see vehicle-notes-client.ts) from its own already-cached
+ * resolveInvocation hook (see pi-papyrus's tools/vehicle-notes-client.ts) from its own already-cached
  * session_secret, the same value the hand-rolled tool used to thread through as a raw
  * input field. A caller with no cached secret for this session (unregistered, or a non-Pi
  * Vehicle client) simply gets the guard's own no-op-when-unset default, unchanged.

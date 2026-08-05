@@ -167,7 +167,7 @@ describe("Papyrus native tool rendering", () => {
 		// domain-tools.ts has zero pi.registerTool()s left -- notes/rules/docs/skills/
 		// playbooks/tasks/discuss are all Vehicle-projected now, none with a renderCall/
 		// renderResult of their own in this file (see vehicle-render.ts's generic renderer
-		// instead, or vehicle-artifact-renderers.ts's papyrus-specific override).
+		// instead, or tools/vehicle-artifact-renderers.ts's papyrus-specific override).
 		expect(domainTools.match(/renderCall\(/g)).toBeNull();
 		expect(domainTools.match(/renderResult\(/g)).toBeNull();
 		expect(lowLevelTools.match(/renderCall\(/g)).toHaveLength(3);

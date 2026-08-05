@@ -71,6 +71,18 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		service.close();
 	});
 
+	it("round-trips a title containing HTML-special characters byte-for-byte through create/show/list, never entity-encoded", async () => {
+		const { registry, service } = harness();
+		const title = "Data Hygiene Audit & Scrub";
+		const created = (await registry.invoke("playbooks.create", 1, { title, steps: ["Scan"] }, PERMS)) as { id: string; title: string };
+		expect(created.title).toBe(title);
+		const shown = (await registry.invoke("playbooks.show", 1, { id: created.id }, PERMS)) as { title: string };
+		expect(shown.title).toBe(title);
+		const rows = (await registry.invoke("playbooks.list", 1, {}, PERMS)) as Array<{ title: string }>;
+		expect(rows.map((row) => row.title)).toContain(title);
+		service.close();
+	});
+
 	it("preview renders the composition tree as text with no side effects", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke(

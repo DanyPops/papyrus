@@ -40,6 +40,19 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	it("round-trips title/body containing HTML-special characters byte-for-byte, never entity-encoded", () => {
+		const title = "Data Hygiene Audit & Scrub <review> \"quoted\" 'single'";
+		const body = "if (a < b && b > c) { console.log('done'); }";
+		const { db } = tmpDb();
+		const artifact = createArtifact(db, { kind: "playbook", title, body });
+		expect(artifact.title).toBe(title);
+		expect(artifact.body).toBe(body);
+		const reloaded = getArtifact(db, artifact.id);
+		expect(reloaded?.title).toBe(title);
+		expect(reloaded?.body).toBe(body);
+		db.close();
+	});
+
 	it("honors a caller-supplied id verbatim, unaffected by UUID generation", () => {
 		const { db } = tmpDb();
 		const artifact = createArtifact(db, { kind: "doc", title: "Explicit id", id: "caller-chosen-id" });

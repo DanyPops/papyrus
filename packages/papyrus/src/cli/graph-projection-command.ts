@@ -1,6 +1,7 @@
 import type { CommandContext } from "@stricli/core";
-import { buildApplication, buildCommand, buildRouteMap, run } from "@stricli/core";
+import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import type { PapyrusClient } from "../client.ts";
+import { runStricliToString } from "./stricli-run.ts";
 
 type GraphProjectionClient = Pick<PapyrusClient, "call">;
 
@@ -71,22 +72,8 @@ const app = buildApplication(
 	{ name: "graph-projection", scanner: { caseStyle: "allow-kebab-for-camel" } },
 );
 
-/** Same (args, client) => Promise<string> contract as every other run*Cli export -- test/cli-parity.test.ts depends on it. */
 export async function runGraphProjectionCli(args: string[], client: GraphProjectionClient): Promise<string> {
 	const json = args.includes("--json");
 	const positional = args.filter((arg) => arg !== "--json");
-	const chunks: string[] = [];
-	const errors: string[] = [];
-	const fakeProcess: {
-		stdout: { write: (text: string) => void };
-		stderr: { write: (text: string) => void };
-		exitCode?: number | string | null;
-	} = {
-		stdout: { write: (text: string) => chunks.push(text) },
-		stderr: { write: (text: string) => errors.push(text) },
-	};
-	await run(app, positional, { client, json, process: fakeProcess });
-	if (fakeProcess.exitCode)
-		throw new Error(errors.join("").trim() || `graph-projection command failed with exit code ${fakeProcess.exitCode}`);
-	return chunks.join("");
+	return runStricliToString(app, positional, { client, json });
 }

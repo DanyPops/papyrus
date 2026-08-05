@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
+import { runGatesCli } from "./cli/gates-command.ts";
 import { runGraphProjectionCli } from "./cli/graph-projection-command.ts";
+import { runSessionIdentityCli } from "./cli/session-identity-command.ts";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
 import { DAEMON_UNIT_NAME, dbPath, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import { serveMain } from "./daemon/daemon.ts";
@@ -1173,18 +1175,7 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 	return json ? JSON.stringify(result) : human;
 }
 
-export async function runGatesCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional = args.filter((arg) => arg !== "--json");
-	if (positional.length !== 2 || positional[0] !== "run") throw new Error("gates requires `run <id>`");
-	const results = await client.call<Record<string, unknown>, GateResult[]>("gates.run", { id: positional[1] });
-	if (json) return JSON.stringify(results);
-	return results.length === 0
-		? "No gates configured."
-		: results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
-}
-
-export { runGraphProjectionCli };
+export { runGatesCli, runGraphProjectionCli };
 
 export async function runLogCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");
@@ -1277,43 +1268,7 @@ export async function runLogCli(args: string[], client: TaskCliClient, projectRo
 	throw new Error("log action must be append or query");
 }
 
-export async function runSessionIdentityCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let sessionId: string | undefined;
-	let secret: string | undefined;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (argument === "--session-id") {
-			sessionId = args[++index];
-			continue;
-		}
-		if (argument === "--session-secret") {
-			secret = args[++index];
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown session option ${argument}`);
-		positional.push(argument);
-	}
-	const [action] = positional;
-	if (action === "register") {
-		if (!sessionId) throw new Error("session register requires --session-id");
-		const result = await client.call<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", {
-			session_id: sessionId,
-		});
-		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
-	}
-	if (action === "release") {
-		if (!sessionId) throw new Error("session release requires --session-id");
-		const result = await client.call<Record<string, unknown>, { released: boolean }>("session.release", {
-			session_id: sessionId,
-			...(secret ? { session_secret: secret } : {}),
-		});
-		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
-	}
-	throw new Error("session action must be register or release");
-}
+export { runSessionIdentityCli };
 
 export async function runDiscussCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");

@@ -3,7 +3,16 @@
  * VehicleRegistry projection (notes-vehicle.ts, rules-vehicle.ts, docs-vehicle.ts,
  * artifact-trash-vehicle.ts).
  */
-import { defineVehicleSchema, type VehicleContentBlock, VehicleError, type VehicleSchemaCodec } from "@danypops/vehicle-core";
+import {
+	bindVehicleOperation,
+	defineVehicleOperation,
+	defineVehicleSchema,
+	type VehicleContentBlock,
+	VehicleError,
+	type VehicleOperationContext,
+	type VehicleSchemaCodec,
+} from "@danypops/vehicle-core";
+import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { PlaybookCompositionError } from "../playbook/playbook-definition.ts";
@@ -222,4 +231,85 @@ export function buildWorkflowRunContent(
 		...(executionLines ? ["Execution:", executionLines] : []),
 	].join("\n");
 	return { type: "text", text };
+}
+
+export type OperationSchemaProperties = Record<string, { type: string; enum?: readonly string[] }>;
+
+export type DefineOperation = (
+	action: string,
+	description: string,
+	effect: "read" | "local-write",
+	properties: OperationSchemaProperties,
+	required: readonly string[],
+	resolve: (input: Record<string, unknown>) => Record<string, unknown>,
+	execute?: (input: Record<string, unknown>, context: VehicleOperationContext<Record<string, unknown>>) => unknown,
+) => void;
+
+const STANDARD_OPERATION_LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
+
+/**
+ * Every *-vehicle.ts handler wires up the identical defineVehicleOperation +
+ * bindVehicleOperation + registry.register triple per action, differing only in
+ * owner/domain-prefix/permissions and (for tasks/playbooks) a real execute() override
+ * in place of the default "call the wrapped module operation" behavior. One factory,
+ * called once per domain, replaces that repetition.
+ */
+export function createOperationDefiner(
+	registry: VehicleRegistry,
+	owner: string,
+	domain: string,
+	permissions: readonly [string, string],
+	defaultCall: (name: string, input: Record<string, unknown>) => unknown,
+): DefineOperation {
+	return (action, description, effect, properties, required, resolve, execute) => {
+		const operation = defineVehicleOperation({
+			name: `${domain}.${action}`,
+			version: 1,
+			description,
+			input: looseObjectSchema(properties, required),
+			output: passthroughOutput,
+			permissions: [...permissions],
+			effect,
+			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
+			limits: STANDARD_OPERATION_LIMITS,
+		});
+		registry.register(
+			owner,
+			bindVehicleOperation(
+				operation,
+				() => async (context) =>
+					(execute ?? ((input: Record<string, unknown>) => defaultCall(`${domain}.${action}`, input)))(resolve(context.input), context),
+			),
+		);
+	};
+}
+
+export interface PairedMutationFieldSpec {
+	idProp: string;
+	nameProp: string;
+}
+
+/**
+ * depend/undepend and contain/uncontain (tasks-vehicle.ts, playbooks-vehicle.ts) share
+ * one shape: two id-or-name fields resolved the same way for both the add and the
+ * remove action, differing only in action name/description. One call replaces two
+ * near-identical define() invocations.
+ */
+export function definePairedMutation(
+	define: DefineOperation,
+	first: PairedMutationFieldSpec,
+	second: PairedMutationFieldSpec,
+	properties: OperationSchemaProperties,
+	required: readonly string[],
+	resolveId: (input: Record<string, unknown>, idProp: string, nameProp: string) => string,
+	add: { action: string; description: string },
+	remove: { action: string; description: string },
+): void {
+	const resolve = (input: Record<string, unknown>): Record<string, unknown> => ({
+		...input,
+		[first.idProp]: resolveId(input, first.idProp, first.nameProp),
+		[second.idProp]: resolveId(input, second.idProp, second.nameProp),
+	});
+	define(add.action, add.description, "local-write", properties, required, resolve);
+	define(remove.action, remove.description, "local-write", properties, required, resolve);
 }

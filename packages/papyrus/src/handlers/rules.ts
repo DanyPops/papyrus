@@ -4,16 +4,14 @@
  * composition-root-only concern, absent here too). remove/restore/remove_subtree
  * are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
-import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { listRules } from "../domain-services.ts";
 import { rulesOperations } from "../modules/rules.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
+import { createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "rules";
-const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 /** Resolves a rule's id from either an explicit id or its title, widened past project_root when unscoped-vs-scoped search finds nothing. */
 function resolveRuleId(
@@ -47,31 +45,7 @@ function resolveTaskId(artifacts: ArtifactStore, _projectRoot: string | undefine
 export function registerRulesVehicleOperations(registry: VehicleRegistry, artifacts: ArtifactStore, scopes: ArtifactScopeStore): void {
 	const moduleOperations = new Map(rulesOperations(artifacts, scopes).map((op) => [op.name, op]));
 	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
-
-	const define = (
-		action: string,
-		description: string,
-		effect: "read" | "local-write",
-		properties: Record<string, { type: string; enum?: readonly string[] }>,
-		required: readonly string[],
-		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
-	): void => {
-		const operation = defineVehicleOperation({
-			name: `rules.${action}`,
-			version: 1,
-			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["rules:read", "rules:write"],
-			effect,
-			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: LIMITS,
-		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(operation, () => async (context) => call(`rules.${action}`, resolve(context.input))),
-		);
-	};
+	const define = createOperationDefiner(registry, OWNER, "rules", ["rules:read", "rules:write"], call);
 
 	define(
 		"create",

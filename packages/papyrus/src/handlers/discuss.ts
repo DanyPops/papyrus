@@ -13,17 +13,23 @@
  * (service.ts's moduleRegistry) stays registered unchanged for pi-papyrus's
  * own /discuss TUI, which never went through the retired mega-tool.
  */
-import { bindVehicleOperation, defineVehicleOperation, type VehicleContentBlock } from "@danypops/vehicle-core";
+import type { VehicleContentBlock } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { DiscussionAndRounds, Discussions } from "../discussion/discussion-service.ts";
 import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../domain/discussion.ts";
 import { discussOperations } from "../modules/discuss.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
+import {
+	createOperationDefiner,
+	numberProp,
+	type OperationSchemaProperties,
+	resolveArtifactIdWidened,
+	stringProp,
+	validationError,
+} from "./shared.ts";
 
 const OWNER = "discuss";
-const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 const arrayProp = { type: "array" } as const;
 /** Purely a client-side hint (see vehicle-client-pi's interactiveFollowUps) -- never read server-side, but must still be declared or the schema's additionalProperties:false rejects it outright. */
 const boolProp = { type: "boolean" } as const;
@@ -115,34 +121,30 @@ const optionsUnionSchema = { type: "array" } as const;
 export function registerDiscussVehicleOperations(registry: VehicleRegistry, discussions: Discussions, artifacts: ArtifactStore): void {
 	const moduleOperations = new Map(discussOperations(discussions).map((op) => [op.name, op]));
 	const call = <Output>(name: string, input: Record<string, unknown>): Output => moduleOperations.get(name)!.execute(input) as Output;
+	const baseDefine = createOperationDefiner(registry, OWNER, "discuss", ["discuss:read", "discuss:write"], call);
 
+	/**
+	 * Defensively shallow-copies context.input before handing it to resolve() -- unlike every
+	 * other domain's resolve, discuss's own (normalizeOptions, defaultActorToAgent) mutate their
+	 * argument in place, and context.input must never be the object that mutation lands on.
+	 */
 	const define = (
 		action: string,
 		description: string,
 		effect: "read" | "local-write",
-		properties: Record<string, { type: string; enum?: readonly string[] }>,
+		properties: OperationSchemaProperties,
 		required: readonly string[],
 		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
 		wrap: (raw: unknown, resolvedInput: Record<string, unknown>) => unknown = (raw) => raw,
 	): void => {
-		const operation = defineVehicleOperation({
-			name: `discuss.${action}`,
-			version: 1,
+		baseDefine(
+			action,
 			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["discuss:read", "discuss:write"],
 			effect,
-			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: LIMITS,
-		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(operation, () => async (context) => {
-				const resolvedInput = resolve({ ...(context.input as Record<string, unknown>) });
-				const raw = call(`discuss.${action}`, resolvedInput);
-				return wrap(raw, resolvedInput);
-			}),
+			properties,
+			required,
+			(input) => resolve({ ...input }),
+			(resolvedInput) => wrap(call(`discuss.${action}`, resolvedInput), resolvedInput),
 		);
 	};
 

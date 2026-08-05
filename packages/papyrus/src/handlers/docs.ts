@@ -3,17 +3,15 @@
  * Wraps modules/docs.ts's operation definitions. remove/restore/remove_subtree
  * are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
-import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import { listDocuments } from "../domain-services.ts";
 import { docsOperations } from "../modules/docs.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
+import { createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "docs";
-const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 function resolveDocId(
 	artifacts: ArtifactStore,
@@ -47,31 +45,7 @@ export function registerDocsVehicleOperations(
 ): void {
 	const moduleOperations = new Map(docsOperations(artifacts, scopes, authority).map((op) => [op.name, op]));
 	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
-
-	const define = (
-		action: string,
-		description: string,
-		effect: "read" | "local-write",
-		properties: Record<string, { type: string; enum?: readonly string[] }>,
-		required: readonly string[],
-		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
-	): void => {
-		const operation = defineVehicleOperation({
-			name: `docs.${action}`,
-			version: 1,
-			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["docs:read", "docs:write"],
-			effect,
-			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: LIMITS,
-		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(operation, () => async (context) => call(`docs.${action}`, resolve(context.input))),
-		);
-	};
+	const define = createOperationDefiner(registry, OWNER, "docs", ["docs:read", "docs:write"], call);
 
 	define(
 		"create",

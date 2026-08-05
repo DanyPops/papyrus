@@ -272,7 +272,8 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 		const discussVehicle = readFileSync(new URL("../../papyrus/src/handlers/discuss.ts", import.meta.url), "utf8");
 		expect(extension).toContain('registerCommand("discuss"');
 		expect(domainTools).not.toContain('name: "discuss"');
-		expect(discussVehicle).toContain("name: `discuss."); // e.g. `discuss.${action}` -- namespaced, not a bare "discuss" action-dispatch tool
+		// Namespacing itself now lives in handlers/shared.ts's createOperationDefiner, called with domain="discuss" -- not a bare "discuss" action-dispatch tool.
+		expect(discussVehicle).toContain('createOperationDefiner(registry, OWNER, "discuss"');
 		for (const action of ["open", "reply", "defer", "resume", "settle", "block", "unblock", "show", "rounds", "list"]) {
 			expect(discussVehicle).toContain(`"${action}",`);
 		}

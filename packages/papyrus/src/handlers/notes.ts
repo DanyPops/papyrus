@@ -7,16 +7,13 @@
  * input parsing. Resolves `name`/`target_name` to `id`/`target_id` server-side, in
  * the same call -- avoids a separate round trip per name before the real call.
  */
-import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { notesOperations } from "../modules/notes.ts";
 import { NOTE_DISPOSITIONS, type Notes } from "../note/note-service.ts";
-import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
+import { createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "notes";
-
-const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 /** Resolves a note's id from either an explicit id or its title within projectRoot. */
 function resolveNoteId(artifacts: ArtifactStore, notes: Notes, projectRoot: string, id: unknown, name: unknown): string {
@@ -43,31 +40,7 @@ function resolveArtifactId(artifacts: ArtifactStore, id: unknown, name: unknown)
 export function registerNotesVehicleOperations(registry: VehicleRegistry, notes: Notes, artifacts: ArtifactStore): void {
 	const moduleOperations = new Map(notesOperations(notes).map((op) => [op.name, op]));
 	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
-
-	const define = (
-		action: string,
-		description: string,
-		effect: "read" | "local-write",
-		properties: Record<string, { type: string; enum?: readonly string[] }>,
-		required: readonly string[],
-		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
-	): void => {
-		const operation = defineVehicleOperation({
-			name: `notes.${action}`,
-			version: 1,
-			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["notes:read", "notes:write"],
-			effect,
-			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: LIMITS,
-		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(operation, () => async (context) => call(`notes.${action}`, resolve(context.input))),
-		);
-	};
+	const define = createOperationDefiner(registry, OWNER, "notes", ["notes:read", "notes:write"], call);
 
 	define(
 		"capture",

@@ -18,7 +18,6 @@
  * WithVehicleContent) built from the same execution-DAG summary pi-papyrus's hand-rolled
  * tool used to build client-side.
  */
-import { bindVehicleOperation, defineVehicleOperation, type VehicleOperationContext } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
@@ -34,17 +33,16 @@ import {
 	classifyPlaybookComposition,
 	classifySessionAuthorization,
 	classifyTaskExecutionBounds,
-	looseObjectSchema,
+	createOperationDefiner,
+	definePairedMutation,
 	normalizeJsonEncodedField,
 	numberProp,
-	passthroughOutput,
 	resolveArtifactIdWidened,
 	stringProp,
 	validationError,
 } from "./shared.ts";
 
 const OWNER = "playbooks";
-const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 export interface PlaybooksVehicleDeps {
 	artifacts: ArtifactStore;
@@ -80,36 +78,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		classifySessionAuthorization(() =>
 			classifyTaskExecutionBounds(() => classifyPlaybookComposition(() => moduleOperations.get(name)!.execute(input))),
 		);
-
-	const define = (
-		action: string,
-		description: string,
-		effect: "read" | "local-write",
-		properties: Record<string, { type: string; enum?: readonly string[] }>,
-		required: readonly string[],
-		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
-		execute?: (input: Record<string, unknown>, context: VehicleOperationContext<Record<string, unknown>>) => unknown,
-	): void => {
-		const operation = defineVehicleOperation({
-			name: `playbooks.${action}`,
-			version: 1,
-			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["playbooks:read", "playbooks:write"],
-			effect,
-			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: LIMITS,
-		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(
-				operation,
-				() => async (context) =>
-					(execute ?? ((input: Record<string, unknown>) => call(`playbooks.${action}`, input)))(resolve(context.input), context),
-			),
-		);
-	};
+	const define = createOperationDefiner(registry, OWNER, "playbooks", ["playbooks:read", "playbooks:write"], call);
 
 	define(
 		"create",
@@ -242,10 +211,13 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
 	);
 
-	define(
-		"contain",
-		"Nests a child Playbook inside a parent -- the child's steps run AFTER the parent's own. Prefer parent_name/child_name over parent_id/child_id -- resolved server-side.",
-		"local-write",
+	const resolvePlaybookIdField = (input: Record<string, unknown>, idProp: string, nameProp: string): string =>
+		resolvePlaybookId(artifacts, artifactScopes, input[idProp], input[nameProp]);
+
+	definePairedMutation(
+		define,
+		{ idProp: "parent_id", nameProp: "parent_name" },
+		{ idProp: "child_id", nameProp: "child_name" },
 		{
 			parent_id: stringProp,
 			parent_name: stringProp,
@@ -256,38 +228,19 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 			session_id: stringProp,
 		},
 		[],
-		(input) => ({
-			...input,
-			parent_id: resolvePlaybookId(artifacts, artifactScopes, input.parent_id, input.parent_name),
-			child_id: resolvePlaybookId(artifacts, artifactScopes, input.child_id, input.child_name),
-		}),
-	);
-
-	define(
-		"uncontain",
-		"Removes a parent/child Playbook nesting. Idempotent -- a no-op if the edge is already absent.",
-		"local-write",
+		resolvePlaybookIdField,
 		{
-			parent_id: stringProp,
-			parent_name: stringProp,
-			child_id: stringProp,
-			child_name: stringProp,
-			actor: stringProp,
-			source: stringProp,
-			session_id: stringProp,
+			action: "contain",
+			description:
+				"Nests a child Playbook inside a parent -- the child's steps run AFTER the parent's own. Prefer parent_name/child_name over parent_id/child_id -- resolved server-side.",
 		},
-		[],
-		(input) => ({
-			...input,
-			parent_id: resolvePlaybookId(artifacts, artifactScopes, input.parent_id, input.parent_name),
-			child_id: resolvePlaybookId(artifacts, artifactScopes, input.child_id, input.child_name),
-		}),
+		{ action: "uncontain", description: "Removes a parent/child Playbook nesting. Idempotent -- a no-op if the edge is already absent." },
 	);
 
-	define(
-		"depend",
-		"Chains a prerequisite Playbook before another -- it must fully complete FIRST. Prefer dependency_name over dependency_id.",
-		"local-write",
+	definePairedMutation(
+		define,
+		{ idProp: "id", nameProp: "name" },
+		{ idProp: "dependency_id", nameProp: "dependency_name" },
 		{
 			id: stringProp,
 			name: stringProp,
@@ -298,31 +251,12 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 			session_id: stringProp,
 		},
 		[],
-		(input) => ({
-			...input,
-			id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
-			dependency_id: resolvePlaybookId(artifacts, artifactScopes, input.dependency_id, input.dependency_name),
-		}),
-	);
-
-	define(
-		"undepend",
-		"Removes a Playbook dependency. Idempotent -- a no-op if the edge is already absent.",
-		"local-write",
+		resolvePlaybookIdField,
 		{
-			id: stringProp,
-			name: stringProp,
-			dependency_id: stringProp,
-			dependency_name: stringProp,
-			actor: stringProp,
-			source: stringProp,
-			session_id: stringProp,
+			action: "depend",
+			description:
+				"Chains a prerequisite Playbook before another -- it must fully complete FIRST. Prefer dependency_name over dependency_id.",
 		},
-		[],
-		(input) => ({
-			...input,
-			id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
-			dependency_id: resolvePlaybookId(artifacts, artifactScopes, input.dependency_id, input.dependency_name),
-		}),
+		{ action: "undepend", description: "Removes a Playbook dependency. Idempotent -- a no-op if the edge is already absent." },
 	);
 }

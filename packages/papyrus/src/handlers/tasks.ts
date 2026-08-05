@@ -19,7 +19,6 @@
  *
  * remove/remove_subtree/restore are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
-import { bindVehicleOperation, defineVehicleOperation, type VehicleOperationContext } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
@@ -31,10 +30,10 @@ import {
 	classifySessionAuthorization,
 	classifyTaskDependencyCycles,
 	classifyTaskExecutionBounds,
+	createOperationDefiner,
+	definePairedMutation,
 	labelsById,
-	looseObjectSchema,
 	numberProp,
-	passthroughOutput,
 	resolveArtifactIdWidened,
 	stringProp,
 	validationError,
@@ -167,36 +166,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		classifySessionAuthorization(() =>
 			classifyTaskExecutionBounds(() => classifyTaskDependencyCycles(() => moduleOperations.get(name)!.execute(input))),
 		);
-
-	const define = (
-		action: string,
-		description: string,
-		effect: "read" | "local-write",
-		properties: Record<string, { type: string; enum?: readonly string[] }>,
-		required: readonly string[],
-		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
-		execute?: (input: Record<string, unknown>, context: VehicleOperationContext<Record<string, unknown>>) => unknown,
-	): void => {
-		const operation = defineVehicleOperation({
-			name: `tasks.${action}`,
-			version: 1,
-			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["tasks:read", "tasks:write"],
-			effect,
-			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: LIMITS,
-		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(
-				operation,
-				() => async (context) =>
-					(execute ?? ((input: Record<string, unknown>) => call(`tasks.${action}`, input)))(resolve(context.input), context),
-			),
-		);
-	};
+	const define = createOperationDefiner(registry, OWNER, "tasks", ["tasks:read", "tasks:write"], call);
 
 	/** Shared by every action taking a single id/name: resolves root_task_name first, then name -> id against the final scope. */
 	const resolveIdAndScope = (input: Record<string, unknown>): Record<string, unknown> => {
@@ -395,6 +365,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		(input) => input,
 	);
 
+	/** Injects the caller's own session claims (never a model-visible input field) onto every focus/pause/unpause/clear_focus call -- see this file's own doc comment. */
 	const focusOperation = (
 		action: "focus" | "pause" | "unpause" | "clear_focus",
 		description: string,
@@ -402,24 +373,10 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		required: readonly string[],
 		resolve: (input: Record<string, unknown>) => Record<string, unknown>,
 	): void => {
-		const operation = defineVehicleOperation({
-			name: `tasks.${action}`,
-			version: 1,
-			description,
-			input: looseObjectSchema(properties, required),
-			output: passthroughOutput,
-			permissions: ["tasks:read", "tasks:write"],
-			effect: "local-write",
-			idempotency: { mode: "unsafe" },
-			limits: LIMITS,
+		define(action, description, "local-write", properties, required, resolve, (resolvedInput, context) => {
+			const claims = context.principal?.claims as { sessionId?: string; sessionSecret?: string } | undefined;
+			return call(`tasks.${action}`, { ...resolvedInput, session_id: claims?.sessionId, session_secret: claims?.sessionSecret });
 		});
-		registry.register(
-			OWNER,
-			bindVehicleOperation(operation, () => async (context) => {
-				const claims = context.principal?.claims as { sessionId?: string; sessionSecret?: string } | undefined;
-				return call(`tasks.${action}`, { ...resolve(context.input), session_id: claims?.sessionId, session_secret: claims?.sessionSecret });
-			}),
-		);
 	};
 
 	focusOperation(
@@ -585,10 +542,16 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	const scopeProp = { type: "string", enum: ["project", "graph", "all"] } as const;
 
-	define(
-		"depend",
-		"Adds a dependency edge (this task waits for dependency_id/dependency_name). Dependency edges form an executable DAG -- self-dependencies and cycles are rejected. A name resolved outside project_root's own scope is retried once against every project before failing, unless scope is pinned explicitly.",
-		"local-write",
+	/** Resolves a task id/name pair against the filter derived from this same input's own project_root/scope -- shared by depend/undepend and contain/uncontain below. */
+	const resolveScopedTaskId = (input: Record<string, unknown>, idProp: string, nameProp: string): string => {
+		const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
+		return resolveTaskId(artifacts, tasks, filter, input[idProp], input[nameProp]);
+	};
+
+	definePairedMutation(
+		define,
+		{ idProp: "id", nameProp: "name" },
+		{ idProp: "dependency_id", nameProp: "dependency_name" },
 		{
 			id: stringProp,
 			name: stringProp,
@@ -599,44 +562,19 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			session_id: stringProp,
 		},
 		[],
-		(input) => {
-			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return {
-				...input,
-				id: resolveTaskId(artifacts, tasks, filter, input.id, input.name),
-				dependency_id: resolveTaskId(artifacts, tasks, filter, input.dependency_id, input.dependency_name),
-			};
-		},
-	);
-
-	define(
-		"undepend",
-		"Removes a dependency edge. Idempotent -- a no-op if the edge is already absent.",
-		"local-write",
+		resolveScopedTaskId,
 		{
-			id: stringProp,
-			name: stringProp,
-			dependency_id: stringProp,
-			dependency_name: stringProp,
-			project_root: stringProp,
-			scope: scopeProp,
-			session_id: stringProp,
+			action: "depend",
+			description:
+				"Adds a dependency edge (this task waits for dependency_id/dependency_name). Dependency edges form an executable DAG -- self-dependencies and cycles are rejected. A name resolved outside project_root's own scope is retried once against every project before failing, unless scope is pinned explicitly.",
 		},
-		[],
-		(input) => {
-			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return {
-				...input,
-				id: resolveTaskId(artifacts, tasks, filter, input.id, input.name),
-				dependency_id: resolveTaskId(artifacts, tasks, filter, input.dependency_id, input.dependency_name),
-			};
-		},
+		{ action: "undepend", description: "Removes a dependency edge. Idempotent -- a no-op if the edge is already absent." },
 	);
 
-	define(
-		"contain",
-		"Nests a child Task inside a parent (parent_id/parent_name contains child_id/child_name) -- explicit hierarchy, distinct from depends_on execution ordering. A name resolved outside project_root's own scope is retried once against every project before failing, unless scope is pinned explicitly.",
-		"local-write",
+	definePairedMutation(
+		define,
+		{ idProp: "parent_id", nameProp: "parent_name" },
+		{ idProp: "child_id", nameProp: "child_name" },
 		{
 			parent_id: stringProp,
 			parent_name: stringProp,
@@ -647,38 +585,13 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			session_id: stringProp,
 		},
 		[],
-		(input) => {
-			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return {
-				...input,
-				parent_id: resolveTaskId(artifacts, tasks, filter, input.parent_id, input.parent_name),
-				child_id: resolveTaskId(artifacts, tasks, filter, input.child_id, input.child_name),
-			};
-		},
-	);
-
-	define(
-		"uncontain",
-		"Removes a parent/child nesting. Idempotent -- a no-op if the edge is already absent.",
-		"local-write",
+		resolveScopedTaskId,
 		{
-			parent_id: stringProp,
-			parent_name: stringProp,
-			child_id: stringProp,
-			child_name: stringProp,
-			project_root: stringProp,
-			scope: scopeProp,
-			session_id: stringProp,
+			action: "contain",
+			description:
+				"Nests a child Task inside a parent (parent_id/parent_name contains child_id/child_name) -- explicit hierarchy, distinct from depends_on execution ordering. A name resolved outside project_root's own scope is retried once against every project before failing, unless scope is pinned explicitly.",
 		},
-		[],
-		(input) => {
-			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
-			return {
-				...input,
-				parent_id: resolveTaskId(artifacts, tasks, filter, input.parent_id, input.parent_name),
-				child_id: resolveTaskId(artifacts, tasks, filter, input.child_id, input.child_name),
-			};
-		},
+		{ action: "uncontain", description: "Removes a parent/child nesting. Idempotent -- a no-op if the edge is already absent." },
 	);
 
 	define(

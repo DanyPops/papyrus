@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { ContextSegmentItem } from "@danypops/jittor";
 import { type Artifact, CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_NODES, type TaskGraph } from "@danypops/papyrus";
-import { ruleInjectionPreview } from "../rules.ts";
+import { ruleInjectionPreview } from "../rules/rules.ts";
 import { discoverSkillDirectories, type SkillCatalogFootprint, scanSkillCatalogFootprint } from "./skill-catalog-footprint.ts";
 
 /**

@@ -1,8 +1,8 @@
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { showArtifactBrowser, showArtifactDetails } from "./artifact/artifact-browser.ts";
-import { DOC_STATUS_PRESENTATION } from "./artifact/artifact-status-presentation.ts";
-import { callService } from "./service-client.ts";
+import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
+import { DOC_STATUS_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
+import { callService } from "../service-client.ts";
 
 const DOC_ACTIONS: Record<string, string[]> = {
 	draft: ["Activate", "Archive"],

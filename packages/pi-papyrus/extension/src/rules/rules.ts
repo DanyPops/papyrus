@@ -1,8 +1,8 @@
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { showArtifactBrowser, showArtifactDetails } from "./artifact/artifact-browser.ts";
-import { RULE_STATUS_PRESENTATION, severityColor } from "./artifact/artifact-status-presentation.ts";
-import { callService } from "./service-client.ts";
+import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
+import { RULE_STATUS_PRESENTATION, severityColor } from "../artifact/artifact-status-presentation.ts";
+import { callService } from "../service-client.ts";
 
 export function ruleRowMeta(rule: Artifact, theme: Theme): string {
 	const severity = typeof rule.extra.severity === "string" ? rule.extra.severity : "info";

@@ -628,9 +628,9 @@ export default async function (pi: ExtensionAPI) {
 	// Lazy imports keep TUI components out of non-interactive startup paths.
 	const [tasksModule, docsModule, notesModule, rulesModule, playbooksModule, discussModule] = await Promise.all([
 		import("./task/tasks.ts"),
-		import("./docs.ts"),
+		import("./docs/docs.ts"),
 		import("./note/notes.ts"),
-		import("./rules.ts"),
+		import("./rules/rules.ts"),
 		import("./playbook/playbooks.ts"),
 		import("./discuss/discuss.ts"),
 	]);

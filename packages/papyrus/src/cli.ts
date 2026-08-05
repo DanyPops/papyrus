@@ -9,6 +9,7 @@ import { runGraphCli } from "./cli/graph-command.ts";
 import { runGraphProjectionCli } from "./cli/graph-projection-command.ts";
 import { runLogCli } from "./cli/log-command.ts";
 import { runMigrationCli } from "./cli/migration-command.ts";
+import { runNoteCli } from "./cli/note-command.ts";
 import { runSessionIdentityCli } from "./cli/session-identity-command.ts";
 import { artifactLabel, type CliArtifact } from "./cli/shared.ts";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
@@ -1077,117 +1078,7 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 	return json ? JSON.stringify(result) : human;
 }
 
-export { runDiscussCli, runGatesCli, runGraphProjectionCli, runLogCli, runSessionIdentityCli };
-
-export async function runNoteCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let title: string | undefined;
-	let status: string | undefined;
-	let text: string | undefined;
-	let reason: string | undefined;
-	let limit: number | undefined;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (["--title", "--status", "--text", "--reason", "--limit"].includes(argument)) {
-			const value = args[++index];
-			if (value === undefined) throw new Error(`${argument} requires a value`);
-			if (argument === "--title") title = value;
-			else if (argument === "--status") status = value;
-			else if (argument === "--text") text = value;
-			else if (argument === "--reason") reason = value;
-			else {
-				limit = Number(value);
-				if (!Number.isInteger(limit)) throw new Error("--limit requires an integer");
-			}
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown notes option ${argument}`);
-		positional.push(argument);
-	}
-	const [action, id, target] = positional;
-	let result: CliArtifact | CliArtifact[] | import("./domain/note-event.ts").NoteHistoryPage;
-	let human: string;
-	if (action === "capture") {
-		if (!id || target) throw new Error("notes capture requires exactly one request argument");
-		result = (await client.call("notes.capture", {
-			body: id,
-			...(title ? { title } : {}),
-			project_root: projectRoot,
-			actor: "human",
-			source: "cli",
-		})) as CliArtifact;
-		human = `Captured: ${artifactLabel(result)}`;
-	} else if (action === "list") {
-		if (id) throw new Error("notes list accepts no positional arguments");
-		result = (await client.call("notes.list", {
-			project_root: projectRoot,
-			...(status ? { status } : {}),
-			...(text ? { text } : {}),
-			...(limit === undefined ? {} : { limit }),
-		})) as CliArtifact[];
-		human = result.length > 0 ? result.map((note) => `[${note.status}] ${artifactLabel(note)}`).join("\n") : "No open notes.";
-	} else if (action === "show") {
-		if (!id || target) throw new Error("notes show requires exactly one note id");
-		result = (await client.call("notes.show", { id, project_root: projectRoot })) as CliArtifact;
-		human = `${artifactLabel(result)}\n\n${result.body ?? ""}`.trimEnd();
-	} else if (action === "history") {
-		if (!id || target) throw new Error("notes history requires exactly one note id");
-		const page = await client.call<Record<string, unknown>, import("./domain/note-event.ts").NoteHistoryPage>("notes.history", {
-			id,
-			project_root: projectRoot,
-			direction: "desc",
-			...(limit === undefined ? {} : { limit }),
-		});
-		result = page;
-		human =
-			page.events.length === 0
-				? `No recorded history for ${id}.`
-				: [...page.events]
-						.reverse()
-						.map(
-							(event) =>
-								`${event.occurredAt} ${event.type} · ${event.actor}/${event.source}${event.relatedId ? ` · ${event.relatedId}` : ""}${event.disposition ? ` · ${event.disposition}` : ""}${event.reason ? ` · ${event.reason}` : ""}`,
-						)
-						.join("\n");
-	} else if (action === "consume") {
-		if (!id || target) throw new Error("notes consume requires exactly one note id");
-		result = (await client.call("notes.consume", {
-			id,
-			project_root: projectRoot,
-			actor: "agent",
-			source: "cli",
-			...(reason ? { reason } : {}),
-		})) as CliArtifact;
-		human = `Consumed: ${artifactLabel(result)}`;
-	} else if (action === "promote") {
-		if (!id || !target || positional.length !== 3) throw new Error("notes promote requires a note id and target artifact id");
-		result = (await client.call("notes.promote", {
-			id,
-			target_id: target,
-			project_root: projectRoot,
-			actor: "agent",
-			source: "cli",
-			...(reason ? { reason } : {}),
-		})) as CliArtifact;
-		human = `Promoted: ${artifactLabel(result)} → ${target}`;
-	} else if (action === "archive") {
-		if (!id || !target || positional.length !== 3) throw new Error("notes archive requires a note id and disposition");
-		result = (await client.call("notes.archive", {
-			id,
-			disposition: target,
-			project_root: projectRoot,
-			actor: "human",
-			source: "cli",
-			...(reason ? { reason } : {}),
-		})) as CliArtifact;
-		human = `Archived: ${artifactLabel(result)} · ${target}`;
-	} else {
-		throw new Error("notes action must be capture, list, show, history, consume, promote, or archive");
-	}
-	return json ? JSON.stringify(result) : human;
-}
+export { runDiscussCli, runGatesCli, runGraphProjectionCli, runLogCli, runNoteCli, runSessionIdentityCli };
 
 export async function runTaskCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");

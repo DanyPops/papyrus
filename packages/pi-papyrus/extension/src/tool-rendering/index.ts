@@ -1,4 +1,5 @@
 import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import { pickIdentityArgument } from "@danypops/vehicle-client-pi/vehicle-render";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { ArtifactCard } from "./artifact-card.ts";
 import { ArtifactListCard, TaskHierarchyPreview } from "./artifact-list.ts";
@@ -6,25 +7,18 @@ import { type PapyrusToolDetails, parsePapyrusToolDetails } from "./render-model
 
 const CALL_VALUE_MAX_CHARACTERS = 80;
 
+/** name/title before id: a caller that already knows the name shouldn't have the raw id echoed back at it. */
+const IDENTITY_ARG_KEYS = ["name", "title", "id", "text", "query", "kind", "template_id"];
+
 export interface PapyrusToolRenderContext {
 	lastComponent: Component | undefined;
 	isError: boolean;
 }
 
-function primaryArgument(args: Record<string, unknown>): string | undefined {
-	// name/title before id: a caller that already knows the name shouldn't have the raw id echoed
-	// back at it; id only surfaces here when it's genuinely the only identifying argument given.
-	for (const key of ["name", "title", "id", "text", "query", "kind", "template_id"]) {
-		const value = args[key];
-		if (typeof value === "string" && value.trim()) return value.slice(0, CALL_VALUE_MAX_CHARACTERS);
-	}
-	return undefined;
-}
-
 /** Compact native call header that never echoes bodies or structured payloads. */
 export function renderPapyrusToolCall(label: string, args: Record<string, unknown>, theme: Theme): Component {
 	const action = typeof args.action === "string" ? args.action : "call";
-	const primary = primaryArgument(args);
+	const primary = pickIdentityArgument(args, IDENTITY_ARG_KEYS, CALL_VALUE_MAX_CHARACTERS);
 	const text = [
 		theme.fg("toolTitle", theme.bold(label)),
 		theme.fg("muted", action),

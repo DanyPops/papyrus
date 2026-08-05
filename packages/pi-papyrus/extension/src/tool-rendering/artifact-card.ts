@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
+import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
 import type { ArtifactToolDetails } from "./render-model.ts";
 
 const KIND_GLYPHS: Readonly<Record<string, string>> = {
@@ -92,33 +93,55 @@ export class ArtifactCard implements Component {
 		this.invalidate();
 	}
 
+	/** Every field as a labeled `Label: value` line (buildDetailLines), matching the same
+	 * convention pi-tickets' issue-detail-view.ts already uses -- not bare stacked values. */
+	private fields(): DetailField[] {
+		const artifact = this.details.artifact;
+		const status = this.theme.fg(statusColor(artifact.status), `${statusGlyph(artifact.status)} ${artifact.status}`);
+		return [
+			{ label: "Title", value: artifact.title },
+			{ label: "Kind", value: `${kindGlyph(artifact.kind)} ${artifact.kind}` },
+			{ label: "Status", value: status },
+			...(this.expanded ? [{ label: "ID", value: artifact.id }] : []),
+			...(this.expanded && artifact.subtype ? [{ label: "Subtype", value: artifact.subtype }] : []),
+			...(this.expanded && artifact.labels.length > 0 ? [{ label: "Labels", value: artifact.labels.join(", ") }] : []),
+		];
+	}
+
+	private sections(): DetailSection[] {
+		if (!this.expanded) return [];
+		const sections: DetailSection[] = [];
+		const artifact = this.details.artifact;
+		if (artifact.body) sections.push({ heading: "Body:", body: artifact.body });
+		if (this.details.completeness.truncated) {
+			sections.push({ lines: [`[truncated ${this.details.completeness.omitted} characters]`] });
+		}
+		return sections;
+	}
+
 	render(width: number): string[] {
 		const safeWidth = Math.max(1, width);
 		if (this.cachedLines && this.cachedWidth === safeWidth) return this.cachedLines;
 
-		const artifact = this.details.artifact;
-		const status = `${statusGlyph(artifact.status)} ${artifact.status}`;
-		const header = [
-			this.theme.fg("toolTitle", this.theme.bold(`${kindGlyph(artifact.kind)} ${artifact.kind.toUpperCase()}`)),
-			...(this.expanded ? [this.theme.fg("accent", artifact.id)] : []),
-			this.theme.fg(statusColor(artifact.status), status),
-		].join("  ");
-		const lines = [truncateToWidth(header, safeWidth)];
-		lines.push(truncateToWidth(this.theme.fg("text", artifact.title), safeWidth));
+		const theme = this.theme;
+		const lines = buildDetailLines(safeWidth, {
+			fields: this.fields(),
+			sections: this.sections(),
+			alignFields: true,
+			theme: {
+				field: (s) => theme.fg("text", s),
+				heading: (s) => theme.fg("toolTitle", theme.bold(s)),
+				byline: (s) => theme.fg("muted", s),
+				body: (s) => theme.fg("text", s),
+				line: (s) => theme.fg("warning", s),
+			},
+		});
 
 		if (this.details.focus) {
-			lines.push(truncateToWidth(focusLine(this.details.focus, this.theme), safeWidth));
+			lines.push(truncateToWidth(focusLine(this.details.focus, theme), safeWidth));
 		}
-
-		if (this.expanded) {
-			const metadata = [artifact.subtype, ...artifact.labels].filter(Boolean).join(" · ");
-			if (metadata) lines.push(truncateToWidth(this.theme.fg("muted", metadata), safeWidth));
-			if (artifact.body) lines.push(...wrapTextWithAnsi(artifact.body, safeWidth));
-			if (this.details.completeness.truncated) {
-				lines.push(truncateToWidth(this.theme.fg("warning", `[truncated ${this.details.completeness.omitted} characters]`), safeWidth));
-			}
-		} else if (artifact.body || artifact.labels.length > 0) {
-			lines.push(truncateToWidth(this.theme.fg("dim", expandHint()), safeWidth));
+		if (!this.expanded && (this.details.artifact.body || this.details.artifact.labels.length > 0)) {
+			lines.push(truncateToWidth(theme.fg("dim", expandHint()), safeWidth));
 		}
 
 		this.cachedWidth = safeWidth;

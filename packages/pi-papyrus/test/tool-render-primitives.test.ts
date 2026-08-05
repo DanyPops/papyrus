@@ -57,12 +57,31 @@ describe("Papyrus tool rendering primitives", () => {
 	it("reuses the component while applying a replacement theme after invalidation", () => {
 		const details = createArtifactDetails("tasks.show", artifact());
 		const card = new ArtifactCard(details, theme("one"), false);
-		expect(card.render(80).join("\n")).toContain("<one:toolTitle>");
+		expect(card.render(80).join("\n")).toContain("<one:text>");
 
 		card.update(details, theme("two"), false);
 		card.invalidate();
-		expect(card.render(80).join("\n")).toContain("<two:toolTitle>");
-		expect(card.render(80).join("\n")).not.toContain("<one:toolTitle>");
+		expect(card.render(80).join("\n")).toContain("<two:text>");
+		expect(card.render(80).join("\n")).not.toContain("<one:text>");
+	});
+
+	it("labels every field instead of stacking bare values, aligned to a common column", () => {
+		const details = createArtifactDetails("tasks.show", artifact());
+		const card = new ArtifactCard(details, theme("one"), false);
+		const collapsed = card.render(80).join("\n");
+		// Widest collapsed label is "Status" (6) -- every label pads to that column.
+		expect(collapsed).toContain("Title:  Build a context mesh");
+		expect(collapsed).toContain("Kind:   ◇ task");
+		expect(collapsed).toContain("Status: ");
+		expect(collapsed).not.toContain("ID:");
+
+		card.update(details, theme("one"), true);
+		const expanded = card.render(80).join("\n");
+		// Widest expanded label is "Subtype" (7) -- every label pads to that column.
+		expect(expanded).toContain("ID:      task-1");
+		expect(expanded).toContain("Subtype: architecture");
+		expect(expanded).toContain("Labels:  papyrus, context-mesh");
+		expect(expanded).toContain("Body:");
 	});
 
 	it("provides one shared semantic grammar", () => {

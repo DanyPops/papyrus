@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { connectWithVersionCheck, type ExpectedVersion, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
 import { createLiveVersionExpectation } from "@danypops/vehicle-client/version";
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
-import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon-state.ts";
+import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon/daemon-state.ts";
 import type { OperationName, SchemaState } from "./service.ts";
 
 /**

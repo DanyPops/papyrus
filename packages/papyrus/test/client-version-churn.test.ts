@@ -15,7 +15,7 @@
  */
 import { afterAll, describe, expect, it } from "bun:test";
 import { connectPapyrusClient } from "../src/client.ts";
-import { readDaemonHandle } from "../src/daemon-state.ts";
+import { readDaemonHandle } from "../src/daemon/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

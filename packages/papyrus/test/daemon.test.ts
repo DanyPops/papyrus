@@ -11,7 +11,7 @@ import {
 	vehicleHandlePath,
 	writeDaemonPort,
 	writeVehicleHandle,
-} from "../src/daemon-state.ts";
+} from "../src/daemon/daemon-state.ts";
 import { VERSION } from "../src/version.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 

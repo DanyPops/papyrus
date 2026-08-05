@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { readDaemonHandle as readVehicleHandle } from "@danypops/vehicle-server/paths";
 import { connectPapyrusClient } from "../src/client.ts";
 import { DAEMON_DIR_ENV } from "../src/constants.ts";
-import { readDaemonHandle, vehicleHandlePath } from "../src/daemon-state.ts";
+import { readDaemonHandle, vehicleHandlePath } from "../src/daemon/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 /** connectPapyrusClient's own connectWithPolicy default -- see @danypops/vehicle-client's daemon-client.ts. A cold boot must finish well inside this or a real caller sees the exact CI-only hang this test guards against. */

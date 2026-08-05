@@ -1,7 +1,9 @@
 import { join } from "node:path";
 import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
-import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
+import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
+import { logEvent, vehicleLogger } from "../log.ts";
+import { createApp, createPapyrusService } from "../service.ts";
 import {
 	clearDaemonPort,
 	clearVehicleHandle,
@@ -10,8 +12,6 @@ import {
 	writeDaemonPort,
 	writeVehicleHandle,
 } from "./daemon-state.ts";
-import { logEvent, vehicleLogger } from "./log.ts";
-import { createApp, createPapyrusService } from "./service.ts";
 
 /**
  * Operations that never change what a Task-graph reader (the pi-papyrus widget's

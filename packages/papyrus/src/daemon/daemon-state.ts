@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { LOOPBACK_HOST, removeDaemonHandle, writeDaemonHandle } from "@danypops/vehicle-server/paths";
-import { DAEMON_DIR_ENV, DAEMON_HANDLE_FILE, DAEMON_HOST, DAEMON_PORT_FILE, DAEMON_TOKEN_FILE } from "./constants.ts";
+import { DAEMON_DIR_ENV, DAEMON_HANDLE_FILE, DAEMON_HOST, DAEMON_PORT_FILE, DAEMON_TOKEN_FILE } from "../constants.ts";
 
 export interface DaemonHandle {
 	baseUrl: string;

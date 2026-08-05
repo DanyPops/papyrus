@@ -12,6 +12,7 @@ import { runGraphProjectionCli } from "./cli/graph-projection-command.ts";
 import { runLogCli } from "./cli/log-command.ts";
 import { runMigrationCli } from "./cli/migration-command.ts";
 import { runNoteCli } from "./cli/note-command.ts";
+import { runPlaybooksCli } from "./cli/playbooks-command.ts";
 import { runRulesCli } from "./cli/rules-command.ts";
 import { runSessionIdentityCli } from "./cli/session-identity-command.ts";
 import { artifactLabel, type CliArtifact } from "./cli/shared.ts";
@@ -236,18 +237,6 @@ function parseJsonStringArrayFlag(value: string | undefined, flag: string): stri
 	return parsed as string[];
 }
 
-/**
- * No shape assertion here -- playbooks --arguments-json is genuinely polymorphic (an array on
- * create, a {name: value} map on invoke, sharing one flag-parsing pass in runPlaybooksCli), and
- * --steps-json accepts a mix of plain prose strings and structured step objects (doc/rule/call/
- * task) that a single string-array assertion would wrongly reject. The service validates the
- * real shape for whichever operation actually receives it.
- */
-function parseJsonAnyFlag(value: string | undefined, flag: string): unknown {
-	if (value === undefined) throw new Error(`${flag} requires a value`);
-	return JSON.parse(value) as unknown;
-}
-
 function planText(plan: TaskExecutionPlan): string {
 	const byId = new Map(plan.nodes.map((node) => [node.id, node]));
 	const lines = ["Execution order:"];
@@ -386,212 +375,19 @@ export function runIdMigrationCli(args: string[]): string {
 	throw new Error("migrate-ids requires one of: mirror, validate, promote");
 }
 
-export { runDocsCli, runGraphCli, runRulesCli };
-
-export async function runPlaybooksCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let title: string | undefined;
-	let body: string | undefined;
-	let trigger: string | undefined;
-	let steps: unknown;
-	let tools: string[] | undefined;
-	let labels: string[] | undefined;
-	let extra: Record<string, unknown> | undefined;
-	let playbookArguments: unknown;
-	let runId: string | undefined;
-	let status: string | undefined;
-	let text: string | undefined;
-	let limit: number | undefined;
-	let playbookProjectRoot: string | undefined;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (argument === "--title") {
-			title = args[++index];
-			if (title === undefined) throw new Error("--title requires a value");
-			continue;
-		}
-		if (argument === "--body") {
-			body = args[++index];
-			if (body === undefined) throw new Error("--body requires a value");
-			continue;
-		}
-		if (argument === "--trigger") {
-			trigger = args[++index];
-			if (trigger === undefined) throw new Error("--trigger requires a value");
-			continue;
-		}
-		if (argument === "--steps-json") {
-			steps = parseJsonAnyFlag(args[++index], "--steps-json");
-			continue;
-		}
-		if (argument === "--tools-json") {
-			tools = parseJsonStringArrayFlag(args[++index], "--tools-json");
-			continue;
-		}
-		if (argument === "--labels-json") {
-			labels = parseJsonStringArrayFlag(args[++index], "--labels-json");
-			continue;
-		}
-		if (argument === "--extra-json") {
-			extra = parseJsonObjectFlag(args[++index], "--extra-json");
-			continue;
-		}
-		if (argument === "--arguments-json") {
-			playbookArguments = parseJsonAnyFlag(args[++index], "--arguments-json");
-			continue;
-		}
-		if (argument === "--run-id") {
-			runId = args[++index];
-			if (!runId) throw new Error("--run-id requires a value");
-			continue;
-		}
-		if (argument === "--status") {
-			status = args[++index];
-			if (!status) throw new Error("--status requires a value");
-			continue;
-		}
-		if (argument === "--text") {
-			text = args[++index];
-			if (text === undefined) throw new Error("--text requires a value");
-			continue;
-		}
-		if (argument === "--project-root") {
-			playbookProjectRoot = args[++index];
-			if (!playbookProjectRoot) throw new Error("--project-root requires a value");
-			continue;
-		}
-		if (argument === "--limit") {
-			const value = args[++index];
-			if (!value || Number.isNaN(Number(value))) throw new Error("--limit requires a numeric value");
-			limit = Number(value);
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown playbooks option ${argument}`);
-		positional.push(argument);
-	}
-	const [action, id, second] = positional;
-	let result: unknown;
-	let human: string;
-	switch (action) {
-		case "create": {
-			if (id) throw new Error("playbooks create accepts no positional arguments");
-			if (!title) throw new Error("playbooks create requires --title");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.create", {
-				title,
-				body,
-				trigger,
-				steps,
-				tools,
-				labels,
-				extra,
-				arguments: playbookArguments,
-				project_root: playbookProjectRoot,
-			});
-			result = artifact;
-			human = `Created playbook: ${artifactLabel(artifact)}`;
-			break;
-		}
-		case "list": {
-			if (id) throw new Error("playbooks list accepts no positional arguments");
-			const rows = await client.call<Record<string, unknown>, CliArtifact[]>("playbooks.list", {
-				status,
-				text,
-				limit,
-				project_root: playbookProjectRoot,
-			});
-			result = rows;
-			human = rows.length === 0 ? "No playbooks found." : rows.map((row) => artifactLabel(row)).join("\n");
-			break;
-		}
-		case "show": {
-			if (!id || second) throw new Error("playbooks show requires exactly one playbook id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.show", { id });
-			result = artifact;
-			human = `${artifactLabel(artifact)}\n\n${artifact.body ?? ""}`;
-			break;
-		}
-		case "preview": {
-			if (!id || second) throw new Error("playbooks preview requires exactly one playbook id");
-			const rendered = await client.call<Record<string, unknown>, string>("playbooks.preview", { id, arguments: playbookArguments });
-			result = rendered;
-			human = rendered;
-			break;
-		}
-		case "invoke": {
-			if (!id || second) throw new Error("playbooks invoke requires exactly one playbook id");
-			const invocation = await client.call<Record<string, unknown>, { entryTaskId: string; missingArguments?: string[] }>(
-				"playbooks.invoke",
-				{ id, arguments: playbookArguments, run_id: runId, project_root: playbookProjectRoot },
-			);
-			result = invocation;
-			human = invocation.missingArguments
-				? `Missing required argument(s): ${invocation.missingArguments.join(", ")}.`
-				: `Invoked: entry task ${invocation.entryTaskId} focused. Drive it forward with \`tasks start/submit/complete\` like any other task.`;
-			break;
-		}
-		case "enable":
-		case "disable": {
-			if (!id || second) throw new Error(`playbooks ${action} requires exactly one playbook id`);
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>(`playbooks.${action}`, { id });
-			result = artifact;
-			human = `${artifactLabel(artifact)}`;
-			break;
-		}
-		case "assign-project": {
-			if (!id || (second === undefined && positional.length > 2)) throw new Error("playbooks assign-project requires <id> [project-root]");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.assign_project", { id, project_root: second });
-			result = artifact;
-			human = second ? `Assigned ${id} to ${second}` : `Unscoped ${id}`;
-			break;
-		}
-		case "update": {
-			if (!id || second) throw new Error("playbooks update requires exactly one playbook id");
-			if (title === undefined && body === undefined && labels === undefined)
-				throw new Error("playbooks update requires --title, --body, or --labels-json");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.update", { id, title, body, labels });
-			result = artifact;
-			human = `${artifactLabel(artifact)}`;
-			break;
-		}
-		case "contain": {
-			if (!id || !second || positional.length !== 3) throw new Error("playbooks contain requires a parent id and child id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.contain", { parent_id: id, child_id: second });
-			result = artifact;
-			human = `Nested: ${second} → ${artifactLabel(artifact)}`;
-			break;
-		}
-		case "uncontain": {
-			if (!id || !second || positional.length !== 3) throw new Error("playbooks uncontain requires a parent id and child id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.uncontain", { parent_id: id, child_id: second });
-			result = artifact;
-			human = `Removed ${second} from ${artifactLabel(artifact)}`;
-			break;
-		}
-		case "depend": {
-			if (!id || !second || positional.length !== 3) throw new Error("playbooks depend requires a playbook id and prerequisite id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.depend", { id, dependency_id: second });
-			result = artifact;
-			human = `Dependency added: ${artifactLabel(artifact)} waits for ${second}`;
-			break;
-		}
-		case "undepend": {
-			if (!id || !second || positional.length !== 3) throw new Error("playbooks undepend requires a playbook id and prerequisite id");
-			const artifact = await client.call<Record<string, unknown>, CliArtifact>("playbooks.undepend", { id, dependency_id: second });
-			result = artifact;
-			human = `Dependency removed: ${artifactLabel(artifact)} no longer waits for ${second}`;
-			break;
-		}
-		default:
-			throw new Error(
-				"playbooks action must be create, list, show, invoke, preview, enable, disable, assign-project, update, contain, uncontain, depend, or undepend",
-			);
-	}
-	return json ? JSON.stringify(result) : human;
-}
-
-export { runArtifactCli, runDiscussCli, runGatesCli, runGraphProjectionCli, runLogCli, runNoteCli, runSessionIdentityCli };
+export {
+	runArtifactCli,
+	runDiscussCli,
+	runDocsCli,
+	runGatesCli,
+	runGraphCli,
+	runGraphProjectionCli,
+	runLogCli,
+	runNoteCli,
+	runPlaybooksCli,
+	runRulesCli,
+	runSessionIdentityCli,
+};
 
 export async function runTaskCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");

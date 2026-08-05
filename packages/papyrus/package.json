@@ -1,6 +1,6 @@
 {
   "name": "@danypops/papyrus",
-  "version": "0.44.9",
+  "version": "0.44.10",
   "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
   "type": "module",
   "keywords": ["pi-package"],

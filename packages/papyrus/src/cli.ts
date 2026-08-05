@@ -4,8 +4,11 @@ import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } fro
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { runGatesCli } from "./cli/gates-command.ts";
+import { runGraphCli } from "./cli/graph-command.ts";
 import { runGraphProjectionCli } from "./cli/graph-projection-command.ts";
+import { runMigrationCli } from "./cli/migration-command.ts";
 import { runSessionIdentityCli } from "./cli/session-identity-command.ts";
+import { artifactLabel, type CliArtifact } from "./cli/shared.ts";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
 import { DAEMON_UNIT_NAME, dbPath, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import { serveMain } from "./daemon/daemon.ts";
@@ -198,8 +201,6 @@ function usage(): never {
 }
 
 type TaskCliClient = Pick<PapyrusClient, "call">;
-type MigrationResult = { from: number; to: number; applied: string[] };
-type CliArtifact = { id: string; alias: string; title: string; status: string; body?: string };
 type CliTaskLease = {
 	taskId: string;
 	owner: string;
@@ -241,10 +242,6 @@ function parseJsonAnyFlag(value: string | undefined, flag: string): unknown {
 	return JSON.parse(value) as unknown;
 }
 
-function artifactLabel(artifact: CliArtifact): string {
-	return `${artifact.alias} ${artifact.title}`;
-}
-
 function planText(plan: TaskExecutionPlan): string {
 	const byId = new Map(plan.nodes.map((node) => [node.id, node]));
 	const lines = ["Execution order:"];
@@ -260,17 +257,7 @@ function planText(plan: TaskExecutionPlan): string {
 	return lines.join("\n");
 }
 
-export async function runMigrationCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional = args.filter((arg) => arg !== "--json");
-	if (positional.length !== 1 || positional[0] !== "schema") {
-		throw new Error("migrate requires exactly `schema`");
-	}
-	const result = await client.call<Record<string, never>, MigrationResult>("system.migrate", {});
-	if (json) return JSON.stringify(result);
-	if (result.applied.length === 0) return `Schema already current at version ${result.to}.`;
-	return `Migrated schema ${result.from} → ${result.to}: ${result.applied.join(", ")}`;
-}
+export { runMigrationCli };
 
 function readIdMap(sidecarPath: string): IdMigrationPlan {
 	const raw = JSON.parse(readFileSync(sidecarPath, "utf8")) as { idMap: Record<string, string> };
@@ -393,94 +380,7 @@ export function runIdMigrationCli(args: string[]): string {
 	throw new Error("migrate-ids requires one of: mirror, validate, promote");
 }
 
-export async function runGraphCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	const input: Record<string, unknown> = {};
-	let depth: number | undefined;
-	let maxNodes: number | undefined;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		const flags: Record<string, string> = {
-			"--id": "id",
-			"--actor": "actor",
-			"--session-id": "session_id",
-			"--since": "since",
-			"--direction": "direction",
-		};
-		if (argument in flags) {
-			const value = args[++index];
-			if (!value) throw new Error(`${argument} requires a value`);
-			input[flags[argument]!] = value;
-			continue;
-		}
-		if (argument === "--limit" || argument === "--cursor") {
-			const value = args[++index];
-			if (!value || Number.isNaN(Number(value))) throw new Error(`${argument} requires a numeric value`);
-			input[argument.slice(2)] = Number(value);
-			continue;
-		}
-		if (argument === "--depth") {
-			const value = args[++index];
-			if (!value || Number.isNaN(Number(value))) throw new Error("--depth requires a numeric value");
-			depth = Number(value);
-			continue;
-		}
-		if (argument === "--max-nodes") {
-			const value = args[++index];
-			if (!value || Number.isNaN(Number(value))) throw new Error("--max-nodes requires a numeric value");
-			maxNodes = Number(value);
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown graph option ${argument}`);
-		positional.push(argument);
-	}
-	const [action, first, second, third] = positional;
-	if (action === "link") {
-		if (positional.length !== 4) throw new Error("graph link requires <from> <relation> <to>");
-		const result = await client.call<Record<string, unknown>, { ok: boolean }>("graph.link", { from: first, relation: second, to: third });
-		return json ? JSON.stringify(result) : `Linked ${first} --${second}--> ${third}`;
-	}
-	if (action === "unlink") {
-		if (positional.length !== 4) throw new Error("graph unlink requires <from> <relation> <to>");
-		const result = await client.call<Record<string, unknown>, { removed: boolean }>("graph.unlink", {
-			from: first,
-			relation: second,
-			to: third,
-		});
-		if (json) return JSON.stringify(result);
-		return result.removed ? `Unlinked ${first} --${second}--> ${third}` : `No such relationship: ${first} --${second}--> ${third}`;
-	}
-	if (action === "tree") {
-		if (positional.length !== 2) throw new Error("graph tree requires exactly one artifact id");
-		const artifact = await client.call<
-			Record<string, unknown>,
-			CliArtifact & { edges?: Array<{ from: string; relation: string; to: string }> }
-		>("graph.tree", { id: first, depth, max_nodes: maxNodes });
-		if (json) return JSON.stringify(artifact);
-		const edges = artifact.edges ?? [];
-		return edges.length === 0
-			? `${artifactLabel(artifact)} — no edges`
-			: `${artifactLabel(artifact)}\n${edges.map((edge) => `  ${edge.from} --${edge.relation}--> ${edge.to}`).join("\n")}`;
-	}
-	if (action === "status") {
-		if (positional.length !== 3) throw new Error("graph status requires <id> <status>");
-		const artifact = await client.call<Record<string, unknown>, CliArtifact>("graph.status", { id: first, status: second });
-		return json ? JSON.stringify(artifact) : `Updated ${artifact.id} → [${artifact.status}]`;
-	}
-	if (action !== "history") throw new Error("graph action must be link, unlink, tree, status, or history");
-	const page = await client.call<Record<string, unknown>, import("./artifact/artifact-event.ts").ArtifactEventPage>("graph.history", input);
-	if (json) return JSON.stringify(page);
-	if (page.events.length === 0) return "No recorded events.";
-	return page.events
-		.map((event) => {
-			const transition = event.fromStatus || event.toStatus ? ` ${event.fromStatus ?? "\u2205"} \u2192 ${event.toStatus ?? "\u2205"}` : "";
-			const relation = event.relation ? ` ${event.relation} \u2192 ${event.relatedId}` : "";
-			return `${event.occurredAt} ${event.artifactId} ${event.type}${transition}${relation} \u00b7 ${event.actor}/${event.source}${event.sessionId ? ` \u00b7 ${event.sessionId}` : ""}`;
-		})
-		.join("\n");
-}
+export { runGraphCli };
 
 export async function runDocsCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");

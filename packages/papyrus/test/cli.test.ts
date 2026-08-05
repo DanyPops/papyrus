@@ -137,9 +137,18 @@ describe("Papyrus graph history CLI", () => {
 		]);
 	});
 
-	it("requires a known action", async () => {
+	it("shows usage for every action when given no arguments, rather than an opaque error", async () => {
+		// Stricli's own default: an empty route map invocation renders help text (exit 0), matching
+		// standard CLI convention (git, docker, ...) -- an improvement over the pre-migration
+		// hand-rolled parser, which required an action and threw a bespoke error for its absence.
 		const client = new FakeClient({});
-		await expect(runGraphCli([], client)).rejects.toThrow("graph action must be link, unlink, tree, status, or history");
+		const output = await runGraphCli([], client);
+		for (const action of ["link", "unlink", "tree", "status", "history"]) expect(output).toContain(action);
+	});
+
+	it("rejects an actually-unknown action with a helpful suggestion", async () => {
+		const client = new FakeClient({});
+		await expect(runGraphCli(["bogus"], client)).rejects.toThrow("No command registered for `bogus`");
 	});
 });
 

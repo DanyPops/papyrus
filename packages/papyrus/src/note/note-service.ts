@@ -6,12 +6,12 @@ import {
 	NOTE_REASON_MAX_CHARACTERS,
 	NOTE_TITLE_MAX_CHARACTERS,
 	TASK_PROJECT_ROOT_MAX_LENGTH,
-} from "./constants.ts";
-import type { Artifact } from "./domain/artifact.ts";
-import type { AppendNoteEvent, NoteEventType, NoteHistoryPage, NoteHistoryQuery } from "./domain/note-event.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
-import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import { InMemoryNoteEventStore, type NoteEventStore } from "./ports/note-event-store.ts";
+} from "../constants.ts";
+import type { Artifact } from "../domain/artifact.ts";
+import type { AppendNoteEvent, NoteEventType, NoteHistoryPage, NoteHistoryQuery } from "../domain/note-event.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
+import { requireAtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
+import { InMemoryNoteEventStore, type NoteEventStore } from "../ports/note-event-store.ts";
 
 export const NOTE_SUBTYPE = "note";
 export const NOTE_DISPOSITIONS = ["completed", "duplicate", "declined", "superseded"] as const;

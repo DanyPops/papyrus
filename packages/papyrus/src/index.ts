@@ -15,7 +15,7 @@ export {
 	type VehicleClientTarget,
 } from "./client.ts";
 export * from "./constants.ts";
-export type { DiscussionAndRounds } from "./discussion-service.ts";
+export type { DiscussionAndRounds } from "./discussion/discussion-service.ts";
 export type { Artifact, ArtifactEdge } from "./domain/artifact.ts";
 export { checklistEntries, PROOF_TYPES, type ProofReference } from "./domain/checklist.ts";
 export { DISCUSSION_SUBTYPE, type DiscussionRound, readDiscussionExtra } from "./domain/discussion.ts";
@@ -25,7 +25,7 @@ export type { NoteHistoryPage } from "./domain/note-event.ts";
 export type { TaskEvent, TaskHistoryPage } from "./domain/task-event.ts";
 export type { TaskLease } from "./domain/task-lease.ts";
 export type { TaskViewSelection } from "./domain/task-scope.ts";
-export { NOTE_DISPOSITIONS } from "./note-service.ts";
+export { NOTE_DISPOSITIONS } from "./note/note-service.ts";
 export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook/playbook-execution.ts";
 export type { WorkflowRunResult } from "./playbook/workflow-execution.ts";
 export type { ArtifactStore } from "./ports/artifact-store.ts";

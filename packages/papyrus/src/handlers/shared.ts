@@ -7,7 +7,7 @@ import { defineVehicleSchema, type VehicleContentBlock, VehicleError, type Vehic
 import type { Artifact } from "../domain/artifact.ts";
 import { PlaybookCompositionError } from "../playbook/playbook-definition.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import { InvalidSessionSecretError } from "../session-identity-service.ts";
+import { InvalidSessionSecretError } from "../session-identity/session-identity-service.ts";
 import { TaskDependencyCycleError, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 
 /**

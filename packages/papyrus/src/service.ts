@@ -18,7 +18,7 @@ import { removeArtifactSubtree } from "./artifact/artifact-subtree.ts";
 import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "./authority-registry.ts";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
-import { Discussions } from "./discussion-service.ts";
+import { Discussions } from "./discussion/discussion-service.ts";
 import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
@@ -36,14 +36,14 @@ import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "./modules/playbo
 import { RULES_OPERATION_NAMES, rulesOperations } from "./modules/rules.ts";
 import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "./modules/session-identity.ts";
 import { TASKS_OPERATION_NAMES, tasksOperations } from "./modules/tasks.ts";
-import { NOTE_SUBTYPE, Notes } from "./note-service.ts";
+import { NOTE_SUBTYPE, Notes } from "./note/note-service.ts";
 import type { ArtifactEventReader } from "./ports/artifact-event-reader.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 import type { ArtifactTrashStore } from "./ports/artifact-trash-store.ts";
 import type { GateRunner } from "./ports/gate-runner.ts";
 import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
-import { InvalidSessionSecretError, SessionIdentity } from "./session-identity-service.ts";
+import { InvalidSessionSecretError, SessionIdentity } from "./session-identity/session-identity-service.ts";
 import { type TaskStatus, Tasks } from "./task/task-service.ts";
 import { VERSION } from "./version.ts";
 

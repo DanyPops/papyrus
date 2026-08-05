@@ -3,7 +3,7 @@ import type { Artifact, ArtifactLink, ArtifactQuery, CreateArtifactInput, Update
 import type { ArtifactTrashRecord } from "../src/domain/artifact-trash.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { NOTES_OPERATION_NAMES, notesOperations } from "../src/modules/notes.ts";
-import { Notes } from "../src/note-service.ts";
+import { Notes } from "../src/note/note-service.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";

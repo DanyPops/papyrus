@@ -24,7 +24,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import type { SessionIdentity } from "../session-identity-service.ts";
+import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import type { TaskCompletion, Tasks } from "../task/task-service.ts";
 import {

@@ -3,7 +3,7 @@ import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-ident
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "../src/modules/session-identity.ts";
-import { SessionIdentity } from "../src/session-identity-service.ts";
+import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

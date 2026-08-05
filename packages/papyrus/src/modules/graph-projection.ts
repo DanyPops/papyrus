@@ -12,7 +12,7 @@ import type {
 	ProjectedArtifact,
 	ProjectedEdge,
 } from "../domain/graph-projection.ts";
-import { GraphProjection } from "../graph-projection-service.ts";
+import { GraphProjection } from "../graph-projection/graph-projection-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";

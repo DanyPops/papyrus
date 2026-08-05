@@ -10,7 +10,7 @@
 import { bindVehicleOperation, defineVehicleOperation } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { notesOperations } from "../modules/notes.ts";
-import { NOTE_DISPOSITIONS, type Notes } from "../note-service.ts";
+import { NOTE_DISPOSITIONS, type Notes } from "../note/note-service.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 

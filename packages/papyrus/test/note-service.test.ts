@@ -4,7 +4,7 @@ import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SQLiteNoteEventStore } from "../src/adapters/sqlite-note-event-store.ts";
 import { NOTE_BODY_MAX_CHARACTERS, NOTE_LIST_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
-import { Notes } from "../src/note-service.ts";
+import { Notes } from "../src/note/note-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

@@ -15,7 +15,7 @@
 
 import type { NoteEventDirection } from "../domain/note-event.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { NoteDisposition, Notes } from "../note-service.ts";
+import type { NoteDisposition, Notes } from "../note/note-service.ts";
 
 const MODULE_ID = "notes";
 

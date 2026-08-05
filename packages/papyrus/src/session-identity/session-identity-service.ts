@@ -4,8 +4,8 @@ import {
 	releaseSessionIdentity,
 	verifySessionSecret,
 } from "@danypops/vehicle-server/session-identity";
-import { assertValidSessionId } from "./domain/session-identity.ts";
-import type { SessionIdentityStore } from "./ports/session-identity-store.ts";
+import { assertValidSessionId } from "../domain/session-identity.ts";
+import type { SessionIdentityStore } from "../ports/session-identity-store.ts";
 
 export interface RegisterSessionIdentityResult {
 	sessionId: string;

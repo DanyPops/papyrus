@@ -15,7 +15,7 @@
  */
 import { bindVehicleOperation, defineVehicleOperation, type VehicleContentBlock } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
-import type { DiscussionAndRounds, Discussions } from "../discussion-service.ts";
+import type { DiscussionAndRounds, Discussions } from "../discussion/discussion-service.ts";
 import type { Artifact } from "../domain/artifact.ts";
 import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../domain/discussion.ts";
 import { discussOperations } from "../modules/discuss.ts";

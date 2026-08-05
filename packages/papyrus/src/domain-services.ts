@@ -23,7 +23,7 @@ import {
 	validateArgumentValue,
 } from "./domain/blueprint-definition.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
-import { NOTE_SUBTYPE } from "./note-service.ts";
+import { NOTE_SUBTYPE } from "./note/note-service.ts";
 import type { ArtifactScopeStore } from "./ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "./ports/artifact-store.ts";
 

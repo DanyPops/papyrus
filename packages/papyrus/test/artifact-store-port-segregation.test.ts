@@ -8,7 +8,7 @@ import type {
 	RelationshipQuery,
 	UpdateArtifactInput,
 } from "../src/domain/artifact.ts";
-import { Notes } from "../src/note-service.ts";
+import { Notes } from "../src/note/note-service.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
 
 /**

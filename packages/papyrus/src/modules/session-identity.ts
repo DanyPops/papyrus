@@ -4,7 +4,7 @@
  * precedent set by modules/logs.ts. See domain/session-identity.ts for the design rationale.
  */
 import type { OperationDefinition } from "../module-registry.ts";
-import type { SessionIdentity } from "../session-identity-service.ts";
+import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 
 const MODULE_ID = "session-identity";
 

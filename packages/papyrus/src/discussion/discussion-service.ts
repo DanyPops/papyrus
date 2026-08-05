@@ -3,9 +3,9 @@
  * append-only rounds (via DiscussionRoundStore). See domain/discussion.ts for the full
  * design rationale.
  */
-import { DISCUSSION_LIST_DEFAULT_LIMIT, DISCUSSION_LIST_MAX_LIMIT, DISCUSSION_MAX_ROUNDS } from "./constants.ts";
-import type { Artifact } from "./domain/artifact.ts";
-import type { ArtifactEventContext } from "./domain/artifact-event.ts";
+import { DISCUSSION_LIST_DEFAULT_LIMIT, DISCUSSION_LIST_MAX_LIMIT, DISCUSSION_MAX_ROUNDS } from "../constants.ts";
+import type { Artifact } from "../domain/artifact.ts";
+import type { ArtifactEventContext } from "../domain/artifact-event.ts";
 import {
 	DISCUSSION_SUBTYPE,
 	type DiscussionExtra,
@@ -19,9 +19,9 @@ import {
 	validateDiscussionOptions,
 	validateSelectedOptions,
 	validateSettlement,
-} from "./domain/discussion.ts";
-import type { AtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import type { DiscussionRoundStore } from "./ports/discussion-round-store.ts";
+} from "../domain/discussion.ts";
+import type { AtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
+import type { DiscussionRoundStore } from "../ports/discussion-round-store.ts";
 
 export class DiscussionError extends Error {}
 

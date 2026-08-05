@@ -4,16 +4,16 @@
  * documented, deliberate scope limits of this first walking-skeleton slice.
  */
 
-import type { AuthorityRegistry } from "./authority-registry.ts";
+import type { AuthorityRegistry } from "../authority-registry.ts";
 import {
 	GRAPH_PROJECTION_ID_MAX_LENGTH,
 	GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH,
 	GRAPH_PROJECTION_MAX_EDGES_PER_BATCH,
-} from "./constants.ts";
-import { GRAPH_PROJECTION_SCHEMA_VERSION, type GraphProjectionBatch, type GraphProjectionResult } from "./domain/graph-projection.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
-import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import type { GraphProjectionStore } from "./ports/graph-projection-store.ts";
+} from "../constants.ts";
+import { GRAPH_PROJECTION_SCHEMA_VERSION, type GraphProjectionBatch, type GraphProjectionResult } from "../domain/graph-projection.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
+import { requireAtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
+import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";
 
 function boundedId(value: string, label: string): string {
 	if (!value || value.length === 0) throw new Error(`${label} is required`);

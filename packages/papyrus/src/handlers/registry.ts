@@ -7,14 +7,14 @@
  */
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import type { Discussions } from "../discussion-service.ts";
-import type { Notes } from "../note-service.ts";
+import type { Discussions } from "../discussion/discussion-service.ts";
+import type { Notes } from "../note/note-service.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { ArtifactTrashStore } from "../ports/artifact-trash-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
-import type { SessionIdentity } from "../session-identity-service.ts";
+import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { Tasks } from "../task/task-service.ts";
 import { registerArtifactTrashOperations } from "./artifact-trash.ts";
 import { registerDiscussVehicleOperations } from "./discuss.ts";

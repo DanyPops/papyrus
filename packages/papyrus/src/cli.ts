@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
+import { runGraphProjectionCli } from "./cli/graph-projection-command.ts";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
 import { DAEMON_UNIT_NAME, dbPath, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import { serveMain } from "./daemon/daemon.ts";
@@ -1183,39 +1184,7 @@ export async function runGatesCli(args: string[], client: TaskCliClient): Promis
 		: results.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
 }
 
-export async function runGraphProjectionCli(args: string[], client: TaskCliClient): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let batch: Record<string, unknown> | undefined;
-	let producerId: string | undefined;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (argument === "--batch-json") {
-			batch = parseJsonObjectFlag(args[++index], "--batch-json");
-			continue;
-		}
-		if (argument === "--producer-id") {
-			producerId = args[++index];
-			if (!producerId) throw new Error("--producer-id requires a value");
-			continue;
-		}
-		positional.push(argument);
-	}
-	const [action] = positional;
-	if (action === "apply") {
-		if (!batch) throw new Error("graph-projection apply requires --batch-json");
-		const result = await client.call<Record<string, unknown>, unknown>("graph_projection.apply", batch);
-		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
-	}
-	if (action === "checkpoint") {
-		if (!producerId) throw new Error("graph-projection checkpoint requires --producer-id");
-		const result = await client.call<Record<string, unknown>, unknown>("graph_projection.checkpoint", { producer_id: producerId });
-		if (json) return JSON.stringify(result);
-		return result === null ? `No projection checkpoint for producer "${producerId}".` : JSON.stringify(result, null, 2);
-	}
-	throw new Error("graph-projection action must be apply or checkpoint");
-}
+export { runGraphProjectionCli };
 
 export async function runLogCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
 	const json = args.includes("--json");

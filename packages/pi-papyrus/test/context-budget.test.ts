@@ -6,7 +6,7 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 afterAll(cleanupTempDirs);
 
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
-import { buildTaskItemTree, computeContextBudget, computeRuleBudget } from "../extension/src/context-budget.ts";
+import { buildTaskItemTree, computeContextBudget, computeRuleBudget } from "../extension/src/context/context-budget.ts";
 
 function rule(
 	id: string,

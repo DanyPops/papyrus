@@ -27,9 +27,9 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatMetadata } from "./artifact/artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
-import { buildTaskItemTree, computeContextBudget } from "./context-budget.ts";
-import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context-hub-contribution.ts";
-import { buildContextInjection } from "./context-injection-telemetry.ts";
+import { buildTaskItemTree, computeContextBudget } from "./context/context-budget.ts";
+import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context/context-hub-contribution.ts";
+import { buildContextInjection } from "./context/context-injection-telemetry.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss/discuss-ask-view.ts";
 import { resolveNameFields } from "./domain-tools.ts";
 import { renderNoteWidgetLines } from "./note/note-widget.ts";
@@ -357,7 +357,7 @@ export default async function (pi: ExtensionAPI) {
 	let previousContextInjectionFingerprint: string | undefined;
 	let logTurnSequence = 0;
 	// Papyrus's own Context Hub contribution (rules/tasks/Pi's own skill catalog, bundled into one segment --
-	// see context-hub-contribution.ts) re-emits every turn alongside the existing injection
+	// see context/context-hub-contribution.ts) re-emits every turn alongside the existing injection
 	// observation, its own independent monotonic sequence, same cadence and shape as
 	// contextInjectionSequence but on a different channel/schema.
 	let contextHubContributionSequence = 0;

@@ -5,7 +5,11 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { discoverSkillDirectories, parseSkillFrontmatter, scanSkillCatalogFootprint } from "../extension/src/skill-catalog-footprint.ts";
+import {
+	discoverSkillDirectories,
+	parseSkillFrontmatter,
+	scanSkillCatalogFootprint,
+} from "../extension/src/context/skill-catalog-footprint.ts";
 
 describe("parseSkillFrontmatter", () => {
 	it("extracts name and a plain single-line description", () => {

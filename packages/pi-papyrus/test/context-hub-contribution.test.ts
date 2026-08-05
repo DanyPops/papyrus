@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { validateContextSegment } from "@danypops/jittor";
-import type { ContextBudget } from "../extension/src/context-budget.ts";
-import { papyrusContextSegment } from "../extension/src/context-hub-contribution.ts";
+import type { ContextBudget } from "../extension/src/context/context-budget.ts";
+import { papyrusContextSegment } from "../extension/src/context/context-hub-contribution.ts";
 
 function ruleBudget(entries: ContextBudget["rules"]["entries"] = []): ContextBudget["rules"] {
 	return {
@@ -12,8 +12,8 @@ function ruleBudget(entries: ContextBudget["rules"]["entries"] = []): ContextBud
 }
 
 function skills(
-	entries: import("../extension/src/skill-catalog-footprint.ts").SkillCatalogEntry[] = [],
-): import("../extension/src/skill-catalog-footprint.ts").SkillCatalogFootprint {
+	entries: import("../extension/src/context/skill-catalog-footprint.ts").SkillCatalogEntry[] = [],
+): import("../extension/src/context/skill-catalog-footprint.ts").SkillCatalogFootprint {
 	return {
 		entries,
 		totalCharacters: entries.reduce((sum, e) => sum + e.characters, 0),

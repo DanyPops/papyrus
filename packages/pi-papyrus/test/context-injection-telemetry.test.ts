@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildContextInjection } from "../extension/src/context-injection-telemetry.ts";
+import { buildContextInjection } from "../extension/src/context/context-injection-telemetry.ts";
 
 const rules = [
 	{ title: "Verify changes", body: "Run affected tests", extra: { condition: "editing code" } },

@@ -6,6 +6,7 @@ import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, 
 import { runGatesCli } from "./cli/gates-command.ts";
 import { runGraphCli } from "./cli/graph-command.ts";
 import { runGraphProjectionCli } from "./cli/graph-projection-command.ts";
+import { runLogCli } from "./cli/log-command.ts";
 import { runMigrationCli } from "./cli/migration-command.ts";
 import { runSessionIdentityCli } from "./cli/session-identity-command.ts";
 import { artifactLabel, type CliArtifact } from "./cli/shared.ts";
@@ -1075,100 +1076,7 @@ export async function runArtifactCli(args: string[], client: TaskCliClient, proj
 	return json ? JSON.stringify(result) : human;
 }
 
-export { runGatesCli, runGraphProjectionCli };
-
-export async function runLogCli(args: string[], client: TaskCliClient, projectRoot: string = process.cwd()): Promise<string> {
-	const json = args.includes("--json");
-	const positional: string[] = [];
-	let source: string | undefined;
-	let sourceLabel: string | undefined;
-	let level: string | undefined;
-	let message: string | undefined;
-	let operationId: string | undefined;
-	let sessionId: string | undefined;
-	let occurredAt: string | undefined;
-	let since: string | undefined;
-	let limit: number | undefined;
-	let fields: Record<string, unknown> | undefined;
-	let global = false;
-	for (let index = 0; index < args.length; index++) {
-		const argument = args[index]!;
-		if (argument === "--json") continue;
-		if (argument === "--global") {
-			global = true;
-			continue;
-		}
-		if (argument === "--fields-json") {
-			fields = parseJsonObjectFlag(args[++index], "--fields-json");
-			continue;
-		}
-		if (
-			[
-				"--source",
-				"--source-label",
-				"--level",
-				"--message",
-				"--operation-id",
-				"--session-id",
-				"--occurred-at",
-				"--since",
-				"--limit",
-			].includes(argument)
-		) {
-			const value = args[++index];
-			if (value === undefined) throw new Error(`${argument} requires a value`);
-			if (argument === "--source") source = value;
-			else if (argument === "--source-label") sourceLabel = value;
-			else if (argument === "--level") level = value;
-			else if (argument === "--message") message = value;
-			else if (argument === "--operation-id") operationId = value;
-			else if (argument === "--session-id") sessionId = value;
-			else if (argument === "--occurred-at") occurredAt = value;
-			else if (argument === "--since") since = value;
-			else {
-				limit = Number(value);
-				if (!Number.isInteger(limit)) throw new Error("--limit requires an integer");
-			}
-			continue;
-		}
-		if (argument.startsWith("--")) throw new Error(`unknown log option ${argument}`);
-		positional.push(argument);
-	}
-	const [action] = positional;
-	if (action === "append") {
-		if (!source) throw new Error("log append requires --source");
-		if (!level) throw new Error("log append requires --level");
-		if (!message) throw new Error("log append requires --message");
-		if (!operationId) throw new Error("log append requires --operation-id");
-		const result = await client.call("logs.append", {
-			source_id: source,
-			...(sourceLabel ? { source_label: sourceLabel } : {}),
-			...(global ? {} : { project_root: projectRoot }),
-			level,
-			message,
-			operation_id: operationId,
-			...(fields ? { fields } : {}),
-			...(sessionId ? { session_id: sessionId } : {}),
-			...(occurredAt ? { occurred_at: occurredAt } : {}),
-		});
-		return json ? JSON.stringify(result) : JSON.stringify(result, null, 2);
-	}
-	if (action === "query") {
-		if (!source) throw new Error("log query requires --source");
-		const result = await client.call<Record<string, unknown>, { entries: unknown[]; truncated: boolean }>("logs.query", {
-			source_id: source,
-			...(since ? { since } : {}),
-			...(level ? { level } : {}),
-			...(limit === undefined ? {} : { limit }),
-		});
-		if (json) return JSON.stringify(result);
-		const lines = result.entries.map((entry) => JSON.stringify(entry));
-		return [...lines, result.truncated ? `(truncated -- more entries exist beyond this page)` : `(${lines.length} entries)`].join("\n");
-	}
-	throw new Error("log action must be append or query");
-}
-
-export { runSessionIdentityCli };
+export { runGatesCli, runGraphProjectionCli, runLogCli, runSessionIdentityCli };
 
 export async function runDiscussCli(args: string[], client: TaskCliClient): Promise<string> {
 	const json = args.includes("--json");

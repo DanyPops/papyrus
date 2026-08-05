@@ -1,18 +1,18 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { connectPapyrusClient, type PapyrusClient } from "./client.ts";
 import { DAEMON_UNIT_NAME, dbPath, TASK_EXECUTION_MAX_NODES } from "./constants.ts";
 import { serveMain } from "./daemon.ts";
+import { daemonStateDir, vehicleHandlePath } from "./daemon-state.ts";
 import { openDb } from "./db.ts";
 import type { GateResult } from "./domain/gate.ts";
 import { applyIdMigration, type IdMigrationPlan, mirrorDatabase, planIdMigration, verifyIdMigration } from "./id-migration.ts";
 import type { TaskExecutionPlan } from "./task-execution.ts";
 import type { TaskBlockage, TaskCompletion } from "./task-service.ts";
+import { VERSION } from "./version.ts";
 
 export interface SystemdUnitOptions {
 	bunBin: string;
@@ -26,20 +26,23 @@ export interface SystemdUnitOptions {
  *
  * Papyrus's own daemon.ts does not (yet) use vehicle-server's startDaemon/runDaemonProcess -- it's
  * a bespoke Bun.serve() with its own state-file layout (daemon-state.ts) and maintenance-timer
- * scheduling, predating that shared substrate. Only unit *generation* is migrated here; unitPath()
- * stays a manual XDG_CONFIG_HOME construction rather than pulling in resolveDaemonPaths() for a
- * database/token/handle layout Papyrus doesn't actually use. DAEMON_KIT_LAUNCH_PROVENANCE=service
- * is emitted (generateSystemdUnit always adds it) but is currently inert -- Papyrus's daemon never
- * reads it, since it has no idle-shutdown concept of its own. Migrating daemon.ts's own substrate
- * is tracked separately.
+ * scheduling, predating that shared substrate. handlePath points at the real {host,port,pid} file
+ * daemon.ts writes on startup (writeVehicleHandle), so Armada's readiness probe works once Papyrus
+ * is service-installed. DAEMON_KIT_LAUNCH_PROVENANCE=service is emitted (generateSystemdUnit always
+ * adds it) but is currently inert -- Papyrus's daemon never reads it, since it has no idle-shutdown
+ * concept of its own. Migrating daemon.ts's own substrate onto vehicle-server's shared daemon
+ * runtime entirely is tracked separately.
  */
-function papyrusServiceSpec(options: SystemdUnitOptions): ServiceSpec {
+export function papyrusServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 	return {
 		name: "papyrus",
 		displayName: "Papyrus graph artifact service",
+		version: VERSION,
 		binPath: options.bunBin,
 		args: [options.cliPath, "serve"],
-		descriptorPath: unitPath(),
+		// The real {host,port,pid} file daemon.ts writes on startup (writeVehicleHandle) --
+		// Armada's readiness probe polls exactly this path once Papyrus is service-installed.
+		handlePath: vehicleHandlePath(daemonStateDir()),
 		// Restart=always/RestartSec=2 already unconditional in the prior hand-rolled unit --
 		// preserved exactly, not a new opt-in.
 		restartOnFailure: true,
@@ -49,11 +52,6 @@ function papyrusServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 
 export function renderSystemdUnit(options: SystemdUnitOptions): string {
 	return generateSystemdUnit(papyrusServiceSpec(options));
-}
-
-function unitPath(): string {
-	const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
-	return join(configHome, "systemd", "user", DAEMON_UNIT_NAME);
 }
 
 function systemctl(...args: string[]): void {

@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DAEMON_DIR_ENV, DAEMON_HOST, DAEMON_PORT_FILE, DAEMON_TOKEN_FILE } from "./constants.ts";
+import { LOOPBACK_HOST, removeDaemonHandle, writeDaemonHandle } from "@danypops/vehicle-server/paths";
+import { DAEMON_DIR_ENV, DAEMON_HANDLE_FILE, DAEMON_HOST, DAEMON_PORT_FILE, DAEMON_TOKEN_FILE } from "./constants.ts";
 
 export interface DaemonHandle {
 	baseUrl: string;
@@ -40,6 +41,20 @@ export function writeDaemonPort(dir: string, port: number, pid: number = process
 
 export function clearDaemonPort(dir: string): void {
 	rmSync(join(dir, DAEMON_PORT_FILE), { force: true });
+}
+
+/** Where Armada's readiness probe looks once Papyrus is service-installed -- see cli.ts's papyrusServiceSpec. */
+export function vehicleHandlePath(dir: string): string {
+	return join(dir, DAEMON_HANDLE_FILE);
+}
+
+/** vehicle-server's own {host,port,pid} handle format, distinct from this file's port/token pair -- Armada's readiness probe (createHandleReadinessProbe) reads exactly this shape. */
+export function writeVehicleHandle(dir: string, port: number, pid: number = process.pid): void {
+	writeDaemonHandle(vehicleHandlePath(dir), { host: LOOPBACK_HOST, port, pid });
+}
+
+export function clearVehicleHandle(dir: string): void {
+	removeDaemonHandle(vehicleHandlePath(dir));
 }
 
 export function readDaemonHandle(dir: string): DaemonHandle | undefined {

@@ -2,7 +2,14 @@ import { join } from "node:path";
 import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "./constants.ts";
-import { clearDaemonPort, daemonStateDir, loadOrCreateToken, writeDaemonPort } from "./daemon-state.ts";
+import {
+	clearDaemonPort,
+	clearVehicleHandle,
+	daemonStateDir,
+	loadOrCreateToken,
+	writeDaemonPort,
+	writeVehicleHandle,
+} from "./daemon-state.ts";
 import { logEvent, vehicleLogger } from "./log.ts";
 import { createApp, createPapyrusService } from "./service.ts";
 
@@ -66,6 +73,7 @@ export function serveMain(): void {
 		throw new Error("Papyrus daemon failed to bind a listener");
 	}
 	writeDaemonPort(stateDir, server.port);
+	writeVehicleHandle(stateDir, server.port);
 	const checkpointTimer = setInterval(() => {
 		try {
 			service.checkpoint();
@@ -110,6 +118,7 @@ export function serveMain(): void {
 		clearInterval(reapFocusTimer);
 		clearInterval(purgeTrashTimer);
 		clearDaemonPort(stateDir);
+		clearVehicleHandle(stateDir);
 		releaseDaemonLock(lockPath);
 		service.close();
 		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare

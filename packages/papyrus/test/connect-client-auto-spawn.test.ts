@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readDaemonHandle as readVehicleHandle } from "@danypops/vehicle-server/paths";
 import { connectPapyrusClient } from "../src/client.ts";
 import { DAEMON_DIR_ENV } from "../src/constants.ts";
-import { readDaemonHandle } from "../src/daemon-state.ts";
+import { readDaemonHandle, vehicleHandlePath } from "../src/daemon-state.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 /** connectPapyrusClient's own connectWithPolicy default -- see @danypops/vehicle-client's daemon-client.ts. A cold boot must finish well inside this or a real caller sees the exact CI-only hang this test guards against. */
@@ -158,6 +159,12 @@ describe("cli.ts serve -- real subprocess cold-boot timing", () => {
 			// AUTOSTART_POLL_CEILING_MS: a boot legitimately this slow already leaves no headroom for
 			// its own health probe (DAEMON_PROBE_TIMEOUT_MS) and version check on top of this.
 			expect(healthyAfterMs).toBeLessThan(AUTOSTART_POLL_CEILING_MS / 2);
+			// Armada's own readiness probe (createHandleReadinessProbe) reads this exact file and
+			// shape once Papyrus is service-installed -- proves the real subprocess writes it, not
+			// just that daemon-state.ts's own helpers round-trip in isolation.
+			const ownHandle = readDaemonHandle(dir);
+			if (!ownHandle) throw new Error("expected a daemon handle to already exist -- healthyBaseUrl came from reading one");
+			expect(readVehicleHandle(vehicleHandlePath(dir))).toEqual({ host: "127.0.0.1", port: ownHandle.port, pid: ownHandle.pid });
 		} finally {
 			if (exitCode === null && exitSignal === null) child.kill("SIGTERM");
 		}

@@ -592,7 +592,7 @@ describe("Papyrus task CLI", () => {
 
 	it("rejects tasks create with no --title rather than silently sending an invalid request", async () => {
 		const client = new FakeClient({});
-		await expect(runTaskCli(["create"], client)).rejects.toThrow("tasks create requires --title");
+		await expect(runTaskCli(["create"], client)).rejects.toThrow("Expected input for flag --title");
 		expect(client.calls).toEqual([]);
 	});
 
@@ -644,6 +644,6 @@ describe("Papyrus task CLI", () => {
 
 	it("rejects tasks show without exactly one task id", async () => {
 		const client = new FakeClient({});
-		await expect(runTaskCli(["show"], client)).rejects.toThrow("tasks show requires exactly one task id");
+		await expect(runTaskCli(["show"], client)).rejects.toThrow("Expected argument for id");
 	});
 });

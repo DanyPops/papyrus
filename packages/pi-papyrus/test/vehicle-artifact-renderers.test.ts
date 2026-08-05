@@ -280,4 +280,159 @@ describe("papyrusVehicleRenderers", () => {
 		expect(text).toContain("jira_ticket");
 		expect(text).not.toContain("{");
 	});
+
+	function round(overrides: Record<string, unknown> = {}) {
+		return {
+			id: 1,
+			discussionId: "d1",
+			roundNumber: 1,
+			actor: "agent",
+			content: "First message",
+			occurredAt: "2026-01-01T00:00:00.000Z",
+			...overrides,
+		};
+	}
+
+	it("renders discuss.open/reply/show's {discussion, rounds, content} as a labeled discussion card with a rounds transcript, not raw JSON", () => {
+		for (const op of ["discuss.open", "discuss.reply", "discuss.show"]) {
+			const { renderResult: renderDiscuss } = papyrusVehicleRenderers(descriptor(op));
+			const output = {
+				discussion: artifact({ kind: "task", title: "Should we do X?", status: "in-progress" }),
+				rounds: [
+					round({ roundNumber: 1, actor: "agent", content: "Opening question" }),
+					round({ roundNumber: 2, actor: "human", content: "My answer" }),
+				],
+				content: [{ type: "text", text: "Opened discussion" }],
+			};
+			const component = renderDiscuss!(
+				{ content: [], details: { vehicle: vehicleIdentity, output } },
+				{ isPartial: false, expanded: true },
+				fakeTheme,
+				resultContext(),
+			);
+			const text = component.render(80).join("\n");
+			expect(text).toContain("Should we do X?");
+			expect(text).toContain("Opening question");
+			expect(text).toContain("My answer");
+			expect(text).not.toContain("{");
+		}
+	});
+
+	it("collapses discuss.open/reply/show's rounds transcript when not expanded, with a count + expand hint", () => {
+		const { renderResult: renderDiscuss } = papyrusVehicleRenderers(descriptor("discuss.open"));
+		const output = {
+			discussion: artifact({ title: "Should we do X?" }),
+			rounds: [round({ content: "Opening question" })],
+			content: [{ type: "text", text: "Opened discussion" }],
+		};
+		const component = renderDiscuss!(
+			{ content: [], details: { vehicle: vehicleIdentity, output } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Should we do X?");
+		expect(text).not.toContain("Opening question");
+		expect(text).toContain("1 round");
+	});
+
+	it("renders discuss.rounds' {rounds, content} as a bare transcript, not raw JSON", () => {
+		const { renderResult: renderRounds } = papyrusVehicleRenderers(descriptor("discuss.rounds"));
+		const output = {
+			rounds: [
+				round({ roundNumber: 1, actor: "agent", content: "Opening question" }),
+				round({ roundNumber: 2, actor: "human", content: "My answer" }),
+			],
+			content: [{ type: "text", text: "transcript" }],
+		};
+		const component = renderRounds!(
+			{ content: [], details: { vehicle: vehicleIdentity, output } },
+			{ isPartial: false, expanded: true },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Opening question");
+		expect(text).toContain("My answer");
+		expect(text).not.toContain("{");
+	});
+
+	it("renders discuss.list's {discussions, content} as the curated list card, not raw JSON", () => {
+		const { renderResult: renderList } = papyrusVehicleRenderers(descriptor("discuss.list"));
+		const output = {
+			discussions: [artifact({ title: "First discussion" }), artifact({ title: "Second discussion" })],
+			content: [{ type: "text", text: "2 discussions" }],
+		};
+		const component = renderList!(
+			{ content: [], details: { vehicle: vehicleIdentity, output } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("First discussion");
+		expect(text).toContain("Second discussion");
+		expect(text).not.toContain("{");
+	});
+
+	it("discuss.block/unblock's {blocked, content} single-array envelope already renders as plain text, not raw JSON -- verified, not assumed", () => {
+		const { renderResult: renderBlock } = papyrusVehicleRenderers(descriptor("discuss.block"));
+		const output = { blocked: true, content: [{ type: "text", text: 'Discussion "X" now blocks "Y"' }] };
+		const component = renderBlock!(
+			{ content: [], details: { vehicle: vehicleIdentity, output } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("now blocks");
+		expect(text).not.toContain("{");
+	});
+
+	it("renders tasks.complete's TaskCompletion as labeled fields plus gate/checklist summaries, not raw JSON", () => {
+		const { renderResult: renderComplete } = papyrusVehicleRenderers(descriptor("tasks.complete"));
+		const output = {
+			artifact: artifact({ title: "Ship the feature", status: "done" }),
+			gates: [{ gate: { type: "command", target: "bun test" }, passed: true, output: "ok" }],
+			checklist: [{ item: "Tests pass", proof: [], accepted: true }],
+			completed: true,
+			focused: artifact({ title: "Next task" }),
+			blocked: [],
+			content: [{ type: "text", text: "Completed" }],
+		};
+		const component = renderComplete!(
+			{ content: [], details: { vehicle: vehicleIdentity, output } },
+			{ isPartial: false, expanded: true },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Ship the feature");
+		expect(text).toContain("Tests pass");
+		expect(text).not.toContain("{");
+	});
+
+	it("renders a rejected tasks.complete (gate/checklist failure, still blocked) with the real failure visible, not raw JSON", () => {
+		const { renderResult: renderComplete } = papyrusVehicleRenderers(descriptor("tasks.complete"));
+		const output = {
+			artifact: artifact({ title: "Ship the feature", status: "rejected" }),
+			gates: [{ gate: { type: "command", target: "bun test" }, passed: false, output: "1 failing" }],
+			checklist: [],
+			completed: false,
+			focused: null,
+			blocked: [{ artifact: artifact({ title: "Dependent task" }), dependencyIds: ["x"] }],
+			content: [{ type: "text", text: "Rejected" }],
+		};
+		const component = renderComplete!(
+			{ content: [], details: { vehicle: vehicleIdentity, output } },
+			{ isPartial: false, expanded: true },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Ship the feature");
+		expect(text).toContain("1 failing");
+		expect(text).not.toContain("{");
+	});
 });

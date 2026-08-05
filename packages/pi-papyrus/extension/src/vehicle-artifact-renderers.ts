@@ -19,7 +19,7 @@ import { renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render"
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { type DagEdge, type DagNode, DagView } from "malevich-tui-components";
+import { buildDetailLines, type DagEdge, type DagNode, DagView, type DetailField, type DetailSection } from "malevich-tui-components";
 import { ArtifactCard, expandHint, statusColor, statusGlyph } from "./tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "./tool-rendering/artifact-list.ts";
 import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
@@ -212,6 +212,185 @@ function renderPlaybookMissingArguments(result: PlaybookMissingArgumentsOutput, 
 	return new Text(line, 0, 0);
 }
 
+/** A Discussion round -- discuss.open/reply/show/rounds' own transcript entry. Detected the
+ * same name-independent, shape-based way as the others in this file. */
+interface DiscussionRoundOutput {
+	roundNumber: number;
+	actor: string;
+	content: string;
+}
+
+function isDiscussionRound(value: unknown): value is DiscussionRoundOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return typeof row.roundNumber === "number" && typeof row.actor === "string" && typeof row.content === "string";
+}
+
+function isDiscussionRoundArray(value: unknown): value is DiscussionRoundOutput[] {
+	return Array.isArray(value) && value.every(isDiscussionRound);
+}
+
+interface DiscussionAndRoundsOutput {
+	discussion: Artifact;
+	rounds: DiscussionRoundOutput[];
+}
+
+function isDiscussionAndRounds(value: unknown): value is DiscussionAndRoundsOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return isArtifact(row.discussion) && isDiscussionRoundArray(row.rounds);
+}
+
+interface DiscussionRoundsOnlyOutput {
+	rounds: DiscussionRoundOutput[];
+}
+
+function isDiscussionRoundsOnly(value: unknown): value is DiscussionRoundsOnlyOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return row.discussion === undefined && isDiscussionRoundArray(row.rounds);
+}
+
+interface DiscussionListOutput {
+	discussions: Artifact[];
+}
+
+function isDiscussionListOutput(value: unknown): value is DiscussionListOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return isArtifactArray(row.discussions);
+}
+
+const discussTheme = (theme: Theme) => ({
+	field: (s: string) => theme.fg("text", s),
+	heading: (s: string) => theme.fg("toolTitle", theme.bold(s)),
+	byline: (s: string) => theme.fg("muted", s),
+	body: (s: string) => theme.fg("text", s),
+});
+
+function roundsSection(rounds: readonly DiscussionRoundOutput[]): DetailSection {
+	return {
+		heading: `Rounds (${rounds.length}):`,
+		items: rounds.map((round) => ({ byline: `${round.actor} · round ${round.roundNumber}`, body: round.content })),
+	};
+}
+
+function renderDiscussionAndRounds(output: DiscussionAndRoundsOutput, theme: Theme, expanded: boolean): Component {
+	const discussion = output.discussion;
+	return {
+		render: (width: number) => {
+			const safeWidth = Math.max(1, width);
+			const fields: DetailField[] = [
+				{ label: "Title", value: discussion.title },
+				{ label: "Status", value: theme.fg(statusColor(discussion.status), `${statusGlyph(discussion.status)} ${discussion.status}`) },
+			];
+			const sections: DetailSection[] = expanded && output.rounds.length > 0 ? [roundsSection(output.rounds)] : [];
+			const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: discussTheme(theme) });
+			if (!expanded && output.rounds.length > 0) {
+				const count = output.rounds.length;
+				lines.push(truncateToWidth(theme.fg("dim", `${count} round${count === 1 ? "" : "s"} · ${expandHint()}`), safeWidth));
+			}
+			return lines;
+		},
+		invalidate: () => {},
+	};
+}
+
+function renderDiscussionRoundsOnly(output: DiscussionRoundsOnlyOutput, theme: Theme): Component {
+	return {
+		render: (width: number) => {
+			const sections: DetailSection[] = output.rounds.length > 0 ? [roundsSection(output.rounds)] : [{ lines: ["No rounds."] }];
+			return buildDetailLines(Math.max(1, width), { sections, theme: discussTheme(theme) });
+		},
+		invalidate: () => {},
+	};
+}
+
+/** tasks.complete's own TaskCompletion shape -- a completed (or rejected) task plus its own
+ * gate/checklist proof run and any dependents still left blocked. Detected the same
+ * name-independent, shape-based way as the others in this file. */
+interface TaskGateResultOutput {
+	gate: unknown;
+	passed: boolean;
+	output: string;
+}
+
+interface TaskChecklistReviewOutput {
+	item: string;
+	accepted: boolean;
+	reason?: string;
+}
+
+interface TaskBlockageOutput {
+	artifact: Artifact;
+	dependencyIds: string[];
+}
+
+interface TaskCompletionOutput {
+	artifact: Artifact;
+	gates: TaskGateResultOutput[];
+	checklist: TaskChecklistReviewOutput[];
+	completed: boolean;
+	focused: Artifact | null;
+	blocked: TaskBlockageOutput[];
+}
+
+function isTaskCompletion(value: unknown): value is TaskCompletionOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return (
+		isArtifact(row.artifact) &&
+		Array.isArray(row.gates) &&
+		Array.isArray(row.checklist) &&
+		typeof row.completed === "boolean" &&
+		(row.focused === null || isArtifact(row.focused)) &&
+		Array.isArray(row.blocked)
+	);
+}
+
+function renderTaskCompletion(result: TaskCompletionOutput, theme: Theme, expanded: boolean): Component {
+	const task = result.artifact;
+	return {
+		render: (width: number) => {
+			const safeWidth = Math.max(1, width);
+			const fields: DetailField[] = [
+				{ label: "Title", value: task.title },
+				{ label: "Status", value: theme.fg(statusColor(task.status), `${statusGlyph(task.status)} ${task.status}`) },
+			];
+			const sections: DetailSection[] = [];
+			if (result.gates.length > 0) {
+				sections.push({
+					heading: "Gates:",
+					lines: result.gates.map((gate) => theme.fg(gate.passed ? "success" : "error", `${gate.passed ? "✓" : "✗"} ${gate.output}`)),
+				});
+			}
+			if (result.checklist.length > 0) {
+				sections.push({
+					heading: "Checklist:",
+					lines: result.checklist.map((entry) =>
+						theme.fg(
+							entry.accepted ? "success" : "error",
+							`${entry.accepted ? "✓" : "✗"} ${entry.item}${entry.reason ? ` — ${entry.reason}` : ""}`,
+						),
+					),
+				});
+			}
+			if (result.blocked.length > 0) {
+				sections.push({
+					heading: "Still blocked:",
+					lines: result.blocked.map((entry) => theme.fg("warning", `◼ ${entry.artifact.title}`)),
+				});
+			}
+			const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: discussTheme(theme) });
+			if (result.focused && expanded) {
+				lines.push(truncateToWidth(theme.fg("accent", `▶ focus ${result.focused.title}`), safeWidth));
+			}
+			return lines;
+		},
+		invalidate: () => {},
+	};
+}
+
 export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor): VehicleToolRenderers {
 	return {
 		renderResult(result, options, theme, context) {
@@ -244,6 +423,18 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
 				}
 				if (isPlaybookMissingArguments(output)) {
 					return renderPlaybookMissingArguments(output, theme);
+				}
+				if (isDiscussionAndRounds(output)) {
+					return renderDiscussionAndRounds(output, theme, options.expanded);
+				}
+				if (isDiscussionRoundsOnly(output)) {
+					return renderDiscussionRoundsOnly(output, theme);
+				}
+				if (isDiscussionListOutput(output)) {
+					return new ArtifactListCard(createArtifactListDetails(descriptor.name, output.discussions), theme, options.expanded);
+				}
+				if (isTaskCompletion(output)) {
+					return renderTaskCompletion(output, theme, options.expanded);
 				}
 			}
 			return renderVehicleResult(descriptor, result, options, theme, context);

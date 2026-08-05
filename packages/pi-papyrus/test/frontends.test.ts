@@ -15,7 +15,7 @@ import { discussionRowMeta } from "../extension/src/discuss/discuss.ts";
 import { discussionRoundCountOf, discussionStateOf } from "../extension/src/discuss/discussion-detail-view.ts";
 import { documentRowMeta } from "../extension/src/docs.ts";
 import { artifactLines, artifactLine as domainToolsArtifactLine, matchArtifactByName } from "../extension/src/domain-tools.ts";
-import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/notes.ts";
+import { noteCaptureInput, noteListInput, noteRowMeta } from "../extension/src/note/notes.ts";
 import { ruleInjectionPreview, ruleRowMeta } from "../extension/src/rules.ts";
 
 const theme = {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { NoteOverlay } from "../extension/src/index.ts";
-import { renderNoteWidgetLines } from "../extension/src/note-widget.ts";
+import { renderNoteWidgetLines } from "../extension/src/note/note-widget.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
 const theme = { fg: (_color: string, text: string) => text } as Theme;

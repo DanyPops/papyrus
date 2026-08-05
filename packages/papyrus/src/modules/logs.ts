@@ -6,7 +6,7 @@
  * comment on why `log` is not an Artifact kind).
  */
 import type { JsonValue, LogLevel } from "../domain/log-entry.ts";
-import type { Logs } from "../log-service.ts";
+import type { Logs } from "../log/log-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 
 const MODULE_ID = "logs";

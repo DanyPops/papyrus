@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { logEvent, vehicleLogger } from "../src/log.ts";
+import { logEvent, vehicleLogger } from "../src/log/log.ts";
 
 describe("Papyrus daemon logging", () => {
 	it("emits credential-free structured continuation events", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { SQLiteLogStore } from "../src/adapters/sqlite-log-store.ts";
 import { openDb } from "../src/db.ts";
-import { Logs } from "../src/log-service.ts";
+import { Logs } from "../src/log/log-service.ts";
 
 /**
  * Real SQLite round-trip coverage -- test/log-service.test.ts proves the service's own logic

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
-import { logEvent, vehicleLogger } from "../log.ts";
+import { logEvent, vehicleLogger } from "../log/log.ts";
 import { createApp, createPapyrusService } from "../service.ts";
 import {
 	clearDaemonPort,

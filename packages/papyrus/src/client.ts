@@ -161,7 +161,7 @@ export function resolvePushChannelTarget(dir: string = daemonStateDir()): PushCh
 }
 
 export interface VehicleClientTarget {
-	/** Base URL for a domain migrated onto VehicleRegistry (see src/vehicle/*.ts) -- @danypops/vehicle-client's RemoteVehicleClient mounts its own /vehicle/manifest, /vehicle/invoke, /vehicle/cancel routes under this. */
+	/** Base URL for a domain migrated onto VehicleRegistry (see src/handlers/*.ts) -- @danypops/vehicle-client's RemoteVehicleClient mounts its own /vehicle/manifest, /vehicle/invoke, /vehicle/cancel routes under this. */
 	baseUrl: string;
 	token: string;
 }

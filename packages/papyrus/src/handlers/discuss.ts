@@ -20,14 +20,7 @@ import type { Artifact } from "../domain/artifact.ts";
 import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../domain/discussion.ts";
 import { discussOperations } from "../modules/discuss.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import {
-	looseObjectSchema,
-	numberProp,
-	passthroughOutput,
-	resolveArtifactIdWidened,
-	stringProp,
-	validationError,
-} from "./artifact-vehicle-shared.ts";
+import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "discuss";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };

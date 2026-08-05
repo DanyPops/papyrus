@@ -12,14 +12,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { notesOperations } from "../modules/notes.ts";
 import { NOTE_DISPOSITIONS, type Notes } from "../note-service.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
-import {
-	looseObjectSchema,
-	numberProp,
-	passthroughOutput,
-	resolveArtifactIdWidened,
-	stringProp,
-	validationError,
-} from "./artifact-vehicle-shared.ts";
+import { looseObjectSchema, numberProp, passthroughOutput, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "notes";
 

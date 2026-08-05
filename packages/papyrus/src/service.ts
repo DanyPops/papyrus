@@ -23,6 +23,7 @@ import type { CreateArtifactInput } from "./domain/artifact.ts";
 import type { TaskEventContext } from "./domain/task-event.ts";
 import type { TaskViewMode } from "./domain/task-scope.ts";
 import { listInjectableRules } from "./domain-services.ts";
+import { createPapyrusVehicleRegistry } from "./handlers/registry.ts";
 import { logEvent } from "./log.ts";
 import { Logs } from "./log-service.ts";
 import { OperationRegistry } from "./module-registry.ts";
@@ -44,7 +45,6 @@ import type { TaskEventStore } from "./ports/task-event-store.ts";
 import type { TaskScopeStore } from "./ports/task-scope-store.ts";
 import { InvalidSessionSecretError, SessionIdentity } from "./session-identity-service.ts";
 import { type TaskStatus, Tasks } from "./task-service.ts";
-import { createPapyrusVehicleRegistry } from "./vehicle/papyrus-vehicle.ts";
 import { VERSION } from "./version.ts";
 
 /**
@@ -217,7 +217,7 @@ export interface PapyrusService {
 	execute(operation: string, input?: OperationInput): Promise<unknown>;
 	/**
 	 * Every domain migrated onto Vehicle, merged into one registry/one HTTP mount
-	 * (see ./vehicle/papyrus-vehicle.ts) -- one honest VehicleOperation per real
+	 * (see ./handlers/registry.ts) -- one honest VehicleOperation per real
 	 * action, replacing the Pi extension's old `<domain>(action=X)` mega-tools.
 	 * Not every domain is migrated yet -- see papyrus-vehicle.ts's own doc comment
 	 * for what still isn't and why.
@@ -582,7 +582,7 @@ export function createApp(deps: {
 	/** Defaults to a no-op (createVehicleHttpApp's own default) -- daemon.ts wires vehicleLogger() so a failed invocation is actually logged, not silently discarded. */
 	logger?: Logger;
 }): { fetch(request: Request): Promise<Response> } {
-	// Same Bearer token, daemon, and port as the rest of this API -- see ./vehicle/papyrus-vehicle.ts.
+	// Same Bearer token, daemon, and port as the rest of this API -- see ./handlers/registry.ts.
 	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicle, token: deps.token, logger: deps.logger });
 	return {
 		async fetch(request: Request): Promise<Response> {

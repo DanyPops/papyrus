@@ -38,7 +38,7 @@ import {
 	resolveArtifactIdWidened,
 	stringProp,
 	validationError,
-} from "./artifact-vehicle-shared.ts";
+} from "./shared.ts";
 
 const OWNER = "tasks";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };

@@ -1,7 +1,7 @@
 /**
  * Registers every Vehicle-projected domain (notes.*, rules.*, docs.*, playbooks.*,
  * tasks.*, discuss.*, artifact.*) as real Pi tools -- see @danypops/papyrus's
- * src/vehicle/papyrus-vehicle.ts. discuss.* is the last of the six domains to
+ * src/handlers/registry.ts. discuss.* is the last of the six domains to
  * migrate off pi-papyrus's own retired hand-rolled pi.registerTool() mega-tool.
  *
  * Fails silently on a stale/unreachable daemon handle instead of aborting extension
@@ -66,7 +66,7 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 			// playbooks.invoke's own module handler, and tasks.focus/pause/unpause/clear_focus's
 			// own module handlers, authorize an internal Task Focus write via
 			// sessionIdentity.assertAuthorized(session_id, session_secret) -- see
-			// @danypops/papyrus's src/vehicle/playbooks-vehicle.ts and tasks-vehicle.ts. That
+			// @danypops/papyrus's src/handlers/playbooks.ts and tasks.ts. That
 			// secret must never be a model-visible input field (the model has no business
 			// knowing or supplying it), so it travels here instead, in principal.claims, from
 			// this extension's own already-cached secret (registered at session_start -- see

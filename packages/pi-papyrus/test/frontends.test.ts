@@ -97,8 +97,8 @@ describe("kind-specific frontend projections", () => {
 		expect(extension).toContain('registerCommand("notes"');
 		expect(extension).toContain("registerNotesVehicle");
 		// The real notes.* operation names live server-side now (see @danypops/papyrus's
-		// src/vehicle/notes-vehicle.ts and its own notes-vehicle.test.ts), not here.
-		const notesVehicle = readFileSync(new URL("../../papyrus/src/vehicle/notes-vehicle.ts", import.meta.url), "utf8");
+		// src/handlers/notes.ts and its own notes-vehicle.test.ts), not here.
+		const notesVehicle = readFileSync(new URL("../../papyrus/src/handlers/notes.ts", import.meta.url), "utf8");
 		for (const action of ["capture", "list", "show", "history", "consume", "promote", "archive"]) {
 			expect(notesVehicle).toContain(`"${action}"`);
 		}
@@ -200,15 +200,15 @@ describe("Tasks tool: name is the primary interfacing point, id stays backend-on
 	});
 
 	it("registers name-based equivalents for discuss server-side, in @danypops/papyrus's own discuss-vehicle.ts", () => {
-		const discussVehicle = readFileSync(new URL("../../papyrus/src/vehicle/discuss-vehicle.ts", import.meta.url), "utf8");
+		const discussVehicle = readFileSync(new URL("../../papyrus/src/handlers/discuss.ts", import.meta.url), "utf8");
 		expect(discussVehicle).toContain("blocks_task_names");
 	});
 
 	it("registers name-based equivalents server-side for rules/docs/playbooks/tasks, migrated onto Vehicle -- target_name/task_name/parent_name/child_name/dependency_name/root_task_name/depends_on_names now resolved in @danypops/papyrus's own vehicle/*.ts, not domain-tools.ts", () => {
-		const rulesVehicle = readFileSync(new URL("../../papyrus/src/vehicle/rules-vehicle.ts", import.meta.url), "utf8");
-		const docsVehicle = readFileSync(new URL("../../papyrus/src/vehicle/docs-vehicle.ts", import.meta.url), "utf8");
-		const playbooksVehicle = readFileSync(new URL("../../papyrus/src/vehicle/playbooks-vehicle.ts", import.meta.url), "utf8");
-		const tasksVehicle = readFileSync(new URL("../../papyrus/src/vehicle/tasks-vehicle.ts", import.meta.url), "utf8");
+		const rulesVehicle = readFileSync(new URL("../../papyrus/src/handlers/rules.ts", import.meta.url), "utf8");
+		const docsVehicle = readFileSync(new URL("../../papyrus/src/handlers/docs.ts", import.meta.url), "utf8");
+		const playbooksVehicle = readFileSync(new URL("../../papyrus/src/handlers/playbooks.ts", import.meta.url), "utf8");
+		const tasksVehicle = readFileSync(new URL("../../papyrus/src/handlers/tasks.ts", import.meta.url), "utf8");
 		expect(rulesVehicle).toContain("task_name");
 		expect(docsVehicle).toContain("target_name");
 		for (const field of ["parent_name", "child_name", "dependency_name"]) expect(playbooksVehicle).toContain(field);
@@ -269,7 +269,7 @@ describe("/discuss TUI: real lifecycle surfaced in rowMeta, not just the shared 
 	it("registers the /discuss command; every discuss action is a Vehicle-namespaced operation, not a domain-tools.ts action-dispatch tool", () => {
 		const extension = readFileSync(new URL("../extension/src/index.ts", import.meta.url), "utf8");
 		const domainTools = readFileSync(new URL("../extension/src/domain-tools.ts", import.meta.url), "utf8");
-		const discussVehicle = readFileSync(new URL("../../papyrus/src/vehicle/discuss-vehicle.ts", import.meta.url), "utf8");
+		const discussVehicle = readFileSync(new URL("../../papyrus/src/handlers/discuss.ts", import.meta.url), "utf8");
 		expect(extension).toContain('registerCommand("discuss"');
 		expect(domainTools).not.toContain('name: "discuss"');
 		expect(discussVehicle).toContain("name: `discuss."); // e.g. `discuss.${action}` -- namespaced, not a bare "discuss" action-dispatch tool

@@ -228,6 +228,6 @@ describe("model-facing artifact references are name-first", () => {
 
 	// notes.* is no longer a hand-rolled pi.registerTool() -- name/target_name
 	// resolution and history rendering for it now live server-side in
-	// @danypops/papyrus's src/vehicle/notes-vehicle.ts, covered by that
+	// @danypops/papyrus's src/handlers/notes.ts, covered by that
 	// package's own notes-vehicle.test.ts, not here.
 });

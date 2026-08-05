@@ -16,13 +16,13 @@ import type { TaskEventStore } from "../ports/task-event-store.ts";
 import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity-service.ts";
 import type { Tasks } from "../task-service.ts";
-import { registerArtifactTrashOperations } from "./artifact-trash-vehicle.ts";
-import { registerDiscussVehicleOperations } from "./discuss-vehicle.ts";
-import { registerDocsVehicleOperations } from "./docs-vehicle.ts";
-import { registerNotesVehicleOperations } from "./notes-vehicle.ts";
-import { registerPlaybooksVehicleOperations } from "./playbooks-vehicle.ts";
-import { registerRulesVehicleOperations } from "./rules-vehicle.ts";
-import { registerTasksVehicleOperations } from "./tasks-vehicle.ts";
+import { registerArtifactTrashOperations } from "./artifact-trash.ts";
+import { registerDiscussVehicleOperations } from "./discuss.ts";
+import { registerDocsVehicleOperations } from "./docs.ts";
+import { registerNotesVehicleOperations } from "./notes.ts";
+import { registerPlaybooksVehicleOperations } from "./playbooks.ts";
+import { registerRulesVehicleOperations } from "./rules.ts";
+import { registerTasksVehicleOperations } from "./tasks.ts";
 
 export interface PapyrusVehicleDeps {
 	artifacts: ArtifactStore & ArtifactTrashStore;

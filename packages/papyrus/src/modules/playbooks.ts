@@ -4,10 +4,10 @@
  * A Playbook is prose-first, whole-artifact composition (contains/depends_on between real
  * Playbook artifacts) rather than a raw JSON blueprint -- but its own step list can also
  * declare Doc/Rule blueprints and typed arguments and nested pipeline calls. playbooks.invoke
- * recycles the shared blueprint materialization engine (playbook-execution.ts compiles a
+ * recycles the shared blueprint materialization engine (playbook/playbook-execution.ts compiles a
  * Playbook's steps and composition tree into a BlueprintDefinition, then hands off to
- * workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
- * playbook-definition.ts for the full rationale.
+ * playbook/workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
+ * playbook/playbook-definition.ts for the full rationale.
  */
 import {
 	assignPlaybookProject,
@@ -23,7 +23,7 @@ import {
 	updatePlaybook,
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import { invokePlaybook } from "../playbook-execution.ts";
+import { invokePlaybook } from "../playbook/playbook-execution.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
@@ -96,7 +96,7 @@ export interface PlaybooksModuleDeps {
 	scopes: TaskScopeStore;
 	/** Docs/Rules/Skills/Playbooks project scoping (distinct from `scopes`, which is Task-run project scoping for playbooks.invoke's materialized tasks). */
 	artifactScopes: ArtifactScopeStore;
-	/** Used for exactly one thing: focusing the entry task after a successful invoke -- the one safety-checked Tasks operation this module needs, not bulk graph construction (that goes straight through artifacts/events/scopes in playbook-execution.ts, mirroring workflow-execution.ts). */
+	/** Used for exactly one thing: focusing the entry task after a successful invoke -- the one safety-checked Tasks operation this module needs, not bulk graph construction (that goes straight through artifacts/events/scopes in playbook/playbook-execution.ts, mirroring playbook/workflow-execution.ts). */
 	tasks: Tasks;
 	/** Guards the same session_secret check tasks.focus's own operation enforces (guardFocusMutation in modules/tasks.ts) -- invoke's internal tasks.focus() call goes straight through the Tasks class, bypassing that operation wrapper entirely, so the check must be applied here instead of silently skipped. */
 	sessionIdentity: SessionIdentity;

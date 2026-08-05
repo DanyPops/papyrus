@@ -26,7 +26,8 @@ export type { TaskEvent, TaskHistoryPage } from "./domain/task-event.ts";
 export type { TaskLease } from "./domain/task-lease.ts";
 export type { TaskViewSelection } from "./domain/task-scope.ts";
 export { NOTE_DISPOSITIONS } from "./note-service.ts";
-export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook-execution.ts";
+export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook/playbook-execution.ts";
+export type { WorkflowRunResult } from "./playbook/workflow-execution.ts";
 export type { ArtifactStore } from "./ports/artifact-store.ts";
 export type { GraphRenderer } from "./ports/graph-renderer.ts";
 export type { OperationName, SchemaState } from "./service.ts";
@@ -35,4 +36,3 @@ export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState }
 export { projectTaskGraph, type TaskGraphView } from "./task/task-graph-view.ts";
 export { fallbackLabel, projectTaskRelationships } from "./task/task-relationship-view.ts";
 export type { TaskCompletion, TaskGraph, TaskNode, TaskStatus } from "./task/task-service.ts";
-export type { WorkflowRunResult } from "./workflow-execution.ts";

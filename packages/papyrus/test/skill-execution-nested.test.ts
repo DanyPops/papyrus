@@ -3,9 +3,9 @@ import { SQLiteArtifactScopeStore } from "../src/adapters/sqlite-artifact-scope-
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { SKILL_WORKFLOW_MAX_NESTING_DEPTH } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
+import { instantiateSkillWorkflow } from "../src/playbook/workflow-execution.ts";
 import type { ArtifactScopeStore } from "../src/ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../src/ports/artifact-store.ts";
-import { instantiateSkillWorkflow } from "../src/workflow-execution.ts";
 
 /**
  * Skill-the-kind is fully retired. A definition-shaped workflow target is now a kind=playbook

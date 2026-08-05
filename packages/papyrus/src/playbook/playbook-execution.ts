@@ -7,11 +7,11 @@
  * (via the existing Task Focus system-prompt pointer), which is what actually avoids the
  * old text-dump problem: one page at a time, not the whole book at once.
  */
-import type { BlueprintArgumentValue } from "./domain/blueprint-definition.ts";
+import type { BlueprintArgumentValue } from "../domain/blueprint-definition.ts";
+import type { ArtifactStore } from "../ports/artifact-store.ts";
+import { requireAtomicArtifactStore } from "../ports/atomic-artifact-store.ts";
+import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import { compilePlaybookDefinition } from "./playbook-definition.ts";
-import type { ArtifactStore } from "./ports/artifact-store.ts";
-import { requireAtomicArtifactStore } from "./ports/atomic-artifact-store.ts";
-import type { TaskExecutionPlan } from "./task/task-execution.ts";
 import {
 	applyPlaybookExternalLinks,
 	materializeWorkflowDefinition,

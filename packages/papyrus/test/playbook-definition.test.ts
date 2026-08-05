@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/adapters/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import type { PlaybookStep } from "../src/domain-services.ts";
-import { compilePlaybookDefinition } from "../src/playbook-definition.ts";
+import { compilePlaybookDefinition } from "../src/playbook/playbook-definition.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

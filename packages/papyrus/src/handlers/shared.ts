@@ -5,7 +5,7 @@
  */
 import { defineVehicleSchema, type VehicleContentBlock, VehicleError, type VehicleSchemaCodec } from "@danypops/vehicle-core";
 import type { Artifact } from "../domain/artifact.ts";
-import { PlaybookCompositionError } from "../playbook-definition.ts";
+import { PlaybookCompositionError } from "../playbook/playbook-definition.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import { InvalidSessionSecretError } from "../session-identity-service.ts";
 import { TaskDependencyCycleError, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";

@@ -22,7 +22,7 @@ import { bindVehicleOperation, defineVehicleOperation, type VehicleOperationCont
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { listPlaybooks } from "../domain-services.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
-import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook-execution.ts";
+import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
 import type { ArtifactScopeStore } from "../ports/artifact-scope-store.ts";
 import type { ArtifactStore } from "../ports/artifact-store.ts";
 import type { TaskEventStore } from "../ports/task-event-store.ts";
@@ -70,7 +70,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 	/**
 	 * Every playbooks.* action funnels through here. invoke's own module handler re-runs
 	 * sessionIdentity.assertAuthorized directly (see this file's own doc comment) and its
-	 * blueprint-materialization engine (workflow-execution.ts) can hit the same execution-graph
+	 * blueprint-materialization engine (playbook/workflow-execution.ts) can hit the same execution-graph
 	 * bounds tasks-vehicle.ts's own operations do -- classifying both reviewed domain error classes
 	 * at this one choke point covers every action that can throw them. Anything else propagates
 	 * unchanged -- vehicle-registry's own secure-by-default handler-failed opacity still applies to a

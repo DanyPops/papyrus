@@ -24,6 +24,7 @@ import {
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {
 		id: "task-1",
+		alias: "build-the-context-mesh",
 		kind: "task",
 		title: "Build the context mesh",
 		status: "todo",

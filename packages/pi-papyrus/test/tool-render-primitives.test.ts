@@ -25,6 +25,7 @@ function theme(tag: string): Theme {
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {
 		id: "task-1",
+		alias: "build-a-context-mesh",
 		kind: "task",
 		title: "Build a context mesh with a deliberately long title for narrow terminals",
 		status: "in-progress",
@@ -71,6 +72,7 @@ describe("Papyrus tool rendering primitives", () => {
 		const collapsed = card.render(80).join("\n");
 		// Widest collapsed label is "Status" (6) -- every label pads to that column.
 		expect(collapsed).toContain("Title:  Build a context mesh");
+		expect(collapsed).toContain("Alias:  build-a-context-mesh");
 		expect(collapsed).toContain("Kind:   ◇ task");
 		expect(collapsed).toContain("Status: ");
 		expect(collapsed).not.toContain("ID:");

@@ -13,6 +13,7 @@ const projection: TaskWidgetProjection = {
 		{
 			task: {
 				id: "defect",
+				alias: "defect",
 				kind: "task",
 				title: "Fix graph crash",
 				status: "in-progress",

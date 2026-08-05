@@ -53,6 +53,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"note-events",
 			"skill-to-playbook-data-migration",
 			"retire-skill-kind",
+			"artifact-aliases",
 		]);
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'log_sources'").get()).not.toBeNull();
 		db.close();
@@ -78,6 +79,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"note-events",
 			"skill-to-playbook-data-migration",
 			"retire-skill-kind",
+			"artifact-aliases",
 		]);
 		db.close();
 	});
@@ -103,6 +105,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"note-events",
 			"skill-to-playbook-data-migration",
 			"retire-skill-kind",
+			"artifact-aliases",
 		]);
 		db.close();
 	});

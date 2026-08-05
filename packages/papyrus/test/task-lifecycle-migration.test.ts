@@ -52,7 +52,7 @@ describe("task lifecycle schema migration", () => {
 
 		expect(migrateDb(db)).toEqual({
 			from: 1,
-			to: 23,
+			to: 24,
 			applied: [
 				"task-lifecycle-and-focus",
 				"task-history",
@@ -76,6 +76,7 @@ describe("task lifecycle schema migration", () => {
 				"note-events",
 				"skill-to-playbook-data-migration",
 				"retire-skill-kind",
+				"artifact-aliases",
 			],
 		});
 		const rows = db.prepare("SELECT id, status FROM artifacts ORDER BY id").all() as Array<{ id: string; status: string }>;
@@ -102,7 +103,7 @@ describe("task lifecycle schema migration", () => {
 				}
 			).count,
 		).toBe(5);
-		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(23);
+		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(24);
 		expect(db.prepare("SELECT name FROM statuses WHERE kind = 'task' ORDER BY rowid LIMIT 1").get()).toEqual({ name: "done" });
 		const created = new Tasks(new SQLiteArtifactStore(db), new SQLiteGateRunner(db)).create({ title: "Created after migration" });
 		expect(created.status).toBe("todo");

@@ -113,6 +113,7 @@ export class ArtifactCard implements Component {
 		const status = this.theme.fg(statusColor(artifact.status), `${statusGlyph(artifact.status)} ${artifact.status}`);
 		return [
 			{ label: "Title", value: artifact.title },
+			{ label: "Alias", value: artifact.alias ?? artifact.id },
 			{ label: "Kind", value: `${kindGlyph(artifact.kind)} ${artifact.kind}` },
 			{ label: "Status", value: status },
 			...(this.expanded ? [{ label: "ID", value: artifact.id }] : []),

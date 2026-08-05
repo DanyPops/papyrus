@@ -15,6 +15,8 @@ export interface Artifact {
 	extra: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;
+	/** Short, globally-unique, human/agent-typeable name -- see domain/artifact-alias.ts. Always present once created; the id remains the true backend identity. */
+	alias: string;
 	edges?: ArtifactEdge[];
 }
 
@@ -28,12 +30,15 @@ export interface CreateArtifactInput {
 	id?: string;
 	subtype?: string;
 	templateId?: string;
+	/** Overrides the title-derived auto-generated alias -- must be unique and match isValidAlias's format, or creation throws a real conflict/validation error. */
+	alias?: string;
 }
 
 export interface UpdateArtifactInput {
 	title?: string;
 	body?: string;
 	labels?: string[];
+	alias?: string;
 }
 
 export interface ArtifactQuery {

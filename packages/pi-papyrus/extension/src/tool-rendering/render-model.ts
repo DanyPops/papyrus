@@ -18,6 +18,8 @@ export interface ResultCompleteness {
 
 export interface ToolArtifactSummary {
 	id: string;
+	/** Optional only for a detail object persisted before this field existed -- ArtifactCard falls back to id when absent. */
+	alias?: string;
 	kind: string;
 	title: string;
 	status: string;
@@ -154,6 +156,7 @@ function boundedText(value: string, maximum: number): { value: string; completen
 function artifactSummary(artifact: Artifact): ToolArtifactSummary {
 	return {
 		id: artifact.id,
+		alias: artifact.alias,
 		kind: artifact.kind,
 		title: artifact.title,
 		status: artifact.status,

@@ -139,6 +139,7 @@ describe("Papyrus Markdown detail rendering", () => {
 		const tracked = trackingTheme();
 		const value: Artifact = {
 			id: "detail-1",
+			alias: "detail-1",
 			kind: "doc",
 			title: "Theme detail",
 			status: "active",
@@ -171,6 +172,7 @@ describe("Papyrus Markdown detail rendering", () => {
 		let active = first.theme;
 		const value: Artifact = {
 			id: "reload-1",
+			alias: "reload-1",
 			kind: "doc",
 			title: "Reload",
 			status: "active",

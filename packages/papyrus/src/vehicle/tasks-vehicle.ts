@@ -68,6 +68,7 @@ export interface TasksVehicleDeps {
  * carried, hard-won from real cross-project depend/contain friction.
  */
 function resolveTaskId(
+	artifacts: ArtifactStore,
 	tasks: Tasks,
 	filter: { projectRoot?: string; scope?: TaskViewMode; rootTaskId?: string },
 	id: unknown,
@@ -77,6 +78,7 @@ function resolveTaskId(
 	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	if (!filter.projectRoot) throw validationError("project_root is required when resolving a task by name");
 	return resolveArtifactIdWidened(
+		artifacts,
 		name,
 		() => tasks.list({ ...filter, text: name }),
 		filter.scope === undefined ? () => tasks.list({ ...filter, scope: "all", text: name }) : undefined,
@@ -84,13 +86,20 @@ function resolveTaskId(
 }
 
 /** Resolves root_task_name first and scoped to "project" only, matching the removed tool's own resolution order -- every other name lookup below must see the caller's FINAL scope/root selection, which root_task_id itself feeds into. */
-function resolveRootTaskId(tasks: Tasks, projectRoot: string | undefined, rootTaskId: unknown, rootTaskName: unknown): string | undefined {
+function resolveRootTaskId(
+	artifacts: ArtifactStore,
+	tasks: Tasks,
+	projectRoot: string | undefined,
+	rootTaskId: unknown,
+	rootTaskName: unknown,
+): string | undefined {
 	if (typeof rootTaskId === "string" && rootTaskId.length > 0) return rootTaskId;
 	if (typeof rootTaskName !== "string" || rootTaskName.length === 0) return undefined;
-	return resolveTaskId(tasks, { projectRoot, scope: "project" }, undefined, rootTaskName);
+	return resolveTaskId(artifacts, tasks, { projectRoot, scope: "project" }, undefined, rootTaskName);
 }
 
 function resolveArrayField(
+	artifacts: ArtifactStore,
 	tasks: Tasks,
 	filter: { projectRoot?: string; scope?: TaskViewMode; rootTaskId?: string },
 	ids: unknown,
@@ -98,7 +107,7 @@ function resolveArrayField(
 ): string[] | undefined {
 	if (Array.isArray(ids)) return ids as string[];
 	if (!Array.isArray(names) || names.length === 0) return undefined;
-	return names.map((entry) => resolveTaskId(tasks, filter, undefined, String(entry)));
+	return names.map((entry) => resolveTaskId(artifacts, tasks, filter, undefined, String(entry)));
 }
 
 const readSchemaProps = {
@@ -192,13 +201,13 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	/** Shared by every action taking a single id/name: resolves root_task_name first, then name -> id against the final scope. */
 	const resolveIdAndScope = (input: Record<string, unknown>): Record<string, unknown> => {
 		const projectRoot = input.project_root as string | undefined;
-		const rootTaskId = resolveRootTaskId(tasks, projectRoot, input.root_task_id, input.root_task_name);
+		const rootTaskId = resolveRootTaskId(artifacts, tasks, projectRoot, input.root_task_id, input.root_task_name);
 		const scope = input.scope as TaskViewMode | undefined;
 		const filter = { projectRoot, scope, rootTaskId };
 		return {
 			...input,
 			...(rootTaskId ? { root_task_id: rootTaskId } : {}),
-			id: resolveTaskId(tasks, filter, input.id, input.name),
+			id: resolveTaskId(artifacts, tasks, filter, input.id, input.name),
 		};
 	};
 
@@ -230,9 +239,9 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 				typeof input.parent_id === "string" && input.parent_id.length > 0
 					? input.parent_id
 					: typeof input.parent_name === "string" && input.parent_name.length > 0
-						? resolveTaskId(tasks, filter, undefined, input.parent_name)
+						? resolveTaskId(artifacts, tasks, filter, undefined, input.parent_name)
 						: undefined;
-			const dependsOn = resolveArrayField(tasks, filter, input.depends_on, input.depends_on_names);
+			const dependsOn = resolveArrayField(artifacts, tasks, filter, input.depends_on, input.depends_on_names);
 			return { ...input, ...(parentId ? { parent_id: parentId } : {}), ...(dependsOn ? { depends_on: dependsOn } : {}) };
 		},
 	);
@@ -263,7 +272,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		readSchemaProps,
 		["project_root"],
 		(input) => {
-			const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
+			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);
 			return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
 		},
 	);
@@ -275,7 +284,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		readSchemaProps,
 		["project_root"],
 		(input) => {
-			const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
+			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);
 			return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
 		},
 	);
@@ -287,7 +296,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		readSchemaProps,
 		["project_root"],
 		(input) => {
-			const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
+			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);
 			return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
 		},
 		(input) => {
@@ -352,7 +361,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		},
 		["project_root", "scope"],
 		(input) => {
-			const rootTaskId = resolveRootTaskId(tasks, input.project_root as string, input.root_task_id, input.root_task_name);
+			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);
 			return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
 		},
 	);
@@ -363,7 +372,10 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"local-write",
 		{ id: stringProp, name: stringProp, project_root: stringProp, session_id: stringProp },
 		["project_root"],
-		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+		(input) => ({
+			...input,
+			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+		}),
 	);
 
 	define(
@@ -415,7 +427,10 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"Sets the active Task Focus (singular per scope) to this Task. Multiple sessions can focus the same task while only one holds its lease.",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],
-		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+		(input) => ({
+			...input,
+			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+		}),
 	);
 	focusOperation("pause", "Pauses the active Task Focus without clearing it.", { reason: stringProp }, [], (input) => input);
 	focusOperation("unpause", "Resumes a paused Task Focus.", {}, [], (input) => input);
@@ -588,8 +603,8 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
 			return {
 				...input,
-				id: resolveTaskId(tasks, filter, input.id, input.name),
-				dependency_id: resolveTaskId(tasks, filter, input.dependency_id, input.dependency_name),
+				id: resolveTaskId(artifacts, tasks, filter, input.id, input.name),
+				dependency_id: resolveTaskId(artifacts, tasks, filter, input.dependency_id, input.dependency_name),
 			};
 		},
 	);
@@ -612,8 +627,8 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
 			return {
 				...input,
-				id: resolveTaskId(tasks, filter, input.id, input.name),
-				dependency_id: resolveTaskId(tasks, filter, input.dependency_id, input.dependency_name),
+				id: resolveTaskId(artifacts, tasks, filter, input.id, input.name),
+				dependency_id: resolveTaskId(artifacts, tasks, filter, input.dependency_id, input.dependency_name),
 			};
 		},
 	);
@@ -636,8 +651,8 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
 			return {
 				...input,
-				parent_id: resolveTaskId(tasks, filter, input.parent_id, input.parent_name),
-				child_id: resolveTaskId(tasks, filter, input.child_id, input.child_name),
+				parent_id: resolveTaskId(artifacts, tasks, filter, input.parent_id, input.parent_name),
+				child_id: resolveTaskId(artifacts, tasks, filter, input.child_id, input.child_name),
 			};
 		},
 	);
@@ -660,8 +675,8 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			const filter = { projectRoot: input.project_root as string | undefined, scope: input.scope as TaskViewMode | undefined };
 			return {
 				...input,
-				parent_id: resolveTaskId(tasks, filter, input.parent_id, input.parent_name),
-				child_id: resolveTaskId(tasks, filter, input.child_id, input.child_name),
+				parent_id: resolveTaskId(artifacts, tasks, filter, input.parent_id, input.parent_name),
+				child_id: resolveTaskId(artifacts, tasks, filter, input.child_id, input.child_name),
 			};
 		},
 	);
@@ -682,7 +697,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		[],
 		(input) => ({
 			...input,
-			id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
 			owner: input.owner ?? input.session_id,
 		}),
 	);
@@ -700,7 +715,10 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			session_id: stringProp,
 		},
 		["owner", "token"],
-		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+		(input) => ({
+			...input,
+			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+		}),
 	);
 	define(
 		"release_lease",
@@ -708,7 +726,10 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"local-write",
 		{ id: stringProp, name: stringProp, owner: stringProp, token: stringProp, project_root: stringProp, session_id: stringProp },
 		["owner", "token"],
-		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+		(input) => ({
+			...input,
+			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+		}),
 	);
 	define(
 		"lease",
@@ -716,7 +737,10 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"read",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],
-		(input) => ({ ...input, id: resolveTaskId(tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name) }),
+		(input) => ({
+			...input,
+			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
+		}),
 	);
 
 	define(

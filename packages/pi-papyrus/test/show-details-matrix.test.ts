@@ -18,6 +18,7 @@ const theme = {
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {
 		id: "artifact-1",
+		alias: "detailed-artifact",
 		kind: "doc",
 		title: "Detailed artifact",
 		status: "active",

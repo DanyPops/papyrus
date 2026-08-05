@@ -15,6 +15,7 @@ function playbook(overrides: Partial<Artifact> & { id: string; title: string }):
 		extra: {},
 		created_at: "x",
 		updated_at: "x",
+		alias: overrides.id,
 		...overrides,
 	};
 }

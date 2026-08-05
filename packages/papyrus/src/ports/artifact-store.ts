@@ -16,6 +16,8 @@ import type { ArtifactEventContext } from "../domain/artifact-event.ts";
 export interface ArtifactStore {
 	create(input: CreateArtifactInput, context?: ArtifactEventContext): Artifact;
 	get(id: string, options?: ArtifactGraphOptions): Artifact | null;
+	/** Exact, globally-unique lookup by alias (domain/artifact-alias.ts) -- unlike title, never ambiguous, never scoped. */
+	getByAlias(alias: string): Artifact | null;
 	query(filter: ArtifactQuery): Artifact[];
 	link(link: ArtifactLink, context?: ArtifactEventContext): void;
 	/** Idempotent: removing an already-absent relationship is a no-op that returns false, not an error. */

@@ -256,7 +256,7 @@ describe("Papyrus Notes CLI", () => {
 	});
 
 	it("lists, consumes, promotes, and archives project Notes", async () => {
-		const listed = new FakeClient([{ id: "note-1", title: "Review later", status: "draft" }]);
+		const listed = new FakeClient([{ id: "note-1", alias: "note-1", title: "Review later", status: "draft" }]);
 		expect(await runNoteCli(["list", "--limit", "10"], listed)).toContain("note-1 Review later");
 		expect(listed.calls).toEqual([{ operation: "notes.list", input: { project_root: PROJECT_ROOT, limit: 10 } }]);
 
@@ -377,10 +377,10 @@ describe("Papyrus Discuss CLI", () => {
 describe("Papyrus task CLI", () => {
 	it("completes through the daemon client and names the newly focused successor", async () => {
 		const client = new FakeClient({
-			artifact: { id: "root", title: "Root", status: "done" },
+			artifact: { id: "root", alias: "root", title: "Root", status: "done" },
 			gates: [],
 			completed: true,
-			focused: { id: "left", title: "Left", status: "todo" },
+			focused: { id: "left", alias: "left", title: "Left", status: "todo" },
 			checklist: [],
 			blocked: [],
 		});
@@ -473,17 +473,17 @@ describe("Papyrus task CLI", () => {
 			},
 		]);
 
-		const startClient = new FakeClient({ id: "task", title: "Task", status: "in-progress" });
+		const startClient = new FakeClient({ id: "task", alias: "task", title: "Task", status: "in-progress" });
 		expect(await runTaskCli(["start", "task"], startClient)).toBe("Started: task Task");
 		expect(startClient.calls).toEqual([{ operation: "tasks.start", input: { id: "task", actor: "user", source: "cli" } }]);
 
-		const updateClient = new FakeClient({ id: "task", title: "Updated", status: "in-progress" });
+		const updateClient = new FakeClient({ id: "task", alias: "task", title: "Updated", status: "in-progress" });
 		expect(await runTaskCli(["update", "task", "--title", "Updated", "--body", "New body"], updateClient)).toBe("Updated: task Updated");
 		expect(updateClient.calls).toEqual([
 			{ operation: "tasks.update", input: { id: "task", title: "Updated", body: "New body", actor: "user", source: "cli" } },
 		]);
 
-		const recoveryClient = new FakeClient({ id: "task", title: "Recovered", status: "todo" });
+		const recoveryClient = new FakeClient({ id: "task", alias: "task", title: "Recovered", status: "todo" });
 		expect(await runTaskCli(["update", "task", "--status", "todo", "--reason", "legacy default"], recoveryClient)).toBe(
 			"Updated: task Recovered",
 		);
@@ -494,7 +494,7 @@ describe("Papyrus task CLI", () => {
 			},
 		]);
 
-		const pauseClient = new FakeClient({ artifact: { id: "task", title: "Task", status: "in-progress" }, status: "paused" });
+		const pauseClient = new FakeClient({ artifact: { id: "task", alias: "task", title: "Task", status: "in-progress" }, status: "paused" });
 		expect(await runTaskCli(["pause"], pauseClient)).toBe("Focused (paused): task Task");
 		expect(pauseClient.calls).toEqual([{ operation: "tasks.pause", input: { actor: "user", source: "cli" } }]);
 
@@ -502,23 +502,25 @@ describe("Papyrus task CLI", () => {
 		expect(await runTaskCli(["clear-focus"], clearClient)).toBe("Task focus cleared.");
 		expect(clearClient.calls).toEqual([{ operation: "tasks.clear_focus", input: { actor: "user", source: "cli" } }]);
 
-		const focusClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
+		const focusClient = new FakeClient({ id: "task", alias: "task", title: "Task", status: "todo" });
 		expect(await runTaskCli(["focus", "task"], focusClient)).toBe("Active: task Task");
 		expect(focusClient.calls).toEqual([{ operation: "tasks.focus", input: { id: "task", actor: "user", source: "cli" } }]);
 
-		const activeClient = new FakeClient({ id: "task", title: "Task", status: "todo" });
-		expect(await runTaskCli(["active", "--json"], activeClient)).toBe(JSON.stringify({ id: "task", title: "Task", status: "todo" }));
+		const activeClient = new FakeClient({ id: "task", alias: "task", title: "Task", status: "todo" });
+		expect(await runTaskCli(["active", "--json"], activeClient)).toBe(
+			JSON.stringify({ id: "task", alias: "task", title: "Task", status: "todo" }),
+		);
 		expect(activeClient.calls).toEqual([{ operation: "tasks.active", input: { project_root: PROJECT_ROOT } }]);
 
 		for (const action of ["submit", "reject", "retry", "cancel"] as const) {
-			const lifecycleClient = new FakeClient({ id: "task", title: "Task", status: "review" });
+			const lifecycleClient = new FakeClient({ id: "task", alias: "task", title: "Task", status: "review" });
 			await runTaskCli([action, "task", "--json"], lifecycleClient);
 			expect(lifecycleClient.calls).toEqual([{ operation: `tasks.${action}`, input: { id: "task", actor: "user", source: "cli" } }]);
 		}
 	});
 
 	it("creates a task through the daemon client -- the daemon operation already supports this; only the CLI route was missing", async () => {
-		const client = new FakeClient({ id: "new-task", title: "New task", status: "todo" });
+		const client = new FakeClient({ id: "new-task", alias: "new-task", title: "New task", status: "todo" });
 		const output = await runTaskCli(
 			[
 				"create",
@@ -587,8 +589,8 @@ describe("Papyrus task CLI", () => {
 
 	it("lists tasks through the daemon client", async () => {
 		const rows = [
-			{ id: "a", title: "A", status: "todo" },
-			{ id: "b", title: "B", status: "done" },
+			{ id: "a", alias: "a", title: "A", status: "todo" },
+			{ id: "b", alias: "b", title: "B", status: "done" },
 		];
 		const client = new FakeClient(rows);
 		const output = await runTaskCli(["list", "--status", "todo", "--text", "query", "--limit", "10"], client);
@@ -625,7 +627,7 @@ describe("Papyrus task CLI", () => {
 	});
 
 	it("shows one task through the daemon client", async () => {
-		const client = new FakeClient({ id: "task", title: "Task", status: "todo", body: "Details" });
+		const client = new FakeClient({ id: "task", alias: "task", title: "Task", status: "todo", body: "Details" });
 		const output = await runTaskCli(["show", "task"], client);
 		expect(client.calls).toEqual([{ operation: "tasks.show", input: { id: "task" } }]);
 		expect(output).toBe("task Task\n\nDetails");

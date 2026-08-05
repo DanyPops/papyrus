@@ -14,6 +14,7 @@ const theme = {
 function discussion(overrides: Partial<Artifact> = {}): Artifact {
 	return {
 		id: "discussion-1",
+		alias: "discussion-1",
 		kind: "doc",
 		title: "Naming the thing",
 		status: "active",

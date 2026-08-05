@@ -33,6 +33,7 @@ function resolveRuleId(
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	return resolveArtifactIdWidened(
+		artifacts,
 		name,
 		() => listRules(artifacts, scopes, { text: name, projectRoot }),
 		projectRoot === undefined ? undefined : () => listRules(artifacts, scopes, { text: name }),
@@ -47,7 +48,7 @@ function resolveRuleId(
 function resolveTaskId(artifacts: ArtifactStore, _projectRoot: string | undefined, id: unknown, name: unknown): string | undefined {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) return undefined;
-	return resolveArtifactIdWidened(name, () => artifacts.query({ kind: "task", text: name }));
+	return resolveArtifactIdWidened(artifacts, name, () => artifacts.query({ kind: "task", text: name }));
 }
 
 export function registerRulesVehicleOperations(registry: VehicleRegistry, artifacts: ArtifactStore, scopes: ArtifactScopeStore): void {

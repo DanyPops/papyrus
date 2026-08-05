@@ -35,6 +35,7 @@ class FakeArtifactStore implements ArtifactStore {
 			extra: input.extra ?? {},
 			created_at: "2026-01-01T00:00:00.000Z",
 			updated_at: "2026-01-01T00:00:00.000Z",
+			alias: input.alias ?? id,
 		};
 		this.artifacts.set(id, artifact);
 		return structuredClone(artifact);
@@ -47,6 +48,11 @@ class FakeArtifactStore implements ArtifactStore {
 			...structuredClone(artifact),
 			...(options?.tree ? { edges: this.edges.filter((edge) => edge.from === id || edge.to === id) } : {}),
 		};
+	}
+
+	getByAlias(alias: string): Artifact | null {
+		const artifact = [...this.artifacts.values()].find((candidate) => candidate.alias === alias);
+		return artifact ? structuredClone(artifact) : null;
 	}
 
 	query(filter: ArtifactQuery): Artifact[] {

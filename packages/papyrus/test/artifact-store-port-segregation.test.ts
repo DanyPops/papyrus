@@ -35,12 +35,16 @@ class InMemoryArtifactStore implements ArtifactStore {
 			extra: input.extra ?? {},
 			created_at: new Date().toISOString(),
 			updated_at: new Date().toISOString(),
+			alias: input.alias ?? id,
 		};
 		this.rows.set(id, artifact);
 		return artifact;
 	}
 	get(id: string): Artifact | null {
 		return this.rows.get(id) ?? null;
+	}
+	getByAlias(alias: string): Artifact | null {
+		return [...this.rows.values()].find((candidate) => candidate.alias === alias) ?? null;
 	}
 	query(filter: ArtifactQuery): Artifact[] {
 		return [...this.rows.values()].filter(

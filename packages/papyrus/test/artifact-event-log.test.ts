@@ -201,7 +201,7 @@ describe("generic mutation event log — explicit migration", () => {
 
 		expect(migrateDb(db)).toEqual({
 			from: 6,
-			to: 23,
+			to: 24,
 			applied: [
 				"artifact-event-log",
 				"task-focus-session-scope",
@@ -220,6 +220,7 @@ describe("generic mutation event log — explicit migration", () => {
 				"note-events",
 				"skill-to-playbook-data-migration",
 				"retire-skill-kind",
+				"artifact-aliases",
 			],
 		});
 		expect(db.prepare("SELECT COUNT(*) AS count FROM artifact_events").get()).toEqual({ count: 0 });

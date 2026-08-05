@@ -146,7 +146,7 @@ export function matchArtifactByName(candidates: readonly Artifact[], name: strin
 	if (matches.length > 1) {
 		throw new VehicleError(
 			"artifact-name-ambiguous",
-			`${matches.length} artifacts are named "${name}": ${matches.map((a) => `${a.title} (${a.id})`).join(", ")} -- use id to disambiguate`,
+			`${matches.length} artifacts are named "${name}": ${matches.map((a) => `${a.title} (${a.alias})`).join(", ")} -- use id or alias to disambiguate`,
 			{ category: "conflict" },
 		);
 	}
@@ -154,16 +154,21 @@ export function matchArtifactByName(candidates: readonly Artifact[], name: strin
 }
 
 /**
- * Resolves a name to an id, retrying against `fetchWidened` (an unscoped/cross-project
+ * Resolves a name to an id. Checks `artifacts.getByAlias` first -- a real, indexed,
+ * globally-unique match, unlike title -- before falling back to today's scoped
+ * title-based matching, retrying against `fetchWidened` (an unscoped/cross-project
  * search) only when `fetchCandidates` finds nothing. Owns the match-or-widen control
  * flow only -- the caller supplies its own scoped/widened list calls, since scoping
  * differs per domain. Omit `fetchWidened` when there is no wider scope to retry.
  */
 export function resolveArtifactIdWidened(
+	artifacts: ArtifactStore,
 	name: string,
 	fetchCandidates: () => readonly Artifact[],
 	fetchWidened?: () => readonly Artifact[],
 ): string {
+	const byAlias = artifacts.getByAlias(name.trim());
+	if (byAlias) return byAlias.id;
 	try {
 		return matchArtifactByName(fetchCandidates(), name);
 	} catch (error) {
@@ -172,18 +177,11 @@ export function resolveArtifactIdWidened(
 	}
 }
 
-/** Synchronous equivalent of pi-papyrus's own artifactLabelsById -- server-side, a direct ArtifactStore.get() replaces the extra RPC round-trip that helper needed client-side. Disambiguates same-titled artifacts by appending their id. */
+/** Synchronous equivalent of pi-papyrus's own artifactLabelsById -- server-side, a direct ArtifactStore.get() replaces the extra RPC round-trip that helper needed client-side. Always suffixes the alias -- a short, meaningful, globally-unique reference, unlike the raw UUID it replaces. */
 export function labelsById(artifacts: ArtifactStore, ids: readonly string[]): Map<string, string> {
 	const uniqueIds = [...new Set(ids)];
 	const resolved = uniqueIds.map((id) => artifacts.get(id)).filter((artifact): artifact is Artifact => artifact !== null);
-	const titleCounts = new Map<string, number>();
-	for (const artifact of resolved) titleCounts.set(artifact.title, (titleCounts.get(artifact.title) ?? 0) + 1);
-	return new Map(
-		resolved.map((artifact) => [
-			artifact.id,
-			(titleCounts.get(artifact.title) ?? 0) > 1 ? `${artifact.title} (${artifact.id})` : artifact.title,
-		]),
-	);
+	return new Map(resolved.map((artifact) => [artifact.id, `${artifact.title} (${artifact.alias})`]));
 }
 
 export interface WorkflowRunNarrativeInput {

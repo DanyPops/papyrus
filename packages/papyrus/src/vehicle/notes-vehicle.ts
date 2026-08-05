@@ -26,17 +26,17 @@ const OWNER = "notes";
 const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
 
 /** Resolves a note's id from either an explicit id or its title within projectRoot. */
-function resolveNoteId(notes: Notes, projectRoot: string, id: unknown, name: unknown): string {
+function resolveNoteId(artifacts: ArtifactStore, notes: Notes, projectRoot: string, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
-	return resolveArtifactIdWidened(name, () => notes.list({ projectRoot, text: name }));
+	return resolveArtifactIdWidened(artifacts, name, () => notes.list({ projectRoot, text: name }));
 }
 
 /** Cross-kind equivalent for a promotion target -- a target can be a task, doc, rule, or playbook, not just a note. Unscoped by project, matching the exact behavior of the artifact.query-backed resolution it replaces. */
 function resolveArtifactId(artifacts: ArtifactStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("target_id or target_name is required");
-	return resolveArtifactIdWidened(name, () => artifacts.query({ text: name }));
+	return resolveArtifactIdWidened(artifacts, name, () => artifacts.query({ text: name }));
 }
 
 /**
@@ -100,7 +100,7 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 		"read",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		["project_root"],
-		(input) => ({ ...input, id: resolveNoteId(notes, input.project_root as string, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveNoteId(artifacts, notes, input.project_root as string, input.id, input.name) }),
 	);
 
 	define(
@@ -116,7 +116,7 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 			direction: { type: "string", enum: ["asc", "desc"] },
 		},
 		["project_root"],
-		(input) => ({ ...input, id: resolveNoteId(notes, input.project_root as string, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveNoteId(artifacts, notes, input.project_root as string, input.id, input.name) }),
 	);
 
 	define(
@@ -133,7 +133,7 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 			reason: stringProp,
 		},
 		["project_root"],
-		(input) => ({ ...input, id: resolveNoteId(notes, input.project_root as string, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveNoteId(artifacts, notes, input.project_root as string, input.id, input.name) }),
 	);
 
 	define(
@@ -154,7 +154,7 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 		["project_root"],
 		(input) => ({
 			...input,
-			id: resolveNoteId(notes, input.project_root as string, input.id, input.name),
+			id: resolveNoteId(artifacts, notes, input.project_root as string, input.id, input.name),
 			target_id: resolveArtifactId(artifacts, input.target_id, input.target_name),
 		}),
 	);
@@ -174,6 +174,6 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 			reason: stringProp,
 		},
 		["project_root", "disposition"],
-		(input) => ({ ...input, id: resolveNoteId(notes, input.project_root as string, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveNoteId(artifacts, notes, input.project_root as string, input.id, input.name) }),
 	);
 }

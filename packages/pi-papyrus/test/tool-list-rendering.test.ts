@@ -25,6 +25,7 @@ function artifact(index: number, status = index % 2 === 0 ? "todo" : "in-progres
 		extra: {},
 		created_at: "2026-01-01T00:00:00.000Z",
 		updated_at: "2026-01-01T00:00:00.000Z",
+		alias: `task-${index}`,
 	};
 }
 

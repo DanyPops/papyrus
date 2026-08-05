@@ -7,6 +7,7 @@ import { ARTIFACT_TRASH_RETENTION_MS, DEFAULT_STATUS_BY_KIND } from "./constants
 import type { Db } from "./db.ts";
 import { inTransaction } from "./db.ts";
 import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./domain/artifact.ts";
+import { generateUniqueAlias, isValidAlias, slugify } from "./domain/artifact-alias.ts";
 import type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
 
 export type { ArtifactTrashRecord } from "./domain/artifact-trash.ts";
@@ -131,7 +132,25 @@ function rowToArtifact(row: Record<string, unknown>): Artifact {
 		extra: JSON.parse((row.extra as string) ?? "{}"),
 		created_at: row.created_at as string,
 		updated_at: row.updated_at as string,
+		alias: row.alias as string,
 	};
+}
+
+function isAliasTaken(db: Db, alias: string, excludeId?: string): boolean {
+	const row = excludeId
+		? db.prepare("SELECT 1 FROM artifacts WHERE alias = ? AND id != ?").get(alias, excludeId)
+		: db.prepare("SELECT 1 FROM artifacts WHERE alias = ?").get(alias);
+	return row != null;
+}
+
+/** Auto-generates a unique alias from title, or validates+reserves an explicit override. Throws a real conflict/validation error rather than silently suffixing a caller-chosen alias. */
+function resolveAlias(db: Db, title: string, explicit: string | undefined, excludeId?: string): string {
+	if (explicit === undefined) return generateUniqueAlias(slugify(title), (candidate) => isAliasTaken(db, candidate, excludeId));
+	if (!isValidAlias(explicit)) {
+		throw new Error(`"${explicit}" is not a valid alias -- lowercase letters, digits, and single hyphens only, max 50 characters`);
+	}
+	if (isAliasTaken(db, explicit, excludeId)) throw new Error(`alias "${explicit}" is already taken by another artifact`);
+	return explicit;
 }
 
 /**
@@ -267,13 +286,19 @@ export function createArtifact(db: Db, input: CreateInput, context?: ArtifactEve
 	const extra = JSON.stringify(resolved.extra ?? {});
 	const subtype = resolved.subtype ?? "";
 	inTransaction(db, () => {
+		const alias = resolveAlias(db, resolved.title, resolved.alias);
 		const stmt = db.prepare(
-			"INSERT INTO artifacts (id, kind, title, status, subtype, body, labels, extra, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO artifacts (id, kind, title, status, subtype, body, labels, extra, created_at, updated_at, alias) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		);
-		stmt.run(id, resolved.kind, resolved.title, status, subtype, resolved.body ?? "", labels, extra, now, now);
+		stmt.run(id, resolved.kind, resolved.title, status, subtype, resolved.body ?? "", labels, extra, now, now, alias);
 		appendArtifactEvent(db, { artifactId: id, type: "created", toStatus: status, ...context });
 	});
 	return getArtifact(db, id)!;
+}
+
+export function getArtifactByAlias(db: Db, alias: string): Artifact | null {
+	const row = db.prepare("SELECT * FROM artifacts WHERE alias = ?").get(alias) as Record<string, unknown> | null;
+	return row ? rowToArtifact(row) : null;
 }
 
 export function getArtifact(db: Db, id: string, opts?: { tree?: boolean; depth?: number; maxNodes?: number }): Artifact | null {
@@ -517,11 +542,13 @@ export function updateArtifactContent(db: Db, id: string, input: UpdateArtifactI
 	if (!artifact) return null;
 	const now = new Date().toISOString();
 	inTransaction(db, () => {
-		db.prepare("UPDATE artifacts SET title = ?, body = ?, labels = ?, updated_at = ? WHERE id = ?").run(
+		const alias = input.alias === undefined ? artifact.alias : resolveAlias(db, input.title ?? artifact.title, input.alias, id);
+		db.prepare("UPDATE artifacts SET title = ?, body = ?, labels = ?, updated_at = ?, alias = ? WHERE id = ?").run(
 			input.title ?? artifact.title,
 			input.body ?? artifact.body,
 			JSON.stringify(input.labels ?? artifact.labels),
 			now,
+			alias,
 			id,
 		);
 		appendArtifactEvent(db, { artifactId: id, type: "updated", ...context });

@@ -32,6 +32,7 @@ function resolveDocId(
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
 	return resolveArtifactIdWidened(
+		artifacts,
 		name,
 		() => listDocuments(artifacts, scopes, { text: name, projectRoot }),
 		projectRoot === undefined ? undefined : () => listDocuments(artifacts, scopes, { text: name }),
@@ -42,7 +43,7 @@ function resolveDocId(
 function resolveTargetId(artifacts: ArtifactStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("target_id or target_name is required");
-	return resolveArtifactIdWidened(name, () => artifacts.query({ text: name }));
+	return resolveArtifactIdWidened(artifacts, name, () => artifacts.query({ text: name }));
 }
 
 export function registerDocsVehicleOperations(

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { runMigrations, type SqliteMigrationRunner } from "@danypops/vehicle-server/storage";
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
+import { generateUniqueAlias, slugify } from "./domain/artifact-alias.ts";
 
 const require_ = createRequire(import.meta.url);
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
@@ -99,8 +100,10 @@ CREATE TABLE IF NOT EXISTS artifacts (
 	extra       TEXT DEFAULT '{}',
 	created_at  TEXT NOT NULL,
 	updated_at  TEXT NOT NULL,
+	alias       TEXT,
 	FOREIGN KEY (kind, status) REFERENCES statuses(kind, name)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS artifacts_alias_idx ON artifacts(alias);
 CREATE TABLE IF NOT EXISTS edges (
 	from_id     TEXT NOT NULL REFERENCES artifacts(id),
 	relation    TEXT NOT NULL REFERENCES relation_names(name),
@@ -700,6 +703,33 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				DELETE FROM statuses WHERE kind = 'skill';
 				DELETE FROM kinds WHERE name = 'skill';
 			`);
+		},
+	},
+	{
+		version: 24,
+		name: "artifact-aliases",
+		// See domain/artifact-alias.ts. A real column + unique index, backfilled here rather than
+		// computed lazily on read -- IF NOT EXISTS/guarded column add throughout since a fixture
+		// that bootstraps from the current SCHEMA text (which already declares alias) and then only
+		// fakes an older user_version to exercise this migration path must not fail with "duplicate
+		// column name", the same class of concern version 16's comment covers.
+		up: (db) => {
+			const existing = new Set((db.prepare("PRAGMA table_info(artifacts)").all() as Array<{ name: string }>).map((row) => row.name));
+			if (!existing.has("alias")) db.exec("ALTER TABLE artifacts ADD COLUMN alias TEXT");
+			const rows = db.prepare("SELECT id, title FROM artifacts WHERE alias IS NULL ORDER BY created_at, id").all() as Array<{
+				id: string;
+				title: string;
+			}>;
+			const taken = new Set(
+				(db.prepare("SELECT alias FROM artifacts WHERE alias IS NOT NULL").all() as Array<{ alias: string }>).map((row) => row.alias),
+			);
+			const update = db.prepare("UPDATE artifacts SET alias = ? WHERE id = ?");
+			for (const row of rows) {
+				const alias = generateUniqueAlias(slugify(row.title), (candidate) => taken.has(candidate));
+				taken.add(alias);
+				update.run(alias, row.id);
+			}
+			db.exec("CREATE UNIQUE INDEX IF NOT EXISTS artifacts_alias_idx ON artifacts(alias)");
 		},
 	},
 ];

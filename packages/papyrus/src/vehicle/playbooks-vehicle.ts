@@ -59,7 +59,7 @@ export interface PlaybooksVehicleDeps {
 function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
-	return resolveArtifactIdWidened(name, () => listPlaybooks(artifacts, scopes, { text: name }));
+	return resolveArtifactIdWidened(artifacts, name, () => listPlaybooks(artifacts, scopes, { text: name }));
 }
 
 export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, deps: PlaybooksVehicleDeps): void {

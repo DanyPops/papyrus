@@ -49,10 +49,10 @@ function roundsTranscript(rounds: readonly DiscussionRound[]): string {
  * so there is no widened retry to attempt -- one unscoped candidate set is
  * the whole search space already.
  */
-function resolveDiscussionId(discussions: Discussions, id: unknown, name: unknown): string {
+function resolveDiscussionId(artifacts: ArtifactStore, discussions: Discussions, id: unknown, name: unknown): string {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
-	return resolveArtifactIdWidened(name, () => discussions.list({}));
+	return resolveArtifactIdWidened(artifacts, name, () => discussions.list({}));
 }
 
 /**
@@ -65,7 +65,7 @@ function resolveDiscussionId(discussions: Discussions, id: unknown, name: unknow
 function resolveRealTaskId(artifacts: ArtifactStore, id: unknown, name: unknown): string | undefined {
 	if (typeof id === "string" && id.length > 0) return id;
 	if (typeof name !== "string" || name.length === 0) return undefined;
-	return resolveArtifactIdWidened(name, () => artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, text: name }));
+	return resolveArtifactIdWidened(artifacts, name, () => artifacts.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, text: name }));
 }
 
 function resolveRealTaskIds(artifacts: ArtifactStore, ids: unknown, names: unknown): string[] | undefined {
@@ -204,7 +204,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		(input) => {
 			normalizeOptions(input);
 			defaultActorToAgent(input);
-			return { ...input, id: resolveDiscussionId(discussions, input.id, input.name) };
+			return { ...input, id: resolveDiscussionId(artifacts, discussions, input.id, input.name) };
 		},
 		(raw) => {
 			const result = raw as DiscussionAndRounds;
@@ -221,7 +221,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		"local-write",
 		{ id: stringProp, name: stringProp, reason: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		[],
-		(input) => ({ ...input, id: resolveDiscussionId(discussions, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveDiscussionId(artifacts, discussions, input.id, input.name) }),
 		(raw) => {
 			const artifact = raw as Artifact;
 			return { ...artifact, content: [contentBlock(artifactLine(artifact))] };
@@ -234,7 +234,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		"local-write",
 		{ id: stringProp, name: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		[],
-		(input) => ({ ...input, id: resolveDiscussionId(discussions, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveDiscussionId(artifacts, discussions, input.id, input.name) }),
 		(raw) => {
 			const artifact = raw as Artifact;
 			return { ...artifact, content: [contentBlock(artifactLine(artifact))] };
@@ -247,7 +247,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		"local-write",
 		{ id: stringProp, name: stringProp, settlement: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		["settlement"],
-		(input) => ({ ...input, id: resolveDiscussionId(discussions, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveDiscussionId(artifacts, discussions, input.id, input.name) }),
 		(raw) => {
 			const artifact = raw as Artifact;
 			return { ...artifact, content: [contentBlock(artifactLine(artifact))] };
@@ -269,7 +269,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		},
 		[],
 		(input) => {
-			const discussionId = resolveDiscussionId(discussions, input.id, input.name);
+			const discussionId = resolveDiscussionId(artifacts, discussions, input.id, input.name);
 			const taskId = resolveRealTaskId(artifacts, input.task_id, input.task_name);
 			if (!taskId) throw validationError("task_id or task_name is required");
 			return { ...input, id: discussionId, task_id: taskId };
@@ -297,7 +297,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		},
 		[],
 		(input) => {
-			const discussionId = resolveDiscussionId(discussions, input.id, input.name);
+			const discussionId = resolveDiscussionId(artifacts, discussions, input.id, input.name);
 			const taskId = resolveRealTaskId(artifacts, input.task_id, input.task_name);
 			if (!taskId) throw validationError("task_id or task_name is required");
 			return { ...input, id: discussionId, task_id: taskId };
@@ -319,7 +319,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		"read",
 		{ id: stringProp, name: stringProp },
 		[],
-		(input) => ({ ...input, id: resolveDiscussionId(discussions, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveDiscussionId(artifacts, discussions, input.id, input.name) }),
 		(raw) => {
 			const result = raw as DiscussionAndRounds;
 			return { ...result, content: [contentBlock(`${artifactLine(result.discussion)}\n\n${roundsTranscript(result.rounds)}`)] };
@@ -332,7 +332,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		"read",
 		{ id: stringProp, name: stringProp, after_round: numberProp, limit: numberProp },
 		[],
-		(input) => ({ ...input, id: resolveDiscussionId(discussions, input.id, input.name) }),
+		(input) => ({ ...input, id: resolveDiscussionId(artifacts, discussions, input.id, input.name) }),
 		(raw) => {
 			const rounds = raw as DiscussionRound[];
 			return { rounds, content: [contentBlock(roundsTranscript(rounds))] };

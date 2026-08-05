@@ -15,6 +15,7 @@ import type { ArtifactTrashRecord } from "../domain/artifact-trash.ts";
 import {
 	createArtifact,
 	getArtifact,
+	getArtifactByAlias,
 	getArtifactTrash,
 	linkArtifacts,
 	listArtifactTrash,
@@ -45,6 +46,10 @@ export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashSt
 
 	get(id: string, options?: ArtifactGraphOptions): Artifact | null {
 		return getArtifact(this.db, id, options);
+	}
+
+	getByAlias(alias: string): Artifact | null {
+		return getArtifactByAlias(this.db, alias);
 	}
 
 	query(filter: ArtifactQuery): Artifact[] {

@@ -26,6 +26,7 @@ const theme = {
 function artifact(index = 1): Artifact {
 	return {
 		id: `task-${index}`,
+		alias: `ship-the-feature-${index}`,
 		kind: "task",
 		title: `Task ${index}`,
 		status: index === 1 ? "todo" : "done",

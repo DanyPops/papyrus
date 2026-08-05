@@ -10,6 +10,7 @@ const graph: TaskGraph = {
 		{
 			task: {
 				id: "task",
+				alias: "task",
 				kind: "task",
 				title: "Task",
 				status: "todo",

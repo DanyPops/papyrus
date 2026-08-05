@@ -68,6 +68,18 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 		service.close();
 	});
 
+	it("resolves a doc by alias with zero ambiguity, even when another doc's title would otherwise fuzzy-match the same string", async () => {
+		const { registry, service } = harness();
+		const target = (await registry.invoke("docs.create", 1, { title: "Storage schema", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			alias: string;
+		};
+		await registry.invoke("docs.create", 1, { title: target.alias, project_root: PROJECT }, PERMS);
+		const shown = await registry.invoke("docs.show", 1, { name: target.alias }, PERMS);
+		expect((shown as { id: string }).id).toBe(target.id);
+		service.close();
+	});
+
 	it("activate/archive/reopen walk the full doc lifecycle", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("docs.create", 1, { title: "Lifecycle doc", project_root: PROJECT }, PERMS)) as {

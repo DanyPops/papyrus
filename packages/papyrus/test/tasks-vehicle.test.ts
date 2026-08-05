@@ -262,6 +262,20 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("resolves by alias with zero ambiguity, even when another task's title would otherwise fuzzy-match the same string", async () => {
+		const { registry, service } = harness();
+		const target = (await registry.invoke("tasks.create", 1, { title: "Fix the timeout bug", project_root: PROJECT }, PERMS)) as {
+			id: string;
+			alias: string;
+		};
+		// Same title text as target.alias itself, so a title-based fuzzy match on this string would
+		// be genuinely ambiguous -- alias resolution must win outright, with zero ambiguity error.
+		await registry.invoke("tasks.create", 1, { title: target.alias, project_root: PROJECT }, PERMS);
+		const shown = await registry.invoke("tasks.show", 1, { name: target.alias, project_root: PROJECT }, PERMS);
+		expect((shown as { id: string }).id).toBe(target.id);
+		service.close();
+	});
+
 	it("does not widen when the caller pinned an explicit scope, so a genuine not-found stays a real error", async () => {
 		const { registry, service } = harness();
 		const from = (await registry.invoke("tasks.create", 1, { title: "Scoped from", project_root: PROJECT }, PERMS)) as { id: string };
@@ -279,18 +293,18 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
-	it("an ambiguous dependency_name reports every matching id instead of an opaque handler-failed wrap", async () => {
+	it("an ambiguous dependency_name reports every matching alias instead of an opaque handler-failed wrap", async () => {
 		const { registry, service } = harness();
 		const from = (await registry.invoke("tasks.create", 1, { title: "Ambiguous from", project_root: PROJECT }, PERMS)) as { id: string };
-		const first = (await registry.invoke("tasks.create", 1, { title: "Dup", project_root: PROJECT }, PERMS)) as { id: string };
-		const second = (await registry.invoke("tasks.create", 1, { title: "Dup", project_root: PROJECT }, PERMS)) as { id: string };
+		const first = (await registry.invoke("tasks.create", 1, { title: "Dup", project_root: PROJECT }, PERMS)) as { alias: string };
+		const second = (await registry.invoke("tasks.create", 1, { title: "Dup", project_root: PROJECT }, PERMS)) as { alias: string };
 		const rejection = await registry
 			.invoke("tasks.depend", 1, { id: from.id, dependency_name: "Dup", project_root: PROJECT }, PERMS)
 			.catch((error: unknown) => error);
 		expect((rejection as { code?: string }).code).toBe("artifact-name-ambiguous");
 		expect((rejection as { category?: string }).category).toBe("conflict");
-		expect((rejection as Error).message).toContain(first.id);
-		expect((rejection as Error).message).toContain(second.id);
+		expect((rejection as Error).message).toContain(first.alias);
+		expect((rejection as Error).message).toContain(second.alias);
 		service.close();
 	});
 

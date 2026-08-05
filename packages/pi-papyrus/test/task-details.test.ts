@@ -6,6 +6,7 @@ import { showTaskDetails, taskDetailsText } from "../extension/src/tasks.ts";
 
 const task: Artifact = {
 	id: "build-router-n23w",
+	alias: "build-router-n23w",
 	kind: "task",
 	title: "Build token router",
 	status: "in-progress",

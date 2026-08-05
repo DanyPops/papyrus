@@ -196,7 +196,7 @@ function usage(): never {
 
 type TaskCliClient = Pick<PapyrusClient, "call">;
 type MigrationResult = { from: number; to: number; applied: string[] };
-type CliArtifact = { id: string; title: string; status: string; body?: string };
+type CliArtifact = { id: string; alias: string; title: string; status: string; body?: string };
 type CliTaskLease = {
 	taskId: string;
 	owner: string;
@@ -239,7 +239,7 @@ function parseJsonAnyFlag(value: string | undefined, flag: string): unknown {
 }
 
 function artifactLabel(artifact: CliArtifact): string {
-	return `${artifact.id} ${artifact.title}`;
+	return `${artifact.alias} ${artifact.title}`;
 }
 
 function planText(plan: TaskExecutionPlan): string {

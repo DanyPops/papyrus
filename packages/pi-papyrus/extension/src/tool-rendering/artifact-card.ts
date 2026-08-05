@@ -1,7 +1,20 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
+import { buildDetailLines, type DetailField, type DetailSection, type DetailViewTheme } from "malevich-tui-components";
 import type { ArtifactToolDetails } from "./render-model.ts";
+
+/** Shared by every buildDetailLines caller in this extension (ArtifactCard, and
+ * vehicle-artifact-renderers.ts's discuss/tasks.complete renderers) -- one Theme -> DetailViewTheme
+ * mapping instead of the same four-field object literal re-typed at each call site. */
+export function detailViewTheme(theme: Theme): DetailViewTheme {
+	return {
+		field: (s) => theme.fg("text", s),
+		heading: (s) => theme.fg("toolTitle", theme.bold(s)),
+		byline: (s) => theme.fg("muted", s),
+		body: (s) => theme.fg("text", s),
+		line: (s) => theme.fg("warning", s),
+	};
+}
 
 const KIND_GLYPHS: Readonly<Record<string, string>> = {
 	task: "◇",
@@ -128,13 +141,7 @@ export class ArtifactCard implements Component {
 			fields: this.fields(),
 			sections: this.sections(),
 			alignFields: true,
-			theme: {
-				field: (s) => theme.fg("text", s),
-				heading: (s) => theme.fg("toolTitle", theme.bold(s)),
-				byline: (s) => theme.fg("muted", s),
-				body: (s) => theme.fg("text", s),
-				line: (s) => theme.fg("warning", s),
-			},
+			theme: detailViewTheme(theme),
 		});
 
 		if (this.details.focus) {

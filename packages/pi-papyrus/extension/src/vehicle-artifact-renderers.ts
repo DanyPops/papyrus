@@ -20,7 +20,7 @@ import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DagEdge, type DagNode, DagView, type DetailField, type DetailSection } from "malevich-tui-components";
-import { ArtifactCard, expandHint, statusColor, statusGlyph } from "./tool-rendering/artifact-card.ts";
+import { ArtifactCard, detailViewTheme, expandHint, statusColor, statusGlyph } from "./tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "./tool-rendering/artifact-list.ts";
 import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "./tool-rendering/render-model.ts";
 
@@ -261,13 +261,6 @@ function isDiscussionListOutput(value: unknown): value is DiscussionListOutput {
 	return isArtifactArray(row.discussions);
 }
 
-const discussTheme = (theme: Theme) => ({
-	field: (s: string) => theme.fg("text", s),
-	heading: (s: string) => theme.fg("toolTitle", theme.bold(s)),
-	byline: (s: string) => theme.fg("muted", s),
-	body: (s: string) => theme.fg("text", s),
-});
-
 function roundsSection(rounds: readonly DiscussionRoundOutput[]): DetailSection {
 	return {
 		heading: `Rounds (${rounds.length}):`,
@@ -275,35 +268,35 @@ function roundsSection(rounds: readonly DiscussionRoundOutput[]): DetailSection 
 	};
 }
 
+/** A one-shot render function with nothing to invalidate -- every buildDetailLines-based
+ * renderer in this file (unlike ArtifactCard/DagView) has no cache to clear. */
+function statelessComponent(render: (width: number) => string[]): Component {
+	return { render, invalidate: () => {} };
+}
+
 function renderDiscussionAndRounds(output: DiscussionAndRoundsOutput, theme: Theme, expanded: boolean): Component {
 	const discussion = output.discussion;
-	return {
-		render: (width: number) => {
-			const safeWidth = Math.max(1, width);
-			const fields: DetailField[] = [
-				{ label: "Title", value: discussion.title },
-				{ label: "Status", value: theme.fg(statusColor(discussion.status), `${statusGlyph(discussion.status)} ${discussion.status}`) },
-			];
-			const sections: DetailSection[] = expanded && output.rounds.length > 0 ? [roundsSection(output.rounds)] : [];
-			const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: discussTheme(theme) });
-			if (!expanded && output.rounds.length > 0) {
-				const count = output.rounds.length;
-				lines.push(truncateToWidth(theme.fg("dim", `${count} round${count === 1 ? "" : "s"} · ${expandHint()}`), safeWidth));
-			}
-			return lines;
-		},
-		invalidate: () => {},
-	};
+	return statelessComponent((width) => {
+		const safeWidth = Math.max(1, width);
+		const fields: DetailField[] = [
+			{ label: "Title", value: discussion.title },
+			{ label: "Status", value: theme.fg(statusColor(discussion.status), `${statusGlyph(discussion.status)} ${discussion.status}`) },
+		];
+		const sections: DetailSection[] = expanded && output.rounds.length > 0 ? [roundsSection(output.rounds)] : [];
+		const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: detailViewTheme(theme) });
+		if (!expanded && output.rounds.length > 0) {
+			const count = output.rounds.length;
+			lines.push(truncateToWidth(theme.fg("dim", `${count} round${count === 1 ? "" : "s"} · ${expandHint()}`), safeWidth));
+		}
+		return lines;
+	});
 }
 
 function renderDiscussionRoundsOnly(output: DiscussionRoundsOnlyOutput, theme: Theme): Component {
-	return {
-		render: (width: number) => {
-			const sections: DetailSection[] = output.rounds.length > 0 ? [roundsSection(output.rounds)] : [{ lines: ["No rounds."] }];
-			return buildDetailLines(Math.max(1, width), { sections, theme: discussTheme(theme) });
-		},
-		invalidate: () => {},
-	};
+	return statelessComponent((width) => {
+		const sections: DetailSection[] = output.rounds.length > 0 ? [roundsSection(output.rounds)] : [{ lines: ["No rounds."] }];
+		return buildDetailLines(Math.max(1, width), { sections, theme: detailViewTheme(theme) });
+	});
 }
 
 /** tasks.complete's own TaskCompletion shape -- a completed (or rejected) task plus its own
@@ -350,45 +343,42 @@ function isTaskCompletion(value: unknown): value is TaskCompletionOutput {
 
 function renderTaskCompletion(result: TaskCompletionOutput, theme: Theme, expanded: boolean): Component {
 	const task = result.artifact;
-	return {
-		render: (width: number) => {
-			const safeWidth = Math.max(1, width);
-			const fields: DetailField[] = [
-				{ label: "Title", value: task.title },
-				{ label: "Status", value: theme.fg(statusColor(task.status), `${statusGlyph(task.status)} ${task.status}`) },
-			];
-			const sections: DetailSection[] = [];
-			if (result.gates.length > 0) {
-				sections.push({
-					heading: "Gates:",
-					lines: result.gates.map((gate) => theme.fg(gate.passed ? "success" : "error", `${gate.passed ? "✓" : "✗"} ${gate.output}`)),
-				});
-			}
-			if (result.checklist.length > 0) {
-				sections.push({
-					heading: "Checklist:",
-					lines: result.checklist.map((entry) =>
-						theme.fg(
-							entry.accepted ? "success" : "error",
-							`${entry.accepted ? "✓" : "✗"} ${entry.item}${entry.reason ? ` — ${entry.reason}` : ""}`,
-						),
+	return statelessComponent((width) => {
+		const safeWidth = Math.max(1, width);
+		const fields: DetailField[] = [
+			{ label: "Title", value: task.title },
+			{ label: "Status", value: theme.fg(statusColor(task.status), `${statusGlyph(task.status)} ${task.status}`) },
+		];
+		const sections: DetailSection[] = [];
+		if (result.gates.length > 0) {
+			sections.push({
+				heading: "Gates:",
+				lines: result.gates.map((gate) => theme.fg(gate.passed ? "success" : "error", `${gate.passed ? "✓" : "✗"} ${gate.output}`)),
+			});
+		}
+		if (result.checklist.length > 0) {
+			sections.push({
+				heading: "Checklist:",
+				lines: result.checklist.map((entry) =>
+					theme.fg(
+						entry.accepted ? "success" : "error",
+						`${entry.accepted ? "✓" : "✗"} ${entry.item}${entry.reason ? ` — ${entry.reason}` : ""}`,
 					),
-				});
-			}
-			if (result.blocked.length > 0) {
-				sections.push({
-					heading: "Still blocked:",
-					lines: result.blocked.map((entry) => theme.fg("warning", `◼ ${entry.artifact.title}`)),
-				});
-			}
-			const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: discussTheme(theme) });
-			if (result.focused && expanded) {
-				lines.push(truncateToWidth(theme.fg("accent", `▶ focus ${result.focused.title}`), safeWidth));
-			}
-			return lines;
-		},
-		invalidate: () => {},
-	};
+				),
+			});
+		}
+		if (result.blocked.length > 0) {
+			sections.push({
+				heading: "Still blocked:",
+				lines: result.blocked.map((entry) => theme.fg("warning", `◼ ${entry.artifact.title}`)),
+			});
+		}
+		const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: detailViewTheme(theme) });
+		if (result.focused && expanded) {
+			lines.push(truncateToWidth(theme.fg("accent", `▶ focus ${result.focused.title}`), safeWidth));
+		}
+		return lines;
+	});
 }
 
 export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor): VehicleToolRenderers {

@@ -1,16 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
-import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-identity-store.ts";
-import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
-import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
-import { SQLiteTaskLeaseStore } from "../src/adapters/sqlite-task-lease-store.ts";
-import { SQLiteTaskScopeStore } from "../src/adapters/sqlite-task-scope-store.ts";
 import { SQLiteArtifactScopeStore } from "../src/artifact/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "../src/modules/playbooks.ts";
 import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
+import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
+import { SQLiteSessionIdentityStore } from "../src/stores/sqlite-session-identity-store.ts";
+import { SQLiteTaskEventStore } from "../src/stores/sqlite-task-event-store.ts";
+import { SQLiteTaskFocusStore } from "../src/stores/sqlite-task-focus-store.ts";
+import { SQLiteTaskLeaseStore } from "../src/stores/sqlite-task-lease-store.ts";
+import { SQLiteTaskScopeStore } from "../src/stores/sqlite-task-scope-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {

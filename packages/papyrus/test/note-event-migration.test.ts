@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { SQLiteNoteEventStore } from "../src/adapters/sqlite-note-event-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
+import { SQLiteNoteEventStore } from "../src/stores/sqlite-note-event-store.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

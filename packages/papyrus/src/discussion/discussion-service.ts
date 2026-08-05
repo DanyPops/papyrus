@@ -22,7 +22,7 @@ import {
 	validateSelectedOptions,
 	validateSettlement,
 } from "../domain/discussion.ts";
-import type { DiscussionRoundStore } from "../ports/discussion-round-store.ts";
+import type { DiscussionRoundStore } from "../stores/discussion-round-store.ts";
 
 export class DiscussionError extends Error {}
 

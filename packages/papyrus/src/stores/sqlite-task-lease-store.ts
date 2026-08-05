@@ -2,7 +2,7 @@ import { TASK_LEASE_DEFAULT_TTL_MS } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import { isLeaseExpired, type TaskLease, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs } from "../domain/task-lease.ts";
-import type { TaskLeaseStore } from "../ports/task-lease-store.ts";
+import type { TaskLeaseStore } from "./task-lease-store.ts";
 
 interface TaskLeaseRow {
 	task_id: string;

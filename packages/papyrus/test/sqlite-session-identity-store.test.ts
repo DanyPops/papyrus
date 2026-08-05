@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-identity-store.ts";
 import { SESSION_IDENTITY_MAX_ROWS } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
+import { SQLiteSessionIdentityStore } from "../src/stores/sqlite-session-identity-store.ts";
 
 /**
  * Real SQLite round-trip coverage, mirroring the pattern established by

@@ -9,7 +9,7 @@ import {
 	validateDiscussionContent,
 	validateDiscussionOptions,
 } from "../domain/discussion.ts";
-import type { DiscussionRoundStore } from "../ports/discussion-round-store.ts";
+import type { DiscussionRoundStore } from "./discussion-round-store.ts";
 
 interface DiscussionRoundRow {
 	id: number;

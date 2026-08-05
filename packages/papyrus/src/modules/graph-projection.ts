@@ -16,7 +16,7 @@ import type {
 } from "../domain/graph-projection.ts";
 import { GraphProjection } from "../graph-projection/graph-projection-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";
+import type { GraphProjectionStore } from "../stores/graph-projection-store.ts";
 
 const MODULE_ID = "graph_projection";
 

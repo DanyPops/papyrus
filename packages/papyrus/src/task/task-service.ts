@@ -32,11 +32,11 @@ import {
 	type TaskViewSelection,
 	taskScopeLabel,
 } from "../domain/task-scope.ts";
-import type { GateRunner } from "../ports/gate-runner.ts";
-import { InMemoryTaskEventStore, type TaskEventStore } from "../ports/task-event-store.ts";
-import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../ports/task-focus-store.ts";
-import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../ports/task-lease-store.ts";
-import { InMemoryTaskScopeStore, type TaskScopeStore } from "../ports/task-scope-store.ts";
+import type { GateRunner } from "../stores/gate-runner.ts";
+import { InMemoryTaskEventStore, type TaskEventStore } from "../stores/task-event-store.ts";
+import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../stores/task-focus-store.ts";
+import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../stores/task-lease-store.ts";
+import { InMemoryTaskScopeStore, type TaskScopeStore } from "../stores/task-scope-store.ts";
 import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
 
 export interface UpdateTaskInput {

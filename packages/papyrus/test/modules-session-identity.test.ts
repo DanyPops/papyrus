@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteSessionIdentityStore } from "../src/adapters/sqlite-session-identity-store.ts";
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "../src/modules/session-identity.ts";
 import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
+import { SQLiteSessionIdentityStore } from "../src/stores/sqlite-session-identity-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

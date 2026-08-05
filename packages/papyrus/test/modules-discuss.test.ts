@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteDiscussionRoundStore } from "../src/adapters/sqlite-discussion-round-store.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { Discussions } from "../src/discussion/discussion-service.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { DISCUSS_OPERATION_NAMES, discussOperations } from "../src/modules/discuss.ts";
+import { SQLiteDiscussionRoundStore } from "../src/stores/sqlite-discussion-round-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

@@ -25,9 +25,9 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { listPlaybooks } from "../domain-services.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
-import type { TaskEventStore } from "../ports/task-event-store.ts";
-import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import type { TaskEventStore } from "../stores/task-event-store.ts";
+import type { TaskScopeStore } from "../stores/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
 import {
 	buildWorkflowRunContent,

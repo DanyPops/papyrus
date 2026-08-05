@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { SQLiteTaskFocusStore } from "../src/adapters/sqlite-task-focus-store.ts";
 import { removeArtifactSubtree } from "../src/artifact/artifact-subtree.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
+import { SQLiteTaskFocusStore } from "../src/stores/sqlite-task-focus-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

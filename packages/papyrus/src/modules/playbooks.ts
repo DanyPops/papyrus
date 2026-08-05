@@ -27,9 +27,9 @@ import {
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import { invokePlaybook } from "../playbook/playbook-execution.ts";
-import type { TaskEventStore } from "../ports/task-event-store.ts";
-import type { TaskScopeStore } from "../ports/task-scope-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import type { TaskEventStore } from "../stores/task-event-store.ts";
+import type { TaskScopeStore } from "../stores/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
 
 const MODULE_ID = "playbooks";

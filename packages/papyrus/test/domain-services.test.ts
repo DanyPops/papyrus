@@ -5,7 +5,6 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { SQLiteArtifactScopeStore } from "../src/artifact/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
@@ -37,6 +36,7 @@ import {
 	updateRule,
 } from "../src/domain-services.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
+import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {

@@ -13,7 +13,7 @@ import type { ArtifactEventPage, ArtifactEventQuery } from "../src/artifact/arti
 import type { ArtifactStore } from "../src/artifact/artifact-store.ts";
 import type { ArtifactTrashRecord } from "../src/artifact/artifact-trash.ts";
 import type { GateResult } from "../src/domain/gate.ts";
-import type { GateRunner } from "../src/ports/gate-runner.ts";
+import type { GateRunner } from "../src/stores/gate-runner.ts";
 import { projectTaskExecution } from "../src/task/task-execution.ts";
 import { Tasks } from "../src/task/task-service.ts";
 

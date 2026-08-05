@@ -1,7 +1,7 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import type { TaskProjectScope, TaskScopeSource, TaskViewMode, TaskViewPreference } from "../domain/task-scope.ts";
-import type { TaskScopeStore } from "../ports/task-scope-store.ts";
+import type { TaskScopeStore } from "./task-scope-store.ts";
 
 export class SQLiteTaskScopeStore implements TaskScopeStore {
 	constructor(private readonly db: Db) {}

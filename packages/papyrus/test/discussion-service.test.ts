@@ -4,12 +4,12 @@
  * task-service.ts's complete(). Runs against a real (in-memory) SQLite Db throughout.
  */
 import { afterAll, describe, expect, it } from "bun:test";
-import { SQLiteDiscussionRoundStore } from "../src/adapters/sqlite-discussion-round-store.ts";
-import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { DISCUSSION_ROUNDS_DEFAULT_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
 import { DiscussionError, Discussions } from "../src/discussion/discussion-service.ts";
+import { SQLiteDiscussionRoundStore } from "../src/stores/sqlite-discussion-round-store.ts";
+import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
 import { Tasks } from "../src/task/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 

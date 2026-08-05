@@ -14,7 +14,7 @@ import {
 	type TaskLifecycleStatus,
 	validateTaskEvent,
 } from "../domain/task-event.ts";
-import type { TaskEventStore } from "../ports/task-event-store.ts";
+import type { TaskEventStore } from "./task-event-store.ts";
 
 interface TaskEventRow {
 	id: number;

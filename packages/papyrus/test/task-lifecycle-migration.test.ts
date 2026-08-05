@@ -5,9 +5,9 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
-import { SQLiteGateRunner } from "../src/adapters/sqlite-gate-runner.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
+import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 function legacyDatabase(path: string): void {

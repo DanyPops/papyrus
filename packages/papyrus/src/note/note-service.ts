@@ -11,7 +11,7 @@ import {
 	TASK_PROJECT_ROOT_MAX_LENGTH,
 } from "../constants.ts";
 import type { AppendNoteEvent, NoteEventType, NoteHistoryPage, NoteHistoryQuery } from "../domain/note-event.ts";
-import { InMemoryNoteEventStore, type NoteEventStore } from "../ports/note-event-store.ts";
+import { InMemoryNoteEventStore, type NoteEventStore } from "../stores/note-event-store.ts";
 
 export const NOTE_SUBTYPE = "note";
 export const NOTE_DISPOSITIONS = ["completed", "duplicate", "declined", "superseded"] as const;

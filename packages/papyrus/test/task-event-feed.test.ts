@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { SQLiteTaskEventStore } from "../src/adapters/sqlite-task-event-store.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { TASK_EVENT_FEED_MAX_LIMIT } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
-import type { GateRunner } from "../src/ports/gate-runner.ts";
-import { InMemoryTaskEventStore } from "../src/ports/task-event-store.ts";
+import type { GateRunner } from "../src/stores/gate-runner.ts";
+import { SQLiteTaskEventStore } from "../src/stores/sqlite-task-event-store.ts";
+import { InMemoryTaskEventStore } from "../src/stores/task-event-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 

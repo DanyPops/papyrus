@@ -1,7 +1,7 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import type { ProjectionCheckpoint } from "../domain/graph-projection.ts";
-import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";
+import type { GraphProjectionStore } from "./graph-projection-store.ts";
 
 export class SQLiteGraphProjectionStore implements GraphProjectionStore {
 	constructor(private readonly db: Db) {}

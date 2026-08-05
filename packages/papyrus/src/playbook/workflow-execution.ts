@@ -18,8 +18,8 @@ import {
 import { validateChecklist } from "../domain/checklist.ts";
 import type { TaskEventContext } from "../domain/task-event.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
-import type { TaskEventStore } from "../ports/task-event-store.ts";
-import type { TaskScopeStore } from "../ports/task-scope-store.ts";
+import type { TaskEventStore } from "../stores/task-event-store.ts";
+import type { TaskScopeStore } from "../stores/task-scope-store.ts";
 import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 import type { TaskGraph, TaskNode, TaskStatus } from "../task/task-service.ts";
 import { compilePlaybookDefinition, type PlaybookExternalLink } from "./playbook-definition.ts";

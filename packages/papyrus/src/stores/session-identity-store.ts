@@ -2,7 +2,7 @@ import type { SessionIdentityRecord, SessionIdentityStore as VehicleSessionIdent
 
 /**
  * Papyrus's persistence port for @danypops/vehicle-server's storage-agnostic session-identity
- * primitive -- re-exported under this project's own port naming convention (src/ports/*)
+ * primitive -- re-exported under this project's own port naming convention (src/stores/*)
  * rather than importing the vehicle-server interface name directly at every call site.
  */
 export type SessionIdentityStore = VehicleSessionIdentityStore;

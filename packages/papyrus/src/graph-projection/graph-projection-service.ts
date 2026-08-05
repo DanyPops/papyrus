@@ -13,7 +13,7 @@ import {
 	GRAPH_PROJECTION_MAX_EDGES_PER_BATCH,
 } from "../constants.ts";
 import { GRAPH_PROJECTION_SCHEMA_VERSION, type GraphProjectionBatch, type GraphProjectionResult } from "../domain/graph-projection.ts";
-import type { GraphProjectionStore } from "../ports/graph-projection-store.ts";
+import type { GraphProjectionStore } from "../stores/graph-projection-store.ts";
 
 function boundedId(value: string, label: string): string {
 	if (!value || value.length === 0) throw new Error(`${label} is required`);

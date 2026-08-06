@@ -1,6 +1,11 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { connectWithVersionCheck, type ExpectedVersion, spawnDetachedDaemon } from "@danypops/vehicle-client/daemon-client";
+import {
+	connectWithVersionCheck,
+	type ExpectedVersion,
+	type SpawnPlatformOptions,
+	spawnDetachedDaemon,
+} from "@danypops/vehicle-client/daemon-client";
 import { createLiveVersionExpectation } from "@danypops/vehicle-client/version";
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
 import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon/daemon-state.ts";
@@ -74,6 +79,25 @@ function papyrusCliPath(): string {
 	return fileURLToPath(new URL("cli.ts", import.meta.url));
 }
 
+/**
+ * spawnDetachedDaemon's injected spawn() callback, factored out for a direct unit test.
+ *
+ * A spawn() failure (missing binPath, no exec permission, wrong interpreter) surfaces
+ * asynchronously as an "error" event on the ChildProcess -- with no listener, Node treats it
+ * as an uncaught exception and kills the whole host process, not just this one connect
+ * attempt (a real incident: auto-spawning against a since-deleted binPath crashed Pi itself).
+ * The listener below turns that into an ordinary logged failure instead: the handle file
+ * simply never appears, and connectWithPolicy's own poll-then-timeout already reports that
+ * as its usual, catchable fallbackMessage error.
+ */
+export function spawnPapyrusDaemonProcess(command: string, args: string[], spawnOptions: SpawnPlatformOptions): void {
+	const child = spawnProcess(command, args, spawnOptions);
+	child.on("error", (error) => {
+		console.error(`Papyrus daemon auto-spawn failed: ${error instanceof Error ? error.message : String(error)}`);
+	});
+	child.unref();
+}
+
 /** connectWithVersionCheck's killStaleProcess callback, factored out for a direct unit test -- a real spawned daemon can't be made to report a mismatched version without a second build. */
 export function killStalePapyrusDaemon(handle: Pick<DaemonHandle, "pid">): void {
 	if (handle.pid <= 0) return; // daemon-state.ts's inert "unknown pid" sentinel -- never a real process.
@@ -123,10 +147,7 @@ export async function connectPapyrusClient(
 					binPath: papyrusCliPath(),
 					args: ["serve"],
 					env: { ...(options.env ?? process.env), [DAEMON_DIR_ENV]: dir },
-					spawn: (command, args, spawnOptions) => {
-						const child = spawnProcess(command, args, spawnOptions);
-						child.unref();
-					},
+					spawn: spawnPapyrusDaemonProcess,
 				});
 			},
 			fallbackMessage: "Papyrus daemon failed to start automatically; run `papyrus service install` or `papyrus serve` manually.",

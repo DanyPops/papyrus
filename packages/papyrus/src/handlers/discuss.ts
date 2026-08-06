@@ -17,6 +17,7 @@ import type { VehicleContentBlock } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import { DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH, DISCUSSION_OPTION_MAX_LENGTH, DISCUSSION_OPTIONS_MAX_COUNT } from "../constants.ts";
 import type { DiscussionAndRounds, Discussions } from "../discussion/discussion-service.ts";
 import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../domain/discussion.ts";
 import { discussOperations } from "../modules/discuss.ts";
@@ -118,6 +119,16 @@ function defaultActorToAgent(input: Record<string, unknown>): void {
 
 const optionsUnionSchema = { type: "array" } as const;
 
+/**
+ * Shared suffix for open/reply's own description -- interpolates the real, enforced bounds
+ * (domain/discussion.ts's validateDiscussionOptions) rather than a hand-typed number that can
+ * silently drift out of sync with the actual limit. A prior version of this description stated
+ * the option count bound but not the per-option/per-description character bound at all --
+ * confirmed live: a caller had no way to know a 250-character description would be rejected
+ * until it already had been (see discuss-vehicle.test.ts's oversized-description regression).
+ */
+const OPTION_BOUNDS_TEXT = `Each option is at most ${DISCUSSION_OPTION_MAX_LENGTH} characters (up to ${DISCUSSION_OPTIONS_MAX_COUNT} total); each description is at most ${DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH} characters.`;
+
 export function registerDiscussVehicleOperations(registry: VehicleRegistry, discussions: Discussions, artifacts: ArtifactStore): void {
 	const moduleOperations = new Map(discussOperations(discussions).map((op) => [op.name, op]));
 	const call = <Output>(name: string, input: Record<string, unknown>): Output => moduleOperations.get(name)!.execute(input) as Output;
@@ -152,7 +163,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 
 	define(
 		"open",
-		"Opens a new Discussion and starts round 1. Optionally poses a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several) -- each option a bare string (self-evident) or {title, description} (a real tradeoff worth spelling out; description REQUIRED once there are 3+ options). Optionally blocks one or more Tasks immediately via blocks_task_ids/blocks_task_names. Pass live:true to get a human's answer synchronously in this same call, via an interactive prompt -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.",
+		`Opens a new Discussion and starts round 1. Optionally poses a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several) -- each option a bare string (self-evident) or {title, description} (a real tradeoff worth spelling out; description REQUIRED once there are 3+ options). ${OPTION_BOUNDS_TEXT} Optionally blocks one or more Tasks immediately via blocks_task_ids/blocks_task_names. Pass live:true to get a human's answer synchronously in this same call, via an interactive prompt -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.`,
 		"local-write",
 		{
 			title: stringProp,
@@ -182,7 +193,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 
 	define(
 		"reply",
-		"Adds a round to an existing Discussion. Refused once deferred or settled -- resume first. Answers a currently pending posed choice via `selected` (validated against it), or poses a new choice via options/options_mode. Prefer `name` over `id`. Pass live:true to get a human's answer synchronously in this same call, via the pending choice's picker if one was posed, otherwise a freeform question -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.",
+		`Adds a round to an existing Discussion. Refused once deferred or settled -- resume first. Answers a currently pending posed choice via \`selected\` (validated against it), or poses a new choice via options/options_mode. ${OPTION_BOUNDS_TEXT} Prefer \`name\` over \`id\`. Pass live:true to get a human's answer synchronously in this same call, via the pending choice's picker if one was posed, otherwise a freeform question -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.`,
 		"local-write",
 		{
 			id: stringProp,

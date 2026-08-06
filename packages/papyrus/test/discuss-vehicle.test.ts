@@ -37,6 +37,18 @@ describe("registerDiscussVehicleOperations (wired through createPapyrusService)"
 		service.close();
 	});
 
+	it("open/reply's own description states the real, enforced option/description length bounds, so a caller can self-correct without trial and error", () => {
+		const { registry, service } = harness();
+		const operations = registry.manifest().operations as VehicleManifestOperation[];
+		const byName = new Map(operations.map((op) => [op.name, op]));
+		for (const name of ["discuss.open", "discuss.reply"]) {
+			const description = byName.get(name)!.description;
+			expect(description).toContain("at most 200 characters");
+			expect(description).toContain("at most 240 characters");
+		}
+		service.close();
+	});
+
 	it("denies a call with no permissions granted", async () => {
 		const { registry, service } = harness();
 		await expect(registry.invoke("discuss.list", 1, {})).rejects.toThrow(/requires permissions/);
@@ -82,6 +94,76 @@ describe("registerDiscussVehicleOperations (wired through createPapyrusService)"
 		)) as { discussion: { extra: { discussion: { pendingOptions: string[]; pendingOptionDescriptions?: string[] } } } };
 		expect(result.discussion.extra.discussion.pendingOptions).toEqual(["A", "B"]);
 		expect(result.discussion.extra.discussion.pendingOptionDescriptions).toEqual(["", "the risky one"]);
+		service.close();
+	});
+
+	/**
+	 * Regression for a previously-reported "opaque handler-failed" bug: an over-threshold
+	 * option_descriptions payload (each ~250 chars, 3 options -- crosses
+	 * DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH=240) and a 3+-option payload with descriptions
+	 * omitted both used to surface as a bare, unclassified "discuss.open@1 handler failed" with
+	 * no indication of what was wrong. Re-verified live against current code: validateDiscussionOptions
+	 * (domain/discussion.ts) already throws a specific, real Error for both cases, and papyrus's own
+	 * VehicleRegistry.setExposeHandlerFailureDetails(true) (papyrus@0.44.8) already surfaces it as the
+	 * wrapped error's own message -- confirmed via direct reproduction, not assumed. These two tests
+	 * lock that behavior in as a real regression rather than leaving it merely "apparently fixed".
+	 */
+	it("a too-long option description fails with a specific, actionable message -- not an opaque handler-failed", async () => {
+		const { registry, service } = harness();
+		const tooLong = "a".repeat(250);
+		const rejection = await registry
+			.invoke(
+				"discuss.open",
+				1,
+				{
+					title: "Oversized description",
+					content: "opening",
+					options: ["one", "two", "three"],
+					options_mode: "single",
+					option_descriptions: [tooLong, tooLong, tooLong],
+				},
+				PERMS,
+			)
+			.catch((error) => error);
+		expect((rejection as Error).message).toContain("option description must be at most 240 characters");
+		service.close();
+	});
+
+	it("3+ options with option_descriptions omitted fails with the documented requirement, not an opaque handler-failed", async () => {
+		const { registry, service } = harness();
+		const rejection = await registry
+			.invoke(
+				"discuss.open",
+				1,
+				{ title: "Missing descriptions", content: "opening", options: ["one", "two", "three"], options_mode: "single" },
+				PERMS,
+			)
+			.catch((error) => error);
+		expect((rejection as Error).message).toContain("option_descriptions is required");
+		service.close();
+	});
+
+	it("the same two validation failures reproduce identically through discuss.reply, not just discuss.open", async () => {
+		const { registry, service } = harness();
+		const opened = (await registry.invoke("discuss.open", 1, { title: "Reply validation", content: "opening" }, PERMS)) as {
+			discussion: { id: string };
+		};
+		const tooLong = "a".repeat(250);
+		const rejection = await registry
+			.invoke(
+				"discuss.reply",
+				1,
+				{
+					id: opened.discussion.id,
+					content: "round 2",
+					options: ["one", "two", "three"],
+					options_mode: "single",
+					option_descriptions: [tooLong, tooLong, tooLong],
+				},
+				PERMS,
+			)
+			.catch((error) => error);
+		expect((rejection as Error).message).toContain("option description must be at most 240 characters");
 		service.close();
 	});
 

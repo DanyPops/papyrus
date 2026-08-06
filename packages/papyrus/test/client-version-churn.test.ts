@@ -8,10 +8,14 @@
  *
  * 1. Does the daemon ever get killed/respawned when many clients connect concurrently but
  *    genuinely agree on the expected version (no real staleness at all)?
- * 2. What actually happens when two clients genuinely disagree about the expected version --
- *    a one-time self-heal (already covered for a single client by
- *    client-version-mismatch.test.ts), or does respawning ever change the *daemon's own*
- *    reported version such that disagreement could persist across repeated respawns?
+ * 2. What actually happens when a client's own expectedVersion is permanently wrong (lower
+ *    than the real daemon's version, unlike a genuine post-upgrade staleness case) -- this
+ *    used to keep re-triggering kill+respawn forever (the actual live incident: two installed
+ *    copies of the same package, each with a different self-reported "correct" version,
+ *    endlessly killing whatever the other one had just started). Fixed in
+ *    @danypops/vehicle-client@0.6.2's connectWithVersionCheck: a client whose expectation is
+ *    LOWER than the running daemon's real version is the stale side and is refused, never
+ *    kills the daemon.
  */
 import { afterAll, describe, expect, it } from "bun:test";
 import { connectPapyrusClient } from "../src/client.ts";
@@ -71,36 +75,30 @@ describe("connectPapyrusClient -- version-check churn under concurrent/disagreei
 		}
 	}, 20_000);
 
-	it("a respawned daemon still reports its own real version -- a permanently wrong expectedVersion keeps re-triggering kills, not a one-time self-heal", async () => {
+	it("a permanently-lower expectedVersion is refused on every call, never kills the real daemon, and never churns", async () => {
 		const root = tempDir("papyrus-version-churn-disagree-");
 		const dir = `${root}/daemon-dir`;
 		const env = isolatedEnv(root);
 
 		const seed = await connectPapyrusClient(dir, { env });
-		const realVersion = (await seed.health()).version;
+		await seed.health();
 		const originalPid = readDaemonHandle(dir)?.pid;
 
 		try {
-			// A client whose own expectation is permanently wrong (unlike the real incident, where
-			// the daemon's own code was genuinely stale and a respawn genuinely fixed it): the
-			// respawned daemon runs the exact same source, so it reports the exact same real
-			// version -- proving whether this client would consider it fixed, or keep retrying.
-			const disagreeing = await connectPapyrusClient(dir, { env, expectedVersion: "0.0.0-permanently-wrong" });
-			const disagreeingHealth = await disagreeing.health();
+			// A client whose own expectation is permanently wrong AND lower than the real running
+			// version -- exactly the live incident's shape (an older installed copy of the same
+			// package disagreeing with a newer one already running). This must refuse, not kill.
+			await expect(connectPapyrusClient(dir, { env, expectedVersion: "0.0.0-permanently-wrong" })).rejects.toThrow(
+				/daemon is running a newer version/,
+			);
+			expect(readDaemonHandle(dir)?.pid).toBe(originalPid);
 
-			// The respawn happened (pid changed, per client-version-mismatch.test.ts's own proven
-			// behavior) -- but the new daemon's real reported version is unchanged.
-			expect(disagreeingHealth.version).toBe(realVersion);
-			const afterFirstRespawnPid = readDaemonHandle(dir)?.pid;
-			expect(afterFirstRespawnPid).not.toBe(originalPid);
-
-			// The same permanently-wrong client, connecting again, still disagrees -- if this kills
-			// and respawns AGAIN, a client with a stale expectation causes unbounded, repeating
-			// churn on every single call for as long as it keeps calling, not a one-time fix.
-			const disagreeingAgain = await connectPapyrusClient(dir, { env, expectedVersion: "0.0.0-permanently-wrong" });
-			await disagreeingAgain.health();
-			const afterSecondRespawnPid = readDaemonHandle(dir)?.pid;
-			expect(afterSecondRespawnPid).not.toBe(afterFirstRespawnPid);
+			// Calling again changes nothing -- the same refusal, the same untouched daemon, not a
+			// one-time exception that then falls back to the old kill-and-respawn churn.
+			await expect(connectPapyrusClient(dir, { env, expectedVersion: "0.0.0-permanently-wrong" })).rejects.toThrow(
+				/daemon is running a newer version/,
+			);
+			expect(readDaemonHandle(dir)?.pid).toBe(originalPid);
 		} finally {
 			killIfAlive(readDaemonHandle(dir)?.pid);
 		}

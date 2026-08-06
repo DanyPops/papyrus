@@ -56,7 +56,9 @@ describe("connectPapyrusClient -- real stale-daemon detection and self-heal", ()
 		expect(originalHandle?.pid).toBeGreaterThan(0);
 
 		try {
-			const healed = await connectPapyrusClient(dir, { env, expectedVersion: "0.0.0-forced-test-mismatch" });
+			// Higher than any real version -- this client is the one that's up to date, the running
+			// daemon is the genuinely stale side, which is what should trigger a kill+respawn.
+			const healed = await connectPapyrusClient(dir, { env, expectedVersion: "999.999.999" });
 
 			const originalKilled = await waitUntil(() => !isProcessAlive(originalHandle!.pid), 3_000);
 			expect(originalKilled).toBe(true);

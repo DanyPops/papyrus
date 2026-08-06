@@ -20,7 +20,7 @@ import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DagEdge, type DagNode, DagView, type DetailField, type DetailSection } from "malevich-tui-components";
-import { ArtifactCard, detailViewTheme, expandHint, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
+import { ArtifactCard, detailViewTheme, expandHint, measure, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "../tool-rendering/artifact-list.ts";
 import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "../tool-rendering/render-model.ts";
 
@@ -283,7 +283,7 @@ function renderDiscussionAndRounds(output: DiscussionAndRoundsOutput, theme: The
 			{ label: "Status", value: theme.fg(statusColor(discussion.status), `${statusGlyph(discussion.status)} ${discussion.status}`) },
 		];
 		const sections: DetailSection[] = expanded && output.rounds.length > 0 ? [roundsSection(output.rounds)] : [];
-		const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: detailViewTheme(theme) });
+		const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: detailViewTheme(theme), measure });
 		if (!expanded && output.rounds.length > 0) {
 			const count = output.rounds.length;
 			lines.push(truncateToWidth(theme.fg("dim", `${count} round${count === 1 ? "" : "s"} · ${expandHint()}`), safeWidth));
@@ -295,7 +295,7 @@ function renderDiscussionAndRounds(output: DiscussionAndRoundsOutput, theme: The
 function renderDiscussionRoundsOnly(output: DiscussionRoundsOnlyOutput, theme: Theme): Component {
 	return statelessComponent((width) => {
 		const sections: DetailSection[] = output.rounds.length > 0 ? [roundsSection(output.rounds)] : [{ lines: ["No rounds."] }];
-		return buildDetailLines(Math.max(1, width), { sections, theme: detailViewTheme(theme) });
+		return buildDetailLines(Math.max(1, width), { sections, theme: detailViewTheme(theme), measure });
 	});
 }
 
@@ -373,7 +373,7 @@ function renderTaskCompletion(result: TaskCompletionOutput, theme: Theme, expand
 				lines: result.blocked.map((entry) => theme.fg("warning", `◼ ${entry.artifact.title}`)),
 			});
 		}
-		const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: detailViewTheme(theme) });
+		const lines = buildDetailLines(safeWidth, { fields, sections, alignFields: true, theme: detailViewTheme(theme), measure });
 		if (result.focused && expanded) {
 			lines.push(truncateToWidth(theme.fg("accent", `▶ focus ${result.focused.title}`), safeWidth));
 		}

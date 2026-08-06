@@ -1,19 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
-import type { Theme } from "@earendil-works/pi-coding-agent";
 import { ArtifactCard } from "../extension/src/tool-rendering/artifact-card.ts";
 import { createArtifactDetails } from "../extension/src/tool-rendering/render-model.ts";
-
-/** Real ANSI-emitting theme -- narrow resets only, matching production Theme.fg/bg exactly. */
-function realAnsiTheme(): Theme {
-	return {
-		bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
-		italic: (text: string) => text,
-		underline: (text: string) => text,
-		strikethrough: (text: string) => text,
-		fg: (_color: string, text: string) => `\x1b[38;2;200;200;200m${text}\x1b[39m`,
-	} as Theme;
-}
+import { realAnsiTheme } from "./support/real-ansi-theme.ts";
 
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {

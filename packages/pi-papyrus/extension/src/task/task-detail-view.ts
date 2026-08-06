@@ -11,11 +11,14 @@ import {
 } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
+import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
 import { BeautifulMermaidRenderer } from "../beautiful-mermaid-renderer.ts";
 import { type ActiveTheme, renderMarkdownBody } from "../markdown.ts";
 import { type TaskDetailContent, taskDetailContent, taskDetailsText } from "./task-detail-format.ts";
 import { TASK_STATUS_PRESENTATION } from "./task-presentation.ts";
+
+/** Real ANSI-aware measure for buildDetailLines -- without it, wrapped themed text loses color on every line but the first/last. */
+const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
 interface DetailLine {
 	text: string;
@@ -122,12 +125,15 @@ class TaskDetailViewport {
 		const fields: DetailField[] = this.content.labels.length > 0 ? [{ label: "Labels", value: this.content.labels.join(", ") }] : [];
 		const labels =
 			fields.length > 0
-				? [...buildDetailLines(width, { fields, theme: detailTheme }).map((text) => ({ text, graph: false })), { text: "", graph: false }]
+				? [
+						...buildDetailLines(width, { fields, theme: detailTheme, measure }).map((text) => ({ text, graph: false })),
+						{ text: "", graph: false },
+					]
 				: [{ text: "", graph: false }];
 		const body = renderMarkdownBody(this.content.body, width, this.activeTheme).map((text) => ({ text, graph: false }));
 		const sections: DetailSection[] = this.content.sections.map((section) => ({ heading: section[0], lines: section.slice(1) }));
 		const sectionLines =
-			sections.length > 0 ? buildDetailLines(width, { sections, theme: detailTheme }).map((text) => ({ text, graph: false })) : [];
+			sections.length > 0 ? buildDetailLines(width, { sections, theme: detailTheme, measure }).map((text) => ({ text, graph: false })) : [];
 		const relationshipHeader =
 			this.graphLines.length > 0
 				? [{ text: "", graph: false }, ...wrap("Relationships:", "muted"), ...wrap("  Dependencies point prerequisite → dependent.", "dim")]

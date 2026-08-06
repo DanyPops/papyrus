@@ -8,11 +8,14 @@ import {
 } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, sliceByColumn, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DetailField, type DetailSection } from "malevich-tui-components";
+import { buildDetailLines, type DetailField, type DetailSection, type TextMeasure } from "malevich-tui-components";
 import { BeautifulMermaidRenderer } from "../beautiful-mermaid-renderer.ts";
 import { type ActiveTheme, renderMarkdownBody } from "../markdown.ts";
 import { type ArtifactDetailContent, artifactDetailContent, artifactDetailsText } from "./artifact-detail-format.ts";
 import { buildArtifactRelationshipLines } from "./artifact-relationship-lines.ts";
+
+/** Real ANSI-aware measure for buildDetailLines -- without it, wrapped themed text loses color on every line but the first/last. */
+const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
 interface ArtifactDetailLine {
 	text: string;
@@ -117,6 +120,7 @@ class ArtifactDetailViewport {
 							body: (s) => theme.fg("text", s),
 							line: (s) => theme.fg("dim", s),
 						},
+						measure,
 					}).map((text) => ({ text, wide: false }))
 				: [];
 		// buildDetailLines' fields/sections don't insert a leading blank before the

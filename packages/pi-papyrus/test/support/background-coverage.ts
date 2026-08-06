@@ -1,4 +1,15 @@
 import { renderToTerminal } from "@danypops/pi-tui-harness";
+import type { Component } from "@earendil-works/pi-tui";
+import { Box } from "@earendil-works/pi-tui";
+
+/** Matches pi-mono's own tool-execution.ts wiring exactly: a Box(1, 1, bgFn) is the
+ * one and only thing responsible for full-width background coverage of ANY child
+ * component's output -- this is the real contract every tool result renderer relies on. */
+export function wrapInRealToolBox(component: Component, width: number): string[] {
+	const box = new Box(1, 1, (text: string) => `\x1b[48;2;20;30;20m${text}\x1b[49m`);
+	box.addChild(component);
+	return box.render(width);
+}
 
 interface CoverageGap {
 	colStart: number;

@@ -13,7 +13,7 @@ import type { ArtifactToolDetails } from "./render-model.ts";
  * terminal's default color. wrapTextWithAnsi re-injects the active codes on every wrapped
  * line instead.
  */
-const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
+export const measure: TextMeasure = { visibleWidth, truncateToWidth, wrapTextWithAnsi };
 
 /** Shared by every buildDetailLines caller in this extension (ArtifactCard, and
  * tools/vehicle-artifact-renderers.ts's discuss/tasks.complete renderers) -- one Theme -> DetailViewTheme

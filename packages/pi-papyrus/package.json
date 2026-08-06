@@ -20,7 +20,7 @@
     "@danypops/jittor": "^0.14.0",
     "@danypops/papyrus": "^0.44.0",
     "@danypops/vehicle-client": "^0.5.0",
-    "@danypops/vehicle-client-pi": "^0.16.8",
+    "@danypops/vehicle-client-pi": "^0.17.1",
     "@danypops/vehicle-core": "^0.12.3",
     "@danypops/vehicle-server": "^0.18.1",
     "beautiful-mermaid": "1.1.3",

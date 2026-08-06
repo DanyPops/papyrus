@@ -50,6 +50,15 @@ const REGISTERED_PERMISSIONS = [
 /** Task Focus's own internal write needs a real, per-session secret -- see below. Every other tasks.* operation reads session_id purely for read-scoping and needs no secret. */
 const FOCUS_MUTATION_OPERATIONS = new Set(["tasks.focus", "tasks.pause", "tasks.unpause", "tasks.clear_focus"]);
 
+/**
+ * Vehicle Shell's core set (see @danypops/vehicle-client-pi's registerVehicleTools `shell`
+ * option): the handful of operations used in nearly every session, active from turn one with no
+ * tools_man round-trip. Every other operation (91 total at last count, ~8929 tokens of always-
+ * loaded schema) boots inactive, reachable via tools_list/tools_man. Illustrative, not fixed --
+ * tune from real usage.
+ */
+const CORE_OPERATIONS = ["tasks.list", "tasks.create", "tasks.start", "tasks.submit", "tasks.complete", "tasks.context"];
+
 export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 	const target = currentVehicleClientTarget();
 	if (!target) return;
@@ -63,6 +72,7 @@ export async function registerNotesVehicle(pi: ExtensionAPI): Promise<void> {
 			permissions: REGISTERED_PERMISSIONS,
 			principal: { id: "pi-papyrus" },
 			renderers: papyrusVehicleRenderers,
+			shell: { coreOperations: CORE_OPERATIONS },
 			// playbooks.invoke's own module handler, and tasks.focus/pause/unpause/clear_focus's
 			// own module handlers, authorize an internal Task Focus write via
 			// sessionIdentity.assertAuthorized(session_id, session_secret) -- see

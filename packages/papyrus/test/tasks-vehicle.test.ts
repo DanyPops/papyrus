@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { VehicleManifestOperation } from "@danypops/vehicle-core";
+import { VehicleError } from "@danypops/vehicle-core";
 import { GATE_TIMEOUT_MAX_MS, TASK_EXECUTION_MAX_DEGREE } from "../src/constants.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
@@ -573,6 +574,29 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		await registry.invoke("tasks.set_gates", 1, { id: created.id, gates: [{ type: "command", target: "echo replaced" }] }, PERMS);
 		const afterSetGates = (await registry.invoke("tasks.show", 1, { id: created.id }, PERMS)) as { extra?: { gates?: unknown[] } };
 		expect(afterSetGates.extra?.gates).toEqual([{ type: "command", target: "echo replaced" }]);
+		service.close();
+	});
+
+	it("a real oversized tasks.list response fails with actualBytes/maxBytes surfaced, not just an opaque byte-limit message", async () => {
+		// Regression for papyrus task 437939af / vehicle task d66f27e5: tasks.list@1's declared
+		// maxResponseBytes (262_144, handlers/tasks.ts) is enforced by vehicle-server's shared
+		// enforcePayloadSize -- confirm the real failure this project's own registry.invoke() throws
+		// still carries { actualBytes, maxBytes }, now that vehicle-client-pi's PiVehicleInvocationError
+		// (the Pi-tool-facing layer) knows how to surface them instead of silently dropping them.
+		const { registry, service } = harness();
+		// Each task's own body stays under tasks.create@1's own 65_536-byte REQUEST cap; enough of
+		// them together push tasks.list@1's combined RESPONSE past its separate 262_144-byte cap.
+		for (let index = 0; index < 6; index++) {
+			await registry.invoke("tasks.create", 1, { title: `Big ${index}`, body: "x".repeat(60_000), project_root: PROJECT }, PERMS);
+		}
+
+		const rejection = await registry.invoke("tasks.list", 1, { project_root: PROJECT }, PERMS).catch((error: unknown) => error);
+
+		expect(rejection).toBeInstanceOf(VehicleError);
+		const failure = rejection as VehicleError;
+		expect(failure.code).toBe("response-too-large");
+		expect(failure.details).toMatchObject({ maxBytes: 262_144 });
+		expect((failure.details as { actualBytes: number }).actualBytes).toBeGreaterThan(262_144);
 		service.close();
 	});
 

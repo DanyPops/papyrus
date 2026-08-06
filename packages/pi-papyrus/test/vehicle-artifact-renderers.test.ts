@@ -76,13 +76,19 @@ describe("papyrusVehicleRenderers", () => {
 	});
 
 	it("falls back to the generic Vehicle renderer for a non-artifact output", () => {
+		// A flat all-primitive object is exactly the shape the generic renderer's own
+		// flatRecordEnvelope now handles as a field list (vehicle-render.test.ts covers
+		// that rendering itself) -- this test only cares that it's NOT mistaken for a
+		// papyrus Artifact and routed to ArtifactCard.
 		const component = renderResult!(
 			{ content: [], details: { vehicle: vehicleIdentity, output: { ok: true } } },
 			{ isPartial: false, expanded: false },
 			fakeTheme,
 			resultContext(),
 		);
-		expect(component.render(80).join("\n")).toContain("ok");
+		const text = component.render(80).join("\n");
+		expect(text).toContain("Ok");
+		expect(text).toContain("true");
 	});
 
 	it("falls back to the generic renderer for a partial (progress) result", () => {

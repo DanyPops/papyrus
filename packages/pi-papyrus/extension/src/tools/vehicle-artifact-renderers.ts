@@ -19,7 +19,15 @@ import { renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render"
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { buildDetailLines, type DagEdge, type DagNode, DagView, type DetailField, type DetailSection } from "malevich-tui-components";
+import {
+	buildDetailLines,
+	type DagEdge,
+	type DagNode,
+	DagView,
+	type DetailField,
+	type DetailSection,
+	statelessComponent,
+} from "malevich-tui-components";
 import { ArtifactCard, detailViewTheme, expandHint, measure, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "../tool-rendering/artifact-list.ts";
 import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "../tool-rendering/render-model.ts";
@@ -266,12 +274,6 @@ function roundsSection(rounds: readonly DiscussionRoundOutput[]): DetailSection 
 		heading: `Rounds (${rounds.length}):`,
 		items: rounds.map((round) => ({ byline: `${round.actor} · round ${round.roundNumber}`, body: round.content })),
 	};
-}
-
-/** A one-shot render function with nothing to invalidate -- every buildDetailLines-based
- * renderer in this file (unlike ArtifactCard/DagView) has no cache to clear. */
-function statelessComponent(render: (width: number) => string[]): Component {
-	return { render, invalidate: () => {} };
 }
 
 function renderDiscussionAndRounds(output: DiscussionAndRoundsOutput, theme: Theme, expanded: boolean): Component {

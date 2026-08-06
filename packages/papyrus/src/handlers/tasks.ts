@@ -244,7 +244,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	define(
 		"update",
-		"Recovers an accidentally-terminal task via status=todo + reason, or changes title/body/labels, without rewriting real history. Never touches gates -- use set_gates.",
+		"Recovers an accidentally-terminal task via status=todo + reason (only a task whose status was terminal at its own creation -- not one that reached canceled/rejected through a real, later transition; use tasks.reopen for that), or changes title/body/labels, without rewriting real history. Never touches gates -- use set_gates.",
 		"local-write",
 		{
 			id: stringProp,
@@ -453,7 +453,16 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"cancel",
-		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected.",
+		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected. Reversible via tasks.reopen if this turns out to be premature.",
+		"local-write",
+		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
+		[],
+		resolveIdAndScope,
+	);
+
+	define(
+		"reopen",
+		"Lifecycle transition: canceled -> todo. For a task legitimately canceled through a normal transition (e.g. a deliberate pause/park) that should resume -- distinct from tasks.update's status:todo path, which only recovers a task that was terminal at its own creation (a caller mistake), never one canceled/rejected later.",
 		"local-write",
 		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
 		[],

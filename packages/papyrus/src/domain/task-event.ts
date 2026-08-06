@@ -26,6 +26,7 @@ export const TASK_EVENT_TYPES = [
 	"retried",
 	"completed",
 	"canceled",
+	"reopened",
 	"dependency_added",
 	"dependency_removed",
 	"containment_added",

@@ -78,7 +78,7 @@ export interface CreateTaskInput {
 	projectSource?: TaskScopeSource;
 }
 
-export type TaskTransition = "start" | "submit" | "reject" | "retry" | "cancel";
+export type TaskTransition = "start" | "submit" | "reject" | "retry" | "cancel" | "reopen";
 
 export interface TaskBlockage {
 	artifact: Artifact;
@@ -134,6 +134,17 @@ const TASK_TRANSITIONS: Record<TaskTransition, { from: TaskStatus[]; to: TaskSta
 	reject: { from: ["review"], to: "rejected" },
 	retry: { from: ["rejected"], to: "in-progress" },
 	cancel: { from: ["todo", "in-progress", "review", "rejected"], to: "canceled" },
+	/**
+	 * Distinct from tasks.update's status:todo path (recoverCreation, below): that path only ever
+	 * recovers a task whose entire history is a single "created" event already at a terminal status
+	 * (a creation-time mistake) -- it deliberately refuses a task that reached canceled through a
+	 * real, later transition. reopen is the missing counterpart for exactly that case: a task
+	 * legitimately canceled (e.g. a deliberate "pause/park", since there is no direct
+	 * in-progress -> todo transition) can be brought back to todo and driven through the normal
+	 * lifecycle again, without rewriting its real history the way recoverCreation's own
+	 * terminal-at-creation check exists to prevent.
+	 */
+	reopen: { from: ["canceled"], to: "todo" },
 };
 
 export class Tasks {
@@ -511,9 +522,14 @@ export class Tasks {
 				this.focusStore.set(id, context.sessionId);
 			}
 			const updated = this.artifacts.setStatus(id, transition.to)!;
-			const eventType = { start: "started", submit: "submitted", reject: "review_rejected", retry: "retried", cancel: "canceled" }[
-				action
-			] as AppendTaskEvent["type"];
+			const eventType = {
+				start: "started",
+				submit: "submitted",
+				reject: "review_rejected",
+				retry: "retried",
+				cancel: "canceled",
+				reopen: "reopened",
+			}[action] as AppendTaskEvent["type"];
 			this.appendEvent({ taskId: id, type: eventType, fromStatus: task.status as TaskStatus, toStatus: transition.to }, context);
 			if (action === "start" || action === "retry") this.propagateProgressToAncestors(id, context);
 			if (action === "retry") this.focusStore.set(id, context.sessionId);

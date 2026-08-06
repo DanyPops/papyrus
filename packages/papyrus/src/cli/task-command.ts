@@ -747,7 +747,7 @@ const startCommand = buildCommand({
 	docs: { brief: "Lifecycle transition: todo -> in-progress" },
 });
 
-function buildSimpleTransitionCommand(action: "submit" | "reject" | "retry" | "cancel", brief: string) {
+function buildSimpleTransitionCommand(action: "submit" | "reject" | "retry" | "cancel" | "reopen", brief: string) {
 	return buildCommand({
 		func: async function (this: TaskContext, flags: { sessionId?: string }, id: string) {
 			const artifact = await this.client.call<Record<string, unknown>, CliArtifact>(`tasks.${action}` as OperationName, {
@@ -868,6 +868,7 @@ const app = buildApplication(
 			reject: buildSimpleTransitionCommand("reject", "Lifecycle transition: review -> rejected"),
 			retry: buildSimpleTransitionCommand("retry", "Lifecycle transition: rejected -> in-progress"),
 			cancel: buildSimpleTransitionCommand("cancel", "Lifecycle transition to canceled"),
+			reopen: buildSimpleTransitionCommand("reopen", "Lifecycle transition: canceled -> todo"),
 			"cancel-subtree": cancelSubtreeCommand,
 			depend: buildDependencyCommand(
 				"tasks.depend",

@@ -86,6 +86,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.reject",
 	"tasks.retry",
 	"tasks.cancel",
+	"tasks.reopen",
 	"tasks.cancel_subtree",
 	"tasks.depend",
 	"tasks.undepend",
@@ -201,6 +202,7 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		define("tasks.reject", (input: OperationInput) => tasks.transition(string(input, "id"), "reject", eventContext(input))),
 		define("tasks.retry", (input: OperationInput) => tasks.transition(string(input, "id"), "retry", eventContext(input))),
 		define("tasks.cancel", (input: OperationInput) => tasks.transition(string(input, "id"), "cancel", eventContext(input))),
+		define("tasks.reopen", (input: OperationInput) => tasks.transition(string(input, "id"), "reopen", eventContext(input))),
 		define("tasks.cancel_subtree", (input: OperationInput) => tasks.cancelSubtree(string(input, "id"), eventContext(input))),
 		define("tasks.depend", (input: OperationInput) =>
 			tasks.depend(string(input, "id"), string(input, "dependency_id"), eventContext(input)),

@@ -48,6 +48,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 			"tasks.plan",
 			"tasks.reject",
 			"tasks.release_lease",
+			"tasks.reopen",
 			"tasks.retry",
 			"tasks.run_gates",
 			"tasks.scope",
@@ -226,6 +227,29 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		};
 		expect(completion.completed).toBe(true);
 		expect(completion.content?.[0]?.text).toContain("Completed: Do the work");
+		service.close();
+	});
+
+	it("reopen brings a canceled task back to todo, distinct from tasks.update's own narrower creation-recovery path", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("tasks.create", 1, { title: "Parked mid-flight", project_root: PROJECT }, PERMS)) as {
+			id: string;
+		};
+		await registry.invoke("tasks.start", 1, { id: created.id }, PERMS);
+		await registry.invoke("tasks.cancel", 1, { id: created.id }, PERMS);
+
+		// tasks.update's status:todo path is scoped to creation-time-terminal only -- it must still
+		// refuse a task that reached canceled through this real, later transition.
+		const updateRejection = await registry
+			.invoke("tasks.update", 1, { id: created.id, status: "todo", reason: "trying the wrong path" }, PERMS)
+			.catch((error) => error);
+		expect((updateRejection as Error).message).toContain("not terminal at creation");
+
+		const reopened = (await registry.invoke("tasks.reopen", 1, { id: created.id }, PERMS)) as { status: string };
+		expect(reopened.status).toBe("todo");
+		// Genuinely reusable afterward, not just a status flip.
+		const restarted = (await registry.invoke("tasks.start", 1, { id: created.id }, PERMS)) as { status: string };
+		expect(restarted.status).toBe("in-progress");
 		service.close();
 	});
 

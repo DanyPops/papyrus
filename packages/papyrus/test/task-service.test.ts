@@ -607,6 +607,30 @@ describe("Tasks port behavior", () => {
 		expect(() => tasks.transition(task.id, "start")).toThrow("cannot start task from canceled");
 	});
 
+	// Real, confirmed gap: tasks.update's status:todo path only ever recovers a task that was
+	// terminal AT CREATION (see "rejects a task-status recovery attempt against a task that reached
+	// its terminal status through a real transition" above) -- there was no supported way at all to
+	// un-cancel a task that reached canceled through a normal, later lifecycle transition (a
+	// deliberate "pause/park" cancel, not a creation-time mistake). reopen is that missing transition.
+	it("reopen recovers a canceled task back to todo, distinct from tasks.update's creation-recovery path", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Parked mid-flight" });
+		tasks.transition(task.id, "start");
+		const canceled = tasks.transition(task.id, "cancel");
+		expect(canceled.status).toBe("canceled");
+
+		const reopened = tasks.transition(task.id, "reopen");
+		expect(reopened.status).toBe("todo");
+		// Genuinely reusable afterward -- not just a status flip.
+		expect(tasks.transition(task.id, "start").status).toBe("in-progress");
+	});
+
+	it("reopen only accepts a canceled task, not any other status", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Still todo" });
+		expect(() => tasks.transition(task.id, "reopen")).toThrow("cannot reopen task from todo");
+	});
+
 	it("cancelSubtree cancels a whole containment tree in one call, skipping already-terminal tasks instead of erroring on them", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
 		const root = tasks.create({ title: "Root" });

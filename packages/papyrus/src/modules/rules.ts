@@ -11,6 +11,7 @@
  * registry" convention.
  */
 
+import { summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
@@ -24,7 +25,7 @@ import {
 	updateRule,
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import { type OperationInput, optionalNumber, optionalString, string } from "./operation-input.ts";
+import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "rules";
 
@@ -79,7 +80,10 @@ export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeS
 				eventContext(input),
 			),
 		),
-		define("rules.list", (input: OperationInput) => listRules(artifacts, scopes, artifactFilter(input))),
+		define("rules.list", (input: OperationInput) => {
+			const rules = listRules(artifacts, scopes, artifactFilter(input));
+			return optionalBoolean(input, "full") === true ? rules : rules.map(summarizeArtifact);
+		}),
 		define("rules.show", (input: OperationInput) => showRule(artifacts, string(input, "id"))),
 		define("rules.preview", (input: OperationInput) => previewRule(artifacts, string(input, "id"))),
 		define("rules.enable", (input: OperationInput) => transitionRule(artifacts, string(input, "id"), "enable", eventContext(input))),

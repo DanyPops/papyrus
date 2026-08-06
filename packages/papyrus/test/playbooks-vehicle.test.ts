@@ -83,6 +83,37 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		service.close();
 	});
 
+	it("list returns a lean summary by default -- no body/extra, so browsing dozens of playbooks isn't as expensive as showing every one of them", async () => {
+		const { registry, service } = harness();
+		await registry.invoke("playbooks.create", 1, { title: "Big Runbook", body: "a".repeat(2000), steps: ["step one", "step two"] }, PERMS);
+
+		const rows = (await registry.invoke("playbooks.list", 1, {}, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.title === "Big Runbook")!;
+		expect(row.id).toBeDefined();
+		expect(row.title).toBe("Big Runbook");
+		expect(row.status).toBeDefined();
+		expect(row.alias).toBeDefined();
+		expect(row.body).toBeUndefined();
+		expect(row.extra).toBeUndefined();
+		service.close();
+	});
+
+	it("list returns the full artifact, including body/extra/steps, when full: true is passed", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Full Runbook", body: "real body text", steps: ["step one"] },
+			PERMS,
+		)) as { id: string };
+
+		const rows = (await registry.invoke("playbooks.list", 1, { full: true }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.id === created.id)!;
+		expect(row.body).toBe("real body text");
+		expect((row.extra as { steps?: unknown[] }).steps).toEqual(["step one"]);
+		service.close();
+	});
+
 	it("preview renders the composition tree as text with no side effects", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke(

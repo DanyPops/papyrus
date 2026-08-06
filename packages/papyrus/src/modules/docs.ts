@@ -7,6 +7,7 @@
  * ArtifactStore-based with no other module's concrete class dependency.
  */
 
+import { summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
@@ -21,7 +22,7 @@ import {
 	updateDocument,
 } from "../domain-services.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import { type OperationInput, optionalNumber, optionalString, string } from "./operation-input.ts";
+import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "docs";
 
@@ -76,7 +77,10 @@ export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeSt
 				eventContext(input),
 			),
 		),
-		define("docs.list", (input: OperationInput) => listDocuments(artifacts, scopes, artifactFilter(input))),
+		define("docs.list", (input: OperationInput) => {
+			const docs = listDocuments(artifacts, scopes, artifactFilter(input));
+			return optionalBoolean(input, "full") === true ? docs : docs.map(summarizeArtifact);
+		}),
 		define("docs.show", (input: OperationInput) => showDocument(artifacts, string(input, "id"))),
 		define("docs.activate", (input: OperationInput) =>
 			transitionDocument(artifacts, string(input, "id"), "activate", authority, eventContext(input)),

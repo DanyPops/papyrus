@@ -33,3 +33,10 @@ export function optionalNumber(input: OperationInput, key: string): number | und
 	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${key} must be a number`);
 	return value;
 }
+
+export function optionalBoolean(input: OperationInput, key: string): boolean | undefined {
+	const value = input[key];
+	if (value === undefined) return undefined;
+	if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
+	return value;
+}

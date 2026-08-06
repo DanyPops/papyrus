@@ -57,6 +57,7 @@ export const passthroughOutput: VehicleSchemaCodec<unknown> = defineVehicleSchem
 
 export const stringProp = { type: "string" } as const;
 export const numberProp = { type: "number" } as const;
+export const booleanProp = { type: "boolean" } as const;
 
 /**
  * A plain `throw new Error(...)` inside any resolve()/execute() step here is caught by

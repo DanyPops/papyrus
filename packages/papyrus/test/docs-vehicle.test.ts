@@ -58,6 +58,35 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 		service.close();
 	});
 
+	it("list returns a lean summary by default -- no body/extra", async () => {
+		const { registry, service } = harness();
+		await registry.invoke("docs.create", 1, { title: "Big Doc", body: "a".repeat(2000), project_root: PROJECT }, PERMS);
+
+		const rows = (await registry.invoke("docs.list", 1, { project_root: PROJECT }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.title === "Big Doc")!;
+		expect(row.id).toBeDefined();
+		expect(row.title).toBe("Big Doc");
+		expect(row.status).toBeDefined();
+		expect(row.body).toBeUndefined();
+		expect(row.extra).toBeUndefined();
+		service.close();
+	});
+
+	it("list returns the full artifact, including body, when full: true is passed", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"docs.create",
+			1,
+			{ title: "Full Doc", body: "real body text", project_root: PROJECT },
+			PERMS,
+		)) as { id: string };
+
+		const rows = (await registry.invoke("docs.list", 1, { project_root: PROJECT, full: true }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.id === created.id)!;
+		expect(row.body).toBe("real body text");
+		service.close();
+	});
+
 	it("show resolves a doc by name, without a separate round trip", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("docs.create", 1, { title: "Storage schema", project_root: PROJECT }, PERMS)) as { id: string };

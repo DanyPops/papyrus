@@ -56,6 +56,39 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("list returns a lean summary by default -- no body/extra (condition/action live in extra)", async () => {
+		const { registry, service } = harness();
+		await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Big Rule", condition: "a".repeat(100), action: "a".repeat(100), project_root: PROJECT },
+			PERMS,
+		);
+
+		const rows = (await registry.invoke("rules.list", 1, { project_root: PROJECT }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.title === "Big Rule")!;
+		expect(row.id).toBeDefined();
+		expect(row.title).toBe("Big Rule");
+		expect(row.status).toBeDefined();
+		expect(row.extra).toBeUndefined();
+		service.close();
+	});
+
+	it("list returns the full artifact, including extra.condition/action, when full: true is passed", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Full Rule", condition: "when X", action: "do Y", project_root: PROJECT },
+			PERMS,
+		)) as { id: string };
+
+		const rows = (await registry.invoke("rules.list", 1, { project_root: PROJECT, full: true }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.id === created.id)!;
+		expect((row.extra as { condition?: string }).condition).toBe("when X");
+		service.close();
+	});
+
 	it("show resolves a rule by name, without a separate round trip", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("rules.create", 1, { title: "Prefer edit over sed", project_root: PROJECT }, PERMS)) as {

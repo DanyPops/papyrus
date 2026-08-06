@@ -9,7 +9,7 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import { listDocuments } from "../domain-services.ts";
 import { docsOperations } from "../modules/docs.ts";
-import { createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
+import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "docs";
 
@@ -66,9 +66,9 @@ export function registerDocsVehicleOperations(
 
 	define(
 		"list",
-		"Lists Docs matching an optional status/text filter, scoped to project_root when given.",
+		"Lists Docs matching an optional status/text filter, scoped to project_root when given. Returns a lean summary (no body) by default -- pass full: true for the complete artifact.",
 		"read",
-		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp },
+		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp, full: booleanProp },
 		[],
 		(input) => input,
 	);

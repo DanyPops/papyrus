@@ -29,6 +29,7 @@ import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
 import {
+	booleanProp,
 	buildWorkflowRunContent,
 	classifyPlaybookComposition,
 	classifySessionAuthorization,
@@ -107,9 +108,9 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 
 	define(
 		"list",
-		"Lists Playbooks matching an optional status/text filter, scoped to project_root when given.",
+		"Lists Playbooks matching an optional status/text filter, scoped to project_root when given. Returns a lean summary (no body/steps) by default -- pass full: true for the complete artifact.",
 		"read",
-		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp },
+		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp, full: booleanProp },
 		[],
 		(input) => input,
 	);

@@ -20,6 +20,29 @@ export interface Artifact {
 	edges?: ArtifactEdge[];
 }
 
+/**
+ * A list operation's default projection: everything needed to identify, browse, and pick
+ * one artifact out of many, without its body/extra -- the same fields show()'s own full
+ * Artifact carries minus the two that make listing dozens of rows as expensive as showing
+ * each one individually (a Playbook's full runbook body, a Rule's condition/action text).
+ */
+export interface ArtifactSummary {
+	id: string;
+	kind: string;
+	title: string;
+	status: string;
+	subtype: string;
+	labels: string[];
+	created_at: string;
+	updated_at: string;
+	alias: string;
+}
+
+export function summarizeArtifact(artifact: Artifact): ArtifactSummary {
+	const { id, kind, title, status, subtype, labels, created_at, updated_at, alias } = artifact;
+	return { id, kind, title, status, subtype, labels, created_at, updated_at, alias };
+}
+
 export interface CreateArtifactInput {
 	kind?: string;
 	title?: string;

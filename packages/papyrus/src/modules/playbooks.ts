@@ -10,6 +10,7 @@
  * playbook/playbook-definition.ts for the full rationale.
  */
 
+import { summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
@@ -31,7 +32,7 @@ import type { SessionIdentity } from "../session-identity/session-identity-servi
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
-import { type OperationInput, optionalNumber, optionalString, string } from "./operation-input.ts";
+import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "playbooks";
 
@@ -114,7 +115,10 @@ export function playbooksOperations({
 				eventContext(input),
 			),
 		),
-		define("playbooks.list", (input: OperationInput) => listPlaybooks(artifacts, artifactScopes, artifactFilter(input))),
+		define("playbooks.list", (input: OperationInput) => {
+			const playbooks = listPlaybooks(artifacts, artifactScopes, artifactFilter(input));
+			return optionalBoolean(input, "full") === true ? playbooks : playbooks.map(summarizeArtifact);
+		}),
 		define("playbooks.show", (input: OperationInput) => showPlaybook(artifacts, string(input, "id"))),
 		define("playbooks.preview", (input: OperationInput) =>
 			playbookInvocation(artifacts, string(input, "id"), input.arguments as Record<string, unknown> | undefined),

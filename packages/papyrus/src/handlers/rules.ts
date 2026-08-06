@@ -9,7 +9,7 @@ import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { listRules } from "../domain-services.ts";
 import { rulesOperations } from "../modules/rules.ts";
-import { createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
+import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "rules";
 
@@ -70,9 +70,9 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 
 	define(
 		"list",
-		"Lists Rules matching an optional status/text filter, scoped to project_root when given.",
+		"Lists Rules matching an optional status/text filter, scoped to project_root when given. Returns a lean summary (no condition/action/body) by default -- pass full: true for the complete artifact.",
 		"read",
-		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp },
+		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp, full: booleanProp },
 		[],
 		(input) => input,
 	);

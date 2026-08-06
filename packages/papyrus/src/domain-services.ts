@@ -16,6 +16,7 @@ import {
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 	PLAYBOOK_MAX_STEPS,
 	RULE_TEXT_HARD_LIMIT_CHARACTERS,
+	RULE_TEXT_SOFT_TARGET_CHARACTERS,
 	SKILL_MAX_ENUM_VALUES,
 } from "./constants.ts";
 import {
@@ -312,8 +313,26 @@ export type RuleTransition = "enable" | "disable";
  * reviewed, and a warning nobody reads is not a bound. See RULE_TEXT_HARD_LIMIT_CHARACTERS's
  * own comment in constants.ts for the research this threshold is grounded in.
  */
+export function ruleCombinedLength(condition: string | undefined, action: string | undefined, body: string | undefined): number {
+	return (condition ?? "").length + (action ?? "").length + (body ?? "").length;
+}
+
+/**
+ * Non-blocking counterpart to assertRuleTextWithinBounds's hard rejection: the same combined
+ * length, informational once it crosses the soft target, so a caller doesn't have to self-police
+ * with a manual character count before every rules.create/update. Returns undefined at or under
+ * the target -- the common case, not worth a field only ever seen as "undefined" on the wire.
+ */
+export function ruleCombinedLengthWarning(combinedLength: number): string | undefined {
+	if (combinedLength <= RULE_TEXT_SOFT_TARGET_CHARACTERS) return undefined;
+	return (
+		`condition+action+body is ${combinedLength} characters, over the ${RULE_TEXT_SOFT_TARGET_CHARACTERS}-character soft target ` +
+		`(hard limit ${RULE_TEXT_HARD_LIMIT_CHARACTERS}) -- consider moving detail into a linked Doc.`
+	);
+}
+
 function assertRuleTextWithinBounds(condition: string | undefined, action: string | undefined, body: string | undefined): void {
-	const combined = (condition ?? "").length + (action ?? "").length + (body ?? "").length;
+	const combined = ruleCombinedLength(condition, action, body);
 	if (combined > RULE_TEXT_HARD_LIMIT_CHARACTERS) {
 		throw new Error(
 			`rule condition+action+body is ${combined} characters, exceeding the ${RULE_TEXT_HARD_LIMIT_CHARACTERS}-character bound. ` +

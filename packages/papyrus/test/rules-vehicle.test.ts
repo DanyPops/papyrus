@@ -148,6 +148,61 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("create/update/show carry combinedLength, with a warning only once it exceeds the 600-character soft target", async () => {
+		const { registry, service } = harness();
+		const small = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Small", condition: "before commit", rule_action: "Run tests", project_root: PROJECT },
+			PERMS,
+		)) as { combinedLength: number; warning?: string };
+		expect(small.combinedLength).toBe("before commit".length + "Run tests".length);
+		expect(small.warning).toBeUndefined();
+
+		const big = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Big", condition: "x".repeat(400), rule_action: "y".repeat(400), project_root: PROJECT },
+			PERMS,
+		)) as { id: string; combinedLength: number; warning?: string };
+		expect(big.combinedLength).toBe(800);
+		expect(big.warning).toContain("800 characters");
+		expect(big.warning).toContain("600-character soft target");
+
+		const shown = (await registry.invoke("rules.show", 1, { id: big.id }, PERMS)) as { combinedLength: number; warning?: string };
+		expect(shown.combinedLength).toBe(800);
+		expect(shown.warning).toContain("600-character soft target");
+
+		const updated = (await registry.invoke("rules.update", 1, { id: big.id, title: "Big v2" }, PERMS)) as {
+			combinedLength: number;
+			warning?: string;
+		};
+		expect(updated.combinedLength).toBe(800);
+		expect(updated.warning).toContain("600-character soft target");
+		service.close();
+	});
+
+	it("preview returns { preview, combinedLength, warning? } instead of a bare string", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Test before commit", condition: "before commit", rule_action: "Run bun test", project_root: PROJECT },
+			PERMS,
+		)) as { id: string };
+
+		const preview = (await registry.invoke("rules.preview", 1, { id: created.id }, PERMS)) as {
+			preview: string;
+			combinedLength: number;
+			warning?: string;
+		};
+		expect(preview.preview).toContain("before commit");
+		expect(preview.preview).toContain("Run bun test");
+		expect(preview.combinedLength).toBe("before commit".length + "Run bun test".length);
+		expect(preview.warning).toBeUndefined();
+		service.close();
+	});
+
 	it("remove/restore go through the shared kind-agnostic artifact.* operations, not a rules-namespaced duplicate", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("rules.create", 1, { title: "Trash me", project_root: PROJECT }, PERMS)) as { id: string };

@@ -49,7 +49,7 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 
 	define(
 		"create",
-		"Creates a Rule -- a standing constraint injected into the agent system prompt while active. project_root is optional (omitted = unscoped).",
+		"Creates a Rule -- a standing constraint injected into the agent system prompt while active. project_root is optional (omitted = unscoped). The response includes combinedLength (condition+action+body character count) and a non-blocking warning once it exceeds the ~600-character soft target (hard-rejected past 4000).",
 		"local-write",
 		{
 			title: stringProp,
@@ -77,14 +77,21 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 		(input) => input,
 	);
 
-	define("show", "Shows one Rule by id or title.", "read", { id: stringProp, name: stringProp, project_root: stringProp }, [], (input) => ({
-		...input,
-		id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name),
-	}));
+	define(
+		"show",
+		"Shows one Rule by id or title. The response includes combinedLength (condition+action+body character count) and a non-blocking warning once it exceeds the ~600-character soft target.",
+		"read",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({
+			...input,
+			id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name),
+		}),
+	);
 
 	define(
 		"preview",
-		"Renders a Rule's own condition/action/body preview text with no side effects.",
+		"Renders a Rule's own condition/action/body preview text with no side effects. Response: { preview, combinedLength, warning? } -- warning is present only once combinedLength exceeds the ~600-character soft target.",
 		"read",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],
@@ -146,7 +153,7 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 
 	define(
 		"update",
-		"Changes a Rule's title/body/labels (at least one required). Body updates still enforce the same combined condition+action+body context-tax bound as creation.",
+		"Changes a Rule's title/body/labels (at least one required). Body updates still enforce the same combined condition+action+body context-tax bound as creation. The response includes combinedLength and a non-blocking warning once it exceeds the ~600-character soft target.",
 		"local-write",
 		{
 			id: stringProp,

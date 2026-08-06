@@ -11,7 +11,7 @@
  * registry" convention.
  */
 
-import { summarizeArtifact } from "../artifact/artifact.ts";
+import { type Artifact, summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
@@ -20,6 +20,8 @@ import {
 	gateTaskWithRule,
 	listRules,
 	previewRule,
+	ruleCombinedLength,
+	ruleCombinedLengthWarning,
 	showRule,
 	transitionRule,
 	updateRule,
@@ -41,6 +43,22 @@ const artifactFilter = (input: OperationInput) => ({
 	limit: optionalNumber(input, "limit"),
 	projectRoot: optionalString(input, "project_root"),
 });
+
+/**
+ * Adds a rule's own combinedLength (and, past the soft target, a non-blocking warning) to any
+ * response shaped as its own Artifact -- additive fields alongside every existing one, so a
+ * caller reading .id/.title/... unchanged still works. Removes the need for a manual
+ * len(condition)+len(action)+len(body) count before every rules.create/update call.
+ */
+function withRuleLengthInfo(rule: Artifact): Artifact & { combinedLength: number; warning?: string } {
+	const combinedLength = ruleCombinedLength(
+		typeof rule.extra.condition === "string" ? rule.extra.condition : undefined,
+		typeof rule.extra.action === "string" ? rule.extra.action : undefined,
+		rule.body,
+	);
+	const warning = ruleCombinedLengthWarning(combinedLength);
+	return { ...rule, combinedLength, ...(warning === undefined ? {} : { warning }) };
+}
 
 /** Registers every rules.* operation except rules.injectable (see module comment). Behavior is unchanged from the prior inline handlers in src/service.ts. */
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. rules.injectable is deliberately absent -- see the module comment above. */
@@ -64,28 +82,39 @@ export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeS
 	});
 	return [
 		define("rules.create", (input: OperationInput) =>
-			createRule(
-				artifacts,
-				scopes,
-				{
-					title: string(input, "title"),
-					body: optionalString(input, "body"),
-					condition: optionalString(input, "condition"),
-					action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
-					severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
-					labels: input.labels as string[] | undefined,
-					extra: input.extra as Record<string, unknown> | undefined,
-					projectRoot: optionalString(input, "project_root"),
-				},
-				eventContext(input),
+			withRuleLengthInfo(
+				createRule(
+					artifacts,
+					scopes,
+					{
+						title: string(input, "title"),
+						body: optionalString(input, "body"),
+						condition: optionalString(input, "condition"),
+						action: optionalString(input, "rule_action") ?? optionalString(input, "governance_action"),
+						severity: optionalString(input, "severity") as "block" | "warn" | "info" | undefined,
+						labels: input.labels as string[] | undefined,
+						extra: input.extra as Record<string, unknown> | undefined,
+						projectRoot: optionalString(input, "project_root"),
+					},
+					eventContext(input),
+				),
 			),
 		),
 		define("rules.list", (input: OperationInput) => {
 			const rules = listRules(artifacts, scopes, artifactFilter(input));
 			return optionalBoolean(input, "full") === true ? rules : rules.map(summarizeArtifact);
 		}),
-		define("rules.show", (input: OperationInput) => showRule(artifacts, string(input, "id"))),
-		define("rules.preview", (input: OperationInput) => previewRule(artifacts, string(input, "id"))),
+		define("rules.show", (input: OperationInput) => withRuleLengthInfo(showRule(artifacts, string(input, "id")))),
+		define("rules.preview", (input: OperationInput) => {
+			const rule = showRule(artifacts, string(input, "id"));
+			const combinedLength = ruleCombinedLength(
+				typeof rule.extra.condition === "string" ? rule.extra.condition : undefined,
+				typeof rule.extra.action === "string" ? rule.extra.action : undefined,
+				rule.body,
+			);
+			const warning = ruleCombinedLengthWarning(combinedLength);
+			return { preview: previewRule(artifacts, string(input, "id")), combinedLength, ...(warning === undefined ? {} : { warning }) };
+		}),
 		define("rules.enable", (input: OperationInput) => transitionRule(artifacts, string(input, "id"), "enable", eventContext(input))),
 		define("rules.disable", (input: OperationInput) => transitionRule(artifacts, string(input, "id"), "disable", eventContext(input))),
 		define("rules.gate", (input: OperationInput) =>
@@ -95,15 +124,17 @@ export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeS
 			assignRuleProject(artifacts, scopes, string(input, "id"), optionalString(input, "project_root")),
 		),
 		define("rules.update", (input: OperationInput) =>
-			updateRule(
-				artifacts,
-				string(input, "id"),
-				{
-					title: optionalString(input, "title"),
-					body: optionalString(input, "body"),
-					labels: input.labels as string[] | undefined,
-				},
-				eventContext(input),
+			withRuleLengthInfo(
+				updateRule(
+					artifacts,
+					string(input, "id"),
+					{
+						title: optionalString(input, "title"),
+						body: optionalString(input, "body"),
+						labels: input.labels as string[] | undefined,
+					},
+					eventContext(input),
+				),
 			),
 		),
 	];

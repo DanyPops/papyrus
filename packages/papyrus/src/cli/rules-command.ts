@@ -124,8 +124,12 @@ const showCommand = buildCommand({
 
 const previewCommand = buildCommand({
 	func: async function (this: RulesContext, _flags: Record<string, never>, id: string) {
-		const preview = await this.client.call<Record<string, unknown>, string>("rules.preview", { id });
-		render.call(this, preview, preview);
+		const result = await this.client.call<Record<string, unknown>, { preview: string; combinedLength: number; warning?: string }>(
+			"rules.preview",
+			{ id },
+		);
+		const text = result.warning === undefined ? result.preview : `${result.preview}\n\n⚠ ${result.warning}`;
+		render.call(this, result, text);
 	},
 	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] } },
 	docs: { brief: "Render a Rule's own condition/action/body preview text" },

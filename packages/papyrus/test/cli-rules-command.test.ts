@@ -77,11 +77,21 @@ describe("runRulesCli (Stricli-backed)", () => {
 		expect(output).toBe("r1-alias T\n\nsome body");
 	});
 
-	it("preview: returns the raw preview string, JSON or not", async () => {
-		const client = new FakeClient("preview text");
+	it("preview: renders just the preview text when under the soft length target", async () => {
+		const client = new FakeClient({ preview: "preview text", combinedLength: 42 });
 		const output = await runRulesCli(["preview", "r1"], client, "/caller");
 		expect(client.calls).toEqual([{ operation: "rules.preview", input: { id: "r1" } }]);
 		expect(output).toBe("preview text");
+	});
+
+	it("preview: appends the soft-target warning when the response carries one", async () => {
+		const client = new FakeClient({
+			preview: "preview text",
+			combinedLength: 700,
+			warning: "condition+action+body is 700 characters, over the 600-character soft target",
+		});
+		const output = await runRulesCli(["preview", "r1"], client, "/caller");
+		expect(output).toBe("preview text\n\n⚠ condition+action+body is 700 characters, over the 600-character soft target");
 	});
 
 	it.each(["enable", "disable"])("%s: calls rules.%s with just the id", async (action) => {

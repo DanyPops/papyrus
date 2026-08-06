@@ -25,6 +25,8 @@ import {
 	listRules,
 	playbookInvocation,
 	previewRule,
+	ruleCombinedLength,
+	ruleCombinedLengthWarning,
 	showPlaybook,
 	transitionDocument,
 	transitionPlaybook,
@@ -162,6 +164,20 @@ describe("rules domain service", () => {
 		expect(() => updateRule(artifacts, rule.id, { body: "x".repeat(300) })).toThrow(/4000-character bound/);
 		expect(() => updateRule(artifacts, rule.id, { body: "short still" })).not.toThrow();
 		db.close();
+	});
+
+	it("ruleCombinedLength sums condition+action+body, treating a missing field as empty", () => {
+		expect(ruleCombinedLength("cond", "act", "body")).toBe(11);
+		expect(ruleCombinedLength(undefined, undefined, undefined)).toBe(0);
+		expect(ruleCombinedLength("x".repeat(10), undefined, "y".repeat(5))).toBe(15);
+	});
+
+	it("ruleCombinedLengthWarning is undefined at or under the 600-character soft target, and a message once over it", () => {
+		expect(ruleCombinedLengthWarning(0)).toBeUndefined();
+		expect(ruleCombinedLengthWarning(600)).toBeUndefined();
+		expect(ruleCombinedLengthWarning(601)).toContain("601 characters");
+		expect(ruleCombinedLengthWarning(601)).toContain("600-character soft target");
+		expect(ruleCombinedLengthWarning(601)).toContain("4000");
 	});
 
 	it("refuses to update a Rule that is a read-only projection from an external system", () => {

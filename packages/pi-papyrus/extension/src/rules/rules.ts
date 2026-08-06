@@ -36,8 +36,12 @@ export async function showRules(ctx: ExtensionCommandContext): Promise<void> {
 				const updated = await callService<Record<string, unknown>, Artifact>("rules.update", { id: rule.id, title, body });
 				commandCtx.ui.notify(`Updated "${updated.title}"`, "info");
 			} else if (choice === "Preview injection") {
-				const preview = await callService<Record<string, unknown>, string>("rules.preview", { id: rule.id });
-				commandCtx.ui.notify(preview, "info");
+				const result = await callService<Record<string, unknown>, { preview: string; combinedLength: number; warning?: string }>(
+					"rules.preview",
+					{ id: rule.id },
+				);
+				const text = result.warning === undefined ? result.preview : `${result.preview}\n\n⚠ ${result.warning}`;
+				commandCtx.ui.notify(text, result.warning === undefined ? "info" : "warning");
 			} else if (choice === "Link gated task") {
 				const taskId = await commandCtx.ui.input("Task artifact id:", "");
 				if (taskId) await callService("rules.gate", { id: rule.id, task_id: taskId });

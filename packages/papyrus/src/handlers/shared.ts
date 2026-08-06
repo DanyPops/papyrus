@@ -9,6 +9,7 @@ import {
 	defineVehicleSchema,
 	type VehicleContentBlock,
 	VehicleError,
+	type VehicleLimits,
 	type VehicleOperationContext,
 	type VehicleSchemaCodec,
 } from "@danypops/vehicle-core";
@@ -244,6 +245,14 @@ export type DefineOperation = (
 	required: readonly string[],
 	resolve: (input: Record<string, unknown>) => Record<string, unknown>,
 	execute?: (input: Record<string, unknown>, context: VehicleOperationContext<Record<string, unknown>>) => unknown,
+	/**
+	 * Overrides this one operation's own Vehicle transport limits, distinct from every other
+	 * operation this same createOperationDefiner call produces. For an operation that shells out
+	 * to and waits on a real external command (e.g. tasks.run_gates/tasks.complete) rather than an
+	 * instant CRUD read/write -- see handlers/tasks.ts's GATE_OPERATION_LIMITS for the motivating
+	 * case. Omit to keep the definer's own default limits, unchanged for every other action.
+	 */
+	limits?: VehicleLimits,
 ) => void;
 
 const STANDARD_OPERATION_LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
@@ -262,7 +271,7 @@ export function createOperationDefiner(
 	permissions: readonly [string, string],
 	defaultCall: (name: string, input: Record<string, unknown>) => unknown,
 ): DefineOperation {
-	return (action, description, effect, properties, required, resolve, execute) => {
+	return (action, description, effect, properties, required, resolve, execute, limits) => {
 		const operation = defineVehicleOperation({
 			name: `${domain}.${action}`,
 			version: 1,
@@ -272,7 +281,7 @@ export function createOperationDefiner(
 			permissions: [...permissions],
 			effect,
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
-			limits: STANDARD_OPERATION_LIMITS,
+			limits: limits ?? STANDARD_OPERATION_LIMITS,
 		});
 		registry.register(
 			owner,

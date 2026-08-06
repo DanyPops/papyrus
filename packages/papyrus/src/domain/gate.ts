@@ -1,3 +1,5 @@
+import { GATE_TIMEOUT_MAX_MS } from "../constants.ts";
+
 export const GATE_TYPES = ["file-exists", "command", "contains", "test"] as const;
 export type GateType = (typeof GATE_TYPES)[number];
 
@@ -5,6 +7,8 @@ export interface Gate {
 	type: GateType;
 	target: string;
 	expect?: string;
+	/** Overrides GATE_COMMAND_TIMEOUT_MS/GATE_TEST_TIMEOUT_MS for this one "command"/"test" gate, bounded by GATE_TIMEOUT_MAX_MS (see its own doc comment). */
+	timeoutMs?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -29,10 +33,17 @@ export function validateGates(value: unknown): Gate[] {
 		if (entry.expect !== undefined && typeof entry.expect !== "string") {
 			throw new Error(`gate at index ${index} expect must be a string`);
 		}
+		if (
+			entry.timeoutMs !== undefined &&
+			(!Number.isInteger(entry.timeoutMs) || (entry.timeoutMs as number) < 1_000 || (entry.timeoutMs as number) > GATE_TIMEOUT_MAX_MS)
+		) {
+			throw new Error(`gate at index ${index} timeoutMs must be an integer between 1000 and ${GATE_TIMEOUT_MAX_MS}`);
+		}
 		return {
 			type: entry.type as GateType,
 			target: entry.target,
 			...(typeof entry.expect === "string" ? { expect: entry.expect } : {}),
+			...(typeof entry.timeoutMs === "number" ? { timeoutMs: entry.timeoutMs } : {}),
 		};
 	});
 }

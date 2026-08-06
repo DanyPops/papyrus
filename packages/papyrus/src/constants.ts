@@ -16,6 +16,17 @@ export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
 export const DB_OPTIMIZE_INTERVAL_MS = 24 * 60 * 60_000;
 export const GATE_COMMAND_TIMEOUT_MS = 30_000;
 export const GATE_TEST_TIMEOUT_MS = 60_000;
+/**
+ * Ceiling a Gate's own explicit `timeoutMs` (domain/gate.ts) may request, overriding
+ * GATE_COMMAND_TIMEOUT_MS/GATE_TEST_TIMEOUT_MS for that one gate -- e.g. a task whose gate is a
+ * full monorepo test run that legitimately takes longer than either type default. Real, confirmed
+ * bug this exists for: a caller had no way to declare a longer-than-default gate timeout at all --
+ * `tasks.set_gates` silently accepted and dropped an experimental `timeoutMs` field before this.
+ * handlers/tasks.ts's GATE_OPERATION_LIMITS derives its own outer Vehicle transport deadline from
+ * this same constant, so the outer deadline can never fire strictly before a single gate honoring
+ * this ceiling has had a chance to.
+ */
+export const GATE_TIMEOUT_MAX_MS = 300_000;
 export const GATE_OUTPUT_LIMIT = 200;
 export const GATE_MAX_BUFFER_BYTES = 1_048_576;
 export const GATE_FILE_MAX_BYTES = 1_048_576;

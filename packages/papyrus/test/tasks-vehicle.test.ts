@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { VehicleManifestOperation } from "@danypops/vehicle-core";
-import { TASK_EXECUTION_MAX_DEGREE } from "../src/constants.ts";
+import { GATE_TIMEOUT_MAX_MS, TASK_EXECUTION_MAX_DEGREE } from "../src/constants.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
@@ -241,6 +241,54 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		expect(plan.content?.[0]?.text).toContain("Plan me");
 		service.close();
 	});
+
+	// Real, confirmed bug (reproduced twice, with hard numbers): tasks.run_gates/tasks.complete
+	// inherited the same 5s default as every instant CRUD read/write, aborting the RPC call for any
+	// gate command that took longer than a few seconds -- even a genuinely successful one.
+	it("run_gates and complete get their own, materially higher Vehicle transport limits than ordinary CRUD tasks.* actions", () => {
+		const { registry, service } = harness();
+		const operations = registry.manifest().operations as VehicleManifestOperation[];
+		const byName = new Map(operations.map((op) => [op.name, op]));
+		const list = byName.get("tasks.list")!;
+		const complete = byName.get("tasks.complete")!;
+		const runGates = byName.get("tasks.run_gates")!;
+
+		// The old, reported bug: a 5s default cannot survive a real gate command lasting even a few
+		// seconds, let alone a real test suite.
+		expect(list.limits.defaultTimeoutMs).toBe(5_000);
+		expect(complete.limits.defaultTimeoutMs).toBeGreaterThan(GATE_TIMEOUT_MAX_MS);
+		expect(runGates.limits.defaultTimeoutMs).toBeGreaterThan(GATE_TIMEOUT_MAX_MS);
+		// The outer transport deadline must never fire strictly before a single gate honoring its own
+		// GATE_TIMEOUT_MAX_MS ceiling has had a chance to.
+		expect(complete.limits.maxTimeoutMs).toBeGreaterThanOrEqual(GATE_TIMEOUT_MAX_MS);
+		expect(runGates.limits.maxTimeoutMs).toBeGreaterThanOrEqual(GATE_TIMEOUT_MAX_MS);
+		service.close();
+	});
+
+	it("a real gate command that legitimately takes longer than the OLD 5s default now succeeds through run_gates and complete", async () => {
+		const { registry, service } = harness();
+		// A real, existing cwd -- executeGateCommand spawns with this as its own working directory,
+		// so a nonexistent path (unlike every other project_root in this file, used only as an opaque
+		// scoping string) fails the spawn itself (ENOENT) before the command ever runs.
+		const projectDir = tempDir("papyrus-tasks-vehicle-gate-project-");
+		const created = (await registry.invoke(
+			"tasks.create",
+			1,
+			{ title: "Slow but real gate", project_root: projectDir, gates: [{ type: "command", target: "sleep 6 && echo done" }] },
+			PERMS,
+		)) as { id: string };
+
+		const gateResult = (await registry.invoke("tasks.run_gates", 1, { id: created.id }, PERMS)) as {
+			gates: Array<{ passed: boolean }>;
+		};
+		expect(gateResult.gates[0]?.passed).toBe(true);
+
+		await registry.invoke("tasks.start", 1, { id: created.id }, PERMS);
+		await registry.invoke("tasks.submit", 1, { id: created.id }, PERMS);
+		const completion = (await registry.invoke("tasks.complete", 1, { id: created.id }, PERMS)) as { completed: boolean };
+		expect(completion.completed).toBe(true);
+		service.close();
+	}, 20_000);
 
 	it("run_gates' output carries a pass/fail content summary", async () => {
 		const { registry, service } = harness();

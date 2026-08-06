@@ -240,6 +240,33 @@ describe("Tasks port behavior", () => {
 		expect(tasks.show(created.id).extra.gates).toEqual([{ type: "command", target: "echo ok" }]);
 	});
 
+	// Real bug: tasks_set_gates silently accepted and dropped an experimental `timeoutMs` field --
+	// there was no way to declare a longer-than-default timeout for a legitimately slow gate at all.
+	it("persists a gate's own explicit timeoutMs through both create and setGates, instead of silently dropping it", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const created = tasks.create({ title: "Slow gate", gates: [{ type: "command", target: "bun test", timeoutMs: 120_000 }] });
+		expect(created.extra.gates).toEqual([{ type: "command", target: "bun test", timeoutMs: 120_000 }]);
+
+		const updated = tasks.setGates(created.id, [{ type: "test", target: "suite", timeoutMs: 180_000 }]);
+		expect(updated.extra.gates).toEqual([{ type: "test", target: "suite", timeoutMs: 180_000 }]);
+	});
+
+	it("rejects an out-of-bounds or non-integer gate timeoutMs, at both creation and setGates", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		expect(() => tasks.create({ title: "Bad timeout", gates: [{ type: "command", target: "x", timeoutMs: 500 }] as never })).toThrow(
+			"timeoutMs must be an integer between 1000",
+		);
+		expect(() => tasks.create({ title: "Bad timeout", gates: [{ type: "command", target: "x", timeoutMs: 1.5 }] as never })).toThrow(
+			"timeoutMs must be an integer",
+		);
+		expect(() => tasks.create({ title: "Bad timeout", gates: [{ type: "command", target: "x", timeoutMs: 10_000_000 }] as never })).toThrow(
+			"timeoutMs must be an integer",
+		);
+
+		const created = tasks.create({ title: "Scoped timeout", gates: [{ type: "command", target: "echo ok" }] });
+		expect(() => tasks.setGates(created.id, [{ type: "command", target: "x", timeoutMs: 500 }] as never)).toThrow("timeoutMs");
+	});
+
 	it("rejects a task when review gates fail and keeps it focused for corrective effort", () => {
 		const artifacts = new FakeArtifactStore();
 		const gates = new FakeGateRunner();

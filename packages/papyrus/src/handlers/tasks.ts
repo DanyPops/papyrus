@@ -19,8 +19,10 @@
  *
  * remove/remove_subtree/restore are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
+import type { VehicleLimits } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import { GATE_TIMEOUT_MAX_MS } from "../constants.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
@@ -40,7 +42,31 @@ import {
 } from "./shared.ts";
 
 const OWNER = "tasks";
-const LIMITS = { defaultTimeoutMs: 5_000, maxTimeoutMs: 30_000, maxRequestBytes: 65_536, maxResponseBytes: 262_144 };
+
+/**
+ * tasks.run_gates/tasks.complete's own Vehicle transport limits, distinct from every other
+ * tasks.* CRUD action's shared STANDARD_OPERATION_LIMITS (createOperationDefiner's own default,
+ * 5s). Those two operations shell out to and wait on a real, caller-configured external command
+ * (domain/gate.ts's Gate.timeoutMs) -- the shared 5s CRUD default was an accidental inheritance,
+ * not a deliberate choice, and aborted the RPC call for any gate command that took longer than a
+ * few seconds, even a genuinely successful one (confirmed live, twice, with hard numbers: a real
+ * ~13s gate failed deterministically every time; a ~28s gate flapped around a separate, unrelated
+ * 30s inner per-gate-type default).
+ *
+ * defaultTimeoutMs is derived from GATE_TIMEOUT_MAX_MS (the longest a single gate's own explicit
+ * timeoutMs may request) plus a buffer for process-spawn/RPC/serialization overhead, so the outer
+ * transport deadline can never fire strictly before a single gate honoring that ceiling has had a
+ * chance to. A task with SEVERAL gates each near that ceiling can still exceed this default in
+ * aggregate (gates run sequentially -- see ops.ts's runGatesAsync); there is no aggregate
+ * task-level gate-time budget yet. maxTimeoutMs gives a caller who knows its gates are
+ * collectively slower room to explicitly request a longer deadline.
+ */
+const GATE_OPERATION_LIMITS: VehicleLimits = {
+	defaultTimeoutMs: GATE_TIMEOUT_MAX_MS + 60_000,
+	maxTimeoutMs: GATE_TIMEOUT_MAX_MS * 4,
+	maxRequestBytes: 65_536,
+	maxResponseBytes: 262_144,
+};
 
 const objectProp = { type: "object" } as unknown as { type: string };
 const arrayProp = { type: "array" } as unknown as { type: string };
@@ -456,6 +482,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			const labels = labelsById(artifacts, dependencyIds);
 			return { ...result, content: [{ type: "text" as const, text: completionContentText(labels, result) }] };
 		},
+		GATE_OPERATION_LIMITS,
 	);
 
 	define(
@@ -484,6 +511,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 				"No gates configured.";
 			return { gates, content: [{ type: "text" as const, text }] };
 		},
+		GATE_OPERATION_LIMITS,
 	);
 
 	define(
@@ -496,7 +524,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"set_gates",
-		"Replaces a Task's gate commands in full.",
+		"Replaces a Task's gate commands in full. Each gate is {type, target, expect?, timeoutMs?} -- timeoutMs overrides the default per-type command timeout (30s)/test timeout (60s) for a legitimately slower gate, up to a bounded ceiling.",
 		"local-write",
 		{ id: stringProp, name: stringProp, gates: arrayProp, project_root: stringProp },
 		["gates"],

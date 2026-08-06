@@ -236,6 +236,48 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	it("runGatesAsync: a gate's own explicit timeoutMs overrides the type default, not just the aggregate deadlineMs", async () => {
+		// GATE_COMMAND_TIMEOUT_MS defaults to 30s -- proving this override actually takes effect
+		// (not just being silently accepted and ignored, the exact bug this fixes) means the gate must
+		// time out FAR sooner than that default once timeoutMs is set, without any aggregate deadlineMs
+		// involved at all.
+		const { db, dir } = tmpDb();
+		const pidFile = join(dir, "child.pid");
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "Per-gate timeout override",
+			extra: { gates: [{ type: "command", target: `sh -c 'sleep 5 & echo $! > ${pidFile}; wait'`, timeoutMs: 300 }] },
+		});
+
+		const started = Date.now();
+		const results = await runGatesAsync(db, task.id!);
+		const elapsedMs = Date.now() - started;
+		expect(results[0]?.passed).toBe(false);
+		expect(results[0]?.output).toContain("timed out after 300ms");
+		expect(elapsedMs).toBeLessThan(5_000);
+
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const grandchildPid = Number(readFileSync(pidFile, "utf8").trim());
+		expect(() => process.kill(grandchildPid, 0)).toThrow();
+		db.close();
+	});
+
+	it("runGates (sync): a gate's own explicit timeoutMs overrides the type default too, not just the async path", () => {
+		const { db } = tmpDb();
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "Per-gate timeout override sync",
+			extra: { gates: [{ type: "command", target: "sleep 5", timeoutMs: 300 }] },
+		});
+
+		const started = Date.now();
+		const results = runGates(db, task.id!);
+		const elapsedMs = Date.now() - started;
+		expect(results[0]?.passed).toBe(false);
+		expect(elapsedMs).toBeLessThan(5_000);
+		db.close();
+	});
+
 	// Real bug: execSync's return value is stdout only. A command that writes its actual result to
 	// stderr (bun test's own per-test lines and pass/fail summary among them) always failed its
 	// gate.expect match, regardless of whether the command truly passed.

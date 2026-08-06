@@ -601,8 +601,9 @@ function readBoundedGateFile(path: string): string {
 /** Shared by the sync and async process-gate runners so "test" is never a second, independently
  * maintained copy of "command"'s own command-template/timeout selection. */
 function processGateCommand(gate: Gate): { command: string; timeout: number } {
-	if (gate.type === "test") return { command: `npx vitest run ${gate.target} --reporter=dot`, timeout: GATE_TEST_TIMEOUT_MS };
-	return { command: gate.target, timeout: GATE_COMMAND_TIMEOUT_MS };
+	if (gate.type === "test")
+		return { command: `npx vitest run ${gate.target} --reporter=dot`, timeout: gate.timeoutMs ?? GATE_TEST_TIMEOUT_MS };
+	return { command: gate.target, timeout: gate.timeoutMs ?? GATE_COMMAND_TIMEOUT_MS };
 }
 
 /**

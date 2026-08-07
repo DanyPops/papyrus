@@ -29,6 +29,7 @@ import type { SessionIdentity } from "../session-identity/session-identity-servi
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import type { TaskCompletion, Tasks } from "../task/task-service.ts";
 import {
+	booleanProp,
 	classifySessionAuthorization,
 	classifyTaskDependencyCycles,
 	classifyTaskExecutionBounds,
@@ -147,6 +148,9 @@ const readSchemaProps = {
 	labels: arrayProp,
 };
 
+/** list-only: opts into full Artifact bodies instead of the lean summarizeArtifact() default (modules/tasks.ts). */
+const listSchemaProps = { ...readSchemaProps, full: booleanProp };
+
 /** Same gate/checklist narrative lines the removed tool built client-side. */
 function completionContentText(labels: Map<string, string>, result: TaskCompletion): string {
 	const gates = result.gates.map((gate) => `${gate.passed ? "✓" : "✗"} ${gate.gate.type}: ${gate.gate.target} — ${gate.output}`).join("\n");
@@ -263,9 +267,9 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	define(
 		"list",
-		"Lists Tasks matching an optional status/text/labels filter, scoped to project_root. project_root is required (no ambient cwd server-side).",
+		"Lists Tasks matching an optional status/text/labels filter, scoped to project_root. project_root is required (no ambient cwd server-side). Returns a lean summary (no body/extra) unless full: true is passed.",
 		"read",
-		readSchemaProps,
+		listSchemaProps,
 		["project_root"],
 		(input) => {
 			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);

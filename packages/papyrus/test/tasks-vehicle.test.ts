@@ -94,6 +94,35 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("list returns a lean summary by default -- no body/extra", async () => {
+		const { registry, service } = harness();
+		await registry.invoke("tasks.create", 1, { title: "Big Task", body: "a".repeat(2000), project_root: PROJECT }, PERMS);
+
+		const rows = (await registry.invoke("tasks.list", 1, { project_root: PROJECT }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.title === "Big Task")!;
+		expect(row.id).toBeDefined();
+		expect(row.title).toBe("Big Task");
+		expect(row.status).toBeDefined();
+		expect(row.body).toBeUndefined();
+		expect(row.extra).toBeUndefined();
+		service.close();
+	});
+
+	it("list returns the full task, including body, when full: true is passed", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"tasks.create",
+			1,
+			{ title: "Full Task", body: "real body text", project_root: PROJECT },
+			PERMS,
+		)) as { id: string };
+
+		const rows = (await registry.invoke("tasks.list", 1, { project_root: PROJECT, full: true }, PERMS)) as Array<Record<string, unknown>>;
+		const row = rows.find((candidate) => candidate.id === created.id)!;
+		expect(row.body).toBe("real body text");
+		service.close();
+	});
+
 	it("show resolves a task by name, scoped to project_root, without a separate round trip", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("tasks.create", 1, { title: "Findable", project_root: PROJECT }, PERMS)) as { id: string };
@@ -583,6 +612,9 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		// enforcePayloadSize -- confirm the real failure this project's own registry.invoke() throws
 		// still carries { actualBytes, maxBytes }, now that vehicle-client-pi's PiVehicleInvocationError
 		// (the Pi-tool-facing layer) knows how to surface them instead of silently dropping them.
+		// full: true is required here since a137b2a7's lean-by-default summary (no body/extra) means
+		// the common case this regression used to hit by accident no longer does -- a caller must now
+		// deliberately opt into full bodies to reach this response-size cap at all.
 		const { registry, service } = harness();
 		// Each task's own body stays under tasks.create@1's own 65_536-byte REQUEST cap; enough of
 		// them together push tasks.list@1's combined RESPONSE past its separate 262_144-byte cap.
@@ -590,7 +622,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 			await registry.invoke("tasks.create", 1, { title: `Big ${index}`, body: "x".repeat(60_000), project_root: PROJECT }, PERMS);
 		}
 
-		const rejection = await registry.invoke("tasks.list", 1, { project_root: PROJECT }, PERMS).catch((error: unknown) => error);
+		const rejection = await registry.invoke("tasks.list", 1, { project_root: PROJECT, full: true }, PERMS).catch((error: unknown) => error);
 
 		expect(rejection).toBeInstanceOf(VehicleError);
 		const failure = rejection as VehicleError;

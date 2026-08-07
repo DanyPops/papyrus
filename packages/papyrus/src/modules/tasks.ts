@@ -19,6 +19,7 @@
  * the actual thing this module avoids importing.
  */
 
+import { summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { Checklist } from "../domain/checklist.ts";
 import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../domain/task-event.ts";
@@ -28,7 +29,7 @@ import type { SessionIdentity } from "../session-identity/session-identity-servi
 import { taskContext } from "../task/task-context.ts";
 import { projectTaskExecution } from "../task/task-execution.ts";
 import type { TaskStatus, Tasks } from "../task/task-service.ts";
-import { type OperationInput, optionalNumber, optionalString, optionalStringArray, string } from "./operation-input.ts";
+import { type OperationInput, optionalBoolean, optionalNumber, optionalString, optionalStringArray, string } from "./operation-input.ts";
 
 const MODULE_ID = "tasks";
 
@@ -146,7 +147,10 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 				eventContext(input),
 			),
 		),
-		define("tasks.list", (input: OperationInput) => tasks.list(taskFilter(input))),
+		define("tasks.list", (input: OperationInput) => {
+			const rows = tasks.list(taskFilter(input));
+			return optionalBoolean(input, "full") === true ? rows : rows.map(summarizeArtifact);
+		}),
 		define("tasks.graph", (input: OperationInput) => tasks.graph(taskFilter(input))),
 		define("tasks.plan", (input: OperationInput) => projectTaskExecution(tasks.graph(taskFilter(input)))),
 		define("tasks.show", (input: OperationInput) => tasks.show(string(input, "id"))),

@@ -31,6 +31,7 @@ import { discussLiveFollowUp } from "../discuss/discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "../service-client.ts";
 import { sessionSecretField } from "../session-identity.ts";
 import { emitTaskFocusEvent } from "../task/task-focus-events.ts";
+import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
 import { papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
 const REGISTERED_PERMISSIONS = [
@@ -103,13 +104,21 @@ function notifyReadyEvent(event: VehicleReadyEvent): void {
  * awaiting it is optional and mainly useful for tests.
  */
 export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehicle | undefined> {
+	recordRenderDiagnostic({ event: "register-notes-vehicle-called" });
 	const client = createReconnectingVehicleClient(async () => {
 		const resolved = currentVehicleClientTarget();
 		if (!resolved) throw new Error("Papyrus daemon is not running");
 		return new RemoteVehicleClient({ baseUrl: resolved.baseUrl, token: resolved.token });
 	});
 	return registerVehicleToolsWhenReady(pi, () => Promise.resolve(currentVehicleClientTarget() ? client : undefined), {
-		log: notifyReadyEvent,
+		log: (event) => {
+			// Correlates against onInvoked's own timestamps below -- the /reload investigation's
+			// leading theory is a race between this fire-and-forget registration actually
+			// completing (this "registered" event) and Pi resolving a tool's ToolDefinition for
+			// rendering at the moment its tool-call message streams in.
+			recordRenderDiagnostic({ event: "vehicle-ready", kind: event.kind, ...("attempt" in event ? { attempt: event.attempt } : {}) });
+			notifyReadyEvent(event);
+		},
 		permissions: REGISTERED_PERMISSIONS,
 		principal: { id: "pi-papyrus" },
 		renderers: papyrusVehicleRenderers,
@@ -157,6 +166,9 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 		// let those run before the human sees the prompt -- same reasoning here.
 		executionMode: (descriptor) => (descriptor.name === "discuss.open" || descriptor.name === "discuss.reply" ? "sequential" : undefined),
 		onInvoked: ({ descriptor }, output) => {
+			// See vehicle-notes-client.ts's log wiring above -- correlates a real invocation's
+			// timestamp against when registration actually completed.
+			recordRenderDiagnostic({ event: "invoked", operation: descriptor.name, output: shapeFingerprint(output) });
 			if (descriptor.name === "tasks.focus") {
 				const artifact = output as { id: string } | undefined;
 				if (artifact?.id) emitTaskFocusEvent({ taskId: artifact.id, status: "focused" });

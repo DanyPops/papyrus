@@ -15,7 +15,7 @@
 import type { Artifact } from "@danypops/papyrus";
 import { TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
 import type { VehicleToolRenderers } from "@danypops/vehicle-client-pi";
-import { renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
+import { renderVehicleCall, renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -31,6 +31,7 @@ import {
 import { ArtifactCard, detailViewTheme, expandHint, measure, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "../tool-rendering/artifact-list.ts";
 import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "../tool-rendering/render-model.ts";
+import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
 
 function isArtifact(value: unknown): value is Artifact {
 	if (typeof value !== "object" || value === null) return false;
@@ -385,9 +386,29 @@ function renderTaskCompletion(result: TaskCompletionOutput, theme: Theme, expand
 
 export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor): VehicleToolRenderers {
 	return {
+		// Pure pass-through to the generic renderer -- the only reason this exists at all is
+		// the /reload investigation (papyrus task 4930cd9b): its absence from the diagnostic
+		// log for a real invocation (see onInvoked in vehicle-notes-client.ts) is itself
+		// evidence Pi never found ANY renderer -- ours or vehicle-client-pi's generic default
+		// -- for that specific tool call, distinct from this renderer running and choosing
+		// the generic path internally (which DOES show up here).
+		renderCall(args, theme, context) {
+			recordRenderDiagnostic({ event: "render-call-invoked", operation: descriptor.name });
+			return renderVehicleCall(descriptor, args, theme, context);
+		},
 		renderResult(result, options, theme, context) {
 			if (!options.isPartial && !context.isError) {
 				const output = (result.details as { output?: unknown } | undefined)?.output;
+				// /reload rendering-fallback investigation (papyrus task 4930cd9b) -- correlates
+				// against vehicle-notes-client.ts's onInvoked/vehicle-ready diagnostics by
+				// descriptor.name and wall-clock time.
+				recordRenderDiagnostic({
+					event: "render-result-dispatch",
+					operation: descriptor.name,
+					isArtifact: isArtifact(output),
+					isArtifactArray: isArtifactArray(output),
+					output: shapeFingerprint(output),
+				});
 				if (isArtifactArray(output)) {
 					return new ArtifactListCard(createArtifactListDetails(descriptor.name, output), theme, options.expanded);
 				}
@@ -428,6 +449,7 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
 				if (isTaskCompletion(output)) {
 					return renderTaskCompletion(output, theme, options.expanded);
 				}
+				recordRenderDiagnostic({ event: "render-result-fell-through-to-generic", operation: descriptor.name });
 			}
 			return renderVehicleResult(descriptor, result, options, theme, context);
 		},

@@ -52,6 +52,14 @@ function artifact(overrides: Record<string, unknown> = {}) {
 describe("papyrusVehicleRenderers", () => {
 	const { renderResult } = papyrusVehicleRenderers(descriptor("tasks.list"));
 
+	it("provides renderCall too, delegating to the generic renderer -- never falls back to Pi's own default raw-args display", () => {
+		const { renderCall } = papyrusVehicleRenderers(descriptor("tasks.update"));
+		const component = renderCall!({ id: "task-1", title: "New title" }, fakeTheme, { cwd: "/tmp" } as never);
+		const text = component.render(80).join("\n");
+		expect(text.length).toBeGreaterThan(0);
+		expect(text).toContain("Tasks Update");
+	});
+
 	it("renders an artifact-array output as the curated list card, not a raw column dump", () => {
 		const component = renderResult!(
 			{ content: [], details: { vehicle: vehicleIdentity, output: [artifact({ title: "First" }), artifact({ title: "Second" })] } },

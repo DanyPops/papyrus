@@ -3,11 +3,14 @@
  * needs pi.getAllTools()/getActiveTools()/setActiveTools(), which throw "Extension
  * runtime not initialized" when called directly from an extension's top-level
  * factory body (Pi's runtime only finishes initializing after every extension's
- * factory has resolved). That error was silently swallowed by registerNotesVehicle's
- * own daemon-unreachable try/catch -- every notes.* tool was registered and "active"
- * by its own bookkeeping but never actually reached Pi's tool registry, invisible to
- * the model with zero visible sign why. Confirmed live, independently, in the
- * identical pi-tickets bug first.
+ * factory has resolved). Confirmed live, independently, in the identical pi-tickets
+ * bug first.
+ *
+ * registerNotesVehicle now defers via registerVehicleToolsWhenReady, which registers
+ * its own session_start handler internally and kicks off resolve+register fire-and-
+ * forget (not awaited) once that event fires -- so a real assertion here must poll
+ * for the eventual result rather than assume it lands within one microtask of
+ * invoking the captured handler.
  *
  * This spins up a real HTTP server answering /vehicle/manifest (empty operations is
  * enough -- registerVehicleTools() calls pi.getAllTools()/getActiveTools()/
@@ -25,6 +28,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
+import { waitFor } from "./support/wait-for.ts";
 
 /**
  * session_start also calls callService("session.register", ...) (see index.ts) through the
@@ -105,11 +109,14 @@ describe("registerNotesVehicle is deferred to session_start, not called from the
 				hasUI: false,
 				cwd: "/workspace/papyrus",
 				sessionManager: { getSessionId: () => "session-a" },
+				ui: { notify() {} },
 			};
 			for (const handler of sessionStartHandlers) await handler(undefined, ctx);
 
-			// Now that session_start has actually fired, registerNotesVehicle must have run
-			// and reached the real Vehicle registration calls.
+			// session_start firing only starts the fire-and-forget resolve+register sequence --
+			// poll for it actually reaching the real Vehicle registration calls instead of
+			// assuming it lands synchronously.
+			await waitFor(() => actionMethodCalls > 0);
 			expect(actionMethodCalls).toBeGreaterThan(0);
 		} finally {
 			stop();

@@ -16,6 +16,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
+import { waitFor } from "./support/wait-for.ts";
 
 function fakeSessionRegisterClient(): PapyrusClient {
 	return { call: () => Promise.resolve({ sessionId: "session-a", secret: "test-secret" }) } as unknown as PapyrusClient;
@@ -122,6 +123,10 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 			await registerPapyrus(api);
 			const ctx = { hasUI: false, cwd: "/workspace/papyrus", sessionManager: { getSessionId: () => "session-a" } };
 			for (const handler of sessionStartHandlers) await handler(undefined, ctx);
+
+			// session_start firing only starts the fire-and-forget resolve+register sequence (see
+			// registerVehicleToolsWhenReady) -- poll for real registrations to land before asserting.
+			await waitFor(() => registeredTools.length >= 29 + 2);
 
 			// Every operation is still registered (reachable via tools_man)...
 			expect(registeredTools.length).toBeGreaterThanOrEqual(29 + 2);

@@ -29,6 +29,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
+import { waitFor } from "./support/wait-for.ts";
 
 /**
  * session_start also calls callService("session.register", ...) through the OLD action-dispatch
@@ -109,6 +110,9 @@ describe("registerNotesVehicle survives a daemon restart without a Pi extension 
 		const ctx = { hasUI: false, cwd: "/workspace/papyrus", sessionManager: { getSessionId: () => "session-a" } };
 		for (const handler of sessionStartHandlers) await handler(undefined, ctx);
 
+		// session_start firing only starts the fire-and-forget resolve+register sequence (see
+		// registerVehicleToolsWhenReady) -- poll for the tool actually landing in the registry.
+		await waitFor(() => registeredTools.has("test_ping"));
 		const tool = registeredTools.get("test_ping");
 		expect(tool).toBeDefined();
 

@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { keyHint, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { buildDetailLines, type DetailField, type DetailSection, type DetailViewTheme, type TextMeasure } from "malevich-tui-components";
 import type { ArtifactToolDetails } from "./render-model.ts";
@@ -93,8 +93,11 @@ export function emptyState(noun: string): string {
 	return `No ${noun}.`;
 }
 
+/** Real, possibly user-remapped hotkey (defaults to ctrl+o, Pi's own "app.tools.expand"
+ * binding) -- matches every one of Pi's own built-in tools (read/write/bash/find/grep/ls),
+ * which all show their own truncation hint the same way instead of a hardcoded string. */
 export function expandHint(): string {
-	return "expand for details";
+	return keyHint("app.tools.expand", "expand for details");
 }
 
 /** Reusable width-safe artifact card for native tool result rows. */

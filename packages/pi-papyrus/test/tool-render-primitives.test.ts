@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	ArtifactCard,
@@ -11,6 +11,11 @@ import {
 	statusGlyph,
 } from "../extension/src/tool-rendering/artifact-card.ts";
 import { createArtifactDetails } from "../extension/src/tool-rendering/render-model.ts";
+
+// expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton
+// (not this file's own fake per-call theme below) -- matches vehicle-render.test.ts's
+// own precedent for the same reason.
+initTheme();
 
 function theme(tag: string): Theme {
 	return {
@@ -93,6 +98,10 @@ describe("Papyrus tool rendering primitives", () => {
 		expect(statusGlyph("rejected")).toBe("✗");
 		expect(countSummary(3, 10)).toBe("3 of 10");
 		expect(emptyState("tasks")).toBe("No tasks.");
-		expect(expandHint()).toBe("expand for details");
+		// The real hotkey (ctrl+o, Pi's "app.tools.expand" binding) needs a fully booted
+		// interactive session to resolve -- not exercised here, matching vehicle-render.test.ts's
+		// own precedent for the same keyHint()-produced text. The description text is what this
+		// unit asserts; live wiring is proven by the ArtifactCard render tests above.
+		expect(expandHint()).toContain("expand for details");
 	});
 });

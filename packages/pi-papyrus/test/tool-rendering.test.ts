@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import type { Artifact } from "@danypops/papyrus";
-import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
+import { type AgentToolResult, initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { type PapyrusToolRenderContext, renderPapyrusToolCall, renderPapyrusToolResult } from "../extension/src/tool-rendering/index.ts";
 import {
@@ -14,6 +14,10 @@ import {
 	createPreviewDetails,
 	createTransitionDetails,
 } from "../extension/src/tool-rendering/render-model.ts";
+
+// expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton
+// (not this file's own fake theme below).
+initTheme();
 
 const theme = {
 	bold: (text: string) => text,

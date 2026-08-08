@@ -1,9 +1,13 @@
 import { describe, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { ArtifactCard } from "../extension/src/tool-rendering/artifact-card.ts";
 import { createArtifactDetails } from "../extension/src/tool-rendering/render-model.ts";
 import { assertFullBackgroundCoverage, wrapInRealToolBox } from "./support/background-coverage.ts";
 import { realAnsiTheme } from "./support/real-ansi-theme.ts";
+
+// expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton.
+initTheme();
 
 function artifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {

@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { type Artifact, TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { ArtifactListCard, TaskHierarchyPreview } from "../extension/src/tool-rendering/artifact-list.ts";
 import { createArtifactListDetails, createGraphDetails } from "../extension/src/tool-rendering/render-model.ts";
+
+// expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton
+// (not this file's own fake theme below).
+initTheme();
 
 const theme = {
 	bold: (text: string) => text,

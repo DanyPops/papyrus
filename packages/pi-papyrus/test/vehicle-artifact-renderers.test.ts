@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { papyrusVehicleRenderers } from "../extension/src/tools/vehicle-artifact-renderers.ts";
+
+// expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton
+// (not this file's own fakeTheme below).
+initTheme();
 
 const fakeTheme = {
 	fg: (_color: string, text: string) => text,

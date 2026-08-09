@@ -114,31 +114,47 @@ const gateProp = {
 	],
 } as const;
 
+/**
+ * `patternProperties: {"^.*$": entrySchema}` rather than `additionalProperties: entrySchema`,
+ * despite both meaning "every key maps to entrySchema" for a free-form string-keyed map:
+ * confirmed live (2026-08-09) that TypeBox's own Value.Errors -- the schema validator Pi's tool-
+ * calling harness runs client-side, before a call ever reaches this daemon -- reports an
+ * additionalProperties-as-schema violation only as a generic top-level "must not have additional
+ * properties", with zero descent into which nested field actually broke, while the structurally
+ * identical items-as-schema case (gates, proof arrays below) descends and reports the exact
+ * broken field. patternProperties does not have that limitation and gives the same precision as
+ * items. See handlers/shared.ts's OperationSchemaNode.patternProperties for the matching
+ * server-side runtime check, and vehicle-shell.ts's formatSchemaChildren for the matching
+ * tools_man rendering.
+ */
 const checklistProp = {
 	type: "object",
 	description: "Map from completion criterion text to one or more typed proof references. An empty map clears the checklist.",
-	additionalProperties: {
-		type: "object",
-		properties: {
-			proof: {
-				type: "array",
-				minItems: 1,
-				items: {
-					type: "object",
-					description: "Accepted proof shape: {type, target, expect?}.",
-					properties: {
-						type: { type: "string", enum: PROOF_TYPES },
-						target: { type: "string", minLength: 1 },
-						expect: { type: "string" },
+	patternProperties: {
+		"^.*$": {
+			type: "object",
+			properties: {
+				proof: {
+					type: "array",
+					minItems: 1,
+					items: {
+						type: "object",
+						description: "Accepted proof shape: {type, target, expect?}.",
+						properties: {
+							type: { type: "string", enum: PROOF_TYPES },
+							target: { type: "string", minLength: 1 },
+							expect: { type: "string" },
+						},
+						required: ["type", "target"],
+						additionalProperties: false,
 					},
-					required: ["type", "target"],
-					additionalProperties: false,
 				},
 			},
+			required: ["proof"],
+			additionalProperties: false,
 		},
-		required: ["proof"],
-		additionalProperties: false,
 	},
+	additionalProperties: false,
 	examples: [
 		{
 			"tests pass": { proof: [{ type: "test", target: "bun test", expect: "0 failures" }] },

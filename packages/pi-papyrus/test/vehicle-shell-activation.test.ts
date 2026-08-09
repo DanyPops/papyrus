@@ -13,6 +13,8 @@ import { join } from "node:path";
 import type { PapyrusClient } from "@danypops/papyrus";
 import type { VehicleManifest } from "@danypops/vehicle-core";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
+import { Value } from "typebox/value";
 import { createPapyrusService } from "../../papyrus/src/service.ts";
 import registerPapyrus from "../extension/src/index.ts";
 import {
@@ -161,6 +163,25 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 
 			const callable = registeredTools.find((tool) => tool.name === "tasks_create")!;
 			expect(JSON.parse(JSON.stringify(callable.parameters))).toEqual(descriptor.inputSchema);
+
+			// The real, live-confirmed reason checklist uses patternProperties instead of
+			// additionalProperties-as-schema: TypeBox's own Value.Errors() -- what actually validates a
+			// tool call's arguments before it ever reaches this daemon -- reports an
+			// additionalProperties-as-schema violation only as a generic top-level "must not have
+			// additional properties", with zero descent into which nested field actually broke, while
+			// the structurally identical items-as-schema case (gates) descends and reports the exact
+			// broken field. This proves checklist now gets that same per-field precision.
+			const schema = callable.parameters as TSchema;
+			const malformedInput = {
+				title: "Bad checklist",
+				project_root: "/workspace/papyrus",
+				checklist: { "tests pass": { proof: [{ type: "test" }] } },
+			};
+			const errors = [...Value.Errors(schema, malformedInput)];
+			expect(errors.some((error) => error.message === "must not have additional properties")).toBe(false);
+			expect(errors).toContainEqual(
+				expect.objectContaining({ instancePath: "/checklist/tests pass/proof/0", message: "must have required properties target" }),
+			);
 		} finally {
 			stop();
 			service.close();

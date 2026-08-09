@@ -166,11 +166,16 @@ describe("Task evidence schemas", () => {
 			required: ["type", "target"],
 		});
 		expect(properties.gates?.examples).toHaveLength(4);
-		expect(properties.checklist?.additionalProperties).toMatchObject({
+		// patternProperties, not additionalProperties-as-schema: TypeBox's own client-side validator
+		// reports the latter only as a generic top-level "must not have additional properties", with
+		// no descent into the real nested violation -- see handlers/tasks.ts's checklistProp.
+		const checklistPattern = properties.checklist?.patternProperties as Record<string, unknown> | undefined;
+		expect(checklistPattern?.["^.*$"]).toMatchObject({
 			type: "object",
 			properties: { proof: { type: "array", minItems: 1 } },
 			required: ["proof"],
 		});
+		expect(properties.checklist?.additionalProperties).toBe(false);
 		service.close();
 	});
 });

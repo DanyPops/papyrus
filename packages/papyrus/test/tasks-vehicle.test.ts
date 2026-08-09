@@ -113,7 +113,14 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		const gateItems = gates.items as Record<string, unknown>;
 		const gateProperties = gateItems.properties as Record<string, Record<string, unknown>>;
 		const checklist = properties.checklist!;
-		const criterion = checklist.additionalProperties as Record<string, unknown>;
+		// patternProperties, not additionalProperties-as-schema: TypeBox's own client-side validator
+		// (the schema check Pi's tool-calling harness runs before a call ever reaches this daemon)
+		// confirmed live to report an additionalProperties-as-schema violation only as a generic
+		// top-level "must not have additional properties", with no descent into the real nested
+		// violation -- patternProperties gives the same per-field precision items already has.
+		const patternProperties = checklist.patternProperties as Record<string, unknown>;
+		const criterion = patternProperties["^.*$"] as Record<string, unknown>;
+		expect(checklist.additionalProperties).toBe(false);
 		const proof = (criterion.properties as Record<string, Record<string, unknown>>).proof!;
 		const proofItems = proof.items as Record<string, unknown>;
 

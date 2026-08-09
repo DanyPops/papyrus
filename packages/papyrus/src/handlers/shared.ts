@@ -29,6 +29,8 @@ interface OperationSchemaNode {
 	readonly properties?: Readonly<Record<string, OperationSchemaNode>>;
 	readonly required?: readonly string[];
 	readonly additionalProperties?: boolean | OperationSchemaNode;
+	/** A key not in `properties` is validated against the first pattern here whose RegExp matches it, instead of falling through to `additionalProperties` -- e.g. a free-form string-keyed map (tasks.create's checklist) uses `{"^.*$": entrySchema}` so a client-side JSON-Schema validator that reports `additionalProperties`-as-schema violations only as a generic top-level "must not have additional properties" (TypeBox's own real, confirmed behavior -- see vehicle-shell.ts's formatSchemaChildren for the matching tools_man rendering) instead descends into the real nested violation, matching an array's `items` precision. */
+	readonly patternProperties?: Readonly<Record<string, OperationSchemaNode>>;
 	readonly items?: OperationSchemaNode;
 	readonly minLength?: number;
 	readonly maxLength?: number;
@@ -80,6 +82,12 @@ function validateSchemaValue(value: unknown, schema: OperationSchemaNode, path: 
 		}
 		for (const key of Object.keys(record)) {
 			if (key in (schema.properties ?? {})) continue;
+			const patternMatch = Object.entries(schema.patternProperties ?? {}).find(([pattern]) => new RegExp(pattern).test(key));
+			if (patternMatch) {
+				const issues = validateSchemaValue(record[key], patternMatch[1], [...path, key]);
+				if (issues.length > 0) return issues;
+				continue;
+			}
 			if (schema.additionalProperties === false) return schemaIssue([...path, key], `${key} is not allowed`);
 			if (typeof schema.additionalProperties === "object") {
 				const issues = validateSchemaValue(record[key], schema.additionalProperties, [...path, key]);

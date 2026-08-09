@@ -101,6 +101,13 @@ describe("runTaskCli (Stricli-backed)", () => {
 		expect(client.calls).toEqual([{ operation: "tasks.event_feed", input: { cursor: 5, limit: 10, event_types: ["started"] } }]);
 	});
 
+	it("mutation-status: resolves a lifecycle receipt by retry key", async () => {
+		const client = new FakeClient({ state: "completed", operation: "start", receiptId: "receipt-1" });
+		const output = await runTaskCli(["mutation-status", "start-1"], client, "/proj");
+		expect(client.calls).toEqual([{ operation: "tasks.mutation_status", input: { idempotency_key: "start-1" } }]);
+		expect(output).toContain("start: completed (receipt-1)");
+	});
+
 	it("create: threads every flag plus project_root/actor/source and optional session_id", async () => {
 		const client = new FakeClient(artifact);
 		await runTaskCli(
@@ -350,7 +357,16 @@ describe("runTaskCli (Stricli-backed)", () => {
 		expect(await runTaskCli(["start", "t1"], client, "/proj")).toBe("Started: t1-alias T");
 	});
 
-	it.each(["submit", "reject", "retry", "cancel"])("%s: routes to tasks.%s and capitalizes the human line", async (action) => {
+	it("threads lifecycle idempotency keys, including Focus pause", async () => {
+		const start = new FakeClient(artifact);
+		await runTaskCli(["start", "t1", "--idempotency-key", "start-1"], start, "/proj");
+		expect(start.calls[0]?.input).toMatchObject({ id: "t1", idempotency_key: "start-1" });
+		const pause = new FakeClient({ artifact, status: "paused" });
+		await runTaskCli(["pause", "--idempotency-key", "pause-1"], pause, "/proj");
+		expect(pause.calls[0]?.input).toMatchObject({ idempotency_key: "pause-1" });
+	});
+
+	it.each(["submit", "reject", "retry", "cancel", "reopen"])("%s: routes to tasks.%s and capitalizes the human line", async (action) => {
 		const client = new FakeClient(artifact);
 		const output = await runTaskCli([action, "t1"], client, "/proj");
 		expect(client.calls).toEqual([{ operation: `tasks.${action}` as OperationName, input: { id: "t1", actor: "user", source: "cli" } }]);

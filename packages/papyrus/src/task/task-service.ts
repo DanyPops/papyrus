@@ -12,6 +12,8 @@ import {
 	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
+	TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH,
+	TASK_MUTATION_IDEMPOTENCY_RETENTION_MS,
 	TASK_PROJECT_ALIAS_MAX_COUNT,
 	TASK_PROJECT_LIST_MAX_RESULTS,
 	TASK_PROJECT_NAME_MAX_LENGTH,
@@ -40,7 +42,7 @@ import {
 	type TaskViewSelection,
 	taskScopeLabel,
 } from "../domain/task-scope.ts";
-import { type TransitionTable, validateTransitionFrom } from "../domain-service-shared.ts";
+import type { TransitionTable } from "../domain-service-shared.ts";
 import type { GateRunner } from "../stores/gate-runner.ts";
 import {
 	InMemoryTaskCreateRequestStore,
@@ -50,6 +52,13 @@ import {
 import { InMemoryTaskEventStore, type TaskEventStore } from "../stores/task-event-store.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../stores/task-focus-store.ts";
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../stores/task-lease-store.ts";
+import {
+	InMemoryTaskMutationRequestStore,
+	TaskMutationIdempotencyConflictError,
+	TaskMutationPendingError,
+	type TaskMutationRequestRecord,
+	type TaskMutationRequestStore,
+} from "../stores/task-mutation-request-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "../stores/task-scope-store.ts";
 import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
 
@@ -77,6 +86,48 @@ export type TaskStatus = TaskLifecycleStatus;
 
 export class TaskProjectNotFoundError extends Error {}
 export class TaskProjectAmbiguousError extends Error {}
+export class TaskMutationReceiptNotFoundError extends Error {}
+
+export class TaskInvalidTransitionError extends Error {
+	constructor(
+		readonly operation: string,
+		readonly currentStatus: string,
+		readonly intendedStatus: string,
+		readonly allowedActions: readonly string[],
+		readonly recovery: string,
+	) {
+		super(`cannot ${operation} task from ${currentStatus}; intended status is ${intendedStatus}`);
+	}
+}
+
+export interface TaskMutationRequestContext {
+	key?: string;
+	caller?: string;
+}
+
+export interface TaskMutationMetadata {
+	changed: boolean;
+	operation: string;
+	currentStatus: string;
+	intendedStatus: string;
+	receiptId?: string;
+	replayed?: boolean;
+}
+
+export type TaskLifecycleMutationResult = Artifact & TaskMutationMetadata;
+
+export interface TaskMutationReceiptView {
+	receiptId: string;
+	operation: string;
+	state: "pending" | "completed";
+	taskName?: string;
+	taskTitle?: string;
+	taskStatus?: string;
+	result?: unknown;
+	createdAt: string;
+	updatedAt: string;
+	expiresAt: string;
+}
 
 export interface CreateTaskRequestContext {
 	key?: string;
@@ -121,12 +172,14 @@ export interface TaskFocus {
 	pauseReason?: string;
 }
 
+export type TaskFocusMutationResult = TaskFocus & TaskMutationMetadata;
+
 export interface TaskCompletionOptions {
 	focusSuccessor?: boolean;
 	gateDeadlineMs?: number;
 }
 
-export interface TaskCompletion {
+export interface TaskCompletion extends TaskMutationMetadata {
 	artifact: Artifact;
 	gates: GateResult[];
 	checklist: ChecklistReview[];
@@ -190,7 +243,10 @@ export class Tasks {
 		private readonly scopes: TaskScopeStore = new InMemoryTaskScopeStore(),
 		private readonly leases: TaskLeaseStore = new InMemoryTaskLeaseStore(),
 		private readonly createRequests: TaskCreateRequestStore = new InMemoryTaskCreateRequestStore(),
+		private readonly mutationRequests: TaskMutationRequestStore = new InMemoryTaskMutationRequestStore(),
 	) {}
+
+	private readonly completionFlights = new Map<string, Promise<TaskCompletion>>();
 
 	private require(id: string): Artifact {
 		const artifact = this.artifacts.get(id);
@@ -545,28 +601,86 @@ export class Tasks {
 		});
 	}
 
-	pauseFocus(context: TaskEventContext = {}): TaskFocus {
+	pauseFocus(context: TaskEventContext = {}, request: TaskMutationRequestContext = {}): TaskFocusMutationResult {
+		const inspection = this.prepareMutation<TaskFocusMutationResult>("pause", undefined, context, request, false);
+		if (inspection.replay) return inspection.replay;
+		const focus = this.focused({ sessionId: context.sessionId });
+		if (!focus) {
+			throw new TaskInvalidTransitionError(
+				"pause",
+				"none",
+				"paused",
+				["focus"],
+				"Focus a non-terminal task before pausing; do not blindly retry pause.",
+			);
+		}
+		const prepared = inspection.pending ? inspection : this.prepareMutation<TaskFocusMutationResult>("pause", undefined, context, request);
+		if (focus.status === "paused") {
+			return this.completeMutation(prepared.record, {
+				...focus,
+				changed: false,
+				operation: "pause",
+				currentStatus: "paused",
+				intendedStatus: "paused",
+				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
+			});
+		}
 		return this.events.atomic(() => {
-			const focus = this.focused({ sessionId: context.sessionId });
-			if (!focus) throw new Error("no focused task");
 			const state = this.focusStore.pause(focus.artifact.id, context.reason, context.sessionId);
 			this.appendEvent({ taskId: focus.artifact.id, type: "focus_paused" }, context);
-			return {
+			return this.completeMutation(prepared.record, {
 				artifact: focus.artifact,
 				status: state.status,
 				updatedAt: state.updatedAt,
 				...(state.pauseReason ? { pauseReason: state.pauseReason } : {}),
-			};
+				changed: true,
+				operation: "pause",
+				currentStatus: "paused",
+				intendedStatus: "paused",
+				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
+			});
 		});
 	}
 
-	unpauseFocus(context: TaskEventContext = {}): TaskFocus {
+	unpauseFocus(context: TaskEventContext = {}, request: TaskMutationRequestContext = {}): TaskFocusMutationResult {
+		const inspection = this.prepareMutation<TaskFocusMutationResult>("unpause", undefined, context, request, false);
+		if (inspection.replay) return inspection.replay;
+		const focus = this.focused({ sessionId: context.sessionId });
+		if (!focus) {
+			throw new TaskInvalidTransitionError(
+				"unpause",
+				"none",
+				"active",
+				["focus"],
+				"Focus a non-terminal task before resuming; do not blindly retry unpause.",
+			);
+		}
+		const prepared = inspection.pending
+			? inspection
+			: this.prepareMutation<TaskFocusMutationResult>("unpause", undefined, context, request);
+		if (focus.status === "active") {
+			return this.completeMutation(prepared.record, {
+				...focus,
+				changed: false,
+				operation: "unpause",
+				currentStatus: "active",
+				intendedStatus: "active",
+				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
+			});
+		}
 		return this.events.atomic(() => {
-			const focus = this.focused({ sessionId: context.sessionId });
-			if (!focus) throw new Error("no focused task");
 			const state = this.focusStore.unpause(focus.artifact.id, context.sessionId);
 			this.appendEvent({ taskId: focus.artifact.id, type: "focus_unpaused" }, context);
-			return { artifact: focus.artifact, status: state.status, updatedAt: state.updatedAt };
+			return this.completeMutation(prepared.record, {
+				artifact: focus.artifact,
+				status: state.status,
+				updatedAt: state.updatedAt,
+				changed: true,
+				operation: "unpause",
+				currentStatus: "active",
+				intendedStatus: "active",
+				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
+			});
 		});
 	}
 
@@ -625,21 +739,146 @@ export class Tasks {
 		return this.leases.reapExpired(now());
 	}
 
-	transition(id: string, action: TaskTransition, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			const task = this.require(id);
-			const transition = validateTransitionFrom("task", action, task.status, TASK_TRANSITIONS);
-			if (action === "start") {
-				const blocking = this.dependencyIds(id)
-					.map((dependencyId) => this.require(dependencyId))
-					.filter((dependency) => dependency.status !== "done");
-				if (blocking.length > 0)
-					throw new Error(
-						`task "${task.title}" is blocked by dependencies: ${blocking.map((dependency) => `"${dependency.title}"`).join(", ")}`,
-					);
-				this.focusStore.set(id, context.sessionId);
+	private allowedLifecycleActions(status: string): string[] {
+		const actions = Object.entries(TASK_TRANSITIONS)
+			.filter(([, transition]) => transition.from.includes(status as TaskStatus))
+			.map(([action]) => action);
+		if (status === "review") actions.push("complete");
+		return actions;
+	}
+
+	private prepareMutation<Result>(
+		operation: string,
+		taskId: string | undefined,
+		payload: unknown,
+		request: TaskMutationRequestContext,
+		reserve = true,
+	): { record?: TaskMutationRequestRecord; replay?: Result; pending?: boolean } {
+		const key = request.key?.trim();
+		if (request.key !== undefined && (!key || key.length > TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH)) {
+			throw new Error(`idempotency key must be between 1 and ${TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH} characters`);
+		}
+		if (!key) return {};
+		const now = new Date().toISOString();
+		const scope = request.caller?.trim() || "anonymous";
+		const requestHash = createHash("sha256").update(canonicalJson({ operation, taskId, payload })).digest("hex");
+		this.mutationRequests.prune(now);
+		const existing = this.mutationRequests.get(scope, key, now);
+		if (existing) {
+			if (existing.requestHash !== requestHash) {
+				throw new TaskMutationIdempotencyConflictError(`idempotency key "${key}" was already used with a different mutation payload`);
 			}
-			const updated = this.artifacts.setStatus(id, transition.to)!;
+			if (existing.state === "completed" && existing.responseJson !== undefined) {
+				const replay = JSON.parse(existing.responseJson) as Result;
+				return {
+					record: existing,
+					replay:
+						typeof replay === "object" && replay !== null && "changed" in replay
+							? ({ ...replay, changed: false, replayed: true } as Result)
+							: replay,
+				};
+			}
+			return { record: existing, pending: true };
+		}
+		if (!reserve) return {};
+		const record: TaskMutationRequestRecord = {
+			scope,
+			key,
+			receiptId: crypto.randomUUID(),
+			...(taskId === undefined ? {} : { taskId }),
+			operation,
+			requestHash,
+			state: "pending",
+			createdAt: now,
+			updatedAt: now,
+			expiresAt: new Date(Date.parse(now) + TASK_MUTATION_IDEMPOTENCY_RETENTION_MS).toISOString(),
+		};
+		this.mutationRequests.put(record);
+		return { record };
+	}
+
+	private rejectDifferentPendingMutation(taskId: string, operation: string, inspectionPending: boolean): void {
+		if (inspectionPending) return;
+		const pending = this.mutationRequests.findPending(taskId, operation, new Date().toISOString());
+		if (!pending) return;
+		throw new TaskMutationPendingError(
+			`an earlier ${operation} outcome is still pending; inspect tasks.mutation_status with its original idempotency_key before retrying`,
+			pending.receiptId,
+			pending.operation,
+		);
+	}
+
+	private completeMutation<Result>(record: TaskMutationRequestRecord | undefined, result: Result): Result {
+		if (!record) return result;
+		this.mutationRequests.complete(record.scope, record.key, JSON.stringify(result), new Date().toISOString());
+		return result;
+	}
+
+	mutationStatus(keyInput: string, caller?: string): TaskMutationReceiptView {
+		const key = keyInput.trim();
+		if (!key || key.length > TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH) {
+			throw new Error(`idempotency key must be between 1 and ${TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH} characters`);
+		}
+		const now = new Date().toISOString();
+		const record = this.mutationRequests.get(caller?.trim() || "anonymous", key, now);
+		if (!record) throw new TaskMutationReceiptNotFoundError("no retained task mutation receipt exists for this idempotency key");
+		const task = record.taskId ? this.artifacts.get(record.taskId) : null;
+		return {
+			receiptId: record.receiptId,
+			operation: record.operation,
+			state: record.state,
+			...(task?.kind === "task" ? { taskName: task.alias, taskTitle: task.title, taskStatus: task.status } : {}),
+			...(record.responseJson === undefined ? {} : { result: JSON.parse(record.responseJson) as unknown }),
+			createdAt: record.createdAt,
+			updatedAt: record.updatedAt,
+			expiresAt: record.expiresAt,
+		};
+	}
+
+	transition(
+		id: string,
+		action: TaskTransition,
+		context: TaskEventContext = {},
+		request: TaskMutationRequestContext = {},
+	): TaskLifecycleMutationResult {
+		const task = this.require(id);
+		const intendedStatus = TASK_TRANSITIONS[action].to;
+		const inspection = this.prepareMutation<TaskLifecycleMutationResult>(action, id, context, request, false);
+		if (inspection.replay) return inspection.replay;
+		this.rejectDifferentPendingMutation(id, action, inspection.pending === true);
+		if (task.status !== intendedStatus && !TASK_TRANSITIONS[action].from.includes(task.status as TaskStatus)) {
+			throw new TaskInvalidTransitionError(
+				action,
+				task.status,
+				intendedStatus,
+				this.allowedLifecycleActions(task.status),
+				`Call tasks.show, then choose one allowed action; do not retry ${action} with a new key.`,
+			);
+		}
+		if (action === "start" && task.status !== intendedStatus) {
+			const blocking = this.dependencyIds(id)
+				.map((dependencyId) => this.require(dependencyId))
+				.filter((dependency) => dependency.status !== "done");
+			if (blocking.length > 0) {
+				throw new Error(
+					`task "${task.title}" is blocked by dependencies: ${blocking.map((dependency) => `"${dependency.title}"`).join(", ")}`,
+				);
+			}
+		}
+		const prepared = inspection.pending ? inspection : this.prepareMutation<TaskLifecycleMutationResult>(action, id, context, request);
+		if (task.status === intendedStatus) {
+			return this.completeMutation(prepared.record, {
+				...this.show(id),
+				changed: false,
+				operation: action,
+				currentStatus: intendedStatus,
+				intendedStatus,
+				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
+			});
+		}
+		return this.events.atomic(() => {
+			if (action === "start") this.focusStore.set(id, context.sessionId);
+			const artifact = this.artifacts.setStatus(id, intendedStatus)!;
 			const eventType = {
 				start: "started",
 				submit: "submitted",
@@ -648,11 +887,18 @@ export class Tasks {
 				cancel: "canceled",
 				reopen: "reopened",
 			}[action] as AppendTaskEvent["type"];
-			this.appendEvent({ taskId: id, type: eventType, fromStatus: task.status as TaskStatus, toStatus: transition.to }, context);
+			this.appendEvent({ taskId: id, type: eventType, fromStatus: task.status as TaskStatus, toStatus: intendedStatus }, context);
 			if (action === "start" || action === "retry") this.propagateProgressToAncestors(id, context);
 			if (action === "retry") this.focusStore.set(id, context.sessionId);
 			if (action === "cancel") this.focusStore.clearEverywhere(id);
-			return updated;
+			return this.completeMutation(prepared.record, {
+				...artifact,
+				changed: true,
+				operation: action,
+				currentStatus: intendedStatus,
+				intendedStatus,
+				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
+			});
 		});
 	}
 
@@ -692,32 +938,84 @@ export class Tasks {
 		return { canceled, skipped };
 	}
 
-	complete(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): TaskCompletion {
-		const task = this.requireReview(id);
-		this.requireNotBlocked(task);
-		const attemptId = crypto.randomUUID();
+	complete(
+		id: string,
+		context: TaskEventContext = {},
+		options: TaskCompletionOptions = {},
+		request: TaskMutationRequestContext = {},
+	): TaskCompletion {
+		const task = this.require(id);
+		const inspection = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request, false);
+		if (inspection.replay) return inspection.replay;
+		this.rejectDifferentPendingMutation(id, "complete", inspection.pending === true);
+		if (inspection.pending) {
+			throw new TaskMutationPendingError(
+				"completion outcome is still pending; inspect tasks.mutation_status and tasks.show before choosing another action",
+				inspection.record!.receiptId,
+				"complete",
+			);
+		}
+		if (task.status !== "review" && task.status !== "done") this.throwInvalidCompletion(task.status);
+		if (task.status === "review") this.requireNotBlocked(task);
+		const prepared = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request);
+		if (task.status === "done") return this.completeMutation(prepared.record, this.completedNoop(id, context, prepared.record));
+		const attemptId = prepared.record?.receiptId ?? crypto.randomUUID();
 		this.events.atomic(() =>
 			this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context),
 		);
 		const checklist = this.reviewChecklist(task);
 		const results = this.gates.run(id, { cwd: this.scopes.get(id)?.projectRoot });
-		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
+		return this.resolveCompletion(id, attemptId, results, checklist, context, options, prepared.record);
 	}
 
-	async completeAsync(id: string, context: TaskEventContext = {}, options: TaskCompletionOptions = {}): Promise<TaskCompletion> {
-		const task = this.requireReview(id);
-		this.requireNotBlocked(task);
-		const attemptId = crypto.randomUUID();
-		this.events.atomic(() =>
-			this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context),
-		);
-		const checklist = this.reviewChecklist(task);
-		// project_root, never the daemon's own inherited process cwd -- see GateRunOptions.cwd's doc
-		// comment for the real incident this fixes (a command gate once tested the daemon's entire
-		// home directory instead of the task's project and crashed the bun process outright).
-		const results = await this.gates.runAsync(id, { deadlineMs: options.gateDeadlineMs, cwd: this.scopes.get(id)?.projectRoot });
-		this.requireReview(id);
-		return this.resolveCompletion(id, attemptId, results, checklist, context, options);
+	async completeAsync(
+		id: string,
+		context: TaskEventContext = {},
+		options: TaskCompletionOptions = {},
+		request: TaskMutationRequestContext = {},
+	): Promise<TaskCompletion> {
+		const flightKey = id;
+		const existingFlight = this.completionFlights.get(flightKey);
+		if (existingFlight) {
+			await existingFlight;
+			return this.completeAsync(id, context, options, request);
+		}
+		const execute = async (): Promise<TaskCompletion> => {
+			const task = this.require(id);
+			const inspection = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request, false);
+			if (inspection.replay) return inspection.replay;
+			this.rejectDifferentPendingMutation(id, "complete", inspection.pending === true);
+			if (inspection.pending) {
+				throw new TaskMutationPendingError(
+					"completion outcome is still pending; inspect tasks.mutation_status and tasks.show before choosing another action",
+					inspection.record!.receiptId,
+					"complete",
+				);
+			}
+			if (task.status !== "review" && task.status !== "done") this.throwInvalidCompletion(task.status);
+			if (task.status === "review") this.requireNotBlocked(task);
+			const prepared = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request);
+			if (task.status === "done") return this.completeMutation(prepared.record, this.completedNoop(id, context, prepared.record));
+			const attemptId = prepared.record?.receiptId ?? crypto.randomUUID();
+			this.events.atomic(() =>
+				this.appendEvent({ taskId: id, type: "completion_attempted", fromStatus: "review", toStatus: "review", attemptId }, context),
+			);
+			const checklist = this.reviewChecklist(task);
+			// project_root, never the daemon's own inherited process cwd -- see GateRunOptions.cwd's doc
+			// comment for the real incident this fixes (a command gate once tested the daemon's entire
+			// home directory instead of the task's project and crashed the bun process outright).
+			const results = await this.gates.runAsync(id, { deadlineMs: options.gateDeadlineMs, cwd: this.scopes.get(id)?.projectRoot });
+			const latest = this.require(id);
+			if (latest.status !== "review") this.throwInvalidCompletion(latest.status);
+			return this.resolveCompletion(id, attemptId, results, checklist, context, options, prepared.record);
+		};
+		const flight = execute();
+		this.completionFlights.set(flightKey, flight);
+		try {
+			return await flight;
+		} finally {
+			this.completionFlights.delete(flightKey);
+		}
 	}
 
 	async runGates(id: string, context: TaskEventContext = {}): Promise<GateResult[]> {
@@ -950,6 +1248,32 @@ export class Tasks {
 		return ids;
 	}
 
+	private throwInvalidCompletion(currentStatus: string): never {
+		throw new TaskInvalidTransitionError(
+			"complete",
+			currentStatus,
+			"done",
+			this.allowedLifecycleActions(currentStatus),
+			"Call tasks.show, then choose an allowed action. Reuse the original idempotency_key only when recovering an unknown completion outcome.",
+		);
+	}
+
+	private completedNoop(id: string, context: TaskEventContext, record?: TaskMutationRequestRecord): TaskCompletion {
+		return {
+			artifact: this.show(id),
+			gates: [],
+			checklist: this.reviewChecklist(this.require(id)),
+			completed: true,
+			focused: this.active({ sessionId: context.sessionId }),
+			blocked: [],
+			changed: false,
+			operation: "complete",
+			currentStatus: "done",
+			intendedStatus: "done",
+			...(record ? { receiptId: record.receiptId } : {}),
+		};
+	}
+
 	private resolveCompletion(
 		id: string,
 		attemptId: string,
@@ -957,6 +1281,7 @@ export class Tasks {
 		checklist: ChecklistReview[],
 		context: TaskEventContext,
 		options: TaskCompletionOptions,
+		record?: TaskMutationRequestRecord,
 	): TaskCompletion {
 		const failed = gates.some((gate) => !gate.passed) || checklist.some((item) => !item.accepted);
 		if (failed) {
@@ -973,10 +1298,25 @@ export class Tasks {
 					},
 					context,
 				);
-				return { artifact, gates, checklist, completed: false, focused: this.active({ sessionId: context.sessionId }), blocked: [] };
+				return this.completeMutation(record, {
+					artifact,
+					gates,
+					checklist,
+					completed: false,
+					focused: this.active({ sessionId: context.sessionId }),
+					blocked: [],
+					changed: true,
+					operation: "complete",
+					currentStatus: "rejected",
+					intendedStatus: "done",
+					...(record ? { receiptId: record.receiptId } : {}),
+				});
 			});
 		}
-		return this.events.atomic(() => this.finish(id, attemptId, gates, checklist, context, options));
+		return this.events.atomic(() => {
+			const result = this.finish(id, attemptId, gates, checklist, context, options, record?.receiptId);
+			return this.completeMutation(record, result);
+		});
 	}
 
 	private finish(
@@ -986,6 +1326,7 @@ export class Tasks {
 		checklist: ChecklistReview[],
 		context: TaskEventContext,
 		options: TaskCompletionOptions,
+		receiptId?: string,
 	): TaskCompletion {
 		const successorIds = this.relationships(id)
 			.filter((edge) => edge.relation === "depends_on" && edge.to === id)
@@ -1024,7 +1365,19 @@ export class Tasks {
 				focused = successor;
 			}
 		}
-		return { artifact, gates, checklist, completed: true, focused, blocked };
+		return {
+			artifact,
+			gates,
+			checklist,
+			completed: true,
+			focused,
+			blocked,
+			changed: true,
+			operation: "complete",
+			currentStatus: "done",
+			intendedStatus: "done",
+			...(receiptId ? { receiptId } : {}),
+		};
 	}
 
 	private appendEvent(event: Omit<AppendTaskEvent, "actor" | "source">, context: TaskEventContext): void {
@@ -1035,12 +1388,6 @@ export class Tasks {
 			...(context.sessionId === undefined ? {} : { sessionId: context.sessionId }),
 			...(context.reason === undefined ? {} : { reason: context.reason }),
 		});
-	}
-
-	private requireReview(id: string): Artifact {
-		const task = this.require(id);
-		if (task.status !== "review") throw new Error(`cannot complete task from ${task.status}`);
-		return task;
 	}
 
 	/**

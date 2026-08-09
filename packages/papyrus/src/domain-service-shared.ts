@@ -107,9 +107,8 @@ export type TransitionTable<Action extends string, Status extends string> = Reco
 /**
  * The from/to-table lookup+validation half of a transition, split out from runTransition
  * (below) so a caller with its own side effects gated on "is this action even valid from the
- * current status" (e.g. Tasks.transition's dependency-blocking check and focus-store
- * bookkeeping, which must run -- or not -- before the status write itself) can call this
- * directly instead of duplicating the same lookup+throw three times. Every other caller
+ * current status" can call this directly instead of duplicating the same lookup+throw.
+ * Task lifecycle now uses its richer retry-safe transition primitive instead. Every other caller
  * (Document/Rule/Playbook, none of which have that ordering constraint) uses runTransition
  * instead, which does this same check plus the write in one call.
  */

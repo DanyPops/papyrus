@@ -102,10 +102,16 @@ const focusedCommand = buildCommand({
 
 function buildPauseUnpauseCommand(action: "pause" | "unpause") {
 	return buildCommand({
-		func: async function (this: TaskContext, flags: { sessionId?: string; sessionSecret?: string }) {
+		func: async function (this: TaskContext, flags: { sessionId?: string; sessionSecret?: string; idempotencyKey?: string }) {
 			const focus = await this.client.call<Record<string, unknown>, { artifact: CliArtifact; status: string }>(
 				`tasks.${action}` as OperationName,
-				{ actor: "user", source: "cli", session_id: flags.sessionId, session_secret: flags.sessionSecret },
+				{
+					actor: "user",
+					source: "cli",
+					session_id: flags.sessionId,
+					session_secret: flags.sessionSecret,
+					...(flags.idempotencyKey ? { idempotency_key: flags.idempotencyKey } : {}),
+				},
 			);
 			render.call(this, focus, `Focused (${focus.status}): ${artifactLabel(focus.artifact)}`);
 		},
@@ -117,6 +123,13 @@ function buildPauseUnpauseCommand(action: "pause" | "unpause") {
 					kind: "parsed",
 					parse: String,
 					placeholder: "secret",
+					optional: true,
+				},
+				idempotencyKey: {
+					brief: "Retry key for this exact mutation",
+					kind: "parsed",
+					parse: String,
+					placeholder: "key",
 					optional: true,
 				},
 			},
@@ -305,6 +318,21 @@ const eventFeedCommand = buildCommand({
 		},
 	},
 	docs: { brief: "Feed of raw Task lifecycle events across every task" },
+});
+
+const mutationStatusCommand = buildCommand({
+	func: async function (this: TaskContext, _flags: Record<string, never>, idempotencyKey: string) {
+		const receipt = await this.client.call<Record<string, unknown>, { receiptId: string; operation: string; state: string }>(
+			"tasks.mutation_status",
+			{ idempotency_key: idempotencyKey },
+		);
+		render.call(this, receipt, `${receipt.operation}: ${receipt.state} (${receipt.receiptId})`);
+	},
+	parameters: {
+		flags: {},
+		positional: { kind: "tuple", parameters: [{ brief: "Original idempotency key", parse: String, placeholder: "key" }] },
+	},
+	docs: { brief: "Resolve an unknown Task lifecycle mutation outcome" },
 });
 
 // -- CRUD -----------------------------------------------------------------------------------
@@ -788,12 +816,13 @@ const planCommand = buildCommand({
 });
 
 const completeCommand = buildCommand({
-	func: async function (this: TaskContext, flags: { sessionId?: string }, id: string) {
+	func: async function (this: TaskContext, flags: { sessionId?: string; idempotencyKey?: string }, id: string) {
 		const completion = await this.client.call<Record<string, unknown>, CliCompletion>("tasks.complete", {
 			id,
 			actor: "user",
 			source: "cli",
 			session_id: flags.sessionId,
+			...(flags.idempotencyKey ? { idempotency_key: flags.idempotencyKey } : {}),
 		});
 		const lines = [`${completion.completed ? "Completed" : "Rejected"}: ${artifactLabel(completion.artifact)}`];
 		if (completion.focused) lines.push(`Active: ${artifactLabel(completion.focused)}`);
@@ -806,24 +835,31 @@ const completeCommand = buildCommand({
 		render.call(this, completion, lines.join("\n"));
 	},
 	parameters: {
-		flags: { sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true } },
+		flags: {
+			sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true },
+			idempotencyKey: { brief: "Retry key for this exact mutation", kind: "parsed", parse: String, placeholder: "key", optional: true },
+		},
 		positional: { kind: "tuple", parameters: [{ brief: "Task id", parse: String, placeholder: "id" }] },
 	},
 	docs: { brief: "Run gates and checklist review, then complete" },
 });
 
 const startCommand = buildCommand({
-	func: async function (this: TaskContext, flags: { sessionId?: string }, id: string) {
+	func: async function (this: TaskContext, flags: { sessionId?: string; idempotencyKey?: string }, id: string) {
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("tasks.start", {
 			id,
 			actor: "user",
 			source: "cli",
 			session_id: flags.sessionId,
+			...(flags.idempotencyKey ? { idempotency_key: flags.idempotencyKey } : {}),
 		});
 		render.call(this, artifact, `Started: ${artifactLabel(artifact)}`);
 	},
 	parameters: {
-		flags: { sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true } },
+		flags: {
+			sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true },
+			idempotencyKey: { brief: "Retry key for this exact mutation", kind: "parsed", parse: String, placeholder: "key", optional: true },
+		},
 		positional: { kind: "tuple", parameters: [{ brief: "Task id", parse: String, placeholder: "id" }] },
 	},
 	docs: { brief: "Lifecycle transition: todo -> in-progress" },
@@ -831,17 +867,21 @@ const startCommand = buildCommand({
 
 function buildSimpleTransitionCommand(action: "submit" | "reject" | "retry" | "cancel" | "reopen", brief: string) {
 	return buildCommand({
-		func: async function (this: TaskContext, flags: { sessionId?: string }, id: string) {
+		func: async function (this: TaskContext, flags: { sessionId?: string; idempotencyKey?: string }, id: string) {
 			const artifact = await this.client.call<Record<string, unknown>, CliArtifact>(`tasks.${action}` as OperationName, {
 				id,
 				actor: "user",
 				source: "cli",
 				session_id: flags.sessionId,
+				...(flags.idempotencyKey ? { idempotency_key: flags.idempotencyKey } : {}),
 			});
 			render.call(this, artifact, `${action[0]!.toUpperCase()}${action.slice(1)}: ${artifactLabel(artifact)}`);
 		},
 		parameters: {
-			flags: { sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true } },
+			flags: {
+				sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true },
+				idempotencyKey: { brief: "Retry key for this exact mutation", kind: "parsed", parse: String, placeholder: "key", optional: true },
+			},
 			positional: { kind: "tuple", parameters: [{ brief: "Task id", parse: String, placeholder: "id" }] },
 		},
 		docs: { brief },
@@ -920,6 +960,7 @@ const app = buildApplication(
 			lease: leaseCommand,
 			"reap-stale-leases": reapStaleLeasesCommand,
 			"event-feed": eventFeedCommand,
+			"mutation-status": mutationStatusCommand,
 			create: createCommand,
 			list: listCommand,
 			show: showCommand,

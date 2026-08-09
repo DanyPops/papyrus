@@ -45,6 +45,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 			"tasks.history",
 			"tasks.lease",
 			"tasks.list",
+			"tasks.mutation_status",
 			"tasks.pause",
 			"tasks.plan",
 			"tasks.projects",
@@ -69,6 +70,21 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		]);
 		expect(names).not.toContain("tasks.reap_stale_focus");
 		expect(names).not.toContain("tasks.reap_stale_leases");
+		service.close();
+	});
+
+	it("publishes same-key recovery guidance and lifecycle idempotency schemas to Pi", () => {
+		const { registry, service } = harness();
+		const operations = new Map(registry.manifest().operations.map((operation: VehicleManifestOperation) => [operation.name, operation]));
+		const start = operations.get("tasks.start")!;
+		const complete = operations.get("tasks.complete")!;
+		const status = operations.get("tasks.mutation_status")!;
+		expect(start.inputSchema.properties).toHaveProperty("idempotency_key");
+		expect(start.description).toContain("SAME idempotency_key");
+		expect(start.description).toContain("tasks.show");
+		expect(complete.description).toContain("gates and history are not run twice");
+		expect(status.inputSchema.required).toEqual(["idempotency_key"]);
+		expect(status.description).toContain("never invent a replacement key");
 		service.close();
 	});
 
@@ -316,16 +332,18 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
-	it("pausing with no focused task surfaces its real reason as causeMessage instead of a bare handler-failed", async () => {
+	it("pausing with no focused task returns an actionable typed invalid-transition", async () => {
 		const { registry, service } = harness();
-		const rejection = (await registry
-			.invoke("tasks.pause", 1, { reason: "whatever" }, PERMS)
-			.catch((error: { toFailure(): { code: string; causeMessage?: string } }) => error.toFailure())) as {
-			code: string;
-			causeMessage?: string;
-		};
-		expect(rejection.code).toBe("handler-failed");
-		expect(rejection.causeMessage).toBe("no focused task");
+		const rejection = await registry.invoke("tasks.pause", 1, { reason: "whatever" }, PERMS).catch((error: unknown) => error);
+		expect((rejection as VehicleError).code).toBe("invalid-transition");
+		expect((rejection as VehicleError).category).toBe("conflict");
+		expect((rejection as VehicleError).details).toEqual({
+			operation: "pause",
+			currentStatus: "none",
+			intendedStatus: "paused",
+			allowedActions: ["focus"],
+			recovery: "Focus a non-terminal task before pausing; do not blindly retry pause.",
+		});
 		service.close();
 	});
 
@@ -360,6 +378,82 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		};
 		expect(completion.completed).toBe(true);
 		expect(completion.content?.[0]?.text).toContain("Completed: Do the work");
+		service.close();
+	});
+
+	it("same-destination lifecycle replay is a successful changed=false no-op with one history event", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("tasks.create", 1, { title: "Retry-safe submit", project_root: PROJECT }, PERMS)) as {
+			id: string;
+		};
+		await registry.invoke("tasks.start", 1, { id: created.id }, PERMS);
+		const first = (await registry.invoke("tasks.submit", 1, { id: created.id }, PERMS)) as { changed: boolean; status: string };
+		const replay = (await registry.invoke("tasks.submit", 1, { id: created.id }, PERMS)) as {
+			changed: boolean;
+			status: string;
+			content: Array<{ text: string }>;
+		};
+		expect(first).toMatchObject({ changed: true, status: "review" });
+		expect(replay).toMatchObject({ changed: false, status: "review" });
+		expect(replay.content[0]?.text).toContain("safe no-op");
+		const history = (await registry.invoke("tasks.history", 1, { id: created.id, direction: "asc" }, PERMS)) as {
+			events: Array<{ type: string }>;
+		};
+		expect(history.events.filter((event) => event.type === "submitted")).toHaveLength(1);
+		service.close();
+	});
+
+	it("idempotency receipts recover a lost response and concurrent completion without duplicate history", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("tasks.create", 1, { title: "Receipt-backed completion", project_root: PROJECT }, PERMS)) as {
+			id: string;
+		};
+		await registry.invoke("tasks.start", 1, { id: created.id, idempotency_key: "start-1" }, PERMS);
+		const startReceipt = (await registry.invoke("tasks.mutation_status", 1, { idempotency_key: "start-1" }, PERMS)) as {
+			state: string;
+			operation: string;
+			result: { changed: boolean };
+		};
+		expect(startReceipt).toMatchObject({ state: "completed", operation: "start", result: { changed: true } });
+		await registry.invoke("tasks.submit", 1, { id: created.id }, PERMS);
+
+		const [first, duplicate] = (await Promise.all([
+			registry.invoke("tasks.complete", 1, { id: created.id, idempotency_key: "complete-1" }, PERMS),
+			registry.invoke("tasks.complete", 1, { id: created.id, idempotency_key: "complete-1" }, PERMS),
+		])) as Array<{ changed: boolean; completed: boolean; receiptId: string }>;
+		expect(first).toMatchObject({ changed: true, completed: true });
+		expect(duplicate).toMatchObject({ changed: false, completed: true, receiptId: first!.receiptId });
+		const completionReceipt = (await registry.invoke("tasks.mutation_status", 1, { idempotency_key: "complete-1" }, PERMS)) as {
+			state: string;
+			operation: string;
+		};
+		expect(completionReceipt).toMatchObject({ state: "completed", operation: "complete" });
+		const history = (await registry.invoke("tasks.history", 1, { id: created.id, direction: "asc" }, PERMS)) as {
+			events: Array<{ type: string }>;
+		};
+		expect(history.events.filter((event) => event.type === "completion_attempted")).toHaveLength(1);
+		expect(history.events.filter((event) => event.type === "completed")).toHaveLength(1);
+		service.close();
+	});
+
+	it("genuinely invalid transitions return bounded status, allowed-action, and recovery details", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("tasks.create", 1, { title: "Still todo", project_root: PROJECT }, PERMS)) as { id: string };
+		const rejection = await registry.invoke("tasks.submit", 1, { id: created.id }, PERMS).catch((error: unknown) => error);
+		expect((rejection as VehicleError).code).toBe("invalid-transition");
+		expect((rejection as VehicleError).details).toEqual({
+			operation: "submit",
+			currentStatus: "todo",
+			intendedStatus: "review",
+			allowedActions: ["start", "cancel"],
+			recovery: "Call tasks.show, then choose one allowed action; do not retry submit with a new key.",
+		});
+		const completionRejection = await registry.invoke("tasks.complete", 1, { id: created.id }, PERMS).catch((error: unknown) => error);
+		expect(completionRejection).toMatchObject({
+			code: "invalid-transition",
+			category: "conflict",
+			details: { operation: "complete", currentStatus: "todo", intendedStatus: "done" },
+		});
 		service.close();
 	});
 

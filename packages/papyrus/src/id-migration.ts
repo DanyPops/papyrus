@@ -54,6 +54,7 @@ const FK_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
 	{ table: "task_events", column: "task_id" },
 	{ table: "task_scopes", column: "task_id" },
 	{ table: "task_views", column: "root_task_id" },
+	{ table: "task_mutation_requests", column: "task_id" },
 	{ table: "artifact_events", column: "artifact_id" },
 	{ table: "artifact_events", column: "related_id" },
 ];
@@ -68,6 +69,7 @@ const TEXT_SCAN_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
 	{ table: "artifacts", column: "extra" },
 	{ table: "task_events", column: "reason" },
 	{ table: "task_events", column: "evidence_json" },
+	{ table: "task_mutation_requests", column: "response_json" },
 ];
 
 /** Audit tables whose append-only guard must be suspended for exactly this migration's duration. */

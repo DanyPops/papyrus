@@ -35,4 +35,12 @@ export { taskContext } from "./task/task-context.ts";
 export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState } from "./task/task-execution.ts";
 export { projectTaskGraph, type TaskGraphView } from "./task/task-graph-view.ts";
 export { fallbackLabel, projectTaskRelationships } from "./task/task-relationship-view.ts";
-export type { TaskCompletion, TaskGraph, TaskNode, TaskStatus } from "./task/task-service.ts";
+export type {
+	TaskCompletion,
+	TaskGraph,
+	TaskLifecycleMutationResult,
+	TaskMutationReceiptView,
+	TaskNode,
+	TaskStatus,
+} from "./task/task-service.ts";
+export { TaskInvalidTransitionError, TaskMutationReceiptNotFoundError } from "./task/task-service.ts";

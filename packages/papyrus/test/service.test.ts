@@ -78,11 +78,11 @@ describe("Papyrus operation service", () => {
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 26, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 1, required: 27, migrationRequired: true });
 		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate schema");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 26,
+			to: 27,
 			applied: [
 				"task-lifecycle-and-focus",
 				"task-history",
@@ -109,9 +109,10 @@ describe("Papyrus operation service", () => {
 				"artifact-aliases",
 				"rule-draft-status",
 				"task-projects-and-create-idempotency",
+				"task-lifecycle-mutation-receipts",
 			],
 		});
-		expect(service.schemaState()).toEqual({ current: 26, required: 26, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 27, required: 27, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
 		service.close();
 	});
@@ -135,7 +136,7 @@ describe("Papyrus operation service", () => {
 
 		const service = createPapyrusService(path);
 		const app = createApp({ service, token: "test-token" });
-		expect(service.schemaState()).toEqual({ current: 23, required: 26, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 23, required: 27, migrationRequired: true });
 
 		const response = await request(app, "/vehicle/invoke", {
 			method: "POST",
@@ -357,7 +358,7 @@ describe("Papyrus operation service", () => {
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: VERSION,
-			schema: { current: 26, required: 26, migrationRequired: false },
+			schema: { current: 27, required: 27, migrationRequired: false },
 		});
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", {
 			title: "Client task",

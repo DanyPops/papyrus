@@ -542,10 +542,15 @@ describe("Tasks port behavior", () => {
 			artifact: { id: review.id },
 			status: "paused",
 			pauseReason: "manual pause",
+			changed: true,
 		});
+		expect(tasks.pauseFocus({ reason: "duplicate" })).toMatchObject({ artifact: { id: review.id }, status: "paused", changed: false });
 		expect(tasks.active()).toBeNull();
 		expect(tasks.focused()).toMatchObject({ artifact: { id: review.id }, status: "paused" });
-		expect(tasks.unpauseFocus()).toMatchObject({ artifact: { id: review.id }, status: "active" });
+		expect(tasks.unpauseFocus()).toMatchObject({ artifact: { id: review.id }, status: "active", changed: true });
+		expect(tasks.unpauseFocus()).toMatchObject({ artifact: { id: review.id }, status: "active", changed: false });
+		expect(tasks.history(review.id).events.filter((event) => event.type === "focus_paused")).toHaveLength(1);
+		expect(tasks.history(review.id).events.filter((event) => event.type === "focus_unpaused")).toHaveLength(1);
 		expect(tasks.active()?.id).toBe(review.id);
 		expect(tasks.show(todo.id).status).toBe("todo");
 		expect(tasks.show(review.id).status).toBe("review");
@@ -555,6 +560,19 @@ describe("Tasks port behavior", () => {
 				.nodes.filter((node) => node.active)
 				.map((node) => node.task.id),
 		).toEqual([review.id]);
+	});
+
+	it("replays a keyed Focus mutation receipt even if Focus was cleared after the response was lost", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Focus receipt" });
+		tasks.focus(task.id);
+		const request = { key: "pause-focus-1", caller: "agent-a" };
+		const original = tasks.pauseFocus({ reason: "wait" }, request);
+		tasks.clearFocus();
+		const replay = tasks.pauseFocus({ reason: "wait" }, request);
+		expect(original).toMatchObject({ status: "paused", changed: true });
+		expect(replay).toMatchObject({ status: "paused", changed: false, receiptId: original.receiptId });
+		expect(tasks.focused()).toBeNull();
 	});
 
 	it("propagates partial effort from a nested task to todo ancestors", () => {
@@ -625,10 +643,104 @@ describe("Tasks port behavior", () => {
 		expect(tasks.transition(task.id, "start").status).toBe("in-progress");
 	});
 
-	it("reopen only accepts a canceled task, not any other status", () => {
+	it("same-destination lifecycle calls are safe no-ops with no duplicate history", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Retry-safe lifecycle" });
+		const started = tasks.transition(task.id, "start");
+		const startReplay = tasks.transition(task.id, "start");
+		expect(started).toMatchObject({ status: "in-progress", changed: true, intendedStatus: "in-progress" });
+		expect(startReplay).toMatchObject({ status: "in-progress", changed: false, intendedStatus: "in-progress" });
+
+		const submitted = tasks.transition(task.id, "submit");
+		const submitReplay = tasks.transition(task.id, "submit");
+		expect(submitted).toMatchObject({ status: "review", changed: true, intendedStatus: "review" });
+		expect(submitReplay).toMatchObject({ status: "review", changed: false, intendedStatus: "review" });
+		expect(tasks.history(task.id).events.filter((event) => event.type === "started")).toHaveLength(1);
+		expect(tasks.history(task.id).events.filter((event) => event.type === "submitted")).toHaveLength(1);
+	});
+
+	it("durable mutation receipts resolve lost responses and exact-key replay without another event", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Receipt-backed lifecycle" });
+		const request = { key: "start-attempt-1", caller: "agent-a" };
+		const first = tasks.transition(task.id, "start", { reason: "begin" }, request);
+		const receipt = tasks.mutationStatus(request.key, request.caller);
+		const replay = tasks.transition(task.id, "start", { reason: "begin" }, request);
+
+		expect(first.receiptId).toBeString();
+		expect(receipt).toMatchObject({ receiptId: first.receiptId, operation: "start", state: "completed", taskName: task.alias });
+		expect(receipt.result).toEqual(first);
+		expect(replay).toMatchObject({ ...first, changed: false });
+		expect(tasks.history(task.id).events.filter((event) => event.type === "started")).toHaveLength(1);
+		expect(() => tasks.transition(task.id, "submit", {}, request)).toThrow("different mutation payload");
+	});
+
+	it("concurrent duplicate completion is single-flight and never reruns gates or history", async () => {
+		const gates = new FakeGateRunner();
+		const tasks = new Tasks(new FakeArtifactStore(), gates);
+		const task = tasks.create({ title: "Single-flight completion" });
+		tasks.transition(task.id, "start");
+		tasks.transition(task.id, "submit");
+		const request = { key: "complete-attempt-1", caller: "agent-a" };
+
+		const [first, duplicate] = await Promise.all([
+			tasks.completeAsync(task.id, {}, {}, request),
+			tasks.completeAsync(task.id, {}, {}, request),
+		]);
+		expect(first).toMatchObject({ completed: true, changed: true, receiptId: first.receiptId });
+		expect(duplicate).toMatchObject({ completed: true, changed: false, receiptId: first.receiptId });
+		expect(gates.calls).toEqual([task.id]);
+		const history = tasks.history(task.id).events;
+		expect(history.filter((event) => event.type === "completion_attempted")).toHaveLength(1);
+		expect(history.filter((event) => event.type === "completed")).toHaveLength(1);
+		expect(tasks.mutationStatus(request.key, request.caller).state).toBe("completed");
+	});
+
+	it("single-flights concurrent completion attempts even when callers use different keys", async () => {
+		const gates = new FakeGateRunner();
+		const tasks = new Tasks(new FakeArtifactStore(), gates);
+		const task = tasks.create({ title: "Two retry keys", status: "review" });
+		const [first, second] = await Promise.all([
+			tasks.completeAsync(task.id, {}, {}, { key: "completion-a", caller: "agent-a" }),
+			tasks.completeAsync(task.id, {}, {}, { key: "completion-b", caller: "agent-b" }),
+		]);
+		expect([first.changed, second.changed].sort()).toEqual([false, true]);
+		expect(gates.calls).toEqual([task.id]);
+		expect(tasks.mutationStatus("completion-a", "agent-a").state).toBe("completed");
+		expect(tasks.mutationStatus("completion-b", "agent-b").state).toBe("completed");
+	});
+
+	it("does not let a concurrent same-key completion for a different task join the first flight", async () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const firstTask = tasks.create({ title: "First", status: "review" });
+		const secondTask = tasks.create({ title: "Second", status: "review" });
+		const request = { key: "shared-key", caller: "agent-a" };
+		const first = tasks.completeAsync(firstTask.id, {}, {}, request);
+		const conflict = tasks.completeAsync(secondTask.id, {}, {}, request);
+		await expect(conflict).rejects.toThrow("different mutation payload");
+		expect((await first).artifact.id).toBe(firstTask.id);
+		expect(tasks.show(secondTask.id).status).toBe("review");
+	});
+
+	it("replays a failed completion receipt after the task has moved to rejected without rerunning gates", async () => {
+		const gates = new FakeGateRunner();
+		gates.results = [{ gate: { type: "test", target: "suite" }, passed: false, output: "failed" }];
+		const tasks = new Tasks(new FakeArtifactStore(), gates);
+		const task = tasks.create({ title: "Failed completion", status: "review" });
+		const request = { key: "failed-complete-1", caller: "agent-a" };
+		const first = await tasks.completeAsync(task.id, {}, {}, request);
+		const replay = await tasks.completeAsync(task.id, {}, {}, request);
+		expect(first).toMatchObject({ completed: false, changed: true, artifact: { status: "rejected" } });
+		expect(replay).toMatchObject({ completed: false, changed: false, artifact: { status: "rejected" } });
+		expect(gates.calls).toEqual([task.id]);
+		expect(tasks.history(task.id).events.filter((event) => event.type === "review_rejected")).toHaveLength(1);
+	});
+
+	it("a desired-state reopen on todo is harmless while genuinely incompatible transitions remain typed", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
 		const task = tasks.create({ title: "Still todo" });
-		expect(() => tasks.transition(task.id, "reopen")).toThrow("cannot reopen task from todo");
+		expect(tasks.transition(task.id, "reopen")).toMatchObject({ status: "todo", changed: false });
+		expect(() => tasks.transition(task.id, "submit")).toThrow("cannot submit task from todo");
 	});
 
 	it("cancelSubtree cancels a whole containment tree in one call, skipping already-terminal tasks instead of erroring on them", () => {

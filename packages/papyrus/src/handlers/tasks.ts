@@ -19,17 +19,25 @@
  *
  * remove/remove_subtree/restore are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
-import { VehicleError, type VehicleLimits } from "@danypops/vehicle-core";
+import { VehicleError, type VehicleLimits, type VehicleOperationContext } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import { GATE_TIMEOUT_MAX_MS, TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH } from "../constants.ts";
+import { GATE_TIMEOUT_MAX_MS, TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH, TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "../constants.ts";
 import { PROOF_TYPES } from "../domain/checklist.ts";
 import { GATE_TYPES } from "../domain/gate.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../stores/task-mutation-request-store.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
-import { type TaskCompletion, TaskProjectAmbiguousError, TaskProjectNotFoundError, type Tasks } from "../task/task-service.ts";
+import {
+	type TaskCompletion,
+	TaskInvalidTransitionError,
+	TaskMutationReceiptNotFoundError,
+	TaskProjectAmbiguousError,
+	TaskProjectNotFoundError,
+	type Tasks,
+} from "../task/task-service.ts";
 import {
 	booleanProp,
 	classifySessionAuthorization,
@@ -75,6 +83,13 @@ const GATE_OPERATION_LIMITS: VehicleLimits = {
 const objectProp = { type: "object" } as const;
 const arrayProp = { type: "array" } as const;
 const _boolProp = { type: "boolean" } as const;
+const mutationIdempotencyProp = {
+	type: "string",
+	minLength: 1,
+	maxLength: TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH,
+	description:
+		"Retry key for this exact mutation. Reuse the same key after an unknown outcome; inspect mutation_status before choosing a new action.",
+} as const;
 
 const gateProp = {
 	type: "array",
@@ -251,13 +266,58 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	 * vehicle-registry's own secure-by-default handler-failed opacity still applies to a genuine
 	 * unexpected crash (see artifact-vehicle-shared.ts's classify* helpers).
 	 */
+	const throwLifecycleError = (error: unknown): never => {
+		if (error instanceof TaskInvalidTransitionError) {
+			throw new VehicleError("invalid-transition", error.message, {
+				category: "conflict",
+				details: {
+					operation: error.operation,
+					currentStatus: error.currentStatus,
+					intendedStatus: error.intendedStatus,
+					allowedActions: [...error.allowedActions],
+					recovery: error.recovery,
+				},
+			});
+		}
+		if (error instanceof TaskMutationIdempotencyConflictError) {
+			throw new VehicleError("idempotency-key-conflict", error.message, { category: "conflict" });
+		}
+		if (error instanceof TaskMutationPendingError) {
+			throw new VehicleError("mutation-pending", error.message, {
+				category: "conflict",
+				details: { receiptId: error.receiptId, operation: error.operation },
+			});
+		}
+		if (error instanceof TaskMutationReceiptNotFoundError) {
+			throw new VehicleError("mutation-receipt-not-found", error.message, { category: "not_found" });
+		}
+		throw error;
+	};
+	const classifyLifecycle = <T>(run: () => T): T => {
+		try {
+			const result = run();
+			return result instanceof Promise ? (result.catch(throwLifecycleError) as T) : result;
+		} catch (error) {
+			return throwLifecycleError(error);
+		}
+	};
 	const call = (name: string, input: Record<string, unknown>): unknown =>
 		classifySessionAuthorization(() =>
 			classifyTaskCreateIdempotency(() =>
-				classifyTaskExecutionBounds(() => classifyTaskDependencyCycles(() => moduleOperations.get(name)!.execute(input))),
+				classifyTaskExecutionBounds(() =>
+					classifyTaskDependencyCycles(() => classifyLifecycle(() => moduleOperations.get(name)!.execute(input))),
+				),
 			),
 		);
 	const define = createOperationDefiner(registry, OWNER, "tasks", ["tasks:read", "tasks:write"], call);
+	const mutationInput = (
+		input: Record<string, unknown>,
+		context: VehicleOperationContext<Record<string, unknown>>,
+	): Record<string, unknown> => ({
+		...input,
+		idempotency_key: input.idempotency_key ?? context.idempotencyKey,
+		idempotency_caller: context.principal?.id ?? "anonymous",
+	});
 
 	const resolveProject = (reference: string) => {
 		try {
@@ -522,7 +582,8 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	): void => {
 		define(action, description, "local-write", properties, required, resolve, (resolvedInput, context) => {
 			const claims = context.principal?.claims as { sessionId?: string; sessionSecret?: string } | undefined;
-			return call(`tasks.${action}`, { ...resolvedInput, session_id: claims?.sessionId, session_secret: claims?.sessionSecret });
+			const operationInput = action === "pause" || action === "unpause" ? mutationInput(resolvedInput, context) : resolvedInput;
+			return call(`tasks.${action}`, { ...operationInput, session_id: claims?.sessionId, session_secret: claims?.sessionSecret });
 		});
 	};
 
@@ -536,63 +597,67 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			id: resolveTaskId(artifacts, tasks, { projectRoot: input.project_root as string | undefined }, input.id, input.name),
 		}),
 	);
-	focusOperation("pause", "Pauses the active Task Focus without clearing it.", { reason: stringProp }, [], (input) => input);
-	focusOperation("unpause", "Resumes a paused Task Focus.", {}, [], (input) => input);
+	focusOperation(
+		"pause",
+		"Pauses Task Focus. Destination-state idempotent: replaying after success returns changed=false. Reuse idempotency_key after an unknown outcome.",
+		{ reason: stringProp, idempotency_key: mutationIdempotencyProp },
+		[],
+		(input) => input,
+	);
+	focusOperation(
+		"unpause",
+		"Resumes paused Task Focus. Destination-state idempotent: replaying after success returns changed=false. Reuse idempotency_key after an unknown outcome.",
+		{ idempotency_key: mutationIdempotencyProp },
+		[],
+		(input) => input,
+	);
 	focusOperation("clear_focus", "Clears the active Task Focus.", {}, [], (input) => input);
 
-	define(
-		"start",
-		"Lifecycle transition: todo -> in-progress.",
-		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
-		[],
-		resolveIdAndScope,
-	);
-	define(
-		"submit",
-		"Lifecycle transition: in-progress -> review.",
-		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
-		[],
-		resolveIdAndScope,
-	);
-	define(
-		"reject",
-		"Lifecycle transition: review -> rejected.",
-		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
-		[],
-		resolveIdAndScope,
-	);
-	define(
-		"retry",
-		"Lifecycle transition: rejected -> in-progress.",
-		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
-		[],
-		resolveIdAndScope,
-	);
-	define(
-		"cancel",
-		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected. Reversible via tasks.reopen if this turns out to be premature.",
-		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
-		[],
-		resolveIdAndScope,
-	);
+	const transitionOperation = (action: "start" | "submit" | "reject" | "retry" | "cancel" | "reopen", description: string): void =>
+		define(
+			action,
+			`${description} Destination-state idempotent: a replay after success returns changed=false. After an unknown outcome, call tasks.show and mutation_status, then reuse the SAME idempotency_key; never retry with a new key from stale state.`,
+			"local-write",
+			{
+				id: stringProp,
+				name: stringProp,
+				reason: stringProp,
+				session_id: stringProp,
+				project_root: stringProp,
+				idempotency_key: mutationIdempotencyProp,
+			},
+			[],
+			resolveIdAndScope,
+			(input, context) => {
+				const result = call(`tasks.${action}`, mutationInput(input, context)) as {
+					title: string;
+					status: string;
+					changed: boolean;
+					receiptId?: string;
+					replayed?: boolean;
+				};
+				const text = result.changed
+					? `${result.title} transitioned to ${result.status}.`
+					: result.replayed
+						? `Recovered the prior ${action} receipt for ${result.title}; call tasks.show to confirm its current status before the next action.`
+						: `${result.title} was already ${result.status}; replay was a safe no-op.`;
+				return { ...result, content: [{ type: "text" as const, text }] };
+			},
+		);
 
-	define(
-		"reopen",
-		"Lifecycle transition: canceled -> todo. For a task legitimately canceled through a normal transition (e.g. a deliberate pause/park) that should resume -- distinct from tasks.update's status:todo path, which only recovers a task that was terminal at its own creation (a caller mistake), never one canceled/rejected later.",
-		"local-write",
-		{ id: stringProp, name: stringProp, reason: stringProp, session_id: stringProp, project_root: stringProp },
-		[],
-		resolveIdAndScope,
+	transitionOperation("start", "Lifecycle transition: todo -> in-progress.");
+	transitionOperation("submit", "Lifecycle transition: in-progress -> review.");
+	transitionOperation("reject", "Lifecycle transition: review -> rejected.");
+	transitionOperation("retry", "Lifecycle transition: rejected -> in-progress.");
+	transitionOperation(
+		"cancel",
+		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected. Reversible via tasks.reopen if premature.",
 	);
+	transitionOperation("reopen", "Lifecycle transition: canceled -> todo for work that should resume.");
 
 	define(
 		"complete",
-		"Runs gates + checklist-proof review, then focuses one deterministic ready successor without claiming effort. Rejects (not completes) on gate/checklist failure.",
+		"Runs gates + checklist-proof review, then focuses one deterministic ready successor without claiming effort. Rejects on gate/checklist failure. Reuse the same idempotency_key after an unknown outcome so gates and history are not run twice; inspect mutation_status before choosing a new action. A replay after done is a changed=false no-op.",
 		"local-write",
 		{
 			id: stringProp,
@@ -603,16 +668,27 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			scope: { type: "string", enum: ["project", "graph", "all"] },
 			root_task_id: stringProp,
 			root_task_name: stringProp,
+			idempotency_key: mutationIdempotencyProp,
 		},
 		[],
 		resolveIdAndScope,
-		async (input) => {
-			const result = (await call("tasks.complete", input)) as TaskCompletion;
+		async (input, context) => {
+			const result = (await call("tasks.complete", mutationInput(input, context))) as TaskCompletion;
 			const dependencyIds = result.blocked.flatMap((entry) => entry.dependencyIds);
 			const labels = labelsById(artifacts, dependencyIds);
 			return { ...result, content: [{ type: "text" as const, text: completionContentText(labels, result) }] };
 		},
 		GATE_OPERATION_LIMITS,
+	);
+
+	define(
+		"mutation_status",
+		"Resolves an unknown lifecycle mutation outcome by the original idempotency_key. Read this receipt before selecting another transition; never invent a replacement key for the same attempt.",
+		"read",
+		{ idempotency_key: mutationIdempotencyProp },
+		["idempotency_key"],
+		(input) => input,
+		(input, context) => call("tasks.mutation_status", mutationInput(input, context)),
 	);
 
 	define(

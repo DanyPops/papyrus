@@ -139,6 +139,11 @@ const CLI_FIXTURES: Fixture[] = [
 		result: { artifact, gates: [], checklist: [], blocked: [], completed: true },
 		invoke: (c) => runTaskCli(["complete", "a1", "--json"], c),
 	},
+	{
+		operation: "tasks.mutation_status",
+		result: { receiptId: "receipt-1", operation: "submit", state: "completed" },
+		invoke: (c) => runTaskCli(["mutation-status", "retry-key", "--json"], c),
+	},
 	{ operation: "tasks.run_gates", result: [], invoke: (c) => runTaskCli(["run-gates", "a1", "--json"], c) },
 	{
 		operation: "tasks.set_checklist",

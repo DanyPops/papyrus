@@ -28,7 +28,7 @@ import type { OperationDefinition } from "../module-registry.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import { taskContext } from "../task/task-context.ts";
 import { projectTaskExecution } from "../task/task-execution.ts";
-import type { TaskStatus, Tasks } from "../task/task-service.ts";
+import type { TaskMutationRequestContext, TaskStatus, Tasks } from "../task/task-service.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, optionalStringArray, string } from "./operation-input.ts";
 
 const MODULE_ID = "tasks";
@@ -38,6 +38,11 @@ const eventContext = (input: OperationInput): TaskEventContext => ({
 	source: optionalString(input, "source"),
 	sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 	reason: optionalString(input, "reason"),
+});
+
+const mutationRequest = (input: OperationInput): TaskMutationRequestContext => ({
+	key: optionalString(input, "idempotency_key"),
+	caller: optionalString(input, "idempotency_caller"),
 });
 
 const taskFilter = (input: OperationInput) => ({
@@ -83,6 +88,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.start",
 	"tasks.submit",
 	"tasks.complete",
+	"tasks.mutation_status",
 	"tasks.run_gates",
 	"tasks.set_checklist",
 	"tasks.set_gates",
@@ -195,20 +201,29 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		}),
 		define("tasks.pause", (input: OperationInput) => {
 			guardFocusMutation(input);
-			return tasks.pauseFocus(eventContext(input));
+			return tasks.pauseFocus(eventContext(input), mutationRequest(input));
 		}),
 		define("tasks.unpause", (input: OperationInput) => {
 			guardFocusMutation(input);
-			return tasks.unpauseFocus(eventContext(input));
+			return tasks.unpauseFocus(eventContext(input), mutationRequest(input));
 		}),
 		define("tasks.clear_focus", (input: OperationInput) => {
 			guardFocusMutation(input);
 			return tasks.clearFocus(eventContext(input));
 		}),
 		define("tasks.reap_stale_focus", () => ({ removed: tasks.reapStaleFocus() })),
-		define("tasks.start", (input: OperationInput) => tasks.transition(string(input, "id"), "start", eventContext(input))),
-		define("tasks.submit", (input: OperationInput) => tasks.transition(string(input, "id"), "submit", eventContext(input))),
-		define("tasks.complete", (input: OperationInput) => tasks.completeAsync(string(input, "id"), eventContext(input))),
+		define("tasks.start", (input: OperationInput) =>
+			tasks.transition(string(input, "id"), "start", eventContext(input), mutationRequest(input)),
+		),
+		define("tasks.submit", (input: OperationInput) =>
+			tasks.transition(string(input, "id"), "submit", eventContext(input), mutationRequest(input)),
+		),
+		define("tasks.complete", (input: OperationInput) =>
+			tasks.completeAsync(string(input, "id"), eventContext(input), {}, mutationRequest(input)),
+		),
+		define("tasks.mutation_status", (input: OperationInput) =>
+			tasks.mutationStatus(string(input, "idempotency_key"), optionalString(input, "idempotency_caller")),
+		),
 		define("tasks.run_gates", (input: OperationInput) => tasks.runGates(string(input, "id"), eventContext(input))),
 		define("tasks.set_checklist", (input: OperationInput) => tasks.setChecklist(string(input, "id"), input.checklist as Checklist)),
 		define("tasks.set_gates", (input: OperationInput) =>
@@ -222,10 +237,18 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 				optionalString(input, "verbosity") === "summary" ? "summary" : "full",
 			),
 		),
-		define("tasks.reject", (input: OperationInput) => tasks.transition(string(input, "id"), "reject", eventContext(input))),
-		define("tasks.retry", (input: OperationInput) => tasks.transition(string(input, "id"), "retry", eventContext(input))),
-		define("tasks.cancel", (input: OperationInput) => tasks.transition(string(input, "id"), "cancel", eventContext(input))),
-		define("tasks.reopen", (input: OperationInput) => tasks.transition(string(input, "id"), "reopen", eventContext(input))),
+		define("tasks.reject", (input: OperationInput) =>
+			tasks.transition(string(input, "id"), "reject", eventContext(input), mutationRequest(input)),
+		),
+		define("tasks.retry", (input: OperationInput) =>
+			tasks.transition(string(input, "id"), "retry", eventContext(input), mutationRequest(input)),
+		),
+		define("tasks.cancel", (input: OperationInput) =>
+			tasks.transition(string(input, "id"), "cancel", eventContext(input), mutationRequest(input)),
+		),
+		define("tasks.reopen", (input: OperationInput) =>
+			tasks.transition(string(input, "id"), "reopen", eventContext(input), mutationRequest(input)),
+		),
 		define("tasks.cancel_subtree", (input: OperationInput) => tasks.cancelSubtree(string(input, "id"), eventContext(input))),
 		define("tasks.depend", (input: OperationInput) =>
 			tasks.depend(string(input, "id"), string(input, "dependency_id"), eventContext(input)),

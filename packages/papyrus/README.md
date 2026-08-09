@@ -46,6 +46,8 @@ Task project names are explicit registrations, never ambient-directory guesses. 
 
 `tasks.create` accepts an optional `idempotency_key`. Replays with the same caller, canonical project root, key, and payload return the original response without another mutation; conflicting payload reuse is rejected. Keys are retained for seven days, isolated across callers and projects, and then expire. Retry only when reusing the exact key and payload; an unkeyed create remains unsafe to replay after an ambiguous transport failure.
 
+Task lifecycle mutations (`start`, `submit`, `reject`, `retry`, `cancel`, `reopen`, `complete`, `pause`, and `unpause`) are destination-state idempotent: repeating an already-achieved transition is a successful `changed: false` no-op and creates no duplicate history. Supply an `idempotency_key` for every mutation whose response could be lost. After an unknown outcome, call `tasks.show` and `tasks.mutation_status` with the original key, then replay only that exact operation/key if needed—never invent a new key from stale state. Completed receipts are retained for seven days; concurrent duplicate completion calls share one gate run. A genuinely incompatible transition returns typed `invalid-transition` details with current/intended status, allowed actions, and recovery guidance.
+
 Task lease responses are name-first: `tasks.claim`, `tasks.heartbeat_lease`, and `tasks.lease` return the reusable artifact alias as `taskName` plus `taskTitle`, not the backend UUID. Use `taskName` for later Task operations; retain the lease token for heartbeat or release.
 
 ### Context Mesh persistence model

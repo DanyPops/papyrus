@@ -15,6 +15,7 @@ describe("task-projects-and-create-idempotency migration", () => {
 			VALUES ('task-1', 'task', 'Existing task', 'todo', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 			INSERT INTO task_scopes (task_id, project_root, source, assigned_at)
 			VALUES ('task-1', '/tmp/projects/Papyrus', 'explicit', '2026-01-01T00:00:00.000Z');
+			DROP TABLE task_mutation_requests;
 			DROP TABLE task_create_requests;
 			DROP TABLE task_projects;
 			PRAGMA user_version = 25;
@@ -22,7 +23,11 @@ describe("task-projects-and-create-idempotency migration", () => {
 		db.close();
 
 		db = openDb(path);
-		expect(migrateDb(db)).toEqual({ from: 25, to: SQLITE_SCHEMA_VERSION, applied: ["task-projects-and-create-idempotency"] });
+		expect(migrateDb(db)).toEqual({
+			from: 25,
+			to: SQLITE_SCHEMA_VERSION,
+			applied: ["task-projects-and-create-idempotency", "task-lifecycle-mutation-receipts"],
+		});
 		expect(db.prepare("SELECT name, aliases_json, project_root FROM task_projects").all()).toEqual([
 			{ name: "Papyrus", aliases_json: "[]", project_root: "/tmp/projects/Papyrus" },
 		]);

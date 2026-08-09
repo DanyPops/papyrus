@@ -176,6 +176,24 @@ CREATE TABLE IF NOT EXISTS task_create_requests (
 	PRIMARY KEY (request_scope, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS task_create_requests_expiry_idx ON task_create_requests(expires_at);
+CREATE TABLE IF NOT EXISTS task_mutation_requests (
+	request_scope   TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL,
+	receipt_id      TEXT NOT NULL UNIQUE,
+	task_id         TEXT REFERENCES artifacts(id) ON DELETE CASCADE,
+	operation       TEXT NOT NULL,
+	request_hash    TEXT NOT NULL,
+	state           TEXT NOT NULL CHECK (state IN ('pending', 'completed')),
+	response_json   TEXT,
+	created_at      TEXT NOT NULL,
+	updated_at      TEXT NOT NULL,
+	expires_at      TEXT NOT NULL,
+	PRIMARY KEY (request_scope, idempotency_key),
+	CHECK ((state = 'pending' AND response_json IS NULL) OR (state = 'completed' AND response_json IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS task_mutation_requests_expiry_idx ON task_mutation_requests(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS task_mutation_requests_pending_task_operation_idx
+	ON task_mutation_requests(task_id, operation) WHERE state = 'pending' AND task_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS artifact_events (
 	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 	artifact_id          TEXT NOT NULL REFERENCES artifacts(id),
@@ -797,6 +815,32 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				const now = new Date().toISOString();
 				insert.run(randomUUID(), basename(row.project_root) || row.project_root, row.project_root, now, now);
 			}
+		},
+	},
+	{
+		version: 27,
+		name: "task-lifecycle-mutation-receipts",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS task_mutation_requests (
+					request_scope   TEXT NOT NULL,
+					idempotency_key TEXT NOT NULL,
+					receipt_id      TEXT NOT NULL UNIQUE,
+					task_id         TEXT REFERENCES artifacts(id) ON DELETE CASCADE,
+					operation       TEXT NOT NULL,
+					request_hash    TEXT NOT NULL,
+					state           TEXT NOT NULL CHECK (state IN ('pending', 'completed')),
+					response_json   TEXT,
+					created_at      TEXT NOT NULL,
+					updated_at      TEXT NOT NULL,
+					expires_at      TEXT NOT NULL,
+					PRIMARY KEY (request_scope, idempotency_key),
+					CHECK ((state = 'pending' AND response_json IS NULL) OR (state = 'completed' AND response_json IS NOT NULL))
+				);
+				CREATE INDEX IF NOT EXISTS task_mutation_requests_expiry_idx ON task_mutation_requests(expires_at);
+				CREATE UNIQUE INDEX IF NOT EXISTS task_mutation_requests_pending_task_operation_idx
+					ON task_mutation_requests(task_id, operation) WHERE state = 'pending' AND task_id IS NOT NULL;
+			`);
 		},
 	},
 ];

@@ -29,7 +29,7 @@ describe("task project scope migration", () => {
 		db = openDb(path);
 		expect(migrateDb(db)).toEqual({
 			from: 3,
-			to: 27,
+			to: 28,
 			applied: [
 				"task-project-scope",
 				"task-focus-continuation",
@@ -55,6 +55,7 @@ describe("task project scope migration", () => {
 				"rule-draft-status",
 				"task-projects-and-create-idempotency",
 				"task-lifecycle-mutation-receipts",
+				"artifact-multi-project-scope",
 			],
 		});
 		expect(db.prepare("SELECT project_root, source FROM task_scopes").get()).toEqual({ project_root: null, source: "unscoped" });

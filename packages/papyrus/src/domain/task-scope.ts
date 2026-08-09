@@ -1,5 +1,6 @@
 import { basename, isAbsolute, normalize } from "node:path";
 import { TASK_PROJECT_ROOT_MAX_LENGTH } from "../constants.ts";
+import type { Project, RegisterProjectInput } from "./project-registry.ts";
 
 export type TaskViewMode = "project" | "graph" | "all";
 export type TaskScopeSource = "cwd" | "explicit" | "unscoped";
@@ -10,21 +11,10 @@ export interface TaskProjectScope {
 	source: TaskScopeSource;
 }
 
-export interface TaskProject {
-	id: string;
-	name: string;
-	aliases: string[];
-	projectRoot: string;
-	createdAt: string;
-	updatedAt: string;
-}
+/** Task's own name for the shared, kind-neutral Project identity -- see project-registry.ts. Kept as a type alias so every existing Task-scope call site keeps working unchanged. */
+export type TaskProject = Project;
 
-export interface RegisterTaskProjectInput {
-	projectRoot: string;
-	name?: string;
-	aliases?: string[];
-	existingId?: string;
-}
+export type RegisterTaskProjectInput = RegisterProjectInput;
 
 export interface TaskViewPreference {
 	projectRoot: string;

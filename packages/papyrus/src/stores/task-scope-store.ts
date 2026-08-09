@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
-import { TASK_PROJECT_ALIAS_MAX_COUNT } from "../constants.ts";
 import type {
 	RegisterTaskProjectInput,
 	TaskProject,
@@ -9,6 +6,8 @@ import type {
 	TaskViewMode,
 	TaskViewPreference,
 } from "../domain/task-scope.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import { InMemoryProjectRegistryStore } from "./in-memory-project-registry-store.ts";
 
 export interface TaskScopeStore {
 	assign(taskId: string, projectRoot: string | undefined, source: TaskScopeSource): TaskProjectScope;
@@ -21,32 +20,38 @@ export interface TaskScopeStore {
 	registerProject(input: RegisterTaskProjectInput): TaskProject;
 }
 
-function uniqueAliases(values: readonly string[], name: string): string[] {
-	const seen = new Set([name.trim().toLowerCase()]);
-	const aliases = values.flatMap((value) => {
-		const trimmed = value.trim();
-		const key = trimmed.toLowerCase();
-		if (!trimmed || seen.has(key)) return [];
-		seen.add(key);
-		return [trimmed];
-	});
-	if (aliases.length > TASK_PROJECT_ALIAS_MAX_COUNT) {
-		throw new Error(`project aliases cannot exceed ${TASK_PROJECT_ALIAS_MAX_COUNT} entries`);
-	}
-	return aliases;
-}
-
+/**
+ * Task's own scope/view bookkeeping, composing a ProjectRegistryStore for the project-catalog
+ * methods (projects/matchingProjects/registerProject) rather than implementing that bookkeeping
+ * itself -- see project-registry-store.ts. Pass a shared registry instance to keep Task and a
+ * non-Task ArtifactScopeStore resolving against the exact same project identities; omitted, this
+ * store gets its own private one (matching this class's own behavior before the extraction).
+ */
 export class InMemoryTaskScopeStore implements TaskScopeStore {
 	private readonly scopes = new Map<string, TaskProjectScope>();
 	private readonly views = new Map<string, TaskViewPreference>();
-	private readonly projectRows = new Map<string, TaskProject>();
+	private readonly registry: InMemoryProjectRegistryStore;
+
+	constructor(registry?: ProjectRegistryStore) {
+		this.registry = registry instanceof InMemoryProjectRegistryStore ? registry : new InMemoryProjectRegistryStore();
+		this.registry.subscribeRootMoved((previousRoot, nextRoot) => this.onRootMoved(previousRoot, nextRoot));
+	}
+
+	private onRootMoved(previousRoot: string, nextRoot: string): void {
+		for (const [taskId, scope] of this.scopes) {
+			if (scope.projectRoot === previousRoot) this.scopes.set(taskId, { ...scope, projectRoot: nextRoot });
+		}
+		const view = this.views.get(previousRoot);
+		if (view) {
+			this.views.delete(previousRoot);
+			this.views.set(nextRoot, { ...view, projectRoot: nextRoot });
+		}
+	}
 
 	assign(taskId: string, projectRoot: string | undefined, source: TaskScopeSource): TaskProjectScope {
 		const scope = { taskId, ...(projectRoot === undefined ? {} : { projectRoot }), source };
 		this.scopes.set(taskId, scope);
-		if (projectRoot !== undefined && ![...this.projectRows.values()].some((project) => project.projectRoot === projectRoot)) {
-			this.registerProject({ projectRoot });
-		}
+		if (projectRoot !== undefined && !this.registry.byRoot(projectRoot)) this.registerProject({ projectRoot });
 		return scope;
 	}
 
@@ -73,60 +78,14 @@ export class InMemoryTaskScopeStore implements TaskScopeStore {
 	}
 
 	projects(query: string | undefined, limit: number): TaskProject[] {
-		const needle = query?.trim().toLowerCase();
-		return [...this.projectRows.values()]
-			.filter(
-				(project) =>
-					!needle ||
-					project.name.toLowerCase().includes(needle) ||
-					project.projectRoot.toLowerCase().includes(needle) ||
-					project.aliases.some((alias) => alias.toLowerCase().includes(needle)),
-			)
-			.sort((left, right) => left.name.localeCompare(right.name) || left.projectRoot.localeCompare(right.projectRoot))
-			.slice(0, limit);
+		return this.registry.projects(query, limit);
 	}
 
 	matchingProjects(reference: string): TaskProject[] {
-		const needle = reference.trim().toLowerCase();
-		return [...this.projectRows.values()]
-			.filter(
-				(project) =>
-					project.id.toLowerCase() === needle ||
-					project.name.toLowerCase() === needle ||
-					project.projectRoot.toLowerCase() === needle ||
-					project.aliases.some((alias) => alias.toLowerCase() === needle),
-			)
-			.slice(0, 11);
+		return this.registry.matchingProjects(reference);
 	}
 
 	registerProject(input: RegisterTaskProjectInput): TaskProject {
-		const now = new Date().toISOString();
-		const byRoot = [...this.projectRows.values()].find((project) => project.projectRoot === input.projectRoot);
-		const existing = input.existingId ? this.projectRows.get(input.existingId) : byRoot;
-		const name = input.name?.trim() || existing?.name || basename(input.projectRoot) || input.projectRoot;
-		const aliases = uniqueAliases(
-			[...(existing?.aliases ?? []), ...(existing && existing.name !== name ? [existing.name] : []), ...(input.aliases ?? [])],
-			name,
-		);
-		const project: TaskProject = {
-			id: existing?.id ?? randomUUID(),
-			name,
-			aliases,
-			projectRoot: input.projectRoot,
-			createdAt: existing?.createdAt ?? now,
-			updatedAt: now,
-		};
-		if (existing && existing.projectRoot !== project.projectRoot) {
-			for (const [taskId, scope] of this.scopes) {
-				if (scope.projectRoot === existing.projectRoot) this.scopes.set(taskId, { ...scope, projectRoot: project.projectRoot });
-			}
-			const view = this.views.get(existing.projectRoot);
-			if (view) {
-				this.views.delete(existing.projectRoot);
-				this.views.set(project.projectRoot, { ...view, projectRoot: project.projectRoot });
-			}
-		}
-		this.projectRows.set(project.id, project);
-		return project;
+		return this.registry.registerProject(input);
 	}
 }

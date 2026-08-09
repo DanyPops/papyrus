@@ -14,7 +14,11 @@ describe("task-lifecycle-mutation-receipts migration", () => {
 		db.close();
 
 		db = openDb(path);
-		expect(migrateDb(db)).toEqual({ from: 26, to: SQLITE_SCHEMA_VERSION, applied: ["task-lifecycle-mutation-receipts"] });
+		expect(migrateDb(db)).toEqual({
+			from: 26,
+			to: SQLITE_SCHEMA_VERSION,
+			applied: ["task-lifecycle-mutation-receipts", "artifact-multi-project-scope"],
+		});
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_mutation_requests'").get()).not.toBeNull();
 		expect(
 			db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'task_mutation_requests_expiry_idx'").get(),

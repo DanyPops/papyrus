@@ -233,10 +233,17 @@ CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_pro
 CREATE TABLE IF NOT EXISTS artifact_scopes (
 	artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
 	project_root  TEXT,
+	mode          TEXT NOT NULL DEFAULT 'global' CHECK (mode IN ('global', 'projects')),
 	source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
 	assigned_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
+CREATE TABLE IF NOT EXISTS artifact_scope_projects (
+	artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+	project_id   TEXT NOT NULL REFERENCES task_projects(id),
+	PRIMARY KEY (artifact_id, project_id)
+);
+CREATE INDEX IF NOT EXISTS artifact_scope_projects_project_idx ON artifact_scope_projects(project_id, artifact_id);
 CREATE TABLE IF NOT EXISTS log_sources (
 	id            TEXT PRIMARY KEY,
 	label         TEXT NOT NULL,
@@ -841,6 +848,54 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				CREATE UNIQUE INDEX IF NOT EXISTS task_mutation_requests_pending_task_operation_idx
 					ON task_mutation_requests(task_id, operation) WHERE state = 'pending' AND task_id IS NOT NULL;
 			`);
+		},
+	},
+	{
+		version: 28,
+		name: "artifact-multi-project-scope",
+		// See artifact/artifact-scope-store.ts. Replaces the single-project_root shape with an
+		// explicit global/projects mode plus a bounded, non-empty many-to-many membership table,
+		// keyed by the same registered project ids Tasks already use (task_projects, see version 26)
+		// rather than a raw root string -- so a project rename/move never needs a best-effort
+		// string rewrite across every artifact scoped to it. Preserves every row: NULL project_root
+		// becomes explicit global mode (the column's own new DEFAULT already covers a fresh
+		// bootstrap; this branch back-fills it for an upgrading database); a non-NULL project_root
+		// becomes projects mode with exactly one membership, registering that root in task_projects
+		// first if no Task ever used it either.
+		up: (db) => {
+			const existing = new Set((db.prepare("PRAGMA table_info(artifact_scopes)").all() as Array<{ name: string }>).map((row) => row.name));
+			if (!existing.has("mode")) {
+				db.exec("ALTER TABLE artifact_scopes ADD COLUMN mode TEXT NOT NULL DEFAULT 'global' CHECK (mode IN ('global', 'projects'))");
+			}
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS artifact_scope_projects (
+					artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+					project_id   TEXT NOT NULL REFERENCES task_projects(id),
+					PRIMARY KEY (artifact_id, project_id)
+				);
+				CREATE INDEX IF NOT EXISTS artifact_scope_projects_project_idx ON artifact_scope_projects(project_id, artifact_id);
+			`);
+			const scoped = db.prepare("SELECT artifact_id, project_root FROM artifact_scopes WHERE project_root IS NOT NULL").all() as Array<{
+				artifact_id: string;
+				project_root: string;
+			}>;
+			const findProject = db.prepare("SELECT id FROM task_projects WHERE project_root = ?");
+			const insertProject = db.prepare(
+				"INSERT INTO task_projects (id, name, aliases_json, project_root, created_at, updated_at) VALUES (?, ?, '[]', ?, ?, ?)",
+			);
+			const setProjectsMode = db.prepare("UPDATE artifact_scopes SET mode = 'projects' WHERE artifact_id = ?");
+			const insertMembership = db.prepare("INSERT OR IGNORE INTO artifact_scope_projects (artifact_id, project_id) VALUES (?, ?)");
+			for (const row of scoped) {
+				const found = findProject.get(row.project_root) as { id: string } | null;
+				let projectId = found?.id;
+				if (!projectId) {
+					projectId = randomUUID();
+					const now = new Date().toISOString();
+					insertProject.run(projectId, basename(row.project_root) || row.project_root, row.project_root, now, now);
+				}
+				setProjectsMode.run(row.artifact_id);
+				insertMembership.run(row.artifact_id, projectId);
+			}
 		},
 	},
 ];

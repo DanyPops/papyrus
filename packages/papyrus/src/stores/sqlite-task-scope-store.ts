@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
-import { TASK_PROJECT_ALIAS_MAX_COUNT } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
 import type {
@@ -11,45 +8,21 @@ import type {
 	TaskViewMode,
 	TaskViewPreference,
 } from "../domain/task-scope.ts";
+import { SQLiteProjectRegistryStore } from "./sqlite-project-registry-store.ts";
 import type { TaskScopeStore } from "./task-scope-store.ts";
 
-interface ProjectRow {
-	id: string;
-	name: string;
-	aliases_json: string;
-	project_root: string;
-	created_at: string;
-	updated_at: string;
-}
-
-function projectFromRow(row: ProjectRow): TaskProject {
-	return {
-		id: row.id,
-		name: row.name,
-		aliases: JSON.parse(row.aliases_json) as string[],
-		projectRoot: row.project_root,
-		createdAt: row.created_at,
-		updatedAt: row.updated_at,
-	};
-}
-
-function uniqueAliases(values: readonly string[], name: string): string[] {
-	const seen = new Set([name.trim().toLowerCase()]);
-	const aliases = values.flatMap((value) => {
-		const trimmed = value.trim();
-		const key = trimmed.toLowerCase();
-		if (!trimmed || seen.has(key)) return [];
-		seen.add(key);
-		return [trimmed];
-	});
-	if (aliases.length > TASK_PROJECT_ALIAS_MAX_COUNT) {
-		throw new Error(`project aliases cannot exceed ${TASK_PROJECT_ALIAS_MAX_COUNT} entries`);
-	}
-	return aliases;
+/** Rewrites every task_scopes/task_views row pinned to a project root that just moved -- called inside the same registerProject() transaction, so a rename/move is atomic with the rewrite. */
+function rewriteTaskRowsForMovedRoot(db: Db, previousRoot: string, nextRoot: string): void {
+	db.prepare("UPDATE task_scopes SET project_root = ? WHERE project_root = ?").run(nextRoot, previousRoot);
+	db.prepare("UPDATE task_views SET project_root = ? WHERE project_root = ?").run(nextRoot, previousRoot);
 }
 
 export class SQLiteTaskScopeStore implements TaskScopeStore {
-	constructor(private readonly db: Db) {}
+	private readonly registry: SQLiteProjectRegistryStore;
+
+	constructor(private readonly db: Db) {
+		this.registry = new SQLiteProjectRegistryStore(db, rewriteTaskRowsForMovedRoot);
+	}
 
 	assign(taskId: string, projectRoot: string | undefined, source: TaskScopeSource): TaskProjectScope {
 		inTransaction(this.db, () => {
@@ -115,95 +88,14 @@ export class SQLiteTaskScopeStore implements TaskScopeStore {
 	}
 
 	projects(query: string | undefined, limit: number): TaskProject[] {
-		const needle = query?.trim().toLowerCase();
-		if (!needle) {
-			return (
-				this.db
-					.prepare(
-						"SELECT id, name, aliases_json, project_root, created_at, updated_at FROM task_projects ORDER BY name, project_root LIMIT ?",
-					)
-					.all(limit) as ProjectRow[]
-			).map(projectFromRow);
-		}
-		return (
-			this.db
-				.prepare(`
-					SELECT id, name, aliases_json, project_root, created_at, updated_at
-					FROM task_projects
-					WHERE instr(lower(name), ?) > 0
-						OR instr(lower(project_root), ?) > 0
-						OR EXISTS (
-							SELECT 1 FROM json_each(task_projects.aliases_json)
-							WHERE instr(lower(CAST(json_each.value AS TEXT)), ?) > 0
-						)
-					ORDER BY name, project_root
-					LIMIT ?
-				`)
-				.all(needle, needle, needle, limit) as ProjectRow[]
-		).map(projectFromRow);
+		return this.registry.projects(query, limit);
 	}
 
 	matchingProjects(reference: string): TaskProject[] {
-		const needle = reference.trim().toLowerCase();
-		return (
-			this.db
-				.prepare(`
-					SELECT id, name, aliases_json, project_root, created_at, updated_at
-					FROM task_projects
-					WHERE lower(id) = ? OR lower(name) = ? OR lower(project_root) = ?
-						OR EXISTS (
-							SELECT 1 FROM json_each(task_projects.aliases_json)
-							WHERE lower(CAST(json_each.value AS TEXT)) = ?
-						)
-					ORDER BY name, project_root
-					LIMIT 11
-				`)
-				.all(needle, needle, needle, needle) as ProjectRow[]
-		).map(projectFromRow);
+		return this.registry.matchingProjects(reference);
 	}
 
 	registerProject(input: RegisterTaskProjectInput): TaskProject {
-		return inTransaction(this.db, () => {
-			const row = (
-				input.existingId
-					? this.db
-							.prepare("SELECT id, name, aliases_json, project_root, created_at, updated_at FROM task_projects WHERE id = ?")
-							.get(input.existingId)
-					: this.db
-							.prepare("SELECT id, name, aliases_json, project_root, created_at, updated_at FROM task_projects WHERE project_root = ?")
-							.get(input.projectRoot)
-			) as ProjectRow | null;
-			const existing = row ? projectFromRow(row) : undefined;
-			const now = new Date().toISOString();
-			const name = input.name?.trim() || existing?.name || basename(input.projectRoot) || input.projectRoot;
-			const aliases = uniqueAliases(
-				[...(existing?.aliases ?? []), ...(existing && existing.name !== name ? [existing.name] : []), ...(input.aliases ?? [])],
-				name,
-			);
-			const project: TaskProject = {
-				id: existing?.id ?? randomUUID(),
-				name,
-				aliases,
-				projectRoot: input.projectRoot,
-				createdAt: existing?.createdAt ?? now,
-				updatedAt: now,
-			};
-			if (existing && existing.projectRoot !== project.projectRoot) {
-				this.db.prepare("UPDATE task_scopes SET project_root = ? WHERE project_root = ?").run(project.projectRoot, existing.projectRoot);
-				this.db.prepare("UPDATE task_views SET project_root = ? WHERE project_root = ?").run(project.projectRoot, existing.projectRoot);
-			}
-			this.db
-				.prepare(`
-					INSERT INTO task_projects (id, name, aliases_json, project_root, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?)
-					ON CONFLICT(id) DO UPDATE SET
-						name = excluded.name,
-						aliases_json = excluded.aliases_json,
-						project_root = excluded.project_root,
-						updated_at = excluded.updated_at
-				`)
-				.run(project.id, project.name, JSON.stringify(project.aliases), project.projectRoot, project.createdAt, project.updatedAt);
-			return project;
-		});
+		return this.registry.registerProject(input);
 	}
 }

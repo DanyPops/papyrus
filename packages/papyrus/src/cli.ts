@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { runArtifactCli } from "./cli/artifact-command.ts";
@@ -294,7 +294,15 @@ export function runIdMigrationCli(args: string[]): string {
 		try {
 			result = verifyIdMigration(mirror, plan);
 		} finally {
+			// openDb() always opens a file-backed database in WAL mode, including this mirror
+			// (produced by VACUUM INTO with no WAL of its own until this very open). Fold it back
+			// into the main file and drop the sidecars before copying just the main file below --
+			// the same reasoning already applied to target's own sidecars a few lines down. Copying
+			// the main file while leaving a newer -wal/-shm pair for a now-deleted identity behind
+			// produces a file SQLite reopens as a malformed image, not merely a stale one.
+			mirror.exec("PRAGMA wal_checkpoint(TRUNCATE)");
 			mirror.close();
+			for (const sidecar of [`${mirrorPath}-wal`, `${mirrorPath}-shm`]) if (existsSync(sidecar)) unlinkSync(sidecar);
 		}
 		if (!result.ok) {
 			throw new Error(
@@ -316,7 +324,18 @@ export function runIdMigrationCli(args: string[]): string {
 			copyFileSync(target, backupPath);
 			for (const sidecar of [`${target}-wal`, `${target}-shm`]) if (existsSync(sidecar)) unlinkSync(sidecar);
 		}
-		copyFileSync(mirrorPath, target);
+		// A plain copyFileSync(mirrorPath, target) overwrites target's own file content in place --
+		// confirmed live to reopen as "database disk image is malformed" even though both the
+		// checkpointed target and the checkpointed mirror are independently completely healthy
+		// right before this copy: something about SQLite's own handling of a path/inode this
+		// process already opened earlier in the same run (target was just opened above to
+		// checkpoint it) survives closing that connection. Copying to a fresh staging path (a new
+		// inode, never opened by this process) and swapping it into place with an atomic rename
+		// sidesteps that entirely -- renameSync never fails partway the way a corrupted in-place
+		// overwrite can.
+		const staging = `${target}.promoting`;
+		copyFileSync(mirrorPath, staging);
+		renameSync(staging, target);
 		const result2 = { target, backupPath };
 		if (json) return JSON.stringify(result2);
 		return [

@@ -197,6 +197,30 @@ describe("purgeDueArtifacts", () => {
 		db.close();
 	});
 
+	it("also removes a purged artifact's own multi-project scope and membership rows", () => {
+		const { db } = fixture();
+		const doomed = createArtifact(db, { kind: "rule", title: "doomed rule", status: "active" });
+		const now = new Date().toISOString();
+		db.prepare(
+			"INSERT INTO task_projects (id, name, aliases_json, project_root, created_at, updated_at) VALUES ('project-1', 'Lector', '[]', '/repo/lector', ?, ?)",
+		).run(now, now);
+		db.prepare(
+			"INSERT INTO artifact_scopes (artifact_id, project_root, mode, source, assigned_at) VALUES (?, NULL, 'projects', 'explicit', ?)",
+		).run(doomed.id, now);
+		db.prepare("INSERT INTO artifact_scope_projects (artifact_id, project_id) VALUES (?, 'project-1')").run(doomed.id);
+
+		trashArtifact(db, doomed.id, { now: PAST });
+		db.exec(`UPDATE artifact_trash SET purge_after = '${PAST()}' WHERE artifact_id = '${doomed.id}'`);
+		const purged = purgeDueArtifacts(db);
+
+		expect(purged).toBe(1);
+		expect(db.prepare("SELECT 1 FROM artifact_scopes WHERE artifact_id = ?").get(doomed.id)).toBeNull();
+		expect(db.prepare("SELECT 1 FROM artifact_scope_projects WHERE artifact_id = ?").get(doomed.id)).toBeNull();
+		// the registered project itself is untouched -- only this one artifact's own membership is gone
+		expect(db.prepare("SELECT 1 FROM task_projects WHERE id = 'project-1'").get()).not.toBeNull();
+		db.close();
+	});
+
 	it("purges every due artifact and returns an accurate count, leaving a not-yet-due one alone", () => {
 		const { db } = fixture();
 		const dueA = createArtifact(db, { kind: "doc", title: "due-a" });

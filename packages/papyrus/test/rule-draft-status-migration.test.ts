@@ -24,7 +24,12 @@ describe("rule-draft-status migration", () => {
 		expect(result).toEqual({
 			from: 24,
 			to: SQLITE_SCHEMA_VERSION,
-			applied: ["rule-draft-status", "task-projects-and-create-idempotency", "task-lifecycle-mutation-receipts"],
+			applied: [
+				"rule-draft-status",
+				"task-projects-and-create-idempotency",
+				"task-lifecycle-mutation-receipts",
+				"artifact-multi-project-scope",
+			],
 		});
 		expect(
 			(db.prepare("SELECT name FROM statuses WHERE kind = 'rule' ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name),

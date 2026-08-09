@@ -752,11 +752,11 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	define(
 		"claim",
-		"Claims this Task's lease under owner (defaults to session_id). Returns taskName (the reusable artifact alias) and taskTitle instead of exposing its backend UUID. Throws if a different owner already holds one.",
+		"Claims this Task's lease under owner (defaults to session_id). Prefer name over id. Returns taskName (the reusable artifact alias) and taskTitle instead of exposing its backend UUID. Throws if a different owner already holds one.",
 		"local-write",
 		{
-			id: stringProp,
 			name: stringProp,
+			id: stringProp,
 			owner: stringProp,
 			ttl_ms: numberProp,
 			note: stringProp,
@@ -772,11 +772,11 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"heartbeat_lease",
-		"Extends this Task's lease -- needs the exact owner/token claim() returned and returns the reusable taskName plus taskTitle.",
+		"Extends this Task's lease -- needs the exact owner/token claim() returned. Prefer name over id. Returns the reusable taskName plus taskTitle.",
 		"local-write",
 		{
-			id: stringProp,
 			name: stringProp,
+			id: stringProp,
 			owner: stringProp,
 			token: stringProp,
 			ttl_ms: numberProp,
@@ -791,9 +791,9 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"release_lease",
-		"Releases this Task's lease -- needs the exact owner/token claim() returned.",
+		"Releases this Task's lease -- needs the exact owner/token claim() returned. Prefer name over id.",
 		"local-write",
-		{ id: stringProp, name: stringProp, owner: stringProp, token: stringProp, project_root: stringProp, session_id: stringProp },
+		{ name: stringProp, id: stringProp, owner: stringProp, token: stringProp, project_root: stringProp, session_id: stringProp },
 		["owner", "token"],
 		(input) => ({
 			...input,
@@ -802,9 +802,9 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"lease",
-		"Shows this Task's current lease, if any, identified by reusable taskName plus taskTitle rather than its backend UUID.",
+		"Shows this Task's current lease, if any. Prefer name over id. The result is identified by reusable taskName plus taskTitle rather than its backend UUID.",
 		"read",
-		{ id: stringProp, name: stringProp, project_root: stringProp },
+		{ name: stringProp, id: stringProp, project_root: stringProp },
 		[],
 		(input) => ({
 			...input,

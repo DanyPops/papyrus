@@ -551,6 +551,17 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("lease operations put the reusable name before the backend id and explicitly direct agents to prefer it", () => {
+		const { registry, service } = harness();
+		for (const name of ["tasks.claim", "tasks.heartbeat_lease", "tasks.release_lease", "tasks.lease"]) {
+			const operation = registry.manifest().operations.find((candidate: VehicleManifestOperation) => candidate.name === name)!;
+			const properties = (operation.inputSchema as { properties: Record<string, unknown> }).properties;
+			expect(operation.description).toContain("Prefer name over id");
+			expect(Object.keys(properties).indexOf("name")).toBeLessThan(Object.keys(properties).indexOf("id"));
+		}
+		service.close();
+	});
+
 	it("claim/heartbeat_lease/release_lease/lease resolve by name and round-trip a real lease", async () => {
 		const { registry, service } = harness();
 		await registry.invoke("tasks.create", 1, { title: "Lease me", project_root: PROJECT }, PERMS);

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
-import { papyrusVehicleRenderers } from "../extension/src/tools/vehicle-artifact-renderers.ts";
+import { parsePapyrusToolDetails } from "../extension/src/tool-rendering/render-model.ts";
+import { papyrusVehiclePresentations, papyrusVehicleRenderers } from "../extension/src/tools/vehicle-artifact-renderers.ts";
 
 // expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton
 // (not this file's own fakeTheme below).
@@ -479,5 +480,140 @@ describe("papyrusVehicleRenderers", () => {
 		expect(text).toContain("Ship the feature");
 		expect(text).toContain("1 failing");
 		expect(text).not.toContain("{");
+	});
+});
+
+describe("papyrusVehiclePresentations", () => {
+	async function project(name: string, output: unknown) {
+		const { projector } = papyrusVehiclePresentations(descriptor(name));
+		return await projector.project(output, {} as never);
+	}
+
+	async function renderProjected(name: string, output: unknown, expanded = false) {
+		const presentation = await project(name, output);
+		const { renderResult } = papyrusVehiclePresentations(descriptor(name));
+		const component = renderResult!(
+			{ content: [], details: { vehicle: vehicleIdentity, presentation } },
+			{ isPartial: false, expanded },
+			fakeTheme,
+			resultContext(),
+		);
+		return { presentation, text: component.render(80).join("\n") };
+	}
+
+	it("projects every recognized output shape into a validated, versioned PapyrusToolDetails variant, never a raw passthrough", async () => {
+		const cases = [
+			["tasks.list", [artifact({ title: "A" })], "artifact-list"],
+			["tasks.show", artifact({ title: "A" }), "artifact"],
+			["tasks.focused", null, "no-focus"],
+			["docs.show", null, "preview"], // an unrelated null falls through to the generic bounded fallback, not a focus state
+			["tasks.plan", { nodes: [], layers: [], cycleIds: [] }, "execution-plan"],
+			[
+				"playbooks.invoke",
+				{
+					playbookId: "pb-1",
+					runId: "run-1",
+					created: { docs: [], rules: [], tasks: [] },
+					rootTaskIds: [],
+					entryTaskId: "t1",
+					execution: { nodes: [], layers: [], cycleIds: [] },
+				},
+				"playbook-invocation",
+			],
+			["playbooks.invoke", { playbookId: "pb-1", missingArguments: ["x"] }, "playbook-missing-arguments"],
+			["discuss.open", { discussion: artifact(), rounds: [] }, "discussion"],
+			["discuss.rounds", { rounds: [] }, "discussion"],
+			[
+				"tasks.complete",
+				{ artifact: artifact(), gates: [], checklist: [], completed: true, focused: null, blocked: [] },
+				"task-completion",
+			],
+			[
+				"tasks.claim",
+				{
+					taskName: "t",
+					taskTitle: "T",
+					owner: "me",
+					token: "secret-token",
+					claimedAt: "2026-01-01T00:00:00.000Z",
+					leaseExpiresAt: "2026-01-01T01:00:00.000Z",
+				},
+				"lease",
+			],
+			["some.unrecognized_operation", { anything: "goes", nested: { deeply: true } }, "preview"],
+		] as const;
+		for (const [name, output, expectedKind] of cases) {
+			const presentation = await project(name, output);
+			const parsed = parsePapyrusToolDetails(presentation);
+			expect(parsed, `${name} projected an invalid/unparseable presentation: ${JSON.stringify(presentation)}`).toBeDefined();
+			expect(parsed!.kind).toBe(expectedKind);
+			expect(parsed!.schemaVersion).toBe("papyrus.tool-details/v1");
+			expect(parsed!.operation).toBe(name);
+		}
+	});
+
+	it("never persists a lease's raw token in the projected presentation", async () => {
+		const presentation = await project("tasks.claim", {
+			taskName: "lector-adaptive-resource-harness",
+			taskTitle: "Lector: add adaptive resource harness",
+			owner: "worker-a",
+			token: "9dfc97cc-ab19-4dac-8098-3d62cd5dfa2a",
+			claimedAt: "2026-01-01T00:00:00.000Z",
+			leaseExpiresAt: "2026-01-01T01:00:00.000Z",
+		});
+		expect(JSON.stringify(presentation)).not.toContain("9dfc97cc-ab19-4dac-8098-3d62cd5dfa2a");
+		const { text } = await renderProjected("tasks.claim", {
+			taskName: "lector-adaptive-resource-harness",
+			taskTitle: "Lector: add adaptive resource harness",
+			owner: "worker-a",
+			token: "9dfc97cc-ab19-4dac-8098-3d62cd5dfa2a",
+			claimedAt: "2026-01-01T00:00:00.000Z",
+			leaseExpiresAt: "2026-01-01T01:00:00.000Z",
+		});
+		const unwrapped = text.replace(/\n/g, " ");
+		expect(unwrapped).toContain("lector-adaptive-resource-harness");
+		expect(unwrapped).toContain("Lector: add adaptive resource harness");
+		expect(text).not.toContain("9dfc97cc-ab19-4dac-8098-3d62cd5dfa2a");
+	});
+
+	it("renders the same curated views as papyrusVehicleRenderers, driven from the typed presentation instead of raw output", async () => {
+		const { text } = await renderProjected("tasks.list", [artifact({ title: "First" }), artifact({ title: "Second" })]);
+		expect(text).toContain("First");
+		expect(text).toContain("Second");
+		expect(text).not.toContain("some body text");
+	});
+
+	it("falls back to papyrusVehicleRenderers' own legacy renderResult for a historical {vehicle, output} session row with no presentation", () => {
+		const { renderResult } = papyrusVehiclePresentations(descriptor("tasks.show"));
+		const component = renderResult!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: artifact({ title: "Legacy row" }) } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		expect(component.render(80).join("\n")).toContain("Legacy row");
+	});
+
+	it("falls back to the legacy renderer for a partial (progress) result, unaffected by the projector", () => {
+		const { renderResult } = papyrusVehiclePresentations(descriptor("tasks.list"));
+		const component = renderResult!(
+			{ content: [], details: { vehicle: vehicleIdentity, progress: { current: 1, total: 2 } } },
+			{ isPartial: true, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		expect(component.render(40).join("\n")).toContain("50%");
+	});
+
+	it("falls back to the legacy renderer on error, regardless of any presentation carried alongside it", async () => {
+		const { renderResult } = papyrusVehiclePresentations(descriptor("tasks.show"));
+		const presentation = await project("tasks.show", artifact({ title: "Should not show" }));
+		const component = renderResult!(
+			{ content: [{ type: "text", text: "backend unreachable" }], details: { vehicle: vehicleIdentity, presentation } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext({ isError: true }),
+		);
+		expect(component.render(80).join("\n")).toContain("backend unreachable");
 	});
 });

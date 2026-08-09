@@ -55,6 +55,23 @@ function simpleDetailsText(details: Exclude<PapyrusToolDetails, { kind: "artifac
 			return `${details.title}\n${details.content}${details.completeness.truncated ? `\n[truncated ${details.completeness.omitted} characters]` : ""}`;
 		case "error":
 			return `${details.code}: ${details.message}`;
+		case "execution-plan":
+			return `${details.nodes.length} task(s) across ${details.layers.length} layer(s)${details.cycleIds.length ? `, ${details.cycleIds.length} in a cycle` : ""}`;
+		case "playbook-invocation":
+			return [
+				`✓ Run ${details.runId}`,
+				`${details.created.tasks.length} tasks · ${details.created.docs.length} docs · ${details.created.rules.length} rules`,
+			].join("\n");
+		case "playbook-missing-arguments":
+			return `Missing required argument(s): ${details.missingArguments.join(", ")}`;
+		case "discussion":
+			return `${details.discussion ? `${details.discussion.title}\n` : ""}${details.rounds.length} round(s)`;
+		case "task-completion":
+			return `${details.completed ? "✓" : "✗"} ${details.artifact.title}`;
+		case "no-focus":
+			return "No focused task.";
+		case "lease":
+			return `${details.taskName} — ${details.taskTitle}\nowner ${details.owner}, expires ${details.leaseExpiresAt}`;
 	}
 }
 

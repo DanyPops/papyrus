@@ -32,7 +32,7 @@ import { currentVehicleClientTarget } from "../service-client.ts";
 import { sessionSecretField } from "../session-identity.ts";
 import { emitTaskFocusEvent } from "../task/task-focus-events.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
-import { papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
+import { papyrusVehiclePresentations, papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
 const REGISTERED_PERMISSIONS = [
 	"notes:read",
@@ -135,6 +135,12 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 		permissions: REGISTERED_PERMISSIONS,
 		principal: { id: "pi-papyrus" },
 		renderers: papyrusVehicleRenderers,
+		// papyrusVehiclePresentations projects a bounded, versioned PapyrusToolDetails DTO
+		// before Pi persists this call's details -- renderers above still supplies renderCall
+		// (createTool sources renderCall/renderResult independently; presentations' own
+		// renderResult takes priority over renderers' renderResult, and falls back to it for a
+		// partial/error result or a historical session row persisted before this seam existed).
+		presentations: papyrusVehiclePresentations,
 		shell: { coreOperations: CORE_OPERATIONS },
 		// playbooks.invoke's own module handler, and tasks.focus/pause/unpause/clear_focus's
 		// own module handlers, authorize an internal Task Focus write via

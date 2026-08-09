@@ -13,10 +13,10 @@
  */
 
 import type { Artifact } from "@danypops/papyrus";
-import { TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
-import type { VehicleToolRenderers } from "@danypops/vehicle-client-pi";
+import { TOOL_COLLAPSED_ROW_LIMIT, TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS } from "@danypops/papyrus";
+import type { PiVehicleInvocationRequest, PiVehiclePresentationContract, VehicleToolRenderers } from "@danypops/vehicle-client-pi";
 import { renderVehicleCall, renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
-import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
+import type { JsonValue, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
@@ -30,7 +30,20 @@ import {
 } from "malevich-tui-components";
 import { ArtifactCard, detailViewTheme, expandHint, measure, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "../tool-rendering/artifact-list.ts";
-import { type ArtifactFocusAnnotation, createArtifactDetails, createArtifactListDetails } from "../tool-rendering/render-model.ts";
+import {
+	type ArtifactFocusAnnotation,
+	createArtifactDetails,
+	createArtifactListDetails,
+	createDiscussionDetails,
+	createExecutionPlanDetails,
+	createLeaseDetails,
+	createNoFocusDetails,
+	createPlaybookInvocationDetails,
+	createPlaybookMissingArgumentsDetails,
+	createPreviewDetails,
+	createTaskCompletionDetails,
+	parsePapyrusToolDetails,
+} from "../tool-rendering/render-model.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
 
 function isArtifact(value: unknown): value is Artifact {
@@ -244,6 +257,12 @@ interface DiscussionAndRoundsOutput {
 	rounds: DiscussionRoundOutput[];
 }
 
+/** What renderDiscussionAndRounds actually reads -- satisfied by both a raw Artifact (the live duck-typed output path) and the leaner projected ToolArtifactSummary (the typed-DTO path), with no cast needed at either call site. */
+interface RenderableDiscussionParent {
+	title: string;
+	status: string;
+}
+
 function isDiscussionAndRounds(value: unknown): value is DiscussionAndRoundsOutput {
 	if (typeof value !== "object" || value === null) return false;
 	const row = value as Record<string, unknown>;
@@ -277,7 +296,11 @@ function roundsSection(rounds: readonly DiscussionRoundOutput[]): DetailSection 
 	};
 }
 
-function renderDiscussionAndRounds(output: DiscussionAndRoundsOutput, theme: Theme, expanded: boolean): Component {
+function renderDiscussionAndRounds(
+	output: { discussion: RenderableDiscussionParent; rounds: readonly DiscussionRoundOutput[] },
+	theme: Theme,
+	expanded: boolean,
+): Component {
 	const discussion = output.discussion;
 	return statelessComponent((width) => {
 		const safeWidth = Math.max(1, width);
@@ -331,6 +354,16 @@ interface TaskCompletionOutput {
 	blocked: TaskBlockageOutput[];
 }
 
+/** What renderTaskCompletion actually reads -- satisfied by both the raw duck-typed TaskCompletionOutput and the leaner projected TaskCompletionToolDetails. */
+interface RenderableTaskCompletion {
+	artifact: RenderableDiscussionParent;
+	gates: readonly { passed: boolean; output: string }[];
+	checklist: readonly TaskChecklistReviewOutput[];
+	completed: boolean;
+	focused?: RenderableDiscussionParent | null;
+	blocked: readonly { artifact: RenderableDiscussionParent; dependencyIds: readonly string[] }[];
+}
+
 function isTaskCompletion(value: unknown): value is TaskCompletionOutput {
 	if (typeof value !== "object" || value === null) return false;
 	const row = value as Record<string, unknown>;
@@ -344,7 +377,7 @@ function isTaskCompletion(value: unknown): value is TaskCompletionOutput {
 	);
 }
 
-function renderTaskCompletion(result: TaskCompletionOutput, theme: Theme, expanded: boolean): Component {
+function renderTaskCompletion(result: RenderableTaskCompletion, theme: Theme, expanded: boolean): Component {
 	const task = result.artifact;
 	return statelessComponent((width) => {
 		const safeWidth = Math.max(1, width);
@@ -382,6 +415,69 @@ function renderTaskCompletion(result: TaskCompletionOutput, theme: Theme, expand
 		}
 		return lines;
 	});
+}
+
+/** tasks.claim/heartbeat_lease/release_lease/lease's own name-first view. Detected the same
+ * name-independent, shape-based way as the others in this file. */
+interface TaskLeaseViewOutput {
+	taskName: string;
+	taskTitle: string;
+	owner: string;
+	token: string;
+	claimedAt: string;
+	leaseExpiresAt: string;
+	heartbeatAt?: string;
+	note?: string;
+}
+
+function isTaskLeaseView(value: unknown): value is TaskLeaseViewOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const row = value as Record<string, unknown>;
+	return (
+		typeof row.taskName === "string" &&
+		typeof row.taskTitle === "string" &&
+		typeof row.owner === "string" &&
+		typeof row.token === "string" &&
+		typeof row.claimedAt === "string" &&
+		typeof row.leaseExpiresAt === "string" &&
+		(row.heartbeatAt === undefined || typeof row.heartbeatAt === "string") &&
+		(row.note === undefined || typeof row.note === "string")
+	);
+}
+
+/** Renders a lease's own safe fields -- never the raw token, which the model channel (not this persisted, human-facing one) carries for a later heartbeat/release call. */
+function renderLease(
+	lease: {
+		taskName: string;
+		taskTitle: string;
+		owner: string;
+		claimedAt: string;
+		leaseExpiresAt: string;
+		heartbeatAt?: string;
+		note?: string;
+	},
+	theme: Theme,
+): Component {
+	return statelessComponent((width) => {
+		const fields: DetailField[] = [
+			{ label: "Task", value: `${lease.taskName} \u2014 ${lease.taskTitle}` },
+			{ label: "Owner", value: lease.owner },
+			{ label: "Expires", value: lease.leaseExpiresAt },
+			...(lease.heartbeatAt ? [{ label: "Last heartbeat", value: lease.heartbeatAt }] : []),
+			...(lease.note ? [{ label: "Note", value: lease.note }] : []),
+		];
+		return buildDetailLines(Math.max(1, width), { fields, alignFields: true, theme: detailViewTheme(theme), measure });
+	});
+}
+
+/** Deliberately does not catch: a value JSON.stringify can't serialize (e.g. a circular
+ * reference) has no safe textual fallback, so this propagates and the projector's own caller
+ * (invokeVehicleOperation) fails the whole call closed rather than persisting a placeholder --
+ * the same "never silently substitute raw/unsafe output" contract every other projection
+ * failure already carries. */
+function boundedJsonPreview(value: unknown): string {
+	const text = JSON.stringify(value, null, 2);
+	return typeof text === "string" ? text : String(value);
 }
 
 export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor): VehicleToolRenderers {
@@ -452,6 +548,108 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
 				recordRenderDiagnostic({ event: "render-result-fell-through-to-generic", operation: descriptor.name });
 			}
 			return renderVehicleResult(descriptor, result, options, theme, context);
+		},
+	};
+}
+
+/**
+ * Projects a raw Papyrus operation output into a bounded, versioned PapyrusToolDetails DTO
+ * before Pi ever persists it -- the seam papyrusVehicleRenderers' own renderResult never had
+ * (it only converts shape at render time, from whatever the legacy {vehicle, output} path
+ * already persisted verbatim, lease tokens and all). Every branch here mirrors the same
+ * shape-detection papyrusVehicleRenderers's own renderResult uses, so the two stay in lockstep;
+ * anything genuinely unmatched still becomes a real, bounded PreviewToolDetails rather than an
+ * unprojected raw passthrough -- the one requirement this whole seam exists to satisfy.
+ */
+function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, output: unknown): JsonValue {
+	if (isArtifactArray(output)) return createArtifactListDetails(descriptor.name, output) as unknown as JsonValue;
+	if (isArtifact(output)) return createArtifactDetails(descriptor.name, output) as unknown as JsonValue;
+	if (isTaskFocus(output)) return createArtifactDetails(descriptor.name, output.artifact, focusAnnotation(output)) as unknown as JsonValue;
+	if (output === null && descriptor.name === "tasks.focused") return createNoFocusDetails(descriptor.name) as unknown as JsonValue;
+	if (isTaskExecutionPlan(output))
+		return createExecutionPlanDetails(descriptor.name, output.nodes, output.layers, output.cycleIds) as unknown as JsonValue;
+	if (isPlaybookInvocationResult(output)) {
+		return createPlaybookInvocationDetails(descriptor.name, {
+			playbookId: output.playbookId,
+			runId: output.runId,
+			created: output.created,
+			rootTaskIds: output.rootTaskIds,
+			entryTaskId: output.entryTaskId,
+			execution: output.execution,
+		}) as unknown as JsonValue;
+	}
+	if (isPlaybookMissingArguments(output)) {
+		return createPlaybookMissingArgumentsDetails(descriptor.name, output.playbookId, output.missingArguments) as unknown as JsonValue;
+	}
+	if (isDiscussionAndRounds(output))
+		return createDiscussionDetails(descriptor.name, output.rounds, output.discussion) as unknown as JsonValue;
+	if (isDiscussionRoundsOnly(output)) return createDiscussionDetails(descriptor.name, output.rounds) as unknown as JsonValue;
+	if (isDiscussionListOutput(output)) return createArtifactListDetails(descriptor.name, output.discussions) as unknown as JsonValue;
+	if (isTaskCompletion(output)) return createTaskCompletionDetails(descriptor.name, output) as unknown as JsonValue;
+	if (isTaskLeaseView(output)) return createLeaseDetails(descriptor.name, output) as unknown as JsonValue;
+	return createPreviewDetails(descriptor.name, descriptor.name, boundedJsonPreview(output)) as unknown as JsonValue;
+}
+
+function renderFromPapyrusPresentation(
+	presentation: NonNullable<ReturnType<typeof parsePapyrusToolDetails>>,
+	theme: Theme,
+	expanded: boolean,
+): Component {
+	switch (presentation.kind) {
+		case "artifact-list":
+			return new ArtifactListCard(presentation, theme, expanded);
+		case "artifact":
+			return new ArtifactCard(presentation, theme, expanded);
+		case "no-focus":
+			return renderNoFocusedTask(theme);
+		case "execution-plan":
+			return renderTaskExecutionPlan(presentation, theme, expanded);
+		case "playbook-invocation":
+			return renderPlaybookInvocationResult(presentation, theme, expanded);
+		case "playbook-missing-arguments":
+			return renderPlaybookMissingArguments(presentation, theme);
+		case "discussion":
+			return presentation.discussion
+				? renderDiscussionAndRounds({ discussion: presentation.discussion, rounds: presentation.rounds }, theme, expanded)
+				: renderDiscussionRoundsOnly(presentation, theme);
+		case "task-completion":
+			return renderTaskCompletion(presentation, theme, expanded);
+		case "lease":
+			return renderLease(presentation, theme);
+		case "preview":
+			return new Text(theme.fg("toolOutput", presentation.content), 0, 0);
+		case "transition":
+		case "graph":
+		case "gate-run":
+		case "invocation":
+		case "error":
+			// Reachable only if a future caller starts producing these kinds through this seam
+			// (today's Papyrus Vehicle outputs never do) -- a bounded JSON preview is still a
+			// real, safe rendering rather than a crash.
+			return new Text(theme.fg("toolOutput", boundedJsonPreview(presentation)), 0, 0);
+	}
+}
+
+/**
+ * Pairs the projector above with a renderResult that reads the already-projected,
+ * already-bounded `details.presentation` DTO instead of raw `details.output` -- the seam
+ * pi-papyrus task "project typed bounded render details before Vehicle persists" exists for.
+ * Falls back to papyrusVehicleRenderers' own renderResult (which still reads `details.output`)
+ * for a partial/progress update, an error result, or a historical session row persisted before
+ * this seam existed -- both keep working exactly as before, unchanged.
+ */
+export function papyrusVehiclePresentations(descriptor: VehicleOperationDescriptor): PiVehiclePresentationContract {
+	return {
+		projector: {
+			maxBytes: TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS,
+			project: (output: unknown, _request: PiVehicleInvocationRequest) => projectPapyrusPresentation(descriptor, output),
+		},
+		renderResult(result, options, theme, context) {
+			if (!options.isPartial && !context.isError) {
+				const presentation = parsePapyrusToolDetails((result.details as { presentation?: unknown } | undefined)?.presentation);
+				if (presentation) return renderFromPapyrusPresentation(presentation, theme, options.expanded);
+			}
+			return papyrusVehicleRenderers(descriptor).renderResult!(result, options, theme, context);
 		},
 	};
 }

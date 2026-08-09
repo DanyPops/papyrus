@@ -135,15 +135,11 @@ describe("registerNotesVehicle survives a daemon restart without a Pi extension 
 		current = startServer("second");
 		resolvedBaseUrl = current.baseUrl;
 
-		// This exact call's own request really did fail (the port it was sent to is dead) --
-		// matches createReconnectingVehicleClient's honest single-failure contract, never a
-		// silent double-invoke of a possibly-mutating operation.
-		await expect(execute("call-2", {}, new AbortController().signal, undefined, toolContext)).rejects.toThrow();
-
-		// No reload, no re-registration -- the SAME tool object, called again, now reconnects
-		// and succeeds against the new daemon instance.
-		const third = await execute("call-3", {}, new AbortController().signal, undefined, toolContext);
-		expect(third.details?.output).toEqual({ answeredBy: "second" });
+		// No sacrificial failed call, no reload, no re-registration: pre-dispatch identity
+		// resolution sees the rewritten handle's new base URL, discards the old cached client,
+		// and the SAME tool object's first post-restart invocation reaches the new daemon.
+		const second = await execute("call-2", {}, new AbortController().signal, undefined, toolContext);
+		expect(second.details?.output).toEqual({ answeredBy: "second" });
 
 		current.stop();
 	});

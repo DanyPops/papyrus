@@ -23,7 +23,7 @@
  * had died.
  */
 
-import { createReconnectingVehicleClient } from "@danypops/vehicle-client/daemon-client";
+import { createReconnectingVehicleClient, daemonInstanceIdentity } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import { type RegisteredPiVehicle, registerVehicleToolsWhenReady, type VehicleReadyEvent } from "@danypops/vehicle-client-pi";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -105,11 +105,24 @@ function notifyReadyEvent(event: VehicleReadyEvent): void {
  */
 export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehicle | undefined> {
 	recordRenderDiagnostic({ event: "register-notes-vehicle-called" });
-	const client = createReconnectingVehicleClient(async () => {
+	function resolveTarget() {
 		const resolved = currentVehicleClientTarget();
 		if (!resolved) throw new Error("Papyrus daemon is not running");
-		return new RemoteVehicleClient({ baseUrl: resolved.baseUrl, token: resolved.token });
-	});
+		return resolved;
+	}
+	const client = createReconnectingVehicleClient(
+		async () => {
+			const resolved = resolveTarget();
+			return new RemoteVehicleClient({ baseUrl: resolved.baseUrl, token: resolved.token });
+		},
+		{
+			// The random loopback port is process-instance identity for Papyrus: it changes on
+			// every restart while the bearer token intentionally survives. Re-read it before
+			// every dispatch so a long-lived Pi session never sends one sacrificial call to a
+			// cached dead port just to discover what the handle file already says.
+			resolveIdentity: () => daemonInstanceIdentity(resolveTarget().baseUrl),
+		},
+	);
 	return registerVehicleToolsWhenReady(pi, () => Promise.resolve(currentVehicleClientTarget() ? client : undefined), {
 		log: (event) => {
 			// Correlates against onInvoked's own timestamps below -- the /reload investigation's

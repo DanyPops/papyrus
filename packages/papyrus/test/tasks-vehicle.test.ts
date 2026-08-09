@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { VehicleManifestOperation } from "@danypops/vehicle-core";
-import { VehicleError } from "@danypops/vehicle-core";
+import { isVehicleError, type VehicleError } from "@danypops/vehicle-core";
 import { GATE_TIMEOUT_MAX_MS, TASK_EXECUTION_MAX_DEGREE } from "../src/constants.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
@@ -86,6 +86,106 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 			title: string;
 		};
 		expect(created.title).toBe("Ship the feature");
+		service.close();
+	});
+
+	it("publishes the complete nested gate and checklist contract in the real operation descriptor", () => {
+		const { registry, service } = harness();
+		const descriptor = registry.manifest().operations.find((operation) => operation.name === "tasks.create")!;
+		const properties = (descriptor.inputSchema.properties ?? {}) as Record<string, Record<string, unknown>>;
+		const gates = properties.gates!;
+		const gateItems = gates.items as Record<string, unknown>;
+		const gateProperties = gateItems.properties as Record<string, Record<string, unknown>>;
+		const checklist = properties.checklist!;
+		const criterion = checklist.additionalProperties as Record<string, unknown>;
+		const proof = (criterion.properties as Record<string, Record<string, unknown>>).proof!;
+		const proofItems = proof.items as Record<string, unknown>;
+
+		expect(descriptor.description).toContain("Gates are {type, target, expect?, timeoutMs?}");
+		expect(descriptor.description).toContain('target: "bun run typecheck"');
+		expect(gateItems.required).toEqual(["type", "target"]);
+		expect(gateProperties.type?.enum).toEqual(["file-exists", "command", "contains", "test"]);
+		expect(gateProperties.target?.minLength).toBe(1);
+		expect(gateProperties.timeoutMs).toMatchObject({ type: "integer", minimum: 1_000, maximum: GATE_TIMEOUT_MAX_MS });
+		expect(gateProperties.target?.description).toBeString();
+		expect(gates.examples).toContainEqual([{ type: "command", target: "bun run typecheck", timeoutMs: 60_000 }]);
+		expect(criterion.required).toEqual(["proof"]);
+		expect(proof.minItems).toBe(1);
+		expect(proofItems.required).toEqual(["type", "target"]);
+		expect((proofItems.properties as Record<string, Record<string, unknown>>).type?.enum).toEqual([
+			"file",
+			"symbol",
+			"code",
+			"test",
+			"command",
+			"artifact",
+			"url",
+		]);
+		service.close();
+	});
+
+	it("rejects malformed nested gates before dispatch with bounded structured validation details", async () => {
+		const { registry, service } = harness();
+		const sensitiveCommand = "echo SHOULD_NOT_LEAK_FROM_INPUT";
+		const rejection = await registry
+			.invoke(
+				"tasks.create",
+				1,
+				{ title: "Malformed gates", project_root: PROJECT, gates: [{ type: "command", command: sensitiveCommand }] },
+				PERMS,
+			)
+			.catch((error: unknown) => error);
+
+		expect(isVehicleError(rejection)).toBe(true);
+		expect((rejection as VehicleError).code).toBe("invalid-input");
+		expect((rejection as VehicleError).category).toBe("validation");
+		expect((rejection as VehicleError).details).toEqual({
+			issues: [{ path: ["gates", 0, "target"], message: "target is required; Accepted gate shape: {type, target, expect?, timeoutMs?}." }],
+		});
+		expect(JSON.stringify({ message: (rejection as Error).message, details: (rejection as VehicleError).details })).not.toContain(
+			sensitiveCommand,
+		);
+		const rows = (await registry.invoke("tasks.list", 1, { project_root: PROJECT }, PERMS)) as Array<{ title: string }>;
+		expect(rows.some((row) => row.title === "Malformed gates")).toBe(false);
+		service.close();
+	});
+
+	it("validates nested gate bounds and checklist proof items before dispatch", async () => {
+		const { registry, service } = harness();
+		const timeoutRejection = await registry
+			.invoke(
+				"tasks.create",
+				1,
+				{ title: "Bad timeout", project_root: PROJECT, gates: [{ type: "command", target: "bun test", timeoutMs: 999 }] },
+				PERMS,
+			)
+			.catch((error: unknown) => error);
+		expect((timeoutRejection as VehicleError).code).toBe("invalid-input");
+		expect((timeoutRejection as VehicleError).details).toEqual({
+			issues: [{ path: ["gates", 0, "timeoutMs"], message: "timeoutMs must be at least 1000" }],
+		});
+
+		const checklistRejection = await registry
+			.invoke(
+				"tasks.create",
+				1,
+				{
+					title: "Bad checklist",
+					project_root: PROJECT,
+					checklist: { "tests pass": { proof: [{ type: "test" }] } },
+				},
+				PERMS,
+			)
+			.catch((error: unknown) => error);
+		expect((checklistRejection as VehicleError).code).toBe("invalid-input");
+		expect((checklistRejection as VehicleError).details).toEqual({
+			issues: [
+				{
+					path: ["checklist", "tests pass", "proof", 0, "target"],
+					message: "target is required; Accepted proof shape: {type, target, expect?}.",
+				},
+			],
+		});
 		service.close();
 	});
 
@@ -204,9 +304,9 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 	it("an ordinary caller mistake -- recovering a task that wasn't terminal at creation -- surfaces its real reason as causeMessage instead of a bare handler-failed", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("tasks.create", 1, { title: "In flight", project_root: PROJECT }, PERMS)) as { id: string };
-		await registry.invoke("tasks.start", 1, { id: created.id, actor: "user", source: "test" }, PERMS);
+		await registry.invoke("tasks.start", 1, { id: created.id }, PERMS);
 		const rejection = (await registry
-			.invoke("tasks.update", 1, { id: created.id, status: "todo", reason: "parking it", actor: "user", source: "test" }, PERMS)
+			.invoke("tasks.update", 1, { id: created.id, status: "todo", reason: "parking it" }, PERMS)
 			.catch((error: { toFailure(): { code: string; causeMessage?: string } }) => error.toFailure())) as {
 			code: string;
 			causeMessage?: string;
@@ -219,7 +319,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 	it("pausing with no focused task surfaces its real reason as causeMessage instead of a bare handler-failed", async () => {
 		const { registry, service } = harness();
 		const rejection = (await registry
-			.invoke("tasks.pause", 1, { actor: "user", source: "test", reason: "whatever" }, PERMS)
+			.invoke("tasks.pause", 1, { reason: "whatever" }, PERMS)
 			.catch((error: { toFailure(): { code: string; causeMessage?: string } }) => error.toFailure())) as {
 			code: string;
 			causeMessage?: string;
@@ -606,7 +706,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
-	it("real incident: tasks.update's own schema never declares gates, and a gates field riding along on it has zero effect -- set_gates is the one true way to change gates", async () => {
+	it("tasks.update rejects undeclared gates before dispatch -- set_gates is the one true way to change gates", async () => {
 		const { registry, service } = harness();
 		const updateSchema = registry.manifest().operations.find((op: VehicleManifestOperation) => op.name === "tasks.update")!.inputSchema as {
 			properties: Record<string, unknown>;
@@ -619,15 +719,21 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 			{ title: "Gate me", project_root: PROJECT, gates: [{ type: "command", target: "echo original" }] },
 			PERMS,
 		)) as { id: string };
-		// Even bypassing the schema (a real caller can't reach this at all -- gates isn't a declared
-		// property), the underlying module handler ignores it by design: only set_gates writes gates.
-		await registry.invoke(
-			"tasks.update",
-			1,
-			{ id: created.id, body: "new body", gates: [{ type: "command", target: "echo should-be-ignored" }] },
-			PERMS,
-		);
-		const afterUpdate = (await registry.invoke("tasks.show", 1, { id: created.id }, PERMS)) as { extra?: { gates?: unknown[] } };
+		const rejection = await registry
+			.invoke(
+				"tasks.update",
+				1,
+				{ id: created.id, body: "new body", gates: [{ type: "command", target: "echo should-be-rejected" }] },
+				PERMS,
+			)
+			.catch((error: unknown) => error);
+		expect((rejection as VehicleError).code).toBe("invalid-input");
+		expect((rejection as VehicleError).details).toEqual({ issues: [{ path: ["gates"], message: "gates is not allowed" }] });
+		const afterUpdate = (await registry.invoke("tasks.show", 1, { id: created.id }, PERMS)) as {
+			body: string;
+			extra?: { gates?: unknown[] };
+		};
+		expect(afterUpdate.body).toBe("");
 		expect(afterUpdate.extra?.gates).toEqual([{ type: "command", target: "echo original" }]);
 
 		await registry.invoke("tasks.set_gates", 1, { id: created.id, gates: [{ type: "command", target: "echo replaced" }] }, PERMS);
@@ -654,7 +760,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 
 		const rejection = await registry.invoke("tasks.list", 1, { project_root: PROJECT, full: true }, PERMS).catch((error: unknown) => error);
 
-		expect(rejection).toBeInstanceOf(VehicleError);
+		expect(isVehicleError(rejection)).toBe(true);
 		const failure = rejection as VehicleError;
 		expect(failure.code).toBe("response-too-large");
 		expect(failure.details).toMatchObject({ maxBytes: 262_144 });

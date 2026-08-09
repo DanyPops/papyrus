@@ -70,7 +70,7 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		await registry.invoke(
 			"rules.create",
 			1,
-			{ title: "Big Rule", condition: "a".repeat(100), action: "a".repeat(100), project_root: PROJECT },
+			{ title: "Big Rule", condition: "a".repeat(100), rule_action: "a".repeat(100), project_root: PROJECT },
 			PERMS,
 		);
 
@@ -88,7 +88,7 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		const created = (await registry.invoke(
 			"rules.create",
 			1,
-			{ title: "Full Rule", condition: "when X", action: "do Y", project_root: PROJECT },
+			{ title: "Full Rule", condition: "when X", rule_action: "do Y", project_root: PROJECT },
 			PERMS,
 		)) as { id: string };
 

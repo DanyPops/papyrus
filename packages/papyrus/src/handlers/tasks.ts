@@ -81,6 +81,7 @@ const gateProp = {
 	description: "Validation gates run by tasks.run_gates and tasks.complete.",
 	items: {
 		type: "object",
+		description: "Accepted gate shape: {type, target, expect?, timeoutMs?}.",
 		properties: {
 			type: { type: "string", enum: GATE_TYPES, description: "Gate evaluator." },
 			target: { type: "string", minLength: 1, description: "Path, command, text target, or test command." },
@@ -109,6 +110,7 @@ const checklistProp = {
 				minItems: 1,
 				items: {
 					type: "object",
+					description: "Accepted proof shape: {type, target, expect?}.",
 					properties: {
 						type: { type: "string", enum: PROOF_TYPES },
 						target: { type: "string", minLength: 1 },
@@ -286,7 +288,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	define(
 		"create",
-		"Creates a Task -- work: desired outcomes, gates, checklists, and dependencies. project_root is required (no ambient cwd server-side). Prefer parent_name/depends_on_names over parent_id/depends_on -- resolved server-side.",
+		'Creates a Task -- work: desired outcomes, gates, checklists, and dependencies. Gates are {type, target, expect?, timeoutMs?}; for example [{type: "command", target: "bun run typecheck", timeoutMs: 60000}]. Checklist criteria are {proof: [{type, target, expect?}]}. project_root is required (no ambient cwd server-side). Prefer parent_name/depends_on_names over parent_id/depends_on -- resolved server-side.',
 		"local-write",
 		{
 			title: stringProp,

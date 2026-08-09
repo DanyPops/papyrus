@@ -7,8 +7,13 @@
  * mechanism itself (already covered upstream).
  */
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PapyrusClient } from "@danypops/papyrus";
+import type { VehicleManifest } from "@danypops/vehicle-core";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createPapyrusService } from "../../papyrus/src/service.ts";
 import registerPapyrus from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,
@@ -27,7 +32,7 @@ const limits = { defaultTimeoutMs: 1_000, maxTimeoutMs: 5_000, maxRequestBytes: 
 /** A realistically-sized manifest (mirrors the real live count that motivated this feature: dozens
  * of operations across several domains) -- large enough that "activate everything" vs. "activate
  * only the core set" is a meaningfully different, assertable outcome. */
-function realisticManifestOperations() {
+function realisticManifestOperations(): VehicleManifest["operations"] {
 	const names = [
 		"tasks.list",
 		"tasks.create",
@@ -76,13 +81,18 @@ function realisticManifestOperations() {
 	}));
 }
 
-function manifestServer(): { baseUrl: string; stop: () => void } {
+function manifestServer(
+	manifest: VehicleManifest = {
+		name: "papyrus",
+		version: "1.0.0",
+		description: "Papyrus.",
+		operations: realisticManifestOperations(),
+	},
+): { baseUrl: string; stop: () => void } {
 	const server = Bun.serve({
 		port: 0,
 		fetch(request) {
-			if (new URL(request.url).pathname === "/vehicle/manifest") {
-				return Response.json({ name: "papyrus", version: "1.0.0", description: "Papyrus.", operations: realisticManifestOperations() });
-			}
+			if (new URL(request.url).pathname === "/vehicle/manifest") return Response.json(manifest);
 			return new Response("not found", { status: 404 });
 		},
 	});
@@ -93,6 +103,69 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
 		resetPapyrusClientForTests();
+	});
+
+	it("preserves real Task gate/checklist schemas from descriptor through tools_man and the callable tool", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "papyrus-shell-schema-"));
+		const service = createPapyrusService(join(directory, "papyrus.db"));
+		const manifest = service.vehicle.manifest();
+		const descriptor = manifest.operations.find((operation) => operation.name === "tasks.create")!;
+		const { baseUrl, stop } = manifestServer(manifest);
+		try {
+			setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));
+			setPapyrusClientConnectorForTests(() => Promise.resolve(fakeSessionRegisterClient()));
+
+			const registeredTools: ToolDefinition[] = [];
+			let activeTools: string[] = [];
+			const sessionStartHandlers: Array<(event: unknown, ctx: unknown) => unknown> = [];
+			const api = {
+				registerTool(tool: ToolDefinition) {
+					registeredTools.push(tool);
+				},
+				registerCommand() {},
+				on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
+					if (event === "session_start") sessionStartHandlers.push(handler);
+				},
+				getAllTools: () => registeredTools.map((tool) => ({ name: tool.name })),
+				getActiveTools: () => activeTools,
+				setActiveTools: (names: string[]) => {
+					activeTools = names;
+				},
+				events: { emit() {} },
+			} as unknown as ExtensionAPI;
+			const ctx = { hasUI: false, cwd: "/workspace/papyrus", sessionManager: { getSessionId: () => "session-a" } };
+
+			await registerPapyrus(api);
+			for (const handler of sessionStartHandlers) await handler(undefined, ctx);
+			await waitFor(() => registeredTools.some((tool) => tool.name === "tasks_create"));
+
+			const manual = registeredTools.find((tool) => tool.name === "tools_man")!;
+			const result = (await manual.execute(
+				"manual-call",
+				{ names: ["tasks.create"] } as never,
+				undefined as never,
+				undefined as never,
+				ctx as never,
+			)) as { content: Array<{ text: string }> };
+			const text = result.content[0]?.text ?? "";
+			expect(text).toContain("gates (array, optional)");
+			expect(text).toContain("type (string, required; enum: file-exists | command | contains | test)");
+			expect(text).toContain("target (string, required; minLength: 1): Path, command, text target, or test command.");
+			expect(text).toContain("timeoutMs (integer, optional; minimum: 1000");
+			expect(text).toContain('example: [{"type":"command","target":"bun run typecheck","timeoutMs":60000}]');
+			expect(text).toContain("checklist (object, optional)");
+			expect(text).toContain("proof (array, required; minItems: 1)");
+			expect(text).toContain("enum: file | symbol | code | test | command | artifact | url");
+			expect(text).toContain("now callable as tasks_create");
+			expect(activeTools).toContain("tasks_create");
+
+			const callable = registeredTools.find((tool) => tool.name === "tasks_create")!;
+			expect(JSON.parse(JSON.stringify(callable.parameters))).toEqual(descriptor.inputSchema);
+		} finally {
+			stop();
+			service.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("activates only the core operations plus tools_list/tools_man -- not all 29 registered operations", async () => {

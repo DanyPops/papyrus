@@ -44,6 +44,10 @@ import {
 } from "./shared.ts";
 
 const OWNER = "playbooks";
+const jsonObjectProp = {
+	type: ["object", "string"],
+	description: "A JSON object; a JSON-encoded object string is also accepted for tool-calling compatibility.",
+} as const;
 
 export interface PlaybooksVehicleDeps {
 	artifacts: ArtifactStore;
@@ -126,7 +130,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"preview",
 		"Renders a Playbook's whole composition tree as text, with no side effects.",
 		"read",
-		{ id: stringProp, name: stringProp, arguments: { type: "object" } },
+		{ id: stringProp, name: stringProp, arguments: jsonObjectProp },
 		[],
 		(input) => {
 			normalizeJsonEncodedField(input, "arguments");
@@ -138,7 +142,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"invoke",
 		"Compiles the Playbook's steps and composition tree into real Tasks wired with dependsOn, and focuses the first one -- one step surfaces at a time as it becomes focused, exactly like any other Task. `arguments` supplies known values as {name: value}; if a declared REQUIRED argument is still missing, nothing is created and missingArguments is returned instead -- ask the human for these (discuss tool, live:true) and invoke again, never guess. Drive the returned entryTaskId forward with the tasks tool (start/submit/complete).",
 		"local-write",
-		{ id: stringProp, name: stringProp, run_id: stringProp, arguments: { type: "object" }, project_root: stringProp },
+		{ id: stringProp, name: stringProp, run_id: stringProp, arguments: jsonObjectProp, project_root: stringProp },
 		[],
 		(input) => {
 			normalizeJsonEncodedField(input, "arguments");

@@ -7,11 +7,13 @@ import {
 	bindVehicleOperation,
 	defineVehicleOperation,
 	defineVehicleSchema,
+	type JsonSchema,
 	type VehicleContentBlock,
 	VehicleError,
 	type VehicleLimits,
 	type VehicleOperationContext,
 	type VehicleSchemaCodec,
+	type VehicleSchemaIssue,
 } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Artifact } from "../artifact/artifact.ts";
@@ -21,33 +23,118 @@ import { InvalidSessionSecretError } from "../session-identity/session-identity-
 import { TaskCreateIdempotencyConflictError } from "../stores/task-create-request-store.ts";
 import { TaskDependencyCycleError, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 
-/**
- * VehicleRegistry only ever calls a schema's own safeParse -- jsonSchema is
- * descriptive metadata surfaced to a client/Pi projection, never itself
- * enforced at runtime -- so a declared `enum` has to be checked here for
- * real, or it's a documentation gesture, not an honest contract.
- */
+interface OperationSchemaNode {
+	readonly type?: string | readonly string[];
+	readonly enum?: readonly unknown[];
+	readonly properties?: Readonly<Record<string, OperationSchemaNode>>;
+	readonly required?: readonly string[];
+	readonly additionalProperties?: boolean | OperationSchemaNode;
+	readonly items?: OperationSchemaNode;
+	readonly minLength?: number;
+	readonly maxLength?: number;
+	readonly minimum?: number;
+	readonly maximum?: number;
+	readonly minItems?: number;
+	readonly maxItems?: number;
+	readonly description?: string;
+	readonly [key: string]: unknown;
+}
+
+function schemaIssue(path: readonly (string | number)[], message: string): VehicleSchemaIssue[] {
+	return [{ path, message }];
+}
+
+function matchesSchemaType(value: unknown, type: string): boolean {
+	if (type === "object") return typeof value === "object" && value !== null && !Array.isArray(value);
+	if (type === "array") return Array.isArray(value);
+	if (type === "string") return typeof value === "string";
+	if (type === "number") return typeof value === "number" && Number.isFinite(value);
+	if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+	if (type === "boolean") return typeof value === "boolean";
+	return true;
+}
+
+function validateSchemaValue(value: unknown, schema: OperationSchemaNode, path: readonly (string | number)[]): VehicleSchemaIssue[] {
+	const label = path.length === 0 ? "input" : String(path.at(-1));
+	const declaredTypes = typeof schema.type === "string" ? [schema.type] : (schema.type ?? []);
+	const type = declaredTypes.find((candidate) => matchesSchemaType(value, candidate));
+	if (declaredTypes.length > 0 && type === undefined) {
+		const accepted = declaredTypes.map((candidate) =>
+			candidate === "integer" ? "an integer" : `${candidate === "object" ? "an" : "a"} ${candidate}`,
+		);
+		return schemaIssue(path, `${label} must be ${accepted.join(" or ")}`);
+	}
+	if (type === "object") {
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return schemaIssue(path, `${label} must be an object`);
+		const record = value as Record<string, unknown>;
+		for (const key of schema.required ?? []) {
+			if (!(key in record)) {
+				const acceptedShape = schema.description ? `; ${schema.description}` : "";
+				return schemaIssue([...path, key], `${key} is required${acceptedShape}`);
+			}
+		}
+		for (const [key, child] of Object.entries(schema.properties ?? {})) {
+			if (!(key in record)) continue;
+			const issues = validateSchemaValue(record[key], child, [...path, key]);
+			if (issues.length > 0) return issues;
+		}
+		for (const key of Object.keys(record)) {
+			if (key in (schema.properties ?? {})) continue;
+			if (schema.additionalProperties === false) return schemaIssue([...path, key], `${key} is not allowed`);
+			if (typeof schema.additionalProperties === "object") {
+				const issues = validateSchemaValue(record[key], schema.additionalProperties, [...path, key]);
+				if (issues.length > 0) return issues;
+			}
+		}
+	} else if (type === "array") {
+		const entries = value as unknown[];
+		if (schema.minItems !== undefined && entries.length < schema.minItems) {
+			return schemaIssue(path, `${label} must contain at least ${schema.minItems} item(s)`);
+		}
+		if (schema.maxItems !== undefined && entries.length > schema.maxItems) {
+			return schemaIssue(path, `${label} cannot contain more than ${schema.maxItems} item(s)`);
+		}
+		if (schema.items) {
+			for (const [index, entry] of entries.entries()) {
+				const issues = validateSchemaValue(entry, schema.items, [...path, index]);
+				if (issues.length > 0) return issues;
+			}
+		}
+	} else if (type === "string") {
+		const text = value as string;
+		if (schema.minLength !== undefined && text.length < schema.minLength) {
+			return schemaIssue(path, `${label} must contain at least ${schema.minLength} character(s)`);
+		}
+		if (schema.maxLength !== undefined && text.length > schema.maxLength) {
+			return schemaIssue(path, `${label} cannot exceed ${schema.maxLength} character(s)`);
+		}
+	} else if (type === "number" || type === "integer") {
+		const number = value as number;
+		if (schema.minimum !== undefined && number < schema.minimum) {
+			return schemaIssue(path, `${label} must be at least ${schema.minimum}`);
+		}
+		if (schema.maximum !== undefined && number > schema.maximum) {
+			return schemaIssue(path, `${label} cannot exceed ${schema.maximum}`);
+		}
+	}
+	if (schema.enum && !schema.enum.includes(value)) {
+		return schemaIssue(path, `${label} must be one of ${schema.enum.join(", ")}`);
+	}
+	return [];
+}
+
+/** VehicleRegistry executes this codec before resolving or dispatching an operation. Keep the
+ * recursive runtime checks aligned with the same JSON Schema clients and tools_man receive. */
 export function looseObjectSchema(
-	properties: Record<string, { type: string; enum?: readonly string[] }>,
+	properties: Readonly<Record<string, OperationSchemaNode>>,
 	required: readonly string[] = [],
 ): VehicleSchemaCodec<Record<string, unknown>> {
+	const schema = { type: "object", properties, required: [...required], additionalProperties: false } as const;
 	return defineVehicleSchema<Record<string, unknown>>({
-		jsonSchema: { type: "object", properties, required: [...required], additionalProperties: false },
+		jsonSchema: schema as unknown as JsonSchema,
 		safeParse(value) {
-			if (typeof value !== "object" || value === null || Array.isArray(value)) {
-				return { success: false, issues: [{ path: [], message: "input must be an object" }] };
-			}
-			const input = value as Record<string, unknown>;
-			for (const key of required) {
-				if (!(key in input)) return { success: false, issues: [{ path: [key], message: `${key} is required` }] };
-			}
-			for (const [key, schema] of Object.entries(properties)) {
-				if (!schema.enum || !(key in input)) continue;
-				if (!schema.enum.includes(input[key] as string)) {
-					return { success: false, issues: [{ path: [key], message: `${key} must be one of ${schema.enum.join(", ")}` }] };
-				}
-			}
-			return { success: true, value: input };
+			const issues = validateSchemaValue(value, schema, []);
+			return issues.length > 0 ? { success: false, issues } : { success: true, value: value as Record<string, unknown> };
 		},
 	});
 }
@@ -249,7 +336,7 @@ export function buildWorkflowRunContent(
 
 export type OperationSchemaProperties = Record<
 	string,
-	{ type: string; enum?: readonly string[]; description?: string; [key: string]: unknown }
+	{ type: string | readonly string[]; enum?: readonly string[]; description?: string; [key: string]: unknown }
 >;
 
 export type DefineOperation = (

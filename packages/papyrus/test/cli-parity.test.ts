@@ -162,12 +162,12 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.uncontain", result: artifact, invoke: (c) => runTaskCli(["uncontain", "p1", "c1", "--json"], c) },
 	{
 		operation: "tasks.claim",
-		result: { taskId: "a1", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" },
+		result: { taskName: "task-a", taskTitle: "Task A", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" },
 		invoke: (c) => runTaskCli(["claim", "a1", "--owner", "worker-a", "--json"], c),
 	},
 	{
 		operation: "tasks.heartbeat_lease",
-		result: { taskId: "a1", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" },
+		result: { taskName: "task-a", taskTitle: "Task A", owner: "worker-a", token: "tok", claimedAt: "x", leaseExpiresAt: "y" },
 		invoke: (c) => runTaskCli(["heartbeat-lease", "a1", "--owner", "worker-a", "--token", "tok", "--json"], c),
 	},
 	{

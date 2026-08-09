@@ -555,12 +555,28 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		const { registry, service } = harness();
 		await registry.invoke("tasks.create", 1, { title: "Lease me", project_root: PROJECT }, PERMS);
 		const claimed = (await registry.invoke("tasks.claim", 1, { name: "Lease me", project_root: PROJECT, owner: "worker-1" }, PERMS)) as {
+			taskName: string;
+			taskTitle: string;
 			owner: string;
 			token: string;
 		};
-		expect(claimed.owner).toBe("worker-1");
-		const lease = (await registry.invoke("tasks.lease", 1, { name: "Lease me", project_root: PROJECT }, PERMS)) as { owner: string };
-		expect(lease.owner).toBe("worker-1");
+		expect(claimed).toMatchObject({ taskName: "lease-me", taskTitle: "Lease me", owner: "worker-1" });
+		expect(claimed).not.toHaveProperty("taskId");
+		const renewed = (await registry.invoke(
+			"tasks.heartbeat_lease",
+			1,
+			{ name: "Lease me", project_root: PROJECT, owner: "worker-1", token: claimed.token },
+			PERMS,
+		)) as Record<string, unknown>;
+		expect(renewed).toMatchObject({ taskName: "lease-me", taskTitle: "Lease me", owner: "worker-1" });
+		expect(renewed).not.toHaveProperty("taskId");
+		const lease = (await registry.invoke("tasks.lease", 1, { name: "Lease me", project_root: PROJECT }, PERMS)) as {
+			taskName: string;
+			taskTitle: string;
+			owner: string;
+		};
+		expect(lease).toMatchObject({ taskName: "lease-me", taskTitle: "Lease me", owner: "worker-1" });
+		expect(lease).not.toHaveProperty("taskId");
 		const released = (await registry.invoke(
 			"tasks.release_lease",
 			1,

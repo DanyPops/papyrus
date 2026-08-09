@@ -752,7 +752,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	define(
 		"claim",
-		"Claims this Task's lease under owner (defaults to session_id). Throws if a different owner already holds one.",
+		"Claims this Task's lease under owner (defaults to session_id). Returns taskName (the reusable artifact alias) and taskTitle instead of exposing its backend UUID. Throws if a different owner already holds one.",
 		"local-write",
 		{
 			id: stringProp,
@@ -772,7 +772,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"heartbeat_lease",
-		"Extends this Task's lease -- needs the exact owner/token claim() returned.",
+		"Extends this Task's lease -- needs the exact owner/token claim() returned and returns the reusable taskName plus taskTitle.",
 		"local-write",
 		{
 			id: stringProp,
@@ -802,7 +802,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	);
 	define(
 		"lease",
-		"Shows this Task's current lease, if any.",
+		"Shows this Task's current lease, if any, identified by reusable taskName plus taskTitle rather than its backend UUID.",
 		"read",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],

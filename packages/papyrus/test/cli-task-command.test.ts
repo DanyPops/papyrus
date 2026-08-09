@@ -53,20 +53,22 @@ describe("runTaskCli (Stricli-backed)", () => {
 		expect(await runTaskCli(["reap-stale-focus"], client, "/proj")).toBe("Reaped 3 stale Focus scope(s).");
 	});
 
-	it("claim: requires --owner, threads ttl-ms and note", async () => {
-		const lease = { taskId: "t1", owner: "me", token: "tok", claimedAt: "c", leaseExpiresAt: "e" };
+	it("claim: requires --owner, threads ttl-ms and note, and renders the reusable task name", async () => {
+		const lease = { taskName: "ready-work", taskTitle: "Ready work", owner: "me", token: "tok", claimedAt: "c", leaseExpiresAt: "e" };
 		const client = new FakeClient(lease);
-		await runTaskCli(["claim", "t1", "--owner", "me", "--ttl-ms", "1000", "--note", "n"], client, "/proj");
+		const output = await runTaskCli(["claim", "t1", "--owner", "me", "--ttl-ms", "1000", "--note", "n"], client, "/proj");
 		expect(client.calls).toEqual([{ operation: "tasks.claim", input: { id: "t1", owner: "me", ttl_ms: 1000, note: "n" } }]);
+		expect(output).toContain("ready-work (Ready work)");
 	});
 
 	it("heartbeat-lease: requires --owner and --token", async () => {
-		const lease = { taskId: "t1", owner: "me", token: "tok", claimedAt: "c", leaseExpiresAt: "e" };
+		const lease = { taskName: "ready-work", taskTitle: "Ready work", owner: "me", token: "tok", claimedAt: "c", leaseExpiresAt: "e" };
 		const client = new FakeClient(lease);
-		await runTaskCli(["heartbeat-lease", "t1", "--owner", "me", "--token", "tok"], client, "/proj");
+		const output = await runTaskCli(["heartbeat-lease", "t1", "--owner", "me", "--token", "tok"], client, "/proj");
 		expect(client.calls).toEqual([
 			{ operation: "tasks.heartbeat_lease", input: { id: "t1", owner: "me", token: "tok", ttl_ms: undefined } },
 		]);
+		expect(output).toContain("ready-work (Ready work)");
 	});
 
 	it("release-lease: renders released vs no-lease distinctly", async () => {
@@ -74,9 +76,18 @@ describe("runTaskCli (Stricli-backed)", () => {
 		expect(await runTaskCli(["release-lease", "t1", "--owner", "me", "--token", "tok"], released, "/proj")).toBe("Lease released.");
 	});
 
-	it("lease: renders live lease or 'no live lease'", async () => {
-		const client = new FakeClient(null);
-		expect(await runTaskCli(["lease", "t1"], client, "/proj")).toBe("No live lease.");
+	it("lease: renders the task name for a live lease or 'no live lease'", async () => {
+		const live = new FakeClient({
+			taskName: "ready-work",
+			taskTitle: "Ready work",
+			owner: "me",
+			token: "tok",
+			claimedAt: "c",
+			leaseExpiresAt: "e",
+		});
+		expect(await runTaskCli(["lease", "ready-work"], live, "/proj")).toContain("ready-work (Ready work)");
+		const missing = new FakeClient(null);
+		expect(await runTaskCli(["lease", "t1"], missing, "/proj")).toBe("No live lease.");
 	});
 
 	it("reap-stale-leases: reports the removed count", async () => {

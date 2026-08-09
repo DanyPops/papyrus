@@ -723,7 +723,8 @@ describe("Tasks port behavior", () => {
 			const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
 			const task = tasks.create({ title: "Ready work" });
 			const claimed = tasks.claimLease(task.id, "worker-a", 60_000, "picking this up");
-			expect(claimed.owner).toBe("worker-a");
+			expect(claimed).toMatchObject({ taskName: task.alias, taskTitle: task.title, owner: "worker-a" });
+			expect(claimed).not.toHaveProperty("taskId");
 			expect(tasks.show(task.id).status).toBe("todo");
 			expect(tasks.active()).toBeNull();
 

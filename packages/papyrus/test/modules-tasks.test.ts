@@ -133,10 +133,13 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 			const { registry, tasks } = fixture();
 			const task = tasks.create({ title: "Ready work", projectRoot: PROJECT_ROOT });
 			const claimed = (await registry.get("tasks.claim")!.execute({ id: task.id, owner: "worker-a", ttl_ms: 60_000 })) as {
+				taskName: string;
+				taskTitle: string;
 				owner: string;
 				token: string;
 			};
-			expect(claimed.owner).toBe("worker-a");
+			expect(claimed).toMatchObject({ taskName: task.alias, taskTitle: "Ready work", owner: "worker-a" });
+			expect(claimed).not.toHaveProperty("taskId");
 
 			const renewed = (await registry
 				.get("tasks.heartbeat_lease")!

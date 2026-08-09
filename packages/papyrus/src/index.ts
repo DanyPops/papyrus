@@ -24,7 +24,7 @@ export type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode, RenderedGraph } 
 export type { GateResult } from "./domain/gate.ts";
 export type { NoteHistoryPage } from "./domain/note-event.ts";
 export type { TaskEvent, TaskHistoryPage } from "./domain/task-event.ts";
-export type { TaskLease } from "./domain/task-lease.ts";
+export type { TaskLease, TaskLeaseView } from "./domain/task-lease.ts";
 export type { TaskViewSelection } from "./domain/task-scope.ts";
 export { NOTE_DISPOSITIONS } from "./note/note-service.ts";
 export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook/playbook-execution.ts";

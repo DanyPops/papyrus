@@ -16,6 +16,12 @@ export interface TaskLease {
 	note?: string;
 }
 
+/** Name-first operation response. The UUID remains an internal lease-store key. */
+export interface TaskLeaseView extends Omit<TaskLease, "taskId"> {
+	taskName: string;
+	taskTitle: string;
+}
+
 export function validateLeaseOwner(owner: string): string {
 	if (owner.length === 0 || owner.length > TASK_LEASE_OWNER_MAX_LENGTH) {
 		throw new Error(`lease owner must be between 1 and ${TASK_LEASE_OWNER_MAX_LENGTH} characters`);

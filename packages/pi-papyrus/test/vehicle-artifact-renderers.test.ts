@@ -103,6 +103,33 @@ describe("papyrusVehicleRenderers", () => {
 		expect(text).toContain("true");
 	});
 
+	it("renders task lease responses with the reusable task name and title instead of a Task Id field", () => {
+		const { renderResult: renderClaim } = papyrusVehicleRenderers(descriptor("tasks.claim"));
+		const component = renderClaim!(
+			{
+				content: [],
+				details: {
+					vehicle: vehicleIdentity,
+					output: {
+						taskName: "lector-adaptive-resource-harness",
+						taskTitle: "Lector: add adaptive resource harness",
+						owner: "worker-a",
+						token: "9dfc97cc-ab19-4dac-8098-3d62cd5dfa2a",
+						claimedAt: "2026-01-01T00:00:00.000Z",
+						leaseExpiresAt: "2026-01-01T01:00:00.000Z",
+					},
+				},
+			},
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		const text = component.render(100).join("\n");
+		expect(text).toContain("lector-adaptive-resource-harness");
+		expect(text).toContain("Lector: add adaptive resource harness");
+		expect(text).not.toContain("Task Id");
+	});
+
 	it("falls back to the generic renderer for a partial (progress) result", () => {
 		const component = renderResult!(
 			{ content: [], details: { vehicle: vehicleIdentity, progress: { current: 1, total: 2 } } },

@@ -18,7 +18,8 @@ interface TaskContext extends CommandContext {
 }
 
 type CliTaskLease = {
-	taskId: string;
+	taskName: string;
+	taskTitle: string;
 	owner: string;
 	token: string;
 	claimedAt: string;
@@ -195,7 +196,11 @@ const claimCommand = buildCommand({
 			ttl_ms: flags.ttlMs,
 			note: flags.note,
 		});
-		render.call(this, lease, `Claimed by "${lease.owner}" until ${lease.leaseExpiresAt} (token ${lease.token}).`);
+		render.call(
+			this,
+			lease,
+			`Claimed ${lease.taskName} (${lease.taskTitle}) by "${lease.owner}" until ${lease.leaseExpiresAt} (token ${lease.token}).`,
+		);
 	},
 	parameters: {
 		flags: {
@@ -216,7 +221,7 @@ const heartbeatLeaseCommand = buildCommand({
 			token: flags.token,
 			ttl_ms: flags.ttlMs,
 		});
-		render.call(this, lease, `Renewed until ${lease.leaseExpiresAt}.`);
+		render.call(this, lease, `Renewed ${lease.taskName} (${lease.taskTitle}) until ${lease.leaseExpiresAt}.`);
 	},
 	parameters: {
 		flags: {
@@ -251,7 +256,11 @@ const releaseLeaseCommand = buildCommand({
 const leaseCommand = buildCommand({
 	func: async function (this: TaskContext, _flags: Record<string, never>, id: string) {
 		const lease = await this.client.call<Record<string, unknown>, CliTaskLease | null>("tasks.lease", { id });
-		render.call(this, lease, lease ? `Leased by "${lease.owner}" until ${lease.leaseExpiresAt}.` : "No live lease.");
+		render.call(
+			this,
+			lease,
+			lease ? `${lease.taskName} (${lease.taskTitle}) is leased by "${lease.owner}" until ${lease.leaseExpiresAt}.` : "No live lease.",
+		);
 	},
 	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Task id", parse: String, placeholder: "id" }] } },
 	docs: { brief: "Show this Task's current lease" },

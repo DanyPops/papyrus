@@ -30,7 +30,7 @@ import type {
 	TaskHistoryQuery,
 	TaskLifecycleStatus,
 } from "../domain/task-event.ts";
-import type { TaskLease } from "../domain/task-lease.ts";
+import type { TaskLease, TaskLeaseView } from "../domain/task-lease.ts";
 import {
 	normalizeProjectRoot,
 	type RegisterTaskProjectInput,
@@ -592,15 +592,21 @@ export class Tasks {
 		return this.focusStore.reapStale(cutoff);
 	}
 
-	/** A lease is orthogonal to lifecycle and Focus: claiming a task does not start it, and does not require it to be Focused. */
-	claimLease(id: string, owner: string, ttlMs?: number, note?: string): TaskLease {
-		this.require(id);
-		return this.leases.claim(id, owner, ttlMs, note);
+	private presentLease(lease: TaskLease): TaskLeaseView {
+		const task = this.require(lease.taskId);
+		const { taskId: _taskId, ...details } = lease;
+		return { taskName: task.alias, taskTitle: task.title, ...details };
 	}
 
-	heartbeatLease(id: string, owner: string, token: string, ttlMs?: number): TaskLease {
+	/** A lease is orthogonal to lifecycle and Focus: claiming a task does not start it, and does not require it to be Focused. */
+	claimLease(id: string, owner: string, ttlMs?: number, note?: string): TaskLeaseView {
 		this.require(id);
-		return this.leases.heartbeat(id, owner, token, ttlMs);
+		return this.presentLease(this.leases.claim(id, owner, ttlMs, note));
+	}
+
+	heartbeatLease(id: string, owner: string, token: string, ttlMs?: number): TaskLeaseView {
+		this.require(id);
+		return this.presentLease(this.leases.heartbeat(id, owner, token, ttlMs));
 	}
 
 	/** Idempotent for an already-absent or already-expired lease, matching undepend/uncontain's precedent -- never throws merely because there was nothing left to release. */
@@ -609,9 +615,10 @@ export class Tasks {
 		return this.leases.release(id, owner, token);
 	}
 
-	getLease(id: string): TaskLease | undefined {
+	getLease(id: string): TaskLeaseView | undefined {
 		this.require(id);
-		return this.leases.get(id);
+		const lease = this.leases.get(id);
+		return lease ? this.presentLease(lease) : undefined;
 	}
 
 	reapStaleLeases(now: () => string = () => new Date().toISOString()): number {

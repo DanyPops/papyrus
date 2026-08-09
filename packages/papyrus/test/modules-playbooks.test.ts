@@ -33,6 +33,22 @@ describe("modules/playbooks — a Papyrus-native registered module, recycling th
 		expect(registered).toEqual([...PLAYBOOKS_OPERATION_NAMES].sort());
 	});
 
+	it("accepts subtype and template_id at creation, matching docs.create's own parity (papyrus-defect-unify-template-subtype-53b3a1eb)", async () => {
+		const { registry, artifacts } = fixture();
+		const template = artifacts.create({
+			kind: "playbook",
+			subtype: "artifact-template",
+			title: "Incident-response template",
+			extra: { targetKind: "playbook", defaults: { subtype: "runbook" } },
+		});
+		const plain = (await registry.get("playbooks.create")!.execute({ title: "A playbook", subtype: "runbook" })) as { subtype: string };
+		expect(plain.subtype).toBe("runbook");
+		const fromTemplate = (await registry.get("playbooks.create")!.execute({ title: "From template", template_id: template.id })) as {
+			subtype: string;
+		};
+		expect(fromTemplate.subtype).toBe("runbook");
+	});
+
 	it("previews a playbook as rendered text without creating any tasks", async () => {
 		const { registry, artifacts } = fixture();
 		const created = (await registry

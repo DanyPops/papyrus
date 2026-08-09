@@ -29,8 +29,10 @@ export interface CreateRuleInput {
 	condition?: string;
 	action?: string;
 	severity?: "block" | "warn" | "info";
+	subtype?: string;
 	labels?: string[];
 	extra?: Record<string, unknown>;
+	templateId?: string;
 	projectRoot?: string;
 }
 
@@ -87,6 +89,7 @@ export function createRule(
 			status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
 			title: input.title,
 			body: input.body,
+			subtype: input.subtype,
 			labels: input.labels,
 			extra: {
 				...(input.extra ?? {}),
@@ -94,6 +97,7 @@ export function createRule(
 				...(input.action ? { action: input.action } : {}),
 				severity: input.severity ?? "info",
 			},
+			templateId: input.templateId,
 		},
 		context,
 	);

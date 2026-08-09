@@ -132,6 +132,21 @@ describe("rules domain service", () => {
 		db.close();
 	});
 
+	it("accepts subtype and templateId at creation -- the same create-time surface createDocument already has (papyrus-defect-unify-template-subtype-53b3a1eb)", () => {
+		const { db, artifacts, scopes } = fixture();
+		const rule = createRule(artifacts, scopes, { title: "Security rule", subtype: "security" });
+		expect(rule.subtype).toBe("security");
+		const template = artifacts.create({
+			kind: "rule",
+			subtype: "artifact-template",
+			title: "Rule template",
+			extra: { targetKind: "rule", defaults: { subtype: "compliance" } },
+		});
+		const fromTemplate = createRule(artifacts, scopes, { title: "From template", templateId: template.id });
+		expect(fromTemplate.subtype).toBe("compliance");
+		db.close();
+	});
+
 	it("rejects a rule whose condition+action+body exceeds the permanent-context-tax bound", () => {
 		const { db, artifacts, scopes } = fixture();
 		const oversized = "x".repeat(4001);
@@ -230,6 +245,21 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		expect(transitionPlaybook(artifacts, playbook.id, "enable").status).toBe("active");
 		expect(listPlaybooks(artifacts, scopes, {})).toHaveLength(1);
 		expect(showPlaybook(artifacts, playbook.id).id).toBe(playbook.id);
+		db.close();
+	});
+
+	it("accepts subtype and templateId at creation -- the same create-time surface createDocument already has (papyrus-defect-unify-template-subtype-53b3a1eb)", () => {
+		const { db, artifacts, scopes } = fixture();
+		const playbook = createPlaybook(artifacts, scopes, { title: "Runbook", subtype: "incident-response" });
+		expect(playbook.subtype).toBe("incident-response");
+		const template = artifacts.create({
+			kind: "playbook",
+			subtype: "artifact-template",
+			title: "Playbook template",
+			extra: { targetKind: "playbook", defaults: { subtype: "onboarding" } },
+		});
+		const fromTemplate = createPlaybook(artifacts, scopes, { title: "From template", templateId: template.id });
+		expect(fromTemplate.subtype).toBe("onboarding");
 		db.close();
 	});
 

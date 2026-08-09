@@ -213,8 +213,10 @@ export interface CreatePlaybookInput {
 	tools?: string[];
 	/** Declares named arguments this Playbook needs -- see playbookInvocation for how a missing required one surfaces. */
 	arguments?: unknown;
+	subtype?: string;
 	labels?: string[];
 	extra?: Record<string, unknown>;
+	templateId?: string;
 	projectRoot?: string;
 }
 
@@ -236,6 +238,7 @@ export function createPlaybook(
 			status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
 			title: input.title,
 			body: input.body,
+			subtype: input.subtype,
 			labels: input.labels,
 			extra: {
 				...(input.extra ?? {}),
@@ -244,6 +247,7 @@ export function createPlaybook(
 				...(input.tools ? { tools: input.tools } : {}),
 				...(declaredArguments ? { arguments: declaredArguments } : {}),
 			},
+			templateId: input.templateId,
 		},
 		context,
 	);

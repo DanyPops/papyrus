@@ -69,4 +69,26 @@ describe("modules/rules — a Papyrus-native registered module (excluding rules.
 		const updated = (await registry.get("rules.update")!.execute({ id: rule.id, title: "A rule v2" })) as { title: string };
 		expect(updated.title).toBe("A rule v2");
 	});
+
+	it("accepts subtype and template_id at creation, matching docs.create's own parity (papyrus-defect-unify-template-subtype-53b3a1eb)", async () => {
+		const { registry, artifacts } = fixture();
+		// defaults.extra deliberately omits severity: createRule always forces a real severity value
+		// (input.severity ?? "info") into its own extra object before the generic template-merge in
+		// ops.ts ever runs, so a template-declared extra.severity default can never win there -- a
+		// pre-existing createRule quirk unrelated to this test's own subtype/template_id parity claim.
+		const template = artifacts.create({
+			kind: "rule",
+			subtype: "artifact-template",
+			title: "Security rule template",
+			extra: { targetKind: "rule", defaults: { subtype: "security", body: "Follow the security checklist" } },
+		});
+		const plain = (await registry.get("rules.create")!.execute({ title: "A rule", subtype: "security" })) as { subtype: string };
+		expect(plain.subtype).toBe("security");
+		const fromTemplate = (await registry.get("rules.create")!.execute({ title: "From template", template_id: template.id })) as {
+			subtype: string;
+			body: string;
+		};
+		expect(fromTemplate.subtype).toBe("security");
+		expect(fromTemplate.body).toBe("Follow the security checklist");
+	});
 });

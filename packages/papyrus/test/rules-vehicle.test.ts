@@ -43,6 +43,15 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
+	it("accepts subtype and template_id, the same create-time surface docs.create already exposes (papyrus-defect-unify-template-subtype-53b3a1eb)", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("rules.create", 1, { title: "Security rule", subtype: "security" }, PERMS)) as {
+			subtype: string;
+		};
+		expect(created.subtype).toBe("security");
+		service.close();
+	});
+
 	it("creates a rule and lists it by project", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("rules.create", 1, { title: "Always run tests", project_root: PROJECT }, PERMS)) as {

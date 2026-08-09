@@ -46,6 +46,15 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		service.close();
 	});
 
+	it("accepts subtype and template_id, the same create-time surface docs.create already exposes (papyrus-defect-unify-template-subtype-53b3a1eb)", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke("playbooks.create", 1, { title: "Runbook", subtype: "incident-response" }, PERMS)) as {
+			subtype: string;
+		};
+		expect(created.subtype).toBe("incident-response");
+		service.close();
+	});
+
 	it("creates a playbook and lists it", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke(

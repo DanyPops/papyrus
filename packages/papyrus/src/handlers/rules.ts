@@ -7,8 +7,8 @@
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import { listRules } from "../domain-services.ts";
 import { rulesOperations } from "../modules/rules.ts";
+import { listRules } from "../rules/rules-service.ts";
 import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "rules";

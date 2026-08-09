@@ -3,7 +3,7 @@
  * (step 5, continued, of the incremental refactor in
  * reducing-papyrus-consumer-change-amplification-with-modules--pvdo).
  *
- * Imports only src/domain-services.ts's Doc functions, which are already generic
+ * Imports only src/docs/docs-service.ts's Doc functions, which are already generic
  * ArtifactStore-based with no other module's concrete class dependency.
  */
 
@@ -20,7 +20,7 @@ import {
 	showDocument,
 	transitionDocument,
 	updateDocument,
-} from "../domain-services.ts";
+} from "../docs/docs-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 

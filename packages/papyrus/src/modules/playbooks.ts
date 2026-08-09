@@ -6,13 +6,15 @@
  * declare Doc/Rule blueprints and typed arguments and nested pipeline calls. playbooks.invoke
  * recycles the shared blueprint materialization engine (playbook/playbook-execution.ts compiles a
  * Playbook's steps and composition tree into a BlueprintDefinition, then hands off to
- * playbook/workflow-execution.ts's shared core). See domain-services.ts's Playbook section and
+ * playbook/workflow-execution.ts's shared core). See playbook/playbook-service.ts and
  * playbook/playbook-definition.ts for the full rationale.
  */
 
 import { summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import type { OperationDefinition } from "../module-registry.ts";
+import { invokePlaybook } from "../playbook/playbook-execution.ts";
 import {
 	assignPlaybookProject,
 	containPlaybook,
@@ -25,9 +27,7 @@ import {
 	uncontainPlaybook,
 	undependPlaybook,
 	updatePlaybook,
-} from "../domain-services.ts";
-import type { OperationDefinition } from "../module-registry.ts";
-import { invokePlaybook } from "../playbook/playbook-execution.ts";
+} from "../playbook/playbook-service.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";

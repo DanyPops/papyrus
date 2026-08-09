@@ -35,7 +35,7 @@ import type {
 	TaskBlueprint,
 } from "../domain/blueprint-definition.ts";
 import { validateBlueprintDefinition } from "../domain/blueprint-definition.ts";
-import type { PlaybookArgument, PlaybookStep } from "../domain-services.ts";
+import type { PlaybookArgument, PlaybookStep } from "./playbook-service.ts";
 
 /** A non-composing edge touching a playbook node, to be mirrored onto that node's generated root task once real task ids exist -- e.g. a Rule `gates` this playbook, or this playbook `references`/`documents` a Doc. Direction is preserved exactly: `from`/`to` name whichever side is NOT the playbook, and `ownerIsFrom` says which side the playbook (now the generated root task) occupies. */
 export interface PlaybookExternalLink {

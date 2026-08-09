@@ -11,32 +11,36 @@ import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import {
 	assignDocumentProject,
-	assignPlaybookProject,
-	assignRuleProject,
-	containPlaybook,
 	createDocument,
-	createPlaybook,
-	createRule,
-	dependPlaybook,
-	gateTaskWithRule,
 	linkDocument,
 	listDocuments,
+	transitionDocument,
+	updateDocument,
+} from "../src/docs/docs-service.ts";
+import {
+	assignPlaybookProject,
+	containPlaybook,
+	createPlaybook,
+	dependPlaybook,
 	listPlaybooks,
-	listRules,
 	playbookInvocation,
+	showPlaybook,
+	transitionPlaybook,
+	uncontainPlaybook,
+	undependPlaybook,
+	updatePlaybook,
+} from "../src/playbook/playbook-service.ts";
+import {
+	assignRuleProject,
+	createRule,
+	gateTaskWithRule,
+	listRules,
 	previewRule,
 	ruleCombinedLength,
 	ruleCombinedLengthWarning,
-	showPlaybook,
-	transitionDocument,
-	transitionPlaybook,
 	transitionRule,
-	uncontainPlaybook,
-	undependPlaybook,
-	updateDocument,
-	updatePlaybook,
 	updateRule,
-} from "../src/domain-services.ts";
+} from "../src/rules/rules-service.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
 import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
 import { Tasks } from "../src/task/task-service.ts";

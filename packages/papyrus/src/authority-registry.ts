@@ -4,7 +4,8 @@
  *
  * Subtype/relation ownership guards (isDiscourseSubtype, NOTE_SUBTYPE, task-kind checks)
  * were previously re-implemented at every write call site across src/service.ts and
- * src/domain-services.ts. This is the one deep enforcement point: a claim expresses
+ * src/docs/docs-service.ts, src/rules/rules-service.ts, src/playbook/playbook-service.ts
+ * (formerly one combined src/domain-services.ts). This is the one deep enforcement point: a claim expresses
  * which module owns which artifact kind/subtype or relation and what message a
  * non-owner gets for a given action; AuthorizedArtifactWriter enforces claims for the
  * mechanical link/unlink/status paths where the target artifact's persisted kind/subtype

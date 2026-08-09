@@ -7,8 +7,8 @@
  * table via NOTE_SUBTYPE) and has exactly six operations — the smallest real module to
  * prove the OperationRegistry shape against before extracting Tasks or Docs.
  *
- * This module does not import another module's infrastructure (src/task-service.ts,
- * src/domain-services.ts, etc.) — only its own src/note-service.ts and the shared
+ * This module does not import another module's infrastructure (src/task/task-service.ts,
+ * src/docs/docs-service.ts, etc.) — only its own src/note/note-service.ts and the shared
  * OperationInput parsing helpers, matching the "module code does not import another
  * module's infrastructure" constraint.
  */

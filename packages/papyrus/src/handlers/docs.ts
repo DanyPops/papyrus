@@ -7,7 +7,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
-import { listDocuments } from "../domain-services.ts";
+import { listDocuments } from "../docs/docs-service.ts";
 import { docsOperations } from "../modules/docs.ts";
 import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 

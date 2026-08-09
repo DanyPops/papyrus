@@ -14,6 +14,7 @@
 import { type Artifact, summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
+import type { OperationDefinition } from "../module-registry.ts";
 import {
 	assignRuleProject,
 	createRule,
@@ -25,8 +26,7 @@ import {
 	showRule,
 	transitionRule,
 	updateRule,
-} from "../domain-services.ts";
-import type { OperationDefinition } from "../module-registry.ts";
+} from "../rules/rules-service.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "rules";

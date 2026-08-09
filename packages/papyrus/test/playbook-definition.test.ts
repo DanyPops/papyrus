@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
-import type { PlaybookStep } from "../src/domain-services.ts";
 import { compilePlaybookDefinition } from "../src/playbook/playbook-definition.ts";
+import type { PlaybookStep } from "../src/playbook/playbook-service.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

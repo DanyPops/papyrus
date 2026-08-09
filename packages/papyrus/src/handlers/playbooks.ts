@@ -21,9 +21,9 @@
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import { listPlaybooks } from "../domain-services.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
+import { listPlaybooks } from "../playbook/playbook-service.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";

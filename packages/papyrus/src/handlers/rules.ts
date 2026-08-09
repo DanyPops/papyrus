@@ -8,12 +8,20 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { rulesOperations } from "../modules/rules.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 import { listRules } from "../rules/rules-service.ts";
 import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "rules";
 
-/** Resolves a rule's id from either an explicit id or its title, widened past project_root when unscoped-vs-scoped search finds nothing. */
+/**
+ * Resolves a rule's id from either an explicit id or its title. When project_root is given and
+ * the project-scoped search finds nothing, widens only to a rule that actually APPLIES to this
+ * project (global, or explicitly scoped to it via appliesToProjectRoot) -- never to a same-named
+ * rule that belongs to a different project. A prior version widened to every rule of that name
+ * across every project unconditionally once the scoped search came up empty, silently leaking a
+ * name-based mutation across project boundaries.
+ */
 function resolveRuleId(
 	artifacts: ArtifactStore,
 	scopes: ArtifactScopeStore,
@@ -27,7 +35,9 @@ function resolveRuleId(
 		artifacts,
 		name,
 		() => listRules(artifacts, scopes, { text: name, projectRoot }),
-		projectRoot === undefined ? undefined : () => listRules(artifacts, scopes, { text: name }),
+		projectRoot === undefined
+			? undefined
+			: () => artifacts.query({ kind: "rule", text: name }).filter((rule) => scopes.appliesToProjectRoot(rule.id, projectRoot)),
 	);
 }
 
@@ -42,8 +52,13 @@ function resolveTaskId(artifacts: ArtifactStore, _projectRoot: string | undefine
 	return resolveArtifactIdWidened(artifacts, name, () => artifacts.query({ kind: "task", text: name }));
 }
 
-export function registerRulesVehicleOperations(registry: VehicleRegistry, artifacts: ArtifactStore, scopes: ArtifactScopeStore): void {
-	const moduleOperations = new Map(rulesOperations(artifacts, scopes).map((op) => [op.name, op]));
+export function registerRulesVehicleOperations(
+	registry: VehicleRegistry,
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	projectRegistry: ProjectRegistryStore,
+): void {
+	const moduleOperations = new Map(rulesOperations(artifacts, scopes, projectRegistry).map((op) => [op.name, op]));
 	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
 	const define = createOperationDefiner(registry, OWNER, "rules", ["rules:read", "rules:write"], call);
 
@@ -62,6 +77,7 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 			extra: { type: "object" } as unknown as { type: string },
 			template_id: stringProp,
 			project_root: stringProp,
+			projects: { type: "array" } as unknown as { type: string },
 			actor: stringProp,
 			source: stringProp,
 			session_id: stringProp,
@@ -151,6 +167,77 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],
 		(input) => ({ ...input, id: resolveRuleId(artifacts, scopes, undefined, input.id, input.name) }),
+	);
+
+	define(
+		"scope",
+		"Shows a Rule's real project scope: global (applies everywhere) or the bounded set of registered projects it applies to.",
+		"read",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({ ...input, id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"set_global",
+		"Makes a Rule apply in every project, clearing any project membership. The only way to widen an active project-bound Rule back to global -- removing its last membership through remove_project is rejected instead.",
+		"local-write",
+		{ id: stringProp, name: stringProp, project_root: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
+		[],
+		(input) => ({ ...input, id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"add_project",
+		"Adds one registered project (exact id, name, alias, or root) to a Rule's membership, switching it from global to project-bound if it was global. Idempotent if the project is already a member.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			project: { ...stringProp, description: "Exact project id, name, alias, or registered root to add." },
+			project_root: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
+		["project"],
+		(input) => ({ ...input, id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"remove_project",
+		"Removes one registered project from a Rule's membership. Rejected while it is the Rule's only remaining membership -- call set_global first if the Rule should stop being project-bound entirely.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			project: { ...stringProp, description: "Exact project id, name, alias, or registered root to remove." },
+			project_root: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
+		["project"],
+		(input) => ({ ...input, id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"replace_projects",
+		"Replaces a Rule's entire project membership with exactly this bounded, non-empty list of registered project references (id/name/alias/root). Use set_global instead to clear scoping entirely.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			projects: { type: "array", description: "Non-empty list of exact project id/name/alias/root references." } as unknown as {
+				type: string;
+			},
+			project_root: stringProp,
+			actor: stringProp,
+			source: stringProp,
+			session_id: stringProp,
+		},
+		["projects"],
+		(input) => ({ ...input, id: resolveRuleId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
 	);
 
 	define(

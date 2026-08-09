@@ -45,4 +45,6 @@ export interface ArtifactScopeStore {
 	ids(projectRoot: string | undefined, limit: number): string[];
 	/** True when artifactId's scope includes projectId (mode "projects" and a member), or is "global" (applies everywhere). False for an unscoped artifact with no row -- matching a Rule/Doc/Playbook's default of "applies everywhere" being represented by the same "global" default scope() already returns, but injection call sites decide their own applicability policy; this is the raw membership fact only. */
 	appliesToProject(artifactId: string, projectId: string): boolean;
+	/** Root-based convenience over appliesToProject, for a caller (e.g. rules.injectable) that only has a project root, not a resolved id -- resolves the same way ids() does. An unregistered root (no project was ever registered for it) means only a global-mode artifact applies; projectRoot === undefined means "no project context at all", so only global-mode artifacts apply either way. */
+	appliesToProjectRoot(artifactId: string, projectRoot: string | undefined): boolean;
 }

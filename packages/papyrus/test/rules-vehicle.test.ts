@@ -24,6 +24,7 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 			.filter((name: string) => name.startsWith("rules."))
 			.sort();
 		expect(names).toEqual([
+			"rules.add_project",
 			"rules.assign_project",
 			"rules.create",
 			"rules.disable",
@@ -31,6 +32,10 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 			"rules.gate",
 			"rules.list",
 			"rules.preview",
+			"rules.remove_project",
+			"rules.replace_projects",
+			"rules.scope",
+			"rules.set_global",
 			"rules.show",
 			"rules.update",
 		]);
@@ -249,6 +254,115 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		expect(restored.restored).toBe(true);
 		const afterRestore = (await service.execute("artifact.trash_status", { id: created.id })) as unknown;
 		expect(afterRestore).toBeNull();
+		service.close();
+	});
+
+	it("exposes scope/add_project/remove_project/replace_projects/set_global end to end (rules-enforce-global-or-multi-project-applicabilit)", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/scope-project-a", name: "Scope Project A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/scope-project-b", name: "Scope Project B" });
+		const created = (await registry.invoke("rules.create", 1, { title: "Scope surface rule" }, PERMS)) as { id: string };
+
+		expect(await registry.invoke("rules.scope", 1, { id: created.id }, PERMS)).toEqual({
+			artifactId: created.id,
+			mode: "global",
+			projectIds: [],
+			source: "unscoped",
+		});
+
+		const afterAdd = (await registry.invoke("rules.add_project", 1, { id: created.id, project: "Scope Project A" }, PERMS)) as {
+			mode: string;
+			projectIds: string[];
+		};
+		expect(afterAdd.mode).toBe("projects");
+		expect(afterAdd.projectIds).toHaveLength(1);
+
+		const afterAddSecond = (await registry.invoke("rules.add_project", 1, { id: created.id, project: "Scope Project B" }, PERMS)) as {
+			projectIds: string[];
+		};
+		expect(afterAddSecond.projectIds).toHaveLength(2);
+
+		const afterRemove = (await registry.invoke("rules.remove_project", 1, { id: created.id, project: "Scope Project B" }, PERMS)) as {
+			projectIds: string[];
+		};
+		expect(afterRemove.projectIds).toHaveLength(1);
+
+		const afterReplace = (await registry.invoke(
+			"rules.replace_projects",
+			1,
+			{ id: created.id, projects: ["Scope Project A", "Scope Project B"] },
+			PERMS,
+		)) as { projectIds: string[] };
+		expect(afterReplace.projectIds).toHaveLength(2);
+
+		const afterGlobal = (await registry.invoke("rules.set_global", 1, { id: created.id }, PERMS)) as {
+			artifactId: string;
+			mode: string;
+			projectIds: string[];
+			source: string;
+		};
+		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+		service.close();
+	});
+
+	it("rejects removing an active Rule's last project membership -- set_global must be called explicitly instead of accidentally broadening scope", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/last-membership-project", name: "Last Membership Project" });
+		const created = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Last membership rule", projects: ["Last Membership Project"] },
+			PERMS,
+		)) as { id: string };
+
+		await expect(registry.invoke("rules.remove_project", 1, { id: created.id, project: "Last Membership Project" }, PERMS)).rejects.toThrow(
+			/set_global|last|only remaining|non-empty/i,
+		);
+
+		const madeGlobal = (await registry.invoke("rules.set_global", 1, { id: created.id }, PERMS)) as { mode: string };
+		expect(madeGlobal.mode).toBe("global");
+		service.close();
+	});
+
+	it("never widens a name-based rules.* mutation across projects -- a same-named Rule in a different project is invisible, but the searching project's own scoped or global Rule still resolves", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/widen-project-a", name: "Widen Project A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/widen-project-b", name: "Widen Project B" });
+
+		const ruleInA = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Shared Name", body: "Belongs to A", projects: ["Widen Project A"] },
+			PERMS,
+		)) as { id: string };
+		const ruleInB = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Shared Name", body: "Belongs to B", projects: ["Widen Project B"] },
+			PERMS,
+		)) as { id: string };
+
+		// Resolving "Shared Name" from project B's context must hit B's own rule, never A's --
+		// even though A's scoped search comes up empty first and used to widen to every project.
+		const shownFromB = (await registry.invoke("rules.show", 1, { name: "Shared Name", project_root: "/tmp/widen-project-b" }, PERMS)) as {
+			id: string;
+		};
+		expect(shownFromB.id).toBe(ruleInB.id);
+		expect(shownFromB.id).not.toBe(ruleInA.id);
+
+		const globalRule = (await registry.invoke("rules.create", 1, { title: "Global Shared Name", body: "Applies everywhere" }, PERMS)) as {
+			id: string;
+		};
+		// A global rule is still found via the widen fallback even when a project_root is given and
+		// nothing is scoped to that project under this name -- widening to "applies here" is fine;
+		// widening to "some other project entirely" is the bug this guards against.
+		const shownGlobal = (await registry.invoke(
+			"rules.show",
+			1,
+			{ name: "Global Shared Name", project_root: "/tmp/widen-project-a" },
+			PERMS,
+		)) as { id: string };
+		expect(shownGlobal.id).toBe(globalRule.id);
 		service.close();
 	});
 });

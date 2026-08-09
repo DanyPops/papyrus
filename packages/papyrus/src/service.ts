@@ -4,6 +4,7 @@ import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import type { CreateArtifactInput } from "./artifact/artifact.ts";
 import type { ArtifactEventReader } from "./artifact/artifact-event-reader.ts";
+import type { ArtifactScopeStore } from "./artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "./artifact/artifact-store.ts";
 import { removeArtifactSubtree } from "./artifact/artifact-subtree.ts";
 import type { ArtifactTrashStore } from "./artifact/artifact-trash-store.ts";
@@ -38,6 +39,7 @@ import { SQLiteGateRunner } from "./stores/sqlite-gate-runner.ts";
 import { SQLiteGraphProjectionStore } from "./stores/sqlite-graph-projection-store.ts";
 import { SQLiteLogStore } from "./stores/sqlite-log-store.ts";
 import { SQLiteNoteEventStore } from "./stores/sqlite-note-event-store.ts";
+import { SQLiteProjectRegistryStore } from "./stores/sqlite-project-registry-store.ts";
 import { SQLiteSessionIdentityStore } from "./stores/sqlite-session-identity-store.ts";
 import { SQLiteTaskCreateRequestStore } from "./stores/sqlite-task-create-request-store.ts";
 import { SQLiteTaskEventStore } from "./stores/sqlite-task-event-store.ts";
@@ -216,6 +218,7 @@ function handlers(
 	_notes: Notes,
 	_events: TaskEventStore,
 	_scopes: TaskScopeStore,
+	artifactScopes: ArtifactScopeStore,
 	migrate: () => unknown,
 	moduleRegistry: OperationRegistry,
 	authority: AuthorityRegistry,
@@ -345,8 +348,12 @@ function handlers(
 			const id = string(input, "id");
 			return artifacts.get(id)?.kind === "task" ? tasks.runGates(id, eventContextFor(input, "gates-api")) : gates.runAsync(id);
 		},
-		"rules.injectable": (input) =>
-			listInjectableRules(artifacts, tasks.active(taskFilter(input))?.id).map(({ id, title, body, extra }) => ({ id, title, body, extra })),
+		"rules.injectable": (input) => {
+			const filter = taskFilter(input);
+			return listInjectableRules(artifacts, artifactScopes, filter.projectRoot, tasks.active(filter)?.id).map(
+				({ id, title, body, extra }) => ({ id, title, body, extra }),
+			);
+		},
 		"tasks.create": forwardToModule("tasks.create"),
 		"tasks.update": forwardToModule("tasks.update"),
 		"tasks.list": forwardToModule("tasks.list"),
@@ -414,6 +421,11 @@ function handlers(
 		"rules.disable": forwardToModule("rules.disable"),
 		"rules.gate": forwardToModule("rules.gate"),
 		"rules.assign_project": forwardToModule("rules.assign_project"),
+		"rules.scope": forwardToModule("rules.scope"),
+		"rules.set_global": forwardToModule("rules.set_global"),
+		"rules.add_project": forwardToModule("rules.add_project"),
+		"rules.remove_project": forwardToModule("rules.remove_project"),
+		"rules.replace_projects": forwardToModule("rules.replace_projects"),
 		"rules.update": forwardToModule("rules.update"),
 		"playbooks.create": forwardToModule("playbooks.create"),
 		"playbooks.list": forwardToModule("playbooks.list"),
@@ -462,6 +474,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	const notes = new Notes(artifacts, noteEvents);
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
+	const projectRegistry = new SQLiteProjectRegistryStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const discussions = new Discussions(artifacts, new SQLiteDiscussionRoundStore(db));
@@ -476,6 +489,7 @@ export function createPapyrusService(path: string): PapyrusService {
 		tasks,
 		discussions,
 		sessionIdentity,
+		projectRegistry,
 	});
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
@@ -484,10 +498,10 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(discussOperations(discussions));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
-	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes));
+	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry));
 	moduleRegistry.registerAll(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
-	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, () => migrateDb(db), moduleRegistry, authority);
+	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, artifactScopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {
 		const current = schemaVersion(db);
 		return { current, required: SQLITE_SCHEMA_VERSION, migrationRequired: current !== SQLITE_SCHEMA_VERSION };

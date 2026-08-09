@@ -139,4 +139,37 @@ describe("runRulesCli (Stricli-backed)", () => {
 		const client = new FakeClient({});
 		await expect(runRulesCli(["bogus"], client, "/caller")).rejects.toThrow();
 	});
+
+	const scope = { artifactId: "r1", mode: "projects", projectIds: ["p1"], source: "explicit" };
+
+	it("scope: shows a Rule's project scope", async () => {
+		const client = new FakeClient(scope);
+		const output = await runRulesCli(["scope", "r1"], client, "/caller");
+		expect(client.calls).toEqual([{ operation: "rules.scope", input: { id: "r1" } }]);
+		expect(output).toContain("p1");
+	});
+
+	it("set-global: makes a Rule global", async () => {
+		const client = new FakeClient({ ...scope, mode: "global", projectIds: [] });
+		await runRulesCli(["set-global", "r1"], client, "/caller");
+		expect(client.calls).toEqual([{ operation: "rules.set_global", input: { id: "r1" } }]);
+	});
+
+	it("add-project: adds one project to a Rule's membership", async () => {
+		const client = new FakeClient(scope);
+		await runRulesCli(["add-project", "r1", "p1"], client, "/caller");
+		expect(client.calls).toEqual([{ operation: "rules.add_project", input: { id: "r1", project: "p1" } }]);
+	});
+
+	it("remove-project: removes one project from a Rule's membership", async () => {
+		const client = new FakeClient(scope);
+		await runRulesCli(["remove-project", "r1", "p1"], client, "/caller");
+		expect(client.calls).toEqual([{ operation: "rules.remove_project", input: { id: "r1", project: "p1" } }]);
+	});
+
+	it("replace-projects: replaces a Rule's entire project membership from a JSON array", async () => {
+		const client = new FakeClient(scope);
+		await runRulesCli(["replace-projects", "r1", "--projects-json", '["p1","p2"]'], client, "/caller");
+		expect(client.calls).toEqual([{ operation: "rules.replace_projects", input: { id: "r1", projects: ["p1", "p2"] } }]);
+	});
 });

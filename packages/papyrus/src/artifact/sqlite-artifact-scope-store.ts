@@ -155,4 +155,12 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 		if (!row || row.mode === "global") return true;
 		return this.membershipIds(artifactId).includes(projectId);
 	}
+
+	appliesToProjectRoot(artifactId: string, projectRoot: string | undefined): boolean {
+		const row = this.readRow(artifactId);
+		if (!row || row.mode === "global") return true;
+		if (projectRoot === undefined) return false;
+		const project = this.db.prepare("SELECT id FROM task_projects WHERE project_root = ?").get(projectRoot) as { id: string } | null;
+		return project !== null && this.membershipIds(artifactId).includes(project.id);
+	}
 }

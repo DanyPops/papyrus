@@ -44,6 +44,7 @@ import {
 } from "../src/rules/rules-service.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
 import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
+import { SQLiteProjectRegistryStore } from "../src/stores/sqlite-project-registry-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {
@@ -195,6 +196,32 @@ describe("rules domain service", () => {
 		db.close();
 	});
 
+	it("injection stays bounded and deterministic across a multi-membership Rule -- no duplicate entry, stable order, and limit behavior unaffected by how many projects it belongs to (rules-enforce-global-or-multi-project-applicabilit)", () => {
+		const { db, artifacts, scopes } = fixture();
+		const registry = new SQLiteProjectRegistryStore(db);
+		const projectA = registry.registerProject({ projectRoot: "/tmp/determinism-a", name: "Determinism A" });
+		const projectB = registry.registerProject({ projectRoot: "/tmp/determinism-b", name: "Determinism B" });
+
+		const multiMembershipRule = createRule(
+			artifacts,
+			scopes,
+			{ title: "Belongs to A and B", body: "Shared", projectReferences: [projectA.id, projectB.id] },
+			undefined,
+			registry,
+		);
+		const onlyA = createRule(artifacts, scopes, { title: "Only A", body: "A", projectReferences: [projectA.id] }, undefined, registry);
+
+		const inA = listInjectableRules(artifacts, scopes, "/tmp/determinism-a").map((rule) => rule.id);
+		// Exactly one entry for the multi-membership Rule, not one per membership row.
+		expect(inA.filter((id) => id === multiMembershipRule.id)).toHaveLength(1);
+		expect(inA).toContain(onlyA.id);
+
+		const first = listInjectableRules(artifacts, scopes, "/tmp/determinism-a").map((rule) => rule.id);
+		const second = listInjectableRules(artifacts, scopes, "/tmp/determinism-a").map((rule) => rule.id);
+		expect(first).toEqual(second);
+		db.close();
+	});
+
 	it("accepts subtype and templateId at creation -- the same create-time surface createDocument already has (papyrus-defect-unify-template-subtype-53b3a1eb)", () => {
 		const { db, artifacts, scopes } = fixture();
 		const rule = createRule(artifacts, scopes, { title: "Security rule", subtype: "security" });
@@ -222,15 +249,15 @@ describe("rules domain service", () => {
 		const rule = createRule(artifacts, scopes, { title: "Incomplete rule", templateId: template.id });
 		expect(rule.status).toBe("draft");
 		expect(rule.extra.templateId).toBe(template.id);
-		expect(listInjectableRules(artifacts).map((candidate) => candidate.id)).not.toContain(template.id);
-		expect(listInjectableRules(artifacts).map((candidate) => candidate.id)).not.toContain(rule.id);
+		expect(listInjectableRules(artifacts, scopes, undefined).map((candidate) => candidate.id)).not.toContain(template.id);
+		expect(listInjectableRules(artifacts, scopes, undefined).map((candidate) => candidate.id)).not.toContain(rule.id);
 		expect(() => transitionRule(artifacts, rule.id, "enable")).toThrow(
 			`rule does not conform to template "${template.id}": missing completion-required field "body"`,
 		);
 
 		updateRule(artifacts, rule.id, { body: "Always run the complete verification suite." });
 		expect(transitionRule(artifacts, rule.id, "enable").status).toBe("active");
-		expect(listInjectableRules(artifacts).map((candidate) => candidate.id)).toContain(rule.id);
+		expect(listInjectableRules(artifacts, scopes, undefined).map((candidate) => candidate.id)).toContain(rule.id);
 		db.close();
 	});
 

@@ -15,14 +15,20 @@ import { type Artifact, summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 import {
+	addRuleProject,
 	assignRuleProject,
 	createRule,
 	gateTaskWithRule,
 	listRules,
 	previewRule,
+	removeRuleProject,
+	replaceRuleProjects,
 	ruleCombinedLength,
 	ruleCombinedLengthWarning,
+	ruleScope,
+	setRuleGlobal,
 	showRule,
 	transitionRule,
 	updateRule,
@@ -71,10 +77,19 @@ export const RULES_OPERATION_NAMES = [
 	"rules.disable",
 	"rules.gate",
 	"rules.assign_project",
+	"rules.scope",
+	"rules.set_global",
+	"rules.add_project",
+	"rules.remove_project",
+	"rules.replace_projects",
 	"rules.update",
 ] as const;
 
-export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore): OperationDefinition[] {
+export function rulesOperations(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name,
 		moduleId: MODULE_ID,
@@ -97,8 +112,10 @@ export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeS
 						extra: input.extra as Record<string, unknown> | undefined,
 						templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 						projectRoot: optionalString(input, "project_root"),
+						projectReferences: input.projects as string[] | undefined,
 					},
 					eventContext(input),
+					registry,
 				),
 			),
 		),
@@ -124,6 +141,17 @@ export function rulesOperations(artifacts: ArtifactStore, scopes: ArtifactScopeS
 		),
 		define("rules.assign_project", (input: OperationInput) =>
 			assignRuleProject(artifacts, scopes, string(input, "id"), optionalString(input, "project_root")),
+		),
+		define("rules.scope", (input: OperationInput) => ruleScope(artifacts, scopes, string(input, "id"))),
+		define("rules.set_global", (input: OperationInput) => setRuleGlobal(artifacts, scopes, string(input, "id"))),
+		define("rules.add_project", (input: OperationInput) =>
+			addRuleProject(artifacts, scopes, registry, string(input, "id"), string(input, "project")),
+		),
+		define("rules.remove_project", (input: OperationInput) =>
+			removeRuleProject(artifacts, scopes, registry, string(input, "id"), string(input, "project")),
+		),
+		define("rules.replace_projects", (input: OperationInput) =>
+			replaceRuleProjects(artifacts, scopes, registry, string(input, "id"), (input.projects as string[] | undefined) ?? []),
 		),
 		define("rules.update", (input: OperationInput) =>
 			withRuleLengthInfo(

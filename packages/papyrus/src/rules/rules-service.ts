@@ -8,9 +8,14 @@
 import type { Artifact } from "../artifact/artifact.ts";
 import { requireLocallyOwnedContent } from "../artifact/artifact.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
-import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import { RULE_TEXT_HARD_LIMIT_CHARACTERS, RULE_TEXT_SOFT_TARGET_CHARACTERS } from "../constants.ts";
+import {
+	ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT,
+	RULE_TEXT_HARD_LIMIT_CHARACTERS,
+	RULE_TEXT_SOFT_TARGET_CHARACTERS,
+} from "../constants.ts";
+import { resolveProjectReference } from "../domain/project-registry.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
 import {
 	assertLabelsBounds,
@@ -24,6 +29,7 @@ import {
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 
 export interface CreateRuleInput {
 	title: string;
@@ -36,6 +42,8 @@ export interface CreateRuleInput {
 	extra?: Record<string, unknown>;
 	templateId?: string;
 	projectRoot?: string;
+	/** Bounded exact registered project references (id/name/alias/root) -- fail-closed unlike projectRoot's auto-register-by-root legacy form. Takes precedence over projectRoot when both are given. */
+	projectReferences?: string[];
 }
 
 export type RuleTransition = "enable" | "disable";
@@ -121,8 +129,12 @@ export function createRule(
 	scopes: ArtifactScopeStore,
 	input: CreateRuleInput,
 	context?: ArtifactEventContext,
+	registry?: ProjectRegistryStore,
 ): Artifact {
 	assertRuleTextWithinBounds(input.condition, input.action, input.body);
+	if (input.projectReferences !== undefined && input.projectReferences.length > 0 && registry === undefined) {
+		throw new Error("projectReferences requires a project registry");
+	}
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 	const rule = artifacts.create(
 		{
@@ -143,7 +155,15 @@ export function createRule(
 		},
 		context,
 	);
-	scopes.assign(rule.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	if (input.projectReferences !== undefined && input.projectReferences.length > 0) {
+		if (input.projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
+			throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
+		}
+		const ids = input.projectReferences.map((reference) => resolveProjectReference(registry!, reference).id);
+		scopes.replaceProjects(rule.id, ids, "explicit");
+	} else {
+		scopes.assign(rule.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	}
 	return rule;
 }
 
@@ -161,22 +181,91 @@ export function assignRuleProject(
 }
 
 /**
- * Global rules always apply; scoped workflow-run rules apply only while their run owns active
- * focus. Both a workflow-definition target's own run scope ("skill-run", written by
- * workflow-execution.ts's runWorkflowSteps for that target kind) and a Playbook's own run scope
- * ("playbook-run", same call for a Playbook target) are recognized -- confirmed live that only
- * "skill-run" was ever checked here, silently breaking Playbook-run-scoped rule injection since
- * Playbook gained its own doc/rule structured steps.
+ * The multi-project scope surface rules.assign_project cannot express (more than one membership,
+ * or exact fail-closed reference resolution instead of assign's auto-register-by-root). id is
+ * resolved through requireKind so these reject the same way against a non-Rule or unknown id as
+ * every other rules.* mutation; the project REFERENCE (name/alias/root) is resolved through the
+ * shared registry's resolveProjectReference, so an unknown or ambiguous project fails closed with
+ * bounded candidates rather than silently creating a new registration or guessing.
  */
-export function listInjectableRules(artifacts: ArtifactStore, activeTaskId?: string): Artifact[] {
+export function ruleScope(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	return scopes.scope(id);
+}
+
+export function setRuleGlobal(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	return scopes.setGlobal(id, "explicit");
+}
+
+export function replaceRuleProjects(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReferences: readonly string[],
+): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use rules.set_global to clear scoping");
+	if (projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
+		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
+	}
+	const ids = projectReferences.map((reference) => resolveProjectReference(registry, reference).id);
+	return scopes.replaceProjects(id, ids, "explicit");
+}
+
+export function addRuleProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.addProject(id, project.id, "explicit");
+}
+
+export function removeRuleProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.removeProject(id, project.id);
+}
+
+/** The extra.scope run-gating check alone -- a Rule with no extra.scope always passes this; one with a skill-run/playbook-run scope passes only while its run owns activeTaskId. Both a workflow-definition target's own run scope ("skill-run", written by workflow-execution.ts's runWorkflowSteps for that target kind) and a Playbook's own run scope ("playbook-run", same call for a Playbook target) are recognized -- confirmed live that only "skill-run" was ever checked here, silently breaking Playbook-run-scoped rule injection since Playbook gained its own doc/rule structured steps. */
+function passesRunScope(rule: Artifact, activeTaskId: string | undefined): boolean {
+	const scope = rule.extra.scope;
+	if (scope === undefined) return true;
+	if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
+	const value = scope as Record<string, unknown>;
+	if ((value.type !== "skill-run" && value.type !== "playbook-run") || !Array.isArray(value.taskIds)) return false;
+	return activeTaskId !== undefined && value.taskIds.some((id) => id === activeTaskId);
+}
+
+/**
+ * Global rules always apply everywhere; a project-bound Rule (ArtifactScopeStore's own
+ * project-membership scope, orthogonal to extra.scope's run-gating) is applicable only when
+ * projectRoot resolves to one of its registered project memberships. Both checks are an AND, not
+ * an alternative: extra.scope's own run-gating can no longer bypass project scope, and project
+ * membership can no longer bypass run-gating -- confirmed live that a project-bound Rule was
+ * injected into every project before this fix, since this function never consulted
+ * ArtifactScopeStore at all despite rules.assign_project already existing.
+ */
+export function listInjectableRules(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	projectRoot: string | undefined,
+	activeTaskId?: string,
+): Artifact[] {
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
 		if (rule.subtype === "artifact-template") return false;
-		const scope = rule.extra.scope;
-		if (scope === undefined) return true;
-		if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
-		const value = scope as Record<string, unknown>;
-		if ((value.type !== "skill-run" && value.type !== "playbook-run") || !Array.isArray(value.taskIds)) return false;
-		return activeTaskId !== undefined && value.taskIds.some((id) => id === activeTaskId);
+		return passesRunScope(rule, activeTaskId) && scopes.appliesToProjectRoot(rule.id, projectRoot);
 	});
 }
 

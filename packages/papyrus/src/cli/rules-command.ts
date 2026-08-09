@@ -113,6 +113,93 @@ const assignProjectCommand = buildCommand({
 	docs: { brief: "Reassign a Rule's project scope, or unscope it" },
 });
 
+interface CliArtifactScope {
+	artifactId: string;
+	mode: string;
+	projectIds: string[];
+	source: string;
+}
+
+function renderScope(scope: CliArtifactScope): string {
+	return scope.mode === "global" ? "global (applies to every project)" : `projects: ${scope.projectIds.join(", ")}`;
+}
+
+const scopeCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.scope", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Show a Rule's real project scope" },
+});
+
+const setGlobalCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.set_global", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Make a Rule apply in every project" },
+});
+
+const addProjectCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string, project: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.add_project", { id, project });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Rule id", parse: String, placeholder: "id" },
+				{ brief: "Project id/name/alias/root to add", parse: String, placeholder: "project" },
+			],
+		},
+	},
+	docs: { brief: "Add one project to a Rule's membership" },
+});
+
+const removeProjectCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string, project: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.remove_project", { id, project });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Rule id", parse: String, placeholder: "id" },
+				{ brief: "Project id/name/alias/root to remove", parse: String, placeholder: "project" },
+			],
+		},
+	},
+	docs: { brief: "Remove one project from a Rule's membership" },
+});
+
+const replaceProjectsCommand = buildCommand({
+	func: async function (this: RulesContext, flags: { projectsJson: string[] }, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.replace_projects", {
+			id,
+			projects: flags.projectsJson,
+		});
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {
+			projectsJson: {
+				brief: "JSON string array of project id/name/alias/root references",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+			},
+		},
+		positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] },
+	},
+	docs: { brief: "Replace a Rule's entire project membership" },
+});
+
 const showCommand = buildCommand({
 	func: async function (this: RulesContext, _flags: Record<string, never>, id: string) {
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("rules.show", { id });
@@ -204,6 +291,11 @@ const app = buildApplication(
 			create: createCommand,
 			list: listCommand,
 			"assign-project": assignProjectCommand,
+			scope: scopeCommand,
+			"set-global": setGlobalCommand,
+			"add-project": addProjectCommand,
+			"remove-project": removeProjectCommand,
+			"replace-projects": replaceProjectsCommand,
 			show: showCommand,
 			preview: previewCommand,
 			enable: buildEnableDisableCommand("enable"),

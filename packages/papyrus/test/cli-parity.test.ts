@@ -38,6 +38,7 @@ class FakeClient {
 
 const artifact = { id: "a1", title: "Title", status: "todo" };
 const artifactList = [artifact];
+const artifactScope = { artifactId: "a1", mode: "global", projectIds: [] as string[], source: "unscoped" };
 
 interface Fixture {
 	operation: OperationName;
@@ -214,6 +215,15 @@ const CLI_FIXTURES: Fixture[] = [
 		operation: "rules.assign_project",
 		result: artifact,
 		invoke: (c) => runRulesCli(["assign-project", "r1", "/workspace/papyrus", "--json"], c),
+	},
+	{ operation: "rules.scope", result: artifactScope, invoke: (c) => runRulesCli(["scope", "r1", "--json"], c) },
+	{ operation: "rules.set_global", result: artifactScope, invoke: (c) => runRulesCli(["set-global", "r1", "--json"], c) },
+	{ operation: "rules.add_project", result: artifactScope, invoke: (c) => runRulesCli(["add-project", "r1", "p1", "--json"], c) },
+	{ operation: "rules.remove_project", result: artifactScope, invoke: (c) => runRulesCli(["remove-project", "r1", "p1", "--json"], c) },
+	{
+		operation: "rules.replace_projects",
+		result: artifactScope,
+		invoke: (c) => runRulesCli(["replace-projects", "r1", "--projects-json", '["p1"]', "--json"], c),
 	},
 	{ operation: "rules.update", result: artifact, invoke: (c) => runRulesCli(["update", "r1", "--title", "T2", "--json"], c) },
 	{ operation: "playbooks.create", result: artifact, invoke: (c) => runPlaybooksCli(["create", "--title", "T", "--json"], c) },

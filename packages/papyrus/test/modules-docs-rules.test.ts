@@ -6,15 +6,17 @@ import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { DOCS_OPERATION_NAMES, docsOperations } from "../src/modules/docs.ts";
 import { RULES_OPERATION_NAMES, rulesOperations } from "../src/modules/rules.ts";
+import { SQLiteProjectRegistryStore } from "../src/stores/sqlite-project-registry-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");
 	const artifacts = new SQLiteArtifactStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
+	const projectRegistry = new SQLiteProjectRegistryStore(db);
 	const authority = new AuthorityRegistry();
 	const registry = new OperationRegistry();
 	registry.registerAll(docsOperations(artifacts, artifactScopes, authority));
-	registry.registerAll(rulesOperations(artifacts, artifactScopes));
+	registry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry));
 	return { registry, artifacts };
 }
 

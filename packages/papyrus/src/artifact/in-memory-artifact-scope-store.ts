@@ -112,4 +112,12 @@ export class InMemoryArtifactScopeStore implements ArtifactScopeStore {
 		if (!row || row.mode === "global") return true;
 		return row.projectIds.has(projectId);
 	}
+
+	appliesToProjectRoot(artifactId: string, projectRoot: string | undefined): boolean {
+		const row = this.rows.get(artifactId);
+		if (!row || row.mode === "global") return true;
+		if (projectRoot === undefined) return false;
+		const project = this.registry.byRoot(projectRoot);
+		return project !== undefined && row.projectIds.has(project.id);
+	}
 }

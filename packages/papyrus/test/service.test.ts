@@ -261,6 +261,74 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
+	it("injects a project-bound Rule only in its registered project memberships -- global, project A only, projects A+B, project B only, and unknown-project cases (rules-enforce-global-or-multi-project-applicabilit)", async () => {
+		const { service } = fixture();
+		const PROJECT_A = "/workspace/project-a";
+		const PROJECT_B = "/workspace/project-b";
+		await service.execute("tasks.register_project", { project_root: PROJECT_A, name: "Project A" });
+		await service.execute("tasks.register_project", { project_root: PROJECT_B, name: "Project B" });
+
+		const globalRule = (await service.execute("rules.create", { title: "Global rule", body: "Applies everywhere" })) as { id: string };
+		const ruleA = (await service.execute("rules.create", {
+			title: "Project A only",
+			body: "Only Project A",
+			projects: ["Project A"],
+		})) as { id: string };
+		const ruleAB = (await service.execute("rules.create", {
+			title: "Projects A and B",
+			body: "Both projects",
+			projects: ["Project A", "Project B"],
+		})) as { id: string };
+		const ruleB = (await service.execute("rules.create", {
+			title: "Project B only",
+			body: "Only Project B",
+			projects: ["Project B"],
+		})) as { id: string };
+
+		const idsIn = async (projectRoot: string) =>
+			((await service.execute("rules.injectable", { project_root: projectRoot })) as Array<{ id: string }>).map((rule) => rule.id).sort();
+
+		expect(await idsIn(PROJECT_A)).toEqual([globalRule.id, ruleA.id, ruleAB.id].sort());
+		expect(await idsIn(PROJECT_B)).toEqual([globalRule.id, ruleAB.id, ruleB.id].sort());
+		// An unregistered project root: only the global rule can possibly apply, since nothing was
+		// ever registered under it to be a member of.
+		expect(await idsIn("/workspace/never-registered")).toEqual([globalRule.id]);
+		service.close();
+	});
+
+	it("composes run scope and project scope with AND semantics -- a playbook-run Rule requires both an active run task and a matching project membership", async () => {
+		const { service } = fixture();
+		const PROJECT_A = "/workspace/run-project-a";
+		const PROJECT_B = "/workspace/run-project-b";
+		await service.execute("tasks.register_project", { project_root: PROJECT_A, name: "Run Project A" });
+		await service.execute("tasks.register_project", { project_root: PROJECT_B, name: "Run Project B" });
+
+		const playbook = (await service.execute("playbooks.create", {
+			title: "Scoped-to-A workflow",
+			steps: [{ kind: "rule", title: "Run+project scoped rule", body: "Only this run, only Project A" }, "Work on {{project}}"],
+			arguments: [{ name: "project", required: true }],
+		})) as { id: string };
+		const run = (await service.execute("playbooks.invoke", {
+			id: playbook.id,
+			run_id: "and-semantics-run",
+			arguments: { project: "Papyrus" },
+			project_root: PROJECT_A,
+		})) as { created: { rules: string[] }; entryTaskId: string };
+		const ruleId = run.created.rules[0]!;
+		await service.execute("rules.replace_projects", { id: ruleId, projects: ["Run Project A"] });
+
+		// Active run task AND matching project: passes.
+		expect(await service.execute("rules.injectable", { project_root: PROJECT_A })).toEqual([expect.objectContaining({ id: ruleId })]);
+		// Active run task, but the WRONG project: run-gating alone must not bypass project scope.
+		expect(await service.execute("rules.injectable", { project_root: PROJECT_B })).toEqual([]);
+
+		const unrelated = (await service.execute("tasks.create", { title: "Unrelated", project_root: PROJECT_A })) as { id: string };
+		await service.execute("tasks.focus", { id: unrelated.id });
+		// Matching project, but no active run task: project scope alone must not bypass run-gating.
+		expect(await service.execute("rules.injectable", { project_root: PROJECT_A })).toEqual([]);
+		service.close();
+	});
+
 	it("exposes execution plans and gated successor advancement", async () => {
 		const { service } = fixture();
 		const prerequisite = (await service.execute("tasks.create", {

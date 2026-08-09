@@ -18,6 +18,8 @@ import {
 	listScoped,
 	requireContentUpdateFields,
 	requireKind,
+	runTransition,
+	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import { NOTE_SUBTYPE } from "../note/note-service.ts";
@@ -73,7 +75,7 @@ export type UpdateDocumentInput = UpdateContentInput;
 export type DocumentTransition = "activate" | "archive" | "reopen";
 export type DocumentRelation = "references" | "documents" | "supersedes" | "relates_to" | "contains" | "part_of";
 
-const DOCUMENT_TRANSITIONS: Record<DocumentTransition, { from: string[]; to: string }> = {
+const DOCUMENT_TRANSITIONS: TransitionTable<DocumentTransition, string> = {
 	activate: { from: ["draft"], to: "active" },
 	archive: { from: ["draft", "active"], to: "archived" },
 	reopen: { from: ["archived"], to: "draft" },
@@ -147,9 +149,7 @@ export function transitionDocument(
 	context?: ArtifactEventContext,
 ): Artifact {
 	const document = requireLocallyOwnedContent(requireMutableDocument(requireDocument(artifacts, id), authority, "status"));
-	const transition = DOCUMENT_TRANSITIONS[action];
-	if (!transition.from.includes(document.status)) throw new Error(`cannot ${action} document from ${document.status}`);
-	return artifacts.setStatus(id, transition.to, context)!;
+	return runTransition(artifacts, document, "doc", action, DOCUMENT_TRANSITIONS, context);
 }
 
 /**

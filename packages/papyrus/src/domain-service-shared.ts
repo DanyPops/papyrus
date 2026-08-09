@@ -6,6 +6,7 @@
  */
 
 import type { Artifact } from "./artifact/artifact.ts";
+import type { ArtifactEventContext } from "./artifact/artifact-event.ts";
 import type { ArtifactScopeStore } from "./artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "./artifact/artifact-store.ts";
 import {
@@ -93,6 +94,54 @@ export function requireKind(artifacts: ArtifactStore, id: string, kind: string):
 	if (!artifact) throw new Error(`${kind} artifact "${id}" not found`);
 	if (artifact.kind !== kind) throw new Error(`artifact "${id}" is not a ${kind}`);
 	return artifact;
+}
+
+/**
+ * Shared shape for a kind's own declarative status-transition table -- Document and Task
+ * already independently converged on this exact shape; Rule/Playbook used an inline ternary
+ * instead only because they happened to have just two states. See validateTransitionFrom's
+ * own comment for why this is split from runTransition rather than always combined.
+ */
+export type TransitionTable<Action extends string, Status extends string> = Record<Action, { from: Status[]; to: Status }>;
+
+/**
+ * The from/to-table lookup+validation half of a transition, split out from runTransition
+ * (below) so a caller with its own side effects gated on "is this action even valid from the
+ * current status" (e.g. Tasks.transition's dependency-blocking check and focus-store
+ * bookkeeping, which must run -- or not -- before the status write itself) can call this
+ * directly instead of duplicating the same lookup+throw three times. Every other caller
+ * (Document/Rule/Playbook, none of which have that ordering constraint) uses runTransition
+ * instead, which does this same check plus the write in one call.
+ */
+export function validateTransitionFrom<Action extends string, Status extends string>(
+	kind: string,
+	action: Action,
+	status: string,
+	table: TransitionTable<Action, Status>,
+): { from: Status[]; to: Status } {
+	const transition = table[action];
+	if (!transition.from.includes(status as Status)) throw new Error(`cannot ${action} ${kind} from ${status}`);
+	return transition;
+}
+
+/**
+ * Shared by transitionDocument/transitionRule/transitionPlaybook: validates the requested
+ * action is legal from the artifact's current status per its own kind's transition table, then
+ * writes the resulting status. Any authority/ownership guard (e.g. requireMutableDocument,
+ * requireLocallyOwnedContent) is the caller's own responsibility, resolved on `artifact`
+ * *before* calling this -- kept out of this primitive so it stays usable by a kind with no
+ * such guard (Rule, Playbook) without a no-op parameter every call site has to pass.
+ */
+export function runTransition<Action extends string, Status extends string>(
+	artifacts: ArtifactStore,
+	artifact: Artifact,
+	kind: string,
+	action: Action,
+	table: TransitionTable<Action, Status>,
+	context?: ArtifactEventContext,
+): Artifact {
+	const transition = validateTransitionFrom(kind, action, artifact.status, table);
+	return artifacts.setStatus(artifact.id, transition.to, context)!;
 }
 
 /** Shared by assignRuleProject/assignPlaybookProject. assignDocumentProject has its own body -- it must reject Notes via requireDocument, not the generic requireKind this helper uses. */

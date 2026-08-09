@@ -32,6 +32,7 @@ import {
 	type TaskViewSelection,
 	taskScopeLabel,
 } from "../domain/task-scope.ts";
+import { type TransitionTable, validateTransitionFrom } from "../domain-service-shared.ts";
 import type { GateRunner } from "../stores/gate-runner.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "../stores/task-event-store.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../stores/task-focus-store.ts";
@@ -128,7 +129,7 @@ export interface TaskGraph {
 	scope?: TaskViewSelection;
 }
 
-const TASK_TRANSITIONS: Record<TaskTransition, { from: TaskStatus[]; to: TaskStatus }> = {
+const TASK_TRANSITIONS: TransitionTable<TaskTransition, TaskStatus> = {
 	start: { from: ["todo"], to: "in-progress" },
 	submit: { from: ["in-progress"], to: "review" },
 	reject: { from: ["review"], to: "rejected" },
@@ -509,8 +510,7 @@ export class Tasks {
 	transition(id: string, action: TaskTransition, context: TaskEventContext = {}): Artifact {
 		return this.events.atomic(() => {
 			const task = this.require(id);
-			const transition = TASK_TRANSITIONS[action];
-			if (!transition.from.includes(task.status as TaskStatus)) throw new Error(`cannot ${action} task from ${task.status}`);
+			const transition = validateTransitionFrom("task", action, task.status, TASK_TRANSITIONS);
 			if (action === "start") {
 				const blocking = this.dependencyIds(id)
 					.map((dependencyId) => this.require(dependencyId))

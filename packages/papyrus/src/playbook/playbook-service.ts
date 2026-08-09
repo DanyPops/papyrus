@@ -53,6 +53,8 @@ import {
 	listScoped,
 	requireContentUpdateFields,
 	requireKind,
+	runTransition,
+	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 
@@ -223,6 +225,11 @@ export interface CreatePlaybookInput {
 export type PlaybookTransition = "enable" | "disable";
 export type UpdatePlaybookInput = UpdateContentInput;
 
+const PLAYBOOK_TRANSITIONS: TransitionTable<PlaybookTransition, string> = {
+	enable: { from: ["deprecated"], to: "active" },
+	disable: { from: ["active"], to: "deprecated" },
+};
+
 export function createPlaybook(
 	artifacts: ArtifactStore,
 	scopes: ArtifactScopeStore,
@@ -291,10 +298,7 @@ export function transitionPlaybook(
 	context?: ArtifactEventContext,
 ): Artifact {
 	const playbook = requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
-	const expected = action === "enable" ? "deprecated" : "active";
-	const target = action === "enable" ? "active" : "deprecated";
-	if (playbook.status !== expected) throw new Error(`cannot ${action} playbook from ${playbook.status}`);
-	return artifacts.setStatus(id, target, context)!;
+	return runTransition(artifacts, playbook, "playbook", action, PLAYBOOK_TRANSITIONS, context);
 }
 
 /** Idempotent (INSERT OR IGNORE at the storage layer): containing an already-nested child is a no-op, not an error. Both contains/part_of edges are written atomically -- matches tasks.contain's own shape. */

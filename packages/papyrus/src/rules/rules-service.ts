@@ -20,6 +20,8 @@ import {
 	listScoped,
 	requireContentUpdateFields,
 	requireKind,
+	runTransition,
+	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 
@@ -37,6 +39,11 @@ export interface CreateRuleInput {
 }
 
 export type RuleTransition = "enable" | "disable";
+
+const RULE_TRANSITIONS: TransitionTable<RuleTransition, string> = {
+	enable: { from: ["deprecated"], to: "active" },
+	disable: { from: ["active"], to: "deprecated" },
+};
 
 /**
  * A Rule's condition+action+body is injected into every relevant turn for the rule's entire
@@ -151,10 +158,7 @@ export function previewRule(artifacts: ArtifactStore, id: string): string {
 
 export function transitionRule(artifacts: ArtifactStore, id: string, action: RuleTransition, context?: ArtifactEventContext): Artifact {
 	const rule = requireLocallyOwnedContent(requireKind(artifacts, id, "rule"));
-	const expected = action === "enable" ? "deprecated" : "active";
-	const target = action === "enable" ? "active" : "deprecated";
-	if (rule.status !== expected) throw new Error(`cannot ${action} rule from ${rule.status}`);
-	return artifacts.setStatus(id, target, context)!;
+	return runTransition(artifacts, rule, "rule", action, RULE_TRANSITIONS, context);
 }
 
 export type UpdateRuleInput = UpdateContentInput;

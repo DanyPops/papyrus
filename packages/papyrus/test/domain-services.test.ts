@@ -132,6 +132,13 @@ describe("rules domain service", () => {
 		db.close();
 	});
 
+	it("rejects an illegal transition with the same error shape the shared transition-table runner produces for every kind (unify-the-four-artifact-kind-transition-implementa e170c1a4)", () => {
+		const { db, artifacts, scopes } = fixture();
+		const rule = createRule(artifacts, scopes, { title: "Already active" });
+		expect(() => transitionRule(artifacts, rule.id, "enable")).toThrow("cannot enable rule from active");
+		db.close();
+	});
+
 	it("accepts subtype and templateId at creation -- the same create-time surface createDocument already has (papyrus-defect-unify-template-subtype-53b3a1eb)", () => {
 		const { db, artifacts, scopes } = fixture();
 		const rule = createRule(artifacts, scopes, { title: "Security rule", subtype: "security" });
@@ -424,6 +431,13 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		expect(() => transitionPlaybook(artifacts, rule.id, "disable")).toThrow("is not a playbook");
 		db.close();
 	});
+
+	it("rejects an illegal transition with the same error shape the shared transition-table runner produces for every kind (unify-the-four-artifact-kind-transition-implementa e170c1a4)", () => {
+		const { db, artifacts, scopes } = fixture();
+		const playbook = createPlaybook(artifacts, scopes, { title: "Already active" });
+		expect(() => transitionPlaybook(artifacts, playbook.id, "enable")).toThrow("cannot enable playbook from active");
+		db.close();
+	});
 });
 
 describe("documents domain service", () => {
@@ -441,6 +455,14 @@ describe("documents domain service", () => {
 		const { db, artifacts, authority, tasks } = fixture();
 		const task = tasks.create({ title: "Not a document" });
 		expect(() => transitionDocument(artifacts, task.id, "archive", authority)).toThrow("is not a doc");
+		db.close();
+	});
+
+	it("rejects an illegal transition with the same error shape the shared transition-table runner produces for every kind (unify-the-four-artifact-kind-transition-implementa e170c1a4)", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const document = createDocument(artifacts, scopes, { title: "Still draft" }, authority);
+		expect(() => transitionDocument(artifacts, document.id, "archive", authority)).not.toThrow(); // draft -> archived is legal
+		expect(() => transitionDocument(artifacts, document.id, "activate", authority)).toThrow("cannot activate doc from archived");
 		db.close();
 	});
 

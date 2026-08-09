@@ -298,6 +298,7 @@ INSERT OR IGNORE INTO statuses VALUES ('review','task');
 INSERT OR IGNORE INTO statuses VALUES ('rejected','task');
 INSERT OR IGNORE INTO statuses VALUES ('done','task');
 INSERT OR IGNORE INTO statuses VALUES ('canceled','task');
+INSERT OR IGNORE INTO statuses VALUES ('draft','rule');
 INSERT OR IGNORE INTO statuses VALUES ('active','rule');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','rule');
 INSERT OR IGNORE INTO statuses VALUES ('active','playbook');
@@ -730,6 +731,13 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				update.run(alias, row.id);
 			}
 			db.exec("CREATE UNIQUE INDEX IF NOT EXISTS artifacts_alias_idx ON artifacts(alias)");
+		},
+	},
+	{
+		version: 25,
+		name: "rule-draft-status",
+		up: (db) => {
+			db.exec("INSERT OR IGNORE INTO statuses SELECT 'draft','rule' WHERE EXISTS (SELECT 1 FROM kinds WHERE name = 'rule')");
 		},
 	},
 ];

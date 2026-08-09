@@ -121,7 +121,7 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
-	it("enable/disable transition a rule's status -- rules default to active on create", async () => {
+	it("enable/disable transition a rule's status -- plain rules default to active on create", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("rules.create", 1, { title: "Toggle me", project_root: PROJECT }, PERMS)) as {
 			id: string;
@@ -132,6 +132,29 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		const disabled = (await registry.invoke("rules.disable", 1, { id: created.id }, PERMS)) as { status: string };
 		expect(disabled.status).toBe("deprecated");
 
+		const enabled = (await registry.invoke("rules.enable", 1, { id: created.id }, PERMS)) as { status: string };
+		expect(enabled.status).toBe("active");
+		service.close();
+	});
+
+	it("creates a template-derived Rule as draft and refuses rules.enable until completionRequired fields are present", async () => {
+		const { registry, service } = harness();
+		const template = (await service.execute("artifact.create", {
+			kind: "rule",
+			subtype: "artifact-template",
+			title: "Complete rule template",
+			extra: { targetKind: "rule", completionRequired: ["body"] },
+		})) as { id: string };
+		const created = (await registry.invoke(
+			"rules.create",
+			1,
+			{ title: "Draft policy", template_id: template.id, project_root: PROJECT },
+			PERMS,
+		)) as { id: string; status: string };
+		expect(created.status).toBe("draft");
+		await expect(registry.invoke("rules.enable", 1, { id: created.id }, PERMS)).rejects.toThrow(/completion-required field "body"/);
+
+		await registry.invoke("rules.update", 1, { id: created.id, body: "Run the complete verification suite." }, PERMS);
 		const enabled = (await registry.invoke("rules.enable", 1, { id: created.id }, PERMS)) as { status: string };
 		expect(enabled.status).toBe("active");
 		service.close();

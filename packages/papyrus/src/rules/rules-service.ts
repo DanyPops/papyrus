@@ -41,9 +41,43 @@ export interface CreateRuleInput {
 export type RuleTransition = "enable" | "disable";
 
 const RULE_TRANSITIONS: TransitionTable<RuleTransition, string> = {
-	enable: { from: ["deprecated"], to: "active" },
+	enable: { from: ["draft", "deprecated"], to: "active" },
 	disable: { from: ["active"], to: "deprecated" },
 };
+
+function valueAtPath(value: unknown, path: string): unknown {
+	return path
+		.split(".")
+		.reduce<unknown>(
+			(current, segment) =>
+				typeof current === "object" && current !== null && !Array.isArray(current)
+					? (current as Record<string, unknown>)[segment]
+					: undefined,
+			value,
+		);
+}
+
+function isPresent(value: unknown): boolean {
+	return value !== undefined && value !== null && value !== "";
+}
+
+function assertTemplateConformance(artifacts: ArtifactStore, rule: Artifact): void {
+	const templateId = rule.extra.templateId;
+	if (typeof templateId !== "string" || templateId.length === 0) return;
+	const template = artifacts.get(templateId);
+	if (!template) throw new Error(`rule template "${templateId}" not found`);
+	if (template.subtype !== "artifact-template" || template.extra.targetKind !== "rule") {
+		throw new Error(`artifact "${templateId}" is not a Rule artifact template`);
+	}
+	const required = Array.isArray(template.extra.completionRequired)
+		? template.extra.completionRequired.filter((field): field is string => typeof field === "string")
+		: [];
+	for (const field of required) {
+		if (!isPresent(valueAtPath(rule, field))) {
+			throw new Error(`rule does not conform to template "${templateId}": missing completion-required field "${field}"`);
+		}
+	}
+}
 
 /**
  * A Rule's condition+action+body is injected into every relevant turn for the rule's entire
@@ -93,7 +127,7 @@ export function createRule(
 	const rule = artifacts.create(
 		{
 			kind: "rule",
-			status: "active", // explicit; see createDocument for why defaultStatusFor is not trusted here
+			status: input.templateId === undefined ? "active" : "draft",
 			title: input.title,
 			body: input.body,
 			subtype: input.subtype,
@@ -103,6 +137,7 @@ export function createRule(
 				...(input.condition ? { condition: input.condition } : {}),
 				...(input.action ? { action: input.action } : {}),
 				severity: input.severity ?? "info",
+				...(input.templateId === undefined ? {} : { templateId: input.templateId }),
 			},
 			templateId: input.templateId,
 		},
@@ -135,6 +170,7 @@ export function assignRuleProject(
  */
 export function listInjectableRules(artifacts: ArtifactStore, activeTaskId?: string): Artifact[] {
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
+		if (rule.subtype === "artifact-template") return false;
 		const scope = rule.extra.scope;
 		if (scope === undefined) return true;
 		if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
@@ -158,6 +194,7 @@ export function previewRule(artifacts: ArtifactStore, id: string): string {
 
 export function transitionRule(artifacts: ArtifactStore, id: string, action: RuleTransition, context?: ArtifactEventContext): Artifact {
 	const rule = requireLocallyOwnedContent(requireKind(artifacts, id, "rule"));
+	if (action === "enable" && (rule.status === "draft" || rule.status === "deprecated")) assertTemplateConformance(artifacts, rule);
 	return runTransition(artifacts, rule, "rule", action, RULE_TRANSITIONS, context);
 }
 

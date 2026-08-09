@@ -87,8 +87,10 @@ describe("modules/rules — a Papyrus-native registered module (excluding rules.
 		const fromTemplate = (await registry.get("rules.create")!.execute({ title: "From template", template_id: template.id })) as {
 			subtype: string;
 			body: string;
+			status: string;
 		};
 		expect(fromTemplate.subtype).toBe("security");
 		expect(fromTemplate.body).toBe("Follow the security checklist");
+		expect(fromTemplate.status).toBe("draft");
 	});
 });

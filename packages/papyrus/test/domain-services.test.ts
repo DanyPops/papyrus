@@ -34,6 +34,7 @@ import {
 	assignRuleProject,
 	createRule,
 	gateTaskWithRule,
+	listInjectableRules,
 	listRules,
 	previewRule,
 	ruleCombinedLength,
@@ -206,6 +207,30 @@ describe("rules domain service", () => {
 		});
 		const fromTemplate = createRule(artifacts, scopes, { title: "From template", templateId: template.id });
 		expect(fromTemplate.subtype).toBe("compliance");
+		expect(fromTemplate.status).toBe("draft");
+		db.close();
+	});
+
+	it("keeps a template-sourced Rule inert until its completionRequired fields are present and enable succeeds", () => {
+		const { db, artifacts, scopes } = fixture();
+		const template = artifacts.create({
+			kind: "rule",
+			subtype: "artifact-template",
+			title: "Complete governance rule template",
+			extra: { targetKind: "rule", completionRequired: ["body"] },
+		});
+		const rule = createRule(artifacts, scopes, { title: "Incomplete rule", templateId: template.id });
+		expect(rule.status).toBe("draft");
+		expect(rule.extra.templateId).toBe(template.id);
+		expect(listInjectableRules(artifacts).map((candidate) => candidate.id)).not.toContain(template.id);
+		expect(listInjectableRules(artifacts).map((candidate) => candidate.id)).not.toContain(rule.id);
+		expect(() => transitionRule(artifacts, rule.id, "enable")).toThrow(
+			`rule does not conform to template "${template.id}": missing completion-required field "body"`,
+		);
+
+		updateRule(artifacts, rule.id, { body: "Always run the complete verification suite." });
+		expect(transitionRule(artifacts, rule.id, "enable").status).toBe("active");
+		expect(listInjectableRules(artifacts).map((candidate) => candidate.id)).toContain(rule.id);
 		db.close();
 	});
 

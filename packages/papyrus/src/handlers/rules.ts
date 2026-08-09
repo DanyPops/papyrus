@@ -49,7 +49,7 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 
 	define(
 		"create",
-		"Creates a Rule -- a standing constraint injected into the agent system prompt while active. project_root is optional (omitted = unscoped). The response includes combinedLength (condition+action+body character count) and a non-blocking warning once it exceeds the ~600-character soft target (hard-rejected past 4000).",
+		"Creates a Rule -- a standing constraint injected into the agent system prompt while active. Plain Rules start active; a template_id creates an inert draft that must pass the template's completionRequired fields through rules.enable. project_root is optional (omitted = unscoped). The response includes combinedLength (condition+action+body character count) and a non-blocking warning once it exceeds the ~600-character soft target (hard-rejected past 4000).",
 		"local-write",
 		{
 			title: stringProp,
@@ -102,7 +102,7 @@ export function registerRulesVehicleOperations(registry: VehicleRegistry, artifa
 
 	define(
 		"enable",
-		"Enables a Rule so it starts injecting into the agent system prompt.",
+		"Enables a Rule so it starts injecting into the agent system prompt. A template-derived draft is enabled only after every field path in its source template's completionRequired array is present.",
 		"local-write",
 		{ id: stringProp, name: stringProp, project_root: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		[],

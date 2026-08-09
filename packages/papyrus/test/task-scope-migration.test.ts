@@ -29,7 +29,7 @@ describe("task project scope migration", () => {
 		db = openDb(path);
 		expect(migrateDb(db)).toEqual({
 			from: 3,
-			to: 24,
+			to: 25,
 			applied: [
 				"task-project-scope",
 				"task-focus-continuation",
@@ -52,6 +52,7 @@ describe("task project scope migration", () => {
 				"skill-to-playbook-data-migration",
 				"retire-skill-kind",
 				"artifact-aliases",
+				"rule-draft-status",
 			],
 		});
 		expect(db.prepare("SELECT project_root, source FROM task_scopes").get()).toEqual({ project_root: null, source: "unscoped" });

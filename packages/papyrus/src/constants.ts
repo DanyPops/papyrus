@@ -9,7 +9,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 24;
+export const SQLITE_SCHEMA_VERSION = 25;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;

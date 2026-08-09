@@ -15,6 +15,7 @@ export interface StatusPresentation {
 }
 
 export const RULE_STATUS_PRESENTATION: Record<string, StatusPresentation> = {
+	draft: { label: "draft", glyph: "◌", color: "dim" },
 	active: { label: "active", glyph: "●", color: "success" },
 	deprecated: { label: "deprecated", glyph: "○", color: "muted" },
 };

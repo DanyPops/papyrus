@@ -104,6 +104,61 @@ describe("tasks application API", () => {
 		db.close();
 	});
 
+	it("a template's own extra.gates/checklist deep-merge into a created Task's extra and are enforced by tasks.complete with zero new code (task-template-conformance-auto-derive-a-completion 7b6c2e63)", () => {
+		const { db, dir, artifacts, tasks } = fixture();
+		const output = join(dir, "template-built.txt");
+		const template = artifacts.create({
+			kind: "task",
+			subtype: "artifact-template",
+			title: "Build-and-verify task template",
+			extra: {
+				targetKind: "task",
+				defaults: {
+					extra: {
+						gates: [{ type: "file-exists", target: output }],
+						checklist: { "output exists": { proof: [{ type: "artifact", target: output }] } },
+					},
+				},
+			},
+		});
+
+		// No gates/checklist supplied by the caller at all -- both must come from the template alone.
+		const task = tasks.create({ title: "From template", templateId: template.id });
+		expect(task.extra.gates).toEqual([{ type: "file-exists", target: output }]);
+
+		tasks.transition(task.id, "start");
+		tasks.transition(task.id, "submit");
+		const blocked = tasks.complete(task.id);
+		expect(blocked.completed).toBe(false);
+		expect(blocked.gates[0]?.passed).toBe(false);
+		expect(blocked.checklist[0]?.accepted).toBe(true); // typed proof reference was supplied by the template
+
+		writeFileSync(output, "done");
+		tasks.transition(task.id, "retry");
+		tasks.transition(task.id, "submit");
+		expect(tasks.complete(task.id).completed).toBe(true);
+		db.close();
+	});
+
+	it("caller-supplied gates at creation still win outright over a template's own defaults -- deepMerge replaces arrays, it does not concatenate them", () => {
+		const { db, dir, artifacts, tasks } = fixture();
+		const templateOutput = join(dir, "template-output.txt");
+		const callerOutput = join(dir, "caller-output.txt");
+		const template = artifacts.create({
+			kind: "task",
+			subtype: "artifact-template",
+			title: "Template with default gates",
+			extra: { targetKind: "task", defaults: { extra: { gates: [{ type: "file-exists", target: templateOutput }] } } },
+		});
+		const task = tasks.create({
+			title: "Overrides the template's gates",
+			templateId: template.id,
+			gates: [{ type: "file-exists", target: callerOutput }],
+		});
+		expect(task.extra.gates).toEqual([{ type: "file-exists", target: callerOutput }]);
+		db.close();
+	});
+
 	it('excludes Discussions, which now share kind "task" but are not real work items', () => {
 		const { db, artifacts, tasks } = fixture();
 		tasks.create({ title: "Real task" });

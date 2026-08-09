@@ -68,6 +68,9 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.plan",
 	"tasks.show",
 	"tasks.history",
+	"tasks.projects",
+	"tasks.resolve_project",
+	"tasks.register_project",
 	"tasks.scope",
 	"tasks.set_scope",
 	"tasks.assign_project",
@@ -133,6 +136,10 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 					projectSource: "cwd",
 				},
 				eventContext(input),
+				{
+					key: optionalString(input, "idempotency_key"),
+					caller: optionalString(input, "idempotency_caller"),
+				},
 			),
 		),
 		define("tasks.update", (input: OperationInput) =>
@@ -160,6 +167,18 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 				cursor: optionalNumber(input, "cursor"),
 				direction: optionalString(input, "direction") as TaskEventDirection | undefined,
 			}),
+		),
+		define("tasks.projects", (input: OperationInput) => tasks.projects(optionalString(input, "query"), optionalNumber(input, "limit"))),
+		define("tasks.resolve_project", (input: OperationInput) => tasks.resolveProject(string(input, "name"))),
+		define("tasks.register_project", (input: OperationInput) =>
+			tasks.registerProject(
+				{
+					projectRoot: string(input, "project_root"),
+					name: optionalString(input, "name"),
+					aliases: optionalStringArray(input, "aliases"),
+				},
+				optionalString(input, "project"),
+			),
 		),
 		define("tasks.scope", (input: OperationInput) => tasks.scopeSelection(string(input, "project_root"))),
 		define("tasks.set_scope", (input: OperationInput) =>

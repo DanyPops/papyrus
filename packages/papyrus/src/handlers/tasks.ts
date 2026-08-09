@@ -19,18 +19,21 @@
  *
  * remove/remove_subtree/restore are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
-import type { VehicleLimits } from "@danypops/vehicle-core";
+import { VehicleError, type VehicleLimits } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import { GATE_TIMEOUT_MAX_MS } from "../constants.ts";
+import { GATE_TIMEOUT_MAX_MS, TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH } from "../constants.ts";
+import { PROOF_TYPES } from "../domain/checklist.ts";
+import { GATE_TYPES } from "../domain/gate.ts";
 import type { TaskViewMode } from "../domain/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
-import type { TaskCompletion, Tasks } from "../task/task-service.ts";
+import { type TaskCompletion, TaskProjectAmbiguousError, TaskProjectNotFoundError, type Tasks } from "../task/task-service.ts";
 import {
 	booleanProp,
 	classifySessionAuthorization,
+	classifyTaskCreateIdempotency,
 	classifyTaskDependencyCycles,
 	classifyTaskExecutionBounds,
 	createOperationDefiner,
@@ -69,9 +72,63 @@ const GATE_OPERATION_LIMITS: VehicleLimits = {
 	maxResponseBytes: 262_144,
 };
 
-const objectProp = { type: "object" } as unknown as { type: string };
-const arrayProp = { type: "array" } as unknown as { type: string };
-const _boolProp = { type: "boolean" } as unknown as { type: string };
+const objectProp = { type: "object" } as const;
+const arrayProp = { type: "array" } as const;
+const _boolProp = { type: "boolean" } as const;
+
+const gateProp = {
+	type: "array",
+	description: "Validation gates run by tasks.run_gates and tasks.complete.",
+	items: {
+		type: "object",
+		properties: {
+			type: { type: "string", enum: GATE_TYPES, description: "Gate evaluator." },
+			target: { type: "string", minLength: 1, description: "Path, command, text target, or test command." },
+			expect: { type: "string", description: "Optional expected text/result." },
+			timeoutMs: { type: "integer", minimum: 1_000, maximum: GATE_TIMEOUT_MAX_MS, description: "Command/test timeout override." },
+		},
+		required: ["type", "target"],
+		additionalProperties: false,
+	},
+	examples: [
+		[{ type: "file-exists", target: "dist/index.js" }],
+		[{ type: "command", target: "bun run typecheck", timeoutMs: 60_000 }],
+		[{ type: "contains", target: "README.md", expect: "Retry semantics" }],
+		[{ type: "test", target: "bun test" }],
+	],
+} as const;
+
+const checklistProp = {
+	type: "object",
+	description: "Map from completion criterion text to one or more typed proof references. An empty map clears the checklist.",
+	additionalProperties: {
+		type: "object",
+		properties: {
+			proof: {
+				type: "array",
+				minItems: 1,
+				items: {
+					type: "object",
+					properties: {
+						type: { type: "string", enum: PROOF_TYPES },
+						target: { type: "string", minLength: 1 },
+						expect: { type: "string" },
+					},
+					required: ["type", "target"],
+					additionalProperties: false,
+				},
+			},
+		},
+		required: ["proof"],
+		additionalProperties: false,
+	},
+	examples: [
+		{
+			"tests pass": { proof: [{ type: "test", target: "bun test", expect: "0 failures" }] },
+			"documentation updated": { proof: [{ type: "file", target: "README.md" }] },
+		},
+	],
+} as const;
 
 export interface TasksVehicleDeps {
 	tasks: Tasks;
@@ -194,9 +251,25 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	 */
 	const call = (name: string, input: Record<string, unknown>): unknown =>
 		classifySessionAuthorization(() =>
-			classifyTaskExecutionBounds(() => classifyTaskDependencyCycles(() => moduleOperations.get(name)!.execute(input))),
+			classifyTaskCreateIdempotency(() =>
+				classifyTaskExecutionBounds(() => classifyTaskDependencyCycles(() => moduleOperations.get(name)!.execute(input))),
+			),
 		);
 	const define = createOperationDefiner(registry, OWNER, "tasks", ["tasks:read", "tasks:write"], call);
+
+	const resolveProject = (reference: string) => {
+		try {
+			return tasks.resolveProject(reference);
+		} catch (error) {
+			if (error instanceof TaskProjectNotFoundError) {
+				throw new VehicleError("task-project-not-found", error.message, { category: "not_found" });
+			}
+			if (error instanceof TaskProjectAmbiguousError) {
+				throw new VehicleError("task-project-ambiguous", error.message, { category: "conflict" });
+			}
+			throw error;
+		}
+	};
 
 	/** Shared by every action taking a single id/name: resolves root_task_name first, then name -> id against the final scope. */
 	const resolveIdAndScope = (input: Record<string, unknown>): Record<string, unknown> => {
@@ -221,14 +294,21 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			status: stringProp,
 			labels: arrayProp,
 			extra: objectProp,
-			gates: arrayProp,
-			checklist: objectProp,
+			gates: gateProp,
+			checklist: checklistProp,
 			template_id: stringProp,
 			parent_id: stringProp,
 			parent_name: stringProp,
 			depends_on: arrayProp,
 			depends_on_names: arrayProp,
 			project_root: stringProp,
+			idempotency_key: {
+				type: "string",
+				minLength: 1,
+				maxLength: TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH,
+				description:
+					"Optional retry key, scoped by caller and canonical project root. Reusing it with the same payload returns the original response; a different payload is rejected.",
+			},
 			session_id: stringProp,
 		},
 		["title", "project_root"],
@@ -244,6 +324,12 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			const dependsOn = resolveArrayField(artifacts, tasks, filter, input.depends_on, input.depends_on_names);
 			return { ...input, ...(parentId ? { parent_id: parentId } : {}), ...(dependsOn ? { depends_on: dependsOn } : {}) };
 		},
+		(input, context) =>
+			call("tasks.create", {
+				...input,
+				idempotency_key: input.idempotency_key ?? context.idempotencyKey,
+				idempotency_caller: context.principal?.id ?? "anonymous",
+			}),
 	);
 
 	define(
@@ -338,6 +424,35 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		},
 		[],
 		resolveIdAndScope,
+	);
+
+	define(
+		"projects",
+		"Lists registered Task project scopes with stable ids, names, aliases, and canonical roots. Use resolve_project before a task operation when the user supplied a human project name.",
+		"read",
+		{ query: stringProp, limit: numberProp },
+		[],
+		(input) => input,
+	);
+
+	define(
+		"resolve_project",
+		"Resolves one case-insensitive exact Task project id, name, alias, or canonical root. Fails closed on unknown or ambiguous references and returns the canonical project_root for subsequent task operations.",
+		"read",
+		{ name: stringProp },
+		["name"],
+		(input) => input,
+		(input) => resolveProject(input.name as string),
+	);
+
+	define(
+		"register_project",
+		"Registers a Task project name and aliases. Pass project to update/rename/move an existing registration while preserving its stable id and old name as an alias.",
+		"local-write",
+		{ project_root: stringProp, name: stringProp, aliases: arrayProp, project: stringProp },
+		["project_root"],
+		(input) => input,
+		(input) => call("tasks.register_project", input),
 	);
 
 	define(
@@ -531,7 +646,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"set_checklist",
 		"Replaces a Task's evidence-bearing checklist (proof requirements) in full.",
 		"local-write",
-		{ id: stringProp, name: stringProp, checklist: objectProp, project_root: stringProp },
+		{ id: stringProp, name: stringProp, checklist: checklistProp, project_root: stringProp },
 		["checklist"],
 		resolveIdAndScope,
 	);
@@ -539,7 +654,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"set_gates",
 		"Replaces a Task's gate commands in full. Each gate is {type, target, expect?, timeoutMs?} -- timeoutMs overrides the default per-type command timeout (30s)/test timeout (60s) for a legitimately slower gate, up to a bounded ceiling.",
 		"local-write",
-		{ id: stringProp, name: stringProp, gates: arrayProp, project_root: stringProp },
+		{ id: stringProp, name: stringProp, gates: gateProp, project_root: stringProp },
 		["gates"],
 		resolveIdAndScope,
 	);

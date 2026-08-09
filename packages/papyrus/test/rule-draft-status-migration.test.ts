@@ -21,7 +21,11 @@ describe("rule-draft-status migration", () => {
 
 		const db = openDb(path);
 		const result = migrateDb(db);
-		expect(result).toEqual({ from: 24, to: SQLITE_SCHEMA_VERSION, applied: ["rule-draft-status"] });
+		expect(result).toEqual({
+			from: 24,
+			to: SQLITE_SCHEMA_VERSION,
+			applied: ["rule-draft-status", "task-projects-and-create-idempotency"],
+		});
 		expect(
 			(db.prepare("SELECT name FROM statuses WHERE kind = 'rule' ORDER BY name").all() as Array<{ name: string }>).map((row) => row.name),
 		).toEqual(["active", "deprecated", "draft"]);

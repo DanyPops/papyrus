@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { runMigrations, type SqliteMigrationRunner } from "@danypops/vehicle-server/storage";
 import { generateUniqueAlias, slugify } from "./artifact/artifact-alias.ts";
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_SCHEMA_VERSION } from "./constants.ts";
@@ -156,6 +157,25 @@ CREATE TABLE IF NOT EXISTS task_views (
 	updated_at    TEXT NOT NULL,
 	CHECK ((mode = 'graph' AND root_task_id IS NOT NULL) OR (mode != 'graph' AND root_task_id IS NULL))
 );
+CREATE TABLE IF NOT EXISTS task_projects (
+	id            TEXT PRIMARY KEY,
+	name          TEXT NOT NULL,
+	aliases_json  TEXT NOT NULL DEFAULT '[]',
+	project_root  TEXT NOT NULL UNIQUE,
+	created_at    TEXT NOT NULL,
+	updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_projects_name_idx ON task_projects(name);
+CREATE TABLE IF NOT EXISTS task_create_requests (
+	request_scope   TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL,
+	request_hash    TEXT NOT NULL,
+	response_json   TEXT NOT NULL,
+	created_at      TEXT NOT NULL,
+	expires_at      TEXT NOT NULL,
+	PRIMARY KEY (request_scope, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS task_create_requests_expiry_idx ON task_create_requests(expires_at);
 CREATE TABLE IF NOT EXISTS artifact_events (
 	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 	artifact_id          TEXT NOT NULL REFERENCES artifacts(id),
@@ -738,6 +758,45 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 		name: "rule-draft-status",
 		up: (db) => {
 			db.exec("INSERT OR IGNORE INTO statuses SELECT 'draft','rule' WHERE EXISTS (SELECT 1 FROM kinds WHERE name = 'rule')");
+		},
+	},
+	{
+		version: 26,
+		name: "task-projects-and-create-idempotency",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS task_projects (
+					id            TEXT PRIMARY KEY,
+					name          TEXT NOT NULL,
+					aliases_json  TEXT NOT NULL DEFAULT '[]',
+					project_root  TEXT NOT NULL UNIQUE,
+					created_at    TEXT NOT NULL,
+					updated_at    TEXT NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS task_projects_name_idx ON task_projects(name);
+				CREATE TABLE IF NOT EXISTS task_create_requests (
+					request_scope   TEXT NOT NULL,
+					idempotency_key TEXT NOT NULL,
+					request_hash    TEXT NOT NULL,
+					response_json   TEXT NOT NULL,
+					created_at      TEXT NOT NULL,
+					expires_at      TEXT NOT NULL,
+					PRIMARY KEY (request_scope, idempotency_key)
+				);
+				CREATE INDEX IF NOT EXISTS task_create_requests_expiry_idx ON task_create_requests(expires_at);
+			`);
+			const roots = db
+				.prepare("SELECT DISTINCT project_root FROM task_scopes WHERE project_root IS NOT NULL ORDER BY project_root")
+				.all() as Array<{
+				project_root: string;
+			}>;
+			const insert = db.prepare(
+				"INSERT OR IGNORE INTO task_projects (id, name, aliases_json, project_root, created_at, updated_at) VALUES (?, ?, '[]', ?, ?, ?)",
+			);
+			for (const row of roots) {
+				const now = new Date().toISOString();
+				insert.run(randomUUID(), basename(row.project_root) || row.project_root, row.project_root, now, now);
+			}
 		},
 	},
 ];

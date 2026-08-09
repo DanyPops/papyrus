@@ -33,7 +33,7 @@ describe("artifact-aliases migration: every existing row is backfilled with a re
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(23);
 		const result = migrateDb(db);
 		expect(result.from).toBe(23);
-		expect(result.applied).toEqual(["artifact-aliases", "rule-draft-status"]);
+		expect(result.applied).toEqual(["artifact-aliases", "rule-draft-status", "task-projects-and-create-idempotency"]);
 
 		const a = getArtifact(db, "task-a")!;
 		const b = getArtifact(db, "task-b")!;

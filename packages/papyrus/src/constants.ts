@@ -9,7 +9,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 25;
+export const SQLITE_SCHEMA_VERSION = 26;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -262,6 +262,11 @@ export const TASK_SCOPE_MAX_TASKS = 1_000;
 /** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */
 export const ARTIFACT_SCOPE_MAX_ARTIFACTS = 1_000;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;
+export const TASK_PROJECT_NAME_MAX_LENGTH = 200;
+export const TASK_PROJECT_ALIAS_MAX_COUNT = 20;
+export const TASK_PROJECT_LIST_MAX_RESULTS = 100;
+export const TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH = 200;
+export const TASK_CREATE_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const GRAPH_RENDER_PADDING_X = 2;
 export const GRAPH_RENDER_PADDING_Y = 1;
 export const GRAPH_RENDER_BOX_PADDING = 0;

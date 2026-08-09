@@ -109,7 +109,7 @@ describe("append-only task lifecycle history", () => {
 		expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(2);
 		expect(migrateDb(db)).toEqual({
 			from: 2,
-			to: 25,
+			to: 26,
 			applied: [
 				"task-history",
 				"task-project-scope",
@@ -134,6 +134,7 @@ describe("append-only task lifecycle history", () => {
 				"retire-skill-kind",
 				"artifact-aliases",
 				"rule-draft-status",
+				"task-projects-and-create-idempotency",
 			],
 		});
 		expect((db.prepare("SELECT COUNT(*) AS count FROM task_events").get() as { count: number }).count).toBe(0);

@@ -39,6 +39,7 @@ import { SQLiteGraphProjectionStore } from "./stores/sqlite-graph-projection-sto
 import { SQLiteLogStore } from "./stores/sqlite-log-store.ts";
 import { SQLiteNoteEventStore } from "./stores/sqlite-note-event-store.ts";
 import { SQLiteSessionIdentityStore } from "./stores/sqlite-session-identity-store.ts";
+import { SQLiteTaskCreateRequestStore } from "./stores/sqlite-task-create-request-store.ts";
 import { SQLiteTaskEventStore } from "./stores/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "./stores/sqlite-task-focus-store.ts";
 import { SQLiteTaskLeaseStore } from "./stores/sqlite-task-lease-store.ts";
@@ -352,6 +353,9 @@ function handlers(
 		"tasks.plan": forwardToModule("tasks.plan"),
 		"tasks.show": forwardToModule("tasks.show"),
 		"tasks.history": forwardToModule("tasks.history"),
+		"tasks.projects": forwardToModule("tasks.projects"),
+		"tasks.resolve_project": forwardToModule("tasks.resolve_project"),
+		"tasks.register_project": forwardToModule("tasks.register_project"),
 		"tasks.scope": forwardToModule("tasks.scope"),
 		"tasks.set_scope": forwardToModule("tasks.set_scope"),
 		"tasks.assign_project": forwardToModule("tasks.assign_project"),
@@ -449,7 +453,8 @@ export function createPapyrusService(path: string): PapyrusService {
 	const events = new SQLiteTaskEventStore(db);
 	const scopes = new SQLiteTaskScopeStore(db);
 	const leases = new SQLiteTaskLeaseStore(db);
-	const tasks = new Tasks(artifacts, gates, focus, events, scopes, leases);
+	const createRequests = new SQLiteTaskCreateRequestStore(db);
+	const tasks = new Tasks(artifacts, gates, focus, events, scopes, leases, createRequests);
 	const noteEvents = new SQLiteNoteEventStore(db);
 	const notes = new Notes(artifacts, noteEvents);
 	const projections = new SQLiteGraphProjectionStore(db);

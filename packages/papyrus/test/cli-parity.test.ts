@@ -108,6 +108,17 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.plan", result: { layers: [], cycleIds: [], nodes: [] }, invoke: (c) => runTaskCli(["plan", "--json"], c) },
 	{ operation: "tasks.show", result: artifact, invoke: (c) => runTaskCli(["show", "a1", "--json"], c) },
 	{ operation: "tasks.history", result: { events: [] }, invoke: (c) => runTaskCli(["history", "a1", "--json"], c) },
+	{ operation: "tasks.projects", result: [], invoke: (c) => runTaskCli(["projects", "--json"], c) },
+	{
+		operation: "tasks.resolve_project",
+		result: { name: "Papyrus", projectRoot: "/tmp/papyrus" },
+		invoke: (c) => runTaskCli(["resolve-project", "Papyrus", "--json"], c),
+	},
+	{
+		operation: "tasks.register_project",
+		result: { name: "papyrus", projectRoot: "/tmp/papyrus" },
+		invoke: (c) => runTaskCli(["register-project", "/tmp/papyrus", "--json"], c),
+	},
 	{ operation: "tasks.scope", result: { mode: "project", label: "papyrus" }, invoke: (c) => runTaskCli(["scope", "--json"], c) },
 	{
 		operation: "tasks.set_scope",

@@ -314,6 +314,7 @@ const createCommand = buildCommand({
 			templateId?: string;
 			parentId?: string;
 			dependsOnJson?: string[];
+			idempotencyKey?: string;
 			sessionId?: string;
 		},
 	) {
@@ -329,6 +330,7 @@ const createCommand = buildCommand({
 			parent_id: flags.parentId,
 			depends_on: flags.dependsOnJson,
 			project_root: this.projectRoot,
+			idempotency_key: flags.idempotencyKey,
 			actor: "user",
 			source: "cli",
 			session_id: flags.sessionId,
@@ -351,6 +353,13 @@ const createCommand = buildCommand({
 				kind: "parsed",
 				parse: parseStringArray,
 				placeholder: "json",
+				optional: true,
+			},
+			idempotencyKey: {
+				brief: "Retry key for an exact create payload",
+				kind: "parsed",
+				parse: String,
+				placeholder: "key",
 				optional: true,
 			},
 			sessionId: {
@@ -593,6 +602,70 @@ const historyCommand = buildCommand({
 	},
 	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Task id", parse: String, placeholder: "id" }] } },
 	docs: { brief: "Task's append-only lifecycle event history" },
+});
+
+const projectsCommand = buildCommand({
+	func: async function (this: TaskContext, flags: { query?: string; limit?: number }) {
+		const projects = await this.client.call<Record<string, unknown>, Array<{ name: string; projectRoot: string }>>("tasks.projects", {
+			query: flags.query,
+			limit: flags.limit,
+		});
+		render.call(
+			this,
+			projects,
+			projects.length === 0
+				? "No registered task projects."
+				: projects.map((project) => `${project.name} — ${project.projectRoot}`).join("\n"),
+		);
+	},
+	parameters: {
+		flags: {
+			query: { brief: "Filter by project name, alias, or root", kind: "parsed", parse: String, placeholder: "text", optional: true },
+			limit: { brief: "Maximum results", kind: "parsed", parse: numberParser, placeholder: "n", optional: true },
+		},
+	},
+	docs: { brief: "List registered Task project scopes" },
+});
+
+const resolveProjectCommand = buildCommand({
+	func: async function (this: TaskContext, _flags: Record<string, never>, name: string) {
+		const project = await this.client.call<Record<string, unknown>, { name: string; projectRoot: string }>("tasks.resolve_project", {
+			name,
+		});
+		render.call(this, project, `${project.name} — ${project.projectRoot}`);
+	},
+	parameters: {
+		flags: {},
+		positional: { kind: "tuple", parameters: [{ brief: "Project name, alias, id, or root", parse: String, placeholder: "name" }] },
+	},
+	docs: { brief: "Resolve a project reference to its canonical root" },
+});
+
+const registerProjectCommand = buildCommand({
+	func: async function (this: TaskContext, flags: { name?: string; aliasesJson?: string[]; project?: string }, projectRoot: string) {
+		const registered = await this.client.call<Record<string, unknown>, { name: string; projectRoot: string }>("tasks.register_project", {
+			project_root: projectRoot,
+			name: flags.name,
+			aliases: flags.aliasesJson,
+			project: flags.project,
+		});
+		render.call(this, registered, `${registered.name} — ${registered.projectRoot}`);
+	},
+	parameters: {
+		flags: {
+			name: { brief: "Stable project display name", kind: "parsed", parse: String, placeholder: "name", optional: true },
+			aliasesJson: { brief: "JSON string array of aliases", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
+			project: {
+				brief: "Existing project reference when renaming or moving",
+				kind: "parsed",
+				parse: String,
+				placeholder: "reference",
+				optional: true,
+			},
+		},
+		positional: { kind: "tuple", parameters: [{ brief: "Canonical absolute project root", parse: String, placeholder: "project-root" }] },
+	},
+	docs: { brief: "Register, rename, or move a Task project" },
 });
 
 const scopeCommand = buildCommand({
@@ -857,6 +930,9 @@ const app = buildApplication(
 			),
 			update: updateCommand,
 			history: historyCommand,
+			projects: projectsCommand,
+			"resolve-project": resolveProjectCommand,
+			"register-project": registerProjectCommand,
 			scope: scopeCommand,
 			"assign-project": assignProjectCommand,
 			focus: focusCommand,

@@ -54,6 +54,7 @@ describe("note-events migration: existing extra.noteHistory blobs are preserved,
 			"retire-skill-kind",
 			"artifact-aliases",
 			"rule-draft-status",
+			"task-projects-and-create-idempotency",
 		]);
 
 		const events = new SQLiteNoteEventStore(db).history("note-1", { direction: "asc" });

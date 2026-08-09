@@ -1,14 +1,20 @@
+import { createHash } from "node:crypto";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
 	TASK_BODY_MAX_LENGTH,
 	TASK_CANCEL_SUBTREE_MAX_NODES,
+	TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH,
+	TASK_CREATE_IDEMPOTENCY_RETENTION_MS,
 	TASK_EXECUTION_MAX_DEGREE,
 	TASK_EXECUTION_MAX_EDGES,
 	TASK_EXECUTION_MAX_NODES,
 	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
+	TASK_PROJECT_ALIAS_MAX_COUNT,
+	TASK_PROJECT_LIST_MAX_RESULTS,
+	TASK_PROJECT_NAME_MAX_LENGTH,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "../constants.ts";
@@ -27,6 +33,8 @@ import type {
 import type { TaskLease } from "../domain/task-lease.ts";
 import {
 	normalizeProjectRoot,
+	type RegisterTaskProjectInput,
+	type TaskProject,
 	type TaskScopeSource,
 	type TaskViewMode,
 	type TaskViewSelection,
@@ -34,6 +42,11 @@ import {
 } from "../domain/task-scope.ts";
 import { type TransitionTable, validateTransitionFrom } from "../domain-service-shared.ts";
 import type { GateRunner } from "../stores/gate-runner.ts";
+import {
+	InMemoryTaskCreateRequestStore,
+	TaskCreateIdempotencyConflictError,
+	type TaskCreateRequestStore,
+} from "../stores/task-create-request-store.ts";
 import { InMemoryTaskEventStore, type TaskEventStore } from "../stores/task-event-store.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../stores/task-focus-store.ts";
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../stores/task-lease-store.ts";
@@ -61,6 +74,14 @@ export interface TaskFilter {
 }
 
 export type TaskStatus = TaskLifecycleStatus;
+
+export class TaskProjectNotFoundError extends Error {}
+export class TaskProjectAmbiguousError extends Error {}
+
+export interface CreateTaskRequestContext {
+	key?: string;
+	caller?: string;
+}
 
 export interface CreateTaskInput {
 	id?: string;
@@ -148,6 +169,18 @@ const TASK_TRANSITIONS: TransitionTable<TaskTransition, TaskStatus> = {
 	reopen: { from: ["canceled"], to: "todo" },
 };
 
+function canonicalJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+	if (typeof value === "object" && value !== null) {
+		return `{${Object.entries(value)
+			.filter(([, entry]) => entry !== undefined)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "null";
+}
+
 export class Tasks {
 	constructor(
 		private readonly artifacts: ArtifactStore,
@@ -156,6 +189,7 @@ export class Tasks {
 		private readonly events: TaskEventStore = new InMemoryTaskEventStore(),
 		private readonly scopes: TaskScopeStore = new InMemoryTaskScopeStore(),
 		private readonly leases: TaskLeaseStore = new InMemoryTaskLeaseStore(),
+		private readonly createRequests: TaskCreateRequestStore = new InMemoryTaskCreateRequestStore(),
 	) {}
 
 	private require(id: string): Artifact {
@@ -165,8 +199,30 @@ export class Tasks {
 		return artifact;
 	}
 
-	create(input: CreateTaskInput, context: TaskEventContext = {}): Artifact {
+	create(input: CreateTaskInput, context: TaskEventContext = {}, request: CreateTaskRequestContext = {}): Artifact {
 		return this.events.atomic(() => {
+			const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
+			const key = request.key?.trim();
+			if (request.key !== undefined && (!key || key.length > TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH)) {
+				throw new Error(`idempotency key must be between 1 and ${TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH} characters`);
+			}
+			const now = new Date().toISOString();
+			const scope = `${request.caller?.trim() || "anonymous"}\u0000${projectRoot ?? "unscoped"}`;
+			const requestHash = key
+				? createHash("sha256")
+						.update(canonicalJson({ ...input, projectRoot }))
+						.digest("hex")
+				: undefined;
+			if (key && requestHash) {
+				this.createRequests.prune(now);
+				const replay = this.createRequests.get(scope, key, now);
+				if (replay) {
+					if (replay.requestHash !== requestHash) {
+						throw new TaskCreateIdempotencyConflictError(`idempotency key "${key}" was already used with a different task payload`);
+					}
+					return JSON.parse(replay.responseJson) as Artifact;
+				}
+			}
 			if ((input.dependsOn?.length ?? 0) > TASK_EXECUTION_MAX_DEGREE) {
 				throw new Error(`task cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
 			}
@@ -175,7 +231,6 @@ export class Tasks {
 			const extra: Record<string, unknown> = { ...(input.extra ?? {}) };
 			if (input.gates !== undefined) extra.gates = validateGates(input.gates);
 			if (input.checklist !== undefined) extra.checklist = validateChecklist(input.checklist);
-			const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 			if (input.parentId && this.scopes.get(input.parentId)?.projectRoot !== projectRoot) {
 				throw new Error(`parent task "${input.parentId}" is outside project scope`);
 			}
@@ -194,7 +249,18 @@ export class Tasks {
 			if (input.parentId) this.contain(input.parentId, task.id);
 			for (const dependency of input.dependsOn ?? []) this.depend(task.id, dependency);
 			this.appendEvent({ taskId: task.id, type: "created", toStatus: task.status as TaskStatus }, context);
-			return this.show(task.id);
+			const created = this.show(task.id);
+			if (key && requestHash) {
+				this.createRequests.put({
+					scope,
+					key,
+					requestHash,
+					responseJson: JSON.stringify(created),
+					createdAt: now,
+					expiresAt: new Date(Date.parse(now) + TASK_CREATE_IDEMPOTENCY_RETENTION_MS).toISOString(),
+				});
+			}
+			return created;
 		});
 	}
 
@@ -395,6 +461,51 @@ export class Tasks {
 			rootIds: tasks.filter((task) => nodes.get(task.id)!.parentIds.length === 0).map((task) => task.id),
 			scope,
 		};
+	}
+
+	projects(query?: string, limit = 20): TaskProject[] {
+		if (!Number.isInteger(limit) || limit < 1 || limit > TASK_PROJECT_LIST_MAX_RESULTS) {
+			throw new Error(`project list limit must be between 1 and ${TASK_PROJECT_LIST_MAX_RESULTS}`);
+		}
+		return this.scopes.projects(query, limit);
+	}
+
+	resolveProject(reference: string): TaskProject {
+		const matches = this.scopes.matchingProjects(reference);
+		if (matches.length === 0) {
+			const candidates = this.scopes.projects(reference, 10);
+			const fallback = candidates.length === 0 ? this.scopes.projects(undefined, 10) : candidates;
+			const suffix =
+				fallback.length === 0 ? "" : ` Candidates: ${fallback.map((project) => `${project.name} (${project.projectRoot})`).join(", ")}`;
+			throw new TaskProjectNotFoundError(`no task project named or aliased "${reference}" is registered.${suffix}`);
+		}
+		if (matches.length > 1) {
+			throw new TaskProjectAmbiguousError(
+				`task project reference "${reference}" is ambiguous: ${matches
+					.slice(0, 10)
+					.map((project) => `${project.name} (${project.projectRoot})`)
+					.join(", ")}`,
+			);
+		}
+		return matches[0]!;
+	}
+
+	registerProject(input: RegisterTaskProjectInput, existingReference?: string): TaskProject {
+		const projectRoot = normalizeProjectRoot(input.projectRoot);
+		const name = input.name?.trim();
+		if (name !== undefined && (name.length === 0 || name.length > TASK_PROJECT_NAME_MAX_LENGTH)) {
+			throw new Error(`project name must be between 1 and ${TASK_PROJECT_NAME_MAX_LENGTH} characters`);
+		}
+		if ((input.aliases?.length ?? 0) > TASK_PROJECT_ALIAS_MAX_COUNT) {
+			throw new Error(`project aliases cannot exceed ${TASK_PROJECT_ALIAS_MAX_COUNT} entries`);
+		}
+		for (const alias of input.aliases ?? []) {
+			if (alias.trim().length === 0 || alias.length > TASK_PROJECT_NAME_MAX_LENGTH) {
+				throw new Error(`each project alias must be between 1 and ${TASK_PROJECT_NAME_MAX_LENGTH} characters`);
+			}
+		}
+		const existingId = existingReference ? this.resolveProject(existingReference).id : input.existingId;
+		return this.scopes.registerProject({ projectRoot, ...(name ? { name } : {}), aliases: input.aliases, existingId });
 	}
 
 	show(id: string): Artifact {

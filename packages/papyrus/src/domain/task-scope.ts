@@ -10,6 +10,22 @@ export interface TaskProjectScope {
 	source: TaskScopeSource;
 }
 
+export interface TaskProject {
+	id: string;
+	name: string;
+	aliases: string[];
+	projectRoot: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface RegisterTaskProjectInput {
+	projectRoot: string;
+	name?: string;
+	aliases?: string[];
+	existingId?: string;
+}
+
 export interface TaskViewPreference {
 	projectRoot: string;
 	mode: TaskViewMode;

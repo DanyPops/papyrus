@@ -18,6 +18,7 @@ import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { PlaybookCompositionError } from "../playbook/playbook-definition.ts";
 import { InvalidSessionSecretError } from "../session-identity/session-identity-service.ts";
+import { TaskCreateIdempotencyConflictError } from "../stores/task-create-request-store.ts";
 import { TaskDependencyCycleError, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 
 /**
@@ -107,6 +108,17 @@ export function classifyTaskExecutionBounds<T>(run: () => T): T {
 	} catch (error) {
 		if (error instanceof TaskExecutionBoundExceededError) {
 			throw new VehicleError("task-execution-bound-exceeded", error.message, { category: "capacity" });
+		}
+		throw error;
+	}
+}
+
+export function classifyTaskCreateIdempotency<T>(run: () => T): T {
+	try {
+		return run();
+	} catch (error) {
+		if (error instanceof TaskCreateIdempotencyConflictError) {
+			throw new VehicleError("idempotency-key-conflict", error.message, { category: "conflict" });
 		}
 		throw error;
 	}
@@ -235,7 +247,10 @@ export function buildWorkflowRunContent(
 	return { type: "text", text };
 }
 
-export type OperationSchemaProperties = Record<string, { type: string; enum?: readonly string[] }>;
+export type OperationSchemaProperties = Record<
+	string,
+	{ type: string; enum?: readonly string[]; description?: string; [key: string]: unknown }
+>;
 
 export type DefineOperation = (
 	action: string,

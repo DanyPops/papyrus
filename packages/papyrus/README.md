@@ -23,6 +23,10 @@ papyrus tasks pause
 papyrus tasks unpause
 papyrus tasks complete <task-id>
 
+# Resolve a human project name safely before scoped operations
+papyrus tasks projects --query lector --json
+papyrus tasks resolve-project Lector --json
+
 # Deferred human-intent inbox
 papyrus notes capture "Review release provenance later"
 papyrus notes list --json
@@ -37,6 +41,10 @@ bun run guard:install
 It blocks every Papyrus push whose destination is not `DanyPops/papyrus`, including explicit fallback URLs that bypass `origin`.
 
 The daemon uses WAL, foreign keys, a bounded busy timeout, versioned migrations, periodic passive checkpoints, and periodic `PRAGMA optimize`. Keep the database on a local filesystem; SQLite WAL does not support network filesystems.
+
+Task project names are explicit registrations, never ambient-directory guesses. `tasks.projects` searches bounded registered identities; `tasks.resolve_project` requires one case-insensitive exact id, name, alias, or canonical root and fails on unknown or ambiguous references. Pass its returned `projectRoot` as `project_root` to subsequent task operations. `tasks.register_project` can rename or move an existing identity while preserving its stable id and prior name as an alias.
+
+`tasks.create` accepts an optional `idempotency_key`. Replays with the same caller, canonical project root, key, and payload return the original response without another mutation; conflicting payload reuse is rejected. Keys are retained for seven days, isolated across callers and projects, and then expire. Retry only when reusing the exact key and payload; an unkeyed create remains unsafe to replay after an ambiguous transport failure.
 
 ### Context Mesh persistence model
 

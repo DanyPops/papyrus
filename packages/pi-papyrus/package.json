@@ -20,7 +20,7 @@
     "@danypops/jittor": "^0.14.0",
     "@danypops/papyrus": "^0.52.0",
     "@danypops/vehicle-client": "^0.7.0",
-    "@danypops/vehicle-client-pi": "^0.24.1",
+    "@danypops/vehicle-client-pi": "^0.27.1",
     "@danypops/vehicle-core": "^0.12.3",
     "@danypops/vehicle-server": "^0.18.1",
     "beautiful-mermaid": "1.1.3",
@@ -46,5 +46,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "files": ["extension", "README.md", "THIRD_PARTY_LICENSES.md"]
+  "files": ["extension", "README.md"]
 }

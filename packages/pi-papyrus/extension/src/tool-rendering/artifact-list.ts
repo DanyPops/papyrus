@@ -1,8 +1,9 @@
 import { TOOL_COLLAPSED_ROW_LIMIT } from "@danypops/papyrus";
+import { expandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import { type TreeNode, TreeView } from "malevich-tui-components";
-import { countSummary, expandHint, kindGlyph, statusGlyph } from "./artifact-card.ts";
+import { countSummary, kindGlyph, statusGlyph } from "./artifact-card.ts";
 import type { ArtifactListToolDetails, GraphToolDetails, ToolArtifactSummary } from "./render-model.ts";
 
 function pluralKind(rows: readonly ToolArtifactSummary[]): string {

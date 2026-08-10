@@ -1,15 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
+import { expandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import {
-	ArtifactCard,
-	countSummary,
-	emptyState,
-	expandHint,
-	kindGlyph,
-	statusGlyph,
-} from "../extension/src/tool-rendering/artifact-card.ts";
+import { ArtifactCard, countSummary, emptyState, kindGlyph, statusGlyph } from "../extension/src/tool-rendering/artifact-card.ts";
 import { createArtifactDetails } from "../extension/src/tool-rendering/render-model.ts";
 
 // expandHint() calls Pi's own keyHint(), which reads Pi's global theme singleton

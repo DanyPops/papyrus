@@ -15,6 +15,7 @@
 import type { Artifact } from "@danypops/papyrus";
 import { TOOL_COLLAPSED_ROW_LIMIT, TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS } from "@danypops/papyrus";
 import type { PiVehicleInvocationRequest, PiVehiclePresentationContract, VehicleToolRenderers } from "@danypops/vehicle-client-pi";
+import { expandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import { renderVehicleCall, renderVehicleResult } from "@danypops/vehicle-client-pi/vehicle-render";
 import type { JsonValue, VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -28,7 +29,7 @@ import {
 	type DetailSection,
 	statelessComponent,
 } from "malevich-tui-components";
-import { ArtifactCard, detailViewTheme, expandHint, measure, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
+import { ArtifactCard, detailViewTheme, measure, statusColor, statusGlyph } from "../tool-rendering/artifact-card.ts";
 import { ArtifactListCard } from "../tool-rendering/artifact-list.ts";
 import {
 	type ArtifactFocusAnnotation,

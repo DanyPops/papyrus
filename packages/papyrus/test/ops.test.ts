@@ -309,21 +309,25 @@ describe("papyrus: four-kind model", () => {
 	 * Real bug: runGates (sync)'s "test" case never checked gate.expect at all -- passed:true on any
 	 * zero-exit test run, full stop -- while runGatesAsync's unified command+test branch does check
 	 * it. Same expect string, same target, must agree between sync and async.
+	 *
+	 * target is a full `bun test <file>` command (matching every real gate/checklist example in
+	 * this codebase, and the exact shape ab1463e2 used), not a bare pattern -- "test" must run it
+	 * verbatim, not wrap it under vitest (see processGateCommand's own doc comment).
 	 */
 	describe("test-type gate: sync and async must agree on gate.expect, not just exit code", () => {
-		function writeVitestFile(dir: string, body: string): string {
+		function writeBunTestFile(dir: string, body: string): string {
 			const path = join(dir, "gate.test.ts");
-			writeFileSync(path, `import { it, expect } from "vitest";\n${body}\n`);
+			writeFileSync(path, `import { test, expect } from "bun:test";\n${body}\n`);
 			return path;
 		}
 
 		it("runGates (sync): fails when the test passes but gate.expect does not appear in the output", () => {
 			const { db, dir } = tmpDb();
-			const target = writeVitestFile(dir, `it("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
+			const target = writeBunTestFile(dir, `test("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
 			const task = createArtifact(db, {
 				kind: "task",
 				title: "test gate",
-				extra: { gates: [{ type: "test", target, expect: "this string never appears" }] },
+				extra: { gates: [{ type: "test", target: `bun test ${target}`, expect: "this string never appears" }] },
 			});
 			const results = runGates(db, task.id!, { cwd: dir });
 			expect(results[0]?.passed).toBe(false);
@@ -332,11 +336,11 @@ describe("papyrus: four-kind model", () => {
 
 		it("runGatesAsync: fails when the test passes but gate.expect does not appear in the output (same target as the sync case)", async () => {
 			const { db, dir } = tmpDb();
-			const target = writeVitestFile(dir, `it("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
+			const target = writeBunTestFile(dir, `test("passes", () => { console.log("actual output"); expect(1).toBe(1); });`);
 			const task = createArtifact(db, {
 				kind: "task",
 				title: "test gate async",
-				extra: { gates: [{ type: "test", target, expect: "this string never appears" }] },
+				extra: { gates: [{ type: "test", target: `bun test ${target}`, expect: "this string never appears" }] },
 			});
 			const results = await runGatesAsync(db, task.id!, { cwd: dir });
 			expect(results[0]?.passed).toBe(false);
@@ -345,13 +349,39 @@ describe("papyrus: four-kind model", () => {
 
 		it("runGates (sync): passes when the test passes and gate.expect does appear in the output", () => {
 			const { db, dir } = tmpDb();
-			const target = writeVitestFile(dir, `it("passes", () => { console.log("a marker string"); expect(1).toBe(1); });`);
+			const target = writeBunTestFile(dir, `test("passes", () => { console.log("a marker string"); expect(1).toBe(1); });`);
 			const task = createArtifact(db, {
 				kind: "task",
 				title: "test gate ok",
-				extra: { gates: [{ type: "test", target, expect: "a marker string" }] },
+				extra: { gates: [{ type: "test", target: `bun test ${target}`, expect: "a marker string" }] },
 			});
 			const results = runGates(db, task.id!, { cwd: dir });
+			expect(results[0]?.passed).toBe(true);
+			db.close();
+		}, 30_000);
+
+		it("runGates (sync): a full-command target runs verbatim instead of being wrapped and mis-parsed by vitest (real incident: task ab1463e2)", () => {
+			const { db, dir } = tmpDb();
+			const target = writeBunTestFile(dir, `test("passes", () => { expect(1).toBe(1); });`);
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "verbatim test gate",
+				extra: { gates: [{ type: "test", target: `bun test ${target}` }] },
+			});
+			const results = runGates(db, task.id!, { cwd: dir });
+			expect(results[0]?.passed).toBe(true);
+			db.close();
+		}, 30_000);
+
+		it("runGatesAsync: a full-command target runs verbatim instead of being wrapped and mis-parsed by vitest (real incident: task ab1463e2)", async () => {
+			const { db, dir } = tmpDb();
+			const target = writeBunTestFile(dir, `test("passes", () => { expect(1).toBe(1); });`);
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "verbatim test gate async",
+				extra: { gates: [{ type: "test", target: `bun test ${target}` }] },
+			});
+			const results = await runGatesAsync(db, task.id!, { cwd: dir });
 			expect(results[0]?.passed).toBe(true);
 			db.close();
 		}, 30_000);

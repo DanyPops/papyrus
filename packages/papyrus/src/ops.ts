@@ -599,22 +599,34 @@ function readBoundedGateFile(path: string): string {
 	return readFileSync(path, "utf-8") as string;
 }
 
-/** Shared by the sync and async process-gate runners so "test" is never a second, independently
- * maintained copy of "command"'s own command-template/timeout selection. */
+/**
+ * Shared by the sync and async process-gate runners so "test" is never a second, independently
+ * maintained copy of "command"'s own command-template selection.
+ *
+ * "test" runs `gate.target` verbatim, exactly like "command" -- the only real difference is a
+ * more generous default timeout (GATE_TEST_TIMEOUT_MS vs GATE_COMMAND_TIMEOUT_MS), since a test
+ * suite routinely runs longer than an arbitrary command. It previously wrapped target in
+ * `npx vitest run ${target} --reporter=dot`, silently wrong for every real consumer in this
+ * ecosystem (all Bun-native, none use vitest): a target that was itself a full command (e.g.
+ * `bun test path/to.test.ts`, exactly what every existing gate/checklist example here has always
+ * shown) got parsed by vitest as three separate positional args, triggering vitest's own broad
+ * discovery across the whole repo instead of running the intended command at all -- a real
+ * incident (task ab1463e2) that produced an unrelated multi-suite vitest failure cascade instead
+ * of the actual target ever running.
+ */
 function processGateCommand(gate: Gate): { command: string; timeout: number } {
-	if (gate.type === "test")
-		return { command: `npx vitest run ${gate.target} --reporter=dot`, timeout: gate.timeoutMs ?? GATE_TEST_TIMEOUT_MS };
+	if (gate.type === "test") return { command: gate.target, timeout: gate.timeoutMs ?? GATE_TEST_TIMEOUT_MS };
 	return { command: gate.target, timeout: gate.timeoutMs ?? GATE_COMMAND_TIMEOUT_MS };
 }
 
 /**
  * spawnSync + manual stdout/stderr concatenation, not execSync: execSync's return value is stdout
- * only. Many real commands (bun test's own per-test lines and its pass/fail summary among them, and
- * vitest's own "test" gate output) write their actual output to stderr, so an execSync-based match
- * against gate.expect saw only the first line of a banner and never the result -- every such gate
- * failed regardless of whether the command actually passed. This one function now serves both
- * "command" and "test" gates; previously "test" was a second, separately-maintained execSync path
- * that never checked gate.expect at all.
+ * only. Many real commands (bun test's own per-test lines and its pass/fail summary among them)
+ * write their actual output to stderr, so an execSync-based match against gate.expect saw only the
+ * first line of a banner and never the result -- every such gate failed regardless of whether the
+ * command actually passed. This one function now serves both "command" and "test" gates;
+ * previously "test" was a second, separately-maintained execSync path that never checked
+ * gate.expect at all.
  */
 function runProcessGateSync(gate: Gate, cwd?: string): GateResult {
 	const { spawnSync } = require_("node:child_process");

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
+import { ArtifactListCard } from "../extension/src/tool-rendering/artifact-list.ts";
 import { parsePapyrusToolDetails } from "../extension/src/tool-rendering/render-model.ts";
 import { papyrusVehiclePresentations, papyrusVehicleRenderers } from "../extension/src/tools/vehicle-artifact-renderers.ts";
 
@@ -76,6 +77,43 @@ describe("papyrusVehicleRenderers", () => {
 		expect(text).toContain("First");
 		expect(text).toContain("Second");
 		expect(text).not.toContain("some body text");
+	});
+
+	/**
+	 * Regression: tasks.list's own documented default ("Returns a lean summary (no body/extra)
+	 * unless full: true is passed") returns ArtifactSummary rows -- no body/extra field at all.
+	 * isArtifact()'s type guard required body as a string, so every default (lean, the common
+	 * case) list call for tasks.list/docs.list/rules.list/playbooks.list silently fell through to
+	 * the generic raw Vehicle renderer instead of the curated ArtifactListCard. Every existing
+	 * array-rendering test above used the full artifact() fixture (always carrying body), so this
+	 * gap was invisible until a real, undecorated lean tasks.list call was observed live.
+	 */
+	it("renders a lean (no body/extra) artifact-array output -- tasks.list's own documented default shape -- as the curated list card", () => {
+		const leanSummary = (title: string) => ({
+			id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+			kind: "task",
+			title,
+			status: "todo",
+			subtype: "",
+			labels: [],
+			created_at: "2026-01-01T00:00:00.000Z",
+			updated_at: "2026-01-01T00:00:00.000Z",
+			alias: "a-real-task",
+		});
+		const component = renderResult!(
+			{ content: [], details: { vehicle: vehicleIdentity, output: [leanSummary("First"), leanSummary("Second")] } },
+			{ isPartial: false, expanded: false },
+			fakeTheme,
+			resultContext(),
+		);
+		// A bare text/absence check on the rendered lines isn't discriminating enough here: the
+		// generic Vehicle renderer's fallback BoundedTable also happens to print each row's title
+		// verbatim as a column value. Only an identity check on the actual component actually proves
+		// which renderer ran.
+		expect(component).toBeInstanceOf(ArtifactListCard);
+		const text = component.render(80).join("\n");
+		expect(text).toContain("First");
+		expect(text).toContain("Second");
 	});
 
 	it("renders a single artifact output as the curated artifact card", () => {

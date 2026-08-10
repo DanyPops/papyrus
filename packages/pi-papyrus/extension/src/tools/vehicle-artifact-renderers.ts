@@ -46,7 +46,9 @@ import {
 } from "../tool-rendering/render-model.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
 
-function isArtifact(value: unknown): value is Artifact {
+/** Every field an Artifact and its lean list-default ArtifactSummary (tasks.list/docs.list/
+ * rules.list/playbooks.list without full:true -- see summarizeArtifact()) both always carry. */
+function hasArtifactCoreFields(value: unknown): value is Omit<Artifact, "body" | "extra"> {
 	if (typeof value !== "object" || value === null) return false;
 	const row = value as Record<string, unknown>;
 	return (
@@ -55,15 +57,27 @@ function isArtifact(value: unknown): value is Artifact {
 		typeof row.title === "string" &&
 		typeof row.status === "string" &&
 		typeof row.subtype === "string" &&
-		typeof row.body === "string" &&
 		Array.isArray(row.labels) &&
 		typeof row.created_at === "string" &&
 		typeof row.updated_at === "string"
 	);
 }
 
+function isArtifact(value: unknown): value is Artifact {
+	return hasArtifactCoreFields(value) && typeof (value as Record<string, unknown>).body === "string";
+}
+
+/**
+ * Regression (real, live-observed): tasks.list's own documented default ("Returns a lean
+ * summary (no body/extra) unless full: true is passed") returns ArtifactSummary rows, which
+ * omit body entirely. createArtifactListDetails/artifactSummary (render-model.ts) never read
+ * .body for list rendering -- only single-artifact createArtifactDetails does -- so requiring
+ * body here (matching isArtifact) silently fell every default (lean, the common case) list
+ * call for tasks.list/docs.list/rules.list/playbooks.list through to the generic raw Vehicle
+ * table renderer instead of the curated ArtifactListCard.
+ */
 function isArtifactArray(value: unknown): value is Artifact[] {
-	return Array.isArray(value) && value.every(isArtifact);
+	return Array.isArray(value) && value.every(hasArtifactCoreFields);
 }
 
 /** tasks.focused/tasks.pause/tasks.unpause's own wrapper shape -- an Artifact

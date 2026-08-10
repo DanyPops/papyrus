@@ -177,6 +177,8 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 			options_mode: { type: "string", enum: ["single", "multi"] },
 			option_descriptions: arrayProp,
 			live: boolProp,
+			source: stringProp,
+			session_id: stringProp,
 		},
 		["title", "content"],
 		(input) => {
@@ -205,6 +207,8 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 			options_mode: { type: "string", enum: ["single", "multi"] },
 			option_descriptions: arrayProp,
 			live: boolProp,
+			source: stringProp,
+			session_id: stringProp,
 		},
 		["content"],
 		(input) => {

@@ -179,6 +179,41 @@ describe("registerDiscussVehicleOperations (wired through createPapyrusService)"
 		service.close();
 	});
 
+	/**
+	 * Regression: discuss-live-follow-up.ts's real live-answer round trip sends `source:
+	 * "discuss-live"` on the reply it submits after a human answers -- every sibling mutation
+	 * (open/defer/settle/block/unblock) already declares `source`, but reply never did, so the
+	 * schema's additionalProperties:false rejected a live human's real answer outright. Only ever
+	 * surfaced by an actual end-to-end live ask against a real running daemon; every prior test
+	 * exercised discuss.reply through a hand-rolled invoke() fake that never enforced the schema.
+	 */
+	it("open accepts a source field without the schema's additionalProperties:false rejecting it, matching every other discuss.* mutation", async () => {
+		const { registry, service } = harness();
+		const opened = (await registry.invoke(
+			"discuss.open",
+			1,
+			{ title: "Open source", content: "start", source: "discuss-live", session_id: "session-1" },
+			PERMS,
+		)) as { discussion: { id: string } };
+		expect(opened.discussion.id).toBeTruthy();
+		service.close();
+	});
+
+	it("reply accepts a source field without the schema's additionalProperties:false rejecting it -- discuss-live-follow-up's own real live-answer submission", async () => {
+		const { registry, service } = harness();
+		const opened = (await registry.invoke("discuss.open", 1, { title: "Live answer source", content: "start" }, PERMS)) as {
+			discussion: { id: string };
+		};
+		const replied = (await registry.invoke(
+			"discuss.reply",
+			1,
+			{ id: opened.discussion.id, actor: "human", content: "Yes, works", source: "discuss-live" },
+			PERMS,
+		)) as { rounds: { roundNumber: number }[] };
+		expect(replied.rounds[0]?.roundNumber).toBe(2);
+		service.close();
+	});
+
 	it("reply resolves the discussion by name and appends round 2", async () => {
 		const { registry, service } = harness();
 		await registry.invoke("discuss.open", 1, { title: "Named discussion", content: "round 1" }, PERMS);

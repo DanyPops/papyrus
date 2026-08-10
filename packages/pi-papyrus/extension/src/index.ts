@@ -824,6 +824,8 @@ export default async function (pi: ExtensionAPI) {
 				}),
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", {
 					status: "active",
+					project_root: ctx.cwd,
+					applicable: true,
 					limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
 				}),
 				callService<Record<string, unknown>, string | null>("tasks.context", {

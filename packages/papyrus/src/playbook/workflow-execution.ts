@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Artifact } from "../artifact/artifact.ts";
+import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { requireAtomicArtifactStore } from "../artifact/atomic-artifact-store.ts";
 import {
@@ -150,8 +151,28 @@ function executionGraph(tasks: Artifact[], definition: BlueprintDefinition, ids:
 	return { nodes, rootIds: nodes.filter((node) => node.parentIds.length === 0).map((node) => node.task.id) };
 }
 
-/** projectRoot is optional -- skills.run always supplies one (workflow-definition runs are always project-scoped today), while a Playbook invocation may legitimately be ad hoc/cross-project (e.g. a lab-deploy playbook not tied to any one repo), landing its tasks in the same "unscoped" bucket Tasks.create already supports for a caller that omits projectRoot entirely. */
-export type WorkflowRunHistory = { events: TaskEventStore; scopes: TaskScopeStore; projectRoot?: string; context?: TaskEventContext };
+/**
+ * projectRoot is optional -- skills.run always supplies one (workflow-definition runs are always
+ * project-scoped today), while a Playbook invocation may legitimately be ad hoc/cross-project
+ * (e.g. a lab-deploy playbook not tied to any one repo), landing its tasks in the same
+ * "unscoped" bucket Tasks.create already supports for a caller that omits projectRoot entirely.
+ *
+ * artifactScopes is optional for the same reason: a caller with no Doc/Rule project-scoping
+ * concept at all (a bare workflow-definition run with no ArtifactScopeStore wired) still works
+ * unchanged, generated Docs/Rules simply staying unscoped/global like every artifact created
+ * before project scoping existed. When supplied, a generated Doc/Rule inherits the SAME
+ * destination projectRoot a generated Task already does via `scopes` -- the real fix for a
+ * previously-confirmed gap: generated Docs/Rules bypassed ArtifactScopeStore entirely, so a
+ * playbook invoked with a destination project still injected its own generated Rules into every
+ * other project's context.
+ */
+export type WorkflowRunHistory = {
+	events: TaskEventStore;
+	scopes: TaskScopeStore;
+	artifactScopes?: ArtifactScopeStore;
+	projectRoot?: string;
+	context?: TaskEventContext;
+};
 
 /**
  * Public entry point: wraps one complete pipeline run (including every nested sub-pipeline
@@ -307,8 +328,8 @@ export function materializeWorkflowDefinition(
 		throw new TaskExecutionBoundExceededError(`workflow run exceeds ${TASK_EXECUTION_MAX_EDGES} relationships`);
 	}
 
-	const docs = rendered.blueprints.docs.map((blueprint) =>
-		artifacts.create({
+	const docs = rendered.blueprints.docs.map((blueprint) => {
+		const doc = artifacts.create({
 			id: ids.get(blueprint.ref),
 			kind: "doc",
 			title: blueprint.title,
@@ -316,10 +337,12 @@ export function materializeWorkflowDefinition(
 			subtype: blueprint.subtype,
 			labels: withRunLabel(blueprint.labels, labelPrefix, runId),
 			extra: { ...(blueprint.extra ?? {}), [extraKey]: { id: runId, ownerId, ref: blueprint.ref } },
-		}),
-	);
-	const rules = rendered.blueprints.rules.map((blueprint) =>
-		artifacts.create({
+		});
+		history?.artifactScopes?.assign(doc.id, projectRoot, projectRoot ? "cwd" : "unscoped");
+		return doc;
+	});
+	const rules = rendered.blueprints.rules.map((blueprint) => {
+		const rule = artifacts.create({
 			id: ids.get(blueprint.ref),
 			kind: "rule",
 			title: blueprint.title,
@@ -331,10 +354,15 @@ export function materializeWorkflowDefinition(
 				...(blueprint.action ? { action: blueprint.action } : {}),
 				...(blueprint.severity ? { severity: blueprint.severity } : {}),
 				[extraKey]: { id: runId, ownerId, ref: blueprint.ref },
+				// extra.scope is run-gating only (listInjectableRules' passesRunScope) -- an
+				// independent AND-condition alongside project-membership (appliesToProjectRoot,
+				// assigned just below), never a replacement for it.
 				scope: { type: labelPrefix, runId, taskIds },
 			},
-		}),
-	);
+		});
+		history?.artifactScopes?.assign(rule.id, projectRoot, projectRoot ? "cwd" : "unscoped");
+		return rule;
+	});
 	const tasks = rendered.blueprints.tasks.map((blueprint) => {
 		const task = artifacts.create({
 			id: ids.get(blueprint.ref),

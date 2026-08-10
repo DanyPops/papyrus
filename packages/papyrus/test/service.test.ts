@@ -296,7 +296,7 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
-	it("composes run scope and project scope with AND semantics -- a playbook-run Rule requires both an active run task and a matching project membership", async () => {
+	it("composes run scope and project scope with AND semantics -- a playbook-run Rule requires both an active run task and a matching project membership, inherited AUTOMATICALLY from the invocation destination (playbooks-add-multi-project-applicability-and-prop)", async () => {
 		const { service } = fixture();
 		const PROJECT_A = "/workspace/run-project-a";
 		const PROJECT_B = "/workspace/run-project-b";
@@ -315,7 +315,16 @@ describe("Papyrus operation service", () => {
 			project_root: PROJECT_A,
 		})) as { created: { rules: string[] }; entryTaskId: string };
 		const ruleId = run.created.rules[0]!;
-		await service.execute("rules.replace_projects", { id: ruleId, projects: ["Run Project A"] });
+
+		// No manual rules.replace_projects call -- materializeWorkflowDefinition now assigns the
+		// generated Rule's project membership to the invocation's own destination automatically,
+		// the same way it already did for generated Tasks. Real, confirmed gap this closes:
+		// generated Docs/Rules previously bypassed ArtifactScopeStore entirely, so a run-created
+		// Rule was global by default and injected into every project's context regardless of
+		// where it was actually invoked.
+		const generatedScope = (await service.execute("rules.scope", { id: ruleId })) as { mode: string; projectIds: string[] };
+		expect(generatedScope.mode).toBe("projects");
+		expect(generatedScope.projectIds).toHaveLength(1);
 
 		// Active run task AND matching project: passes.
 		expect(await service.execute("rules.injectable", { project_root: PROJECT_A })).toEqual([expect.objectContaining({ id: ruleId })]);
@@ -326,6 +335,51 @@ describe("Papyrus operation service", () => {
 		await service.execute("tasks.focus", { id: unrelated.id });
 		// Matching project, but no active run task: project scope alone must not bypass run-gating.
 		expect(await service.execute("rules.injectable", { project_root: PROJECT_A })).toEqual([]);
+		service.close();
+	});
+
+	it("a playbook invoked with no destination project_root leaves its generated Docs/Rules unscoped/global, matching every artifact created before project scoping existed", async () => {
+		const { service } = fixture();
+		const playbook = (await service.execute("playbooks.create", {
+			title: "Unscoped workflow",
+			steps: [
+				{ kind: "doc", title: "Unscoped generated doc" },
+				{ kind: "rule", title: "Unscoped generated rule", body: "Applies everywhere" },
+				"Plain step",
+			],
+		})) as { id: string };
+		const run = (await service.execute("playbooks.invoke", { id: playbook.id, run_id: "unscoped-run" })) as {
+			created: { docs: string[]; rules: string[] };
+		};
+		const docScope = (await service.execute("docs.scope", { id: run.created.docs[0] })) as { mode: string };
+		expect(docScope.mode).toBe("global");
+		const ruleScope = (await service.execute("rules.scope", { id: run.created.rules[0] })) as { mode: string };
+		expect(ruleScope.mode).toBe("global");
+		service.close();
+	});
+
+	it("a nested playbook call step inherits the SAME destination project atomically, not a separately-resolved one", async () => {
+		const { service } = fixture();
+		const PROJECT = "/workspace/nested-run-project";
+		await service.execute("tasks.register_project", { project_root: PROJECT, name: "Nested Run Project" });
+
+		const nested = (await service.execute("playbooks.create", {
+			title: "Nested workflow",
+			steps: [{ kind: "rule", title: "Nested generated rule", body: "From the nested call" }],
+		})) as { id: string };
+		const parent = (await service.execute("playbooks.create", {
+			title: "Parent workflow",
+			steps: [{ kind: "call", title: "Call nested", playbookId: nested.id }],
+		})) as { id: string };
+		const run = (await service.execute("playbooks.invoke", {
+			id: parent.id,
+			run_id: "nested-destination-run",
+			project_root: PROJECT,
+		})) as { created: { rules: string[] } };
+		expect(run.created.rules).toHaveLength(1);
+		const nestedRuleScope = (await service.execute("rules.scope", { id: run.created.rules[0] })) as { mode: string; projectIds: string[] };
+		expect(nestedRuleScope.mode).toBe("projects");
+		expect(nestedRuleScope.projectIds).toHaveLength(1);
 		service.close();
 	});
 

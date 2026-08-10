@@ -53,6 +53,7 @@ const createCommand = buildCommand({
 			extraJson?: Record<string, unknown>;
 			argumentsJson?: unknown[] | Record<string, unknown>;
 			projectRoot?: string;
+			projectsJson?: string[];
 		},
 	) {
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("playbooks.create", {
@@ -65,6 +66,7 @@ const createCommand = buildCommand({
 			extra: flags.extraJson,
 			arguments: flags.argumentsJson,
 			project_root: flags.projectRoot,
+			projects: flags.projectsJson,
 		});
 		render.call(this, artifact, `Created playbook: ${artifactLabel(artifact)}`);
 	},
@@ -91,18 +93,29 @@ const createCommand = buildCommand({
 				optional: true,
 			},
 			projectRoot: { brief: "Project scope", kind: "parsed", parse: String, placeholder: "path", optional: true },
+			projectsJson: {
+				brief: "JSON string array of project id/name/alias/root references, taking precedence over --project-root",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+				optional: true,
+			},
 		},
 	},
 	docs: { brief: "Create a Playbook" },
 });
 
 const listCommand = buildCommand({
-	func: async function (this: PlaybooksContext, flags: { status?: string; text?: string; limit?: number; projectRoot?: string }) {
+	func: async function (
+		this: PlaybooksContext,
+		flags: { status?: string; text?: string; limit?: number; projectRoot?: string; applicable?: boolean },
+	) {
 		const rows = await this.client.call<Record<string, unknown>, CliArtifact[]>("playbooks.list", {
 			status: flags.status,
 			text: flags.text,
 			limit: flags.limit,
 			project_root: flags.projectRoot,
+			applicable: flags.applicable,
 		});
 		render.call(this, rows, rows.length === 0 ? "No playbooks found." : rows.map((row) => artifactLabel(row)).join("\n"));
 	},
@@ -112,6 +125,11 @@ const listCommand = buildCommand({
 			text: { brief: "Substring match against title/body", kind: "parsed", parse: String, placeholder: "text", optional: true },
 			limit: { brief: "Maximum playbooks to return", kind: "parsed", parse: numberParser, optional: true },
 			projectRoot: { brief: "Project scope", kind: "parsed", parse: String, placeholder: "path", optional: true },
+			applicable: {
+				brief: "With --project-root: list global Playbooks plus Playbooks applicable to it, instead of exact membership",
+				kind: "boolean",
+				optional: true,
+			},
 		},
 	},
 	docs: { brief: "List Playbooks" },
@@ -213,6 +231,93 @@ const assignProjectCommand = buildCommand({
 	docs: { brief: "Reassign a Playbook's project scope, or unscope it" },
 });
 
+interface CliArtifactScope {
+	artifactId: string;
+	mode: string;
+	projectIds: string[];
+	source: string;
+}
+
+function renderScope(scope: CliArtifactScope): string {
+	return scope.mode === "global" ? "global (applies to every project)" : `projects: ${scope.projectIds.join(", ")}`;
+}
+
+const scopeCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.scope", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Playbook id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Show a Playbook's real project scope" },
+});
+
+const setGlobalCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.set_global", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Playbook id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Make a Playbook apply in every project" },
+});
+
+const addProjectCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string, project: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.add_project", { id, project });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Playbook id", parse: String, placeholder: "id" },
+				{ brief: "Project id/name/alias/root to add", parse: String, placeholder: "project" },
+			],
+		},
+	},
+	docs: { brief: "Add one project to a Playbook's membership" },
+});
+
+const removeProjectCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string, project: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.remove_project", { id, project });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Playbook id", parse: String, placeholder: "id" },
+				{ brief: "Project id/name/alias/root to remove", parse: String, placeholder: "project" },
+			],
+		},
+	},
+	docs: { brief: "Remove one project from a Playbook's membership" },
+});
+
+const replaceProjectsCommand = buildCommand({
+	func: async function (this: PlaybooksContext, flags: { projectsJson: string[] }, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.replace_projects", {
+			id,
+			projects: flags.projectsJson,
+		});
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {
+			projectsJson: {
+				brief: "JSON string array of project id/name/alias/root references",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+			},
+		},
+		positional: { kind: "tuple", parameters: [{ brief: "Playbook id", parse: String, placeholder: "id" }] },
+	},
+	docs: { brief: "Replace a Playbook's entire project membership" },
+});
+
 const updateCommand = buildCommand({
 	func: async function (this: PlaybooksContext, flags: { title?: string; body?: string; labelsJson?: string[] }, id: string) {
 		if (flags.title === undefined && flags.body === undefined && flags.labelsJson === undefined)
@@ -275,6 +380,11 @@ const app = buildApplication(
 			enable: buildEnableDisableCommand("enable"),
 			disable: buildEnableDisableCommand("disable"),
 			"assign-project": assignProjectCommand,
+			scope: scopeCommand,
+			"set-global": setGlobalCommand,
+			"add-project": addProjectCommand,
+			"remove-project": removeProjectCommand,
+			"replace-projects": replaceProjectsCommand,
 			update: updateCommand,
 			contain: buildPairedIdCommand(
 				"playbooks.contain",

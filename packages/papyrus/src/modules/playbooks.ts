@@ -16,18 +16,24 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import { invokePlaybook } from "../playbook/playbook-execution.ts";
 import {
+	addPlaybookProject,
 	assignPlaybookProject,
 	containPlaybook,
 	createPlaybook,
 	dependPlaybook,
 	listPlaybooks,
 	playbookInvocation,
+	playbookScope,
+	removePlaybookProject,
+	replacePlaybookProjects,
+	setPlaybookGlobal,
 	showPlaybook,
 	transitionPlaybook,
 	uncontainPlaybook,
 	undependPlaybook,
 	updatePlaybook,
 } from "../playbook/playbook-service.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
@@ -47,12 +53,24 @@ const eventContextFor = (input: OperationInput, source: string) => {
 	return { ...context, source: context.source ?? source };
 };
 
-const artifactFilter = (input: OperationInput) => ({
-	status: optionalString(input, "status"),
-	text: optionalString(input, "text"),
-	limit: optionalNumber(input, "limit"),
-	projectRoot: optionalString(input, "project_root"),
-});
+/**
+ * applicable=true switches project_root's meaning from exact-membership audit listing to
+ * applicable listing (global Playbooks plus Playbooks whose membership includes it) -- see
+ * ListFilter's own doc comment on projectRoot vs applicableToProjectRoot. Used by pi-papyrus's
+ * before_agent_start to inject only Playbooks applicable to ctx.cwd, not every active Playbook
+ * across every project.
+ */
+const artifactFilter = (input: OperationInput) => {
+	const projectRoot = optionalString(input, "project_root");
+	const applicable = optionalBoolean(input, "applicable") === true;
+	if (applicable && projectRoot === undefined) throw new Error("applicable requires project_root");
+	return {
+		status: optionalString(input, "status"),
+		text: optionalString(input, "text"),
+		limit: optionalNumber(input, "limit"),
+		...(applicable ? { applicableToProjectRoot: projectRoot } : { projectRoot }),
+	};
+};
 
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
 export const PLAYBOOKS_OPERATION_NAMES = [
@@ -64,6 +82,11 @@ export const PLAYBOOKS_OPERATION_NAMES = [
 	"playbooks.enable",
 	"playbooks.disable",
 	"playbooks.assign_project",
+	"playbooks.scope",
+	"playbooks.set_global",
+	"playbooks.add_project",
+	"playbooks.remove_project",
+	"playbooks.replace_projects",
 	"playbooks.update",
 	"playbooks.contain",
 	"playbooks.uncontain",
@@ -81,6 +104,7 @@ export interface PlaybooksModuleDeps {
 	tasks: Tasks;
 	/** Guards the same session_secret check tasks.focus's own operation enforces (guardFocusMutation in modules/tasks.ts) -- invoke's internal tasks.focus() call goes straight through the Tasks class, bypassing that operation wrapper entirely, so the check must be applied here instead of silently skipped. */
 	sessionIdentity: SessionIdentity;
+	registry: ProjectRegistryStore;
 }
 
 export function playbooksOperations({
@@ -90,6 +114,7 @@ export function playbooksOperations({
 	artifactScopes,
 	tasks,
 	sessionIdentity,
+	registry,
 }: PlaybooksModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name,
@@ -113,8 +138,10 @@ export function playbooksOperations({
 					extra: input.extra as Record<string, unknown> | undefined,
 					templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 					projectRoot: optionalString(input, "project_root"),
+					projectReferences: input.projects as string[] | undefined,
 				},
 				eventContext(input),
+				registry,
 			),
 		),
 		define("playbooks.list", (input: OperationInput) => {
@@ -133,7 +160,13 @@ export function playbooksOperations({
 					runId: optionalString(input, "run_id") ?? optionalString(input, "runId"),
 					arguments: input.arguments as Record<string, unknown> | undefined,
 				},
-				{ events, scopes, projectRoot: optionalString(input, "project_root"), context: eventContextFor(input, "playbook-run") },
+				{
+					events,
+					scopes,
+					artifactScopes,
+					projectRoot: optionalString(input, "project_root"),
+					context: eventContextFor(input, "playbook-run"),
+				},
 			);
 			if ("missingArguments" in result) return result;
 			const focusContext = eventContextFor(input, "playbook-run");
@@ -149,6 +182,17 @@ export function playbooksOperations({
 		),
 		define("playbooks.assign_project", (input: OperationInput) =>
 			assignPlaybookProject(artifacts, artifactScopes, string(input, "id"), optionalString(input, "project_root")),
+		),
+		define("playbooks.scope", (input: OperationInput) => playbookScope(artifacts, artifactScopes, string(input, "id"))),
+		define("playbooks.set_global", (input: OperationInput) => setPlaybookGlobal(artifacts, artifactScopes, string(input, "id"))),
+		define("playbooks.add_project", (input: OperationInput) =>
+			addPlaybookProject(artifacts, artifactScopes, registry, string(input, "id"), string(input, "project")),
+		),
+		define("playbooks.remove_project", (input: OperationInput) =>
+			removePlaybookProject(artifacts, artifactScopes, registry, string(input, "id"), string(input, "project")),
+		),
+		define("playbooks.replace_projects", (input: OperationInput) =>
+			replacePlaybookProjects(artifacts, artifactScopes, registry, string(input, "id"), (input.projects as string[] | undefined) ?? []),
 		),
 		define("playbooks.update", (input: OperationInput) =>
 			updatePlaybook(

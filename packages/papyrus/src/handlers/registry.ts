@@ -59,6 +59,7 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 		artifactScopes: deps.scopes,
 		tasks: deps.tasks,
 		sessionIdentity: deps.sessionIdentity,
+		projectRegistry: deps.projectRegistry,
 	});
 	registerTasksVehicleOperations(registry, { tasks: deps.tasks, artifacts: deps.artifacts, sessionIdentity: deps.sessionIdentity });
 	registerDiscussVehicleOperations(registry, deps.discussions, deps.artifacts);

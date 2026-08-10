@@ -149,4 +149,48 @@ describe("runPlaybooksCli (Stricli-backed)", () => {
 		const client = new FakeClient({});
 		await expect(runPlaybooksCli(["bogus"], client)).rejects.toThrow();
 	});
+
+	it("list: threads --applicable through to playbooks.list", async () => {
+		const client = new FakeClient([]);
+		await runPlaybooksCli(["list", "--project-root", "/proj", "--applicable"], client);
+		expect(client.calls).toEqual([
+			{
+				operation: "playbooks.list",
+				input: { status: undefined, text: undefined, limit: undefined, project_root: "/proj", applicable: true },
+			},
+		]);
+	});
+
+	const scope = { artifactId: "p1", mode: "projects", projectIds: ["proj1"], source: "explicit" };
+
+	it("scope: shows a Playbook's project scope", async () => {
+		const client = new FakeClient(scope);
+		const output = await runPlaybooksCli(["scope", "p1"], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.scope", input: { id: "p1" } }]);
+		expect(output).toContain("proj1");
+	});
+
+	it("set-global: makes a Playbook global", async () => {
+		const client = new FakeClient({ ...scope, mode: "global", projectIds: [] });
+		await runPlaybooksCli(["set-global", "p1"], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.set_global", input: { id: "p1" } }]);
+	});
+
+	it("add-project: adds one project to a Playbook's membership", async () => {
+		const client = new FakeClient(scope);
+		await runPlaybooksCli(["add-project", "p1", "proj1"], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.add_project", input: { id: "p1", project: "proj1" } }]);
+	});
+
+	it("remove-project: removes one project from a Playbook's membership", async () => {
+		const client = new FakeClient(scope);
+		await runPlaybooksCli(["remove-project", "p1", "proj1"], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.remove_project", input: { id: "p1", project: "proj1" } }]);
+	});
+
+	it("replace-projects: replaces a Playbook's entire project membership from a JSON array", async () => {
+		const client = new FakeClient(scope);
+		await runPlaybooksCli(["replace-projects", "p1", "--projects-json", '["proj1","proj2"]'], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.replace_projects", input: { id: "p1", projects: ["proj1", "proj2"] } }]);
+	});
 });

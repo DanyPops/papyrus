@@ -24,6 +24,7 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
 import { listPlaybooks } from "../playbook/playbook-service.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
@@ -56,6 +57,7 @@ export interface PlaybooksVehicleDeps {
 	artifactScopes: ArtifactScopeStore;
 	tasks: Tasks;
 	sessionIdentity: SessionIdentity;
+	projectRegistry: ProjectRegistryStore;
 }
 
 /** Unscoped resolution -- a Playbook is commonly cross-project (e.g. a lab-deploy playbook), matching the hand-rolled tool's own resolutionRequest choice. */
@@ -66,9 +68,12 @@ function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore,
 }
 
 export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, deps: PlaybooksVehicleDeps): void {
-	const { artifacts, events, scopes, artifactScopes, tasks, sessionIdentity } = deps;
+	const { artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, projectRegistry } = deps;
 	const moduleOperations = new Map(
-		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }).map((op) => [op.name, op]),
+		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry }).map((op) => [
+			op.name,
+			op,
+		]),
 	);
 	/**
 	 * Every playbooks.* action funnels through here. invoke's own module handler re-runs
@@ -101,6 +106,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 			extra: { type: "object" },
 			template_id: stringProp,
 			project_root: stringProp,
+			projects: { type: "array" },
 			actor: stringProp,
 			source: stringProp,
 			session_id: stringProp,
@@ -114,9 +120,9 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 
 	define(
 		"list",
-		"Lists Playbooks matching an optional status/text filter, scoped to project_root when given. Returns a lean summary (no body/steps) by default -- pass full: true for the complete artifact.",
+		"Lists Playbooks matching an optional status/text filter. project_root alone scopes to EXACT membership in that project (audit semantics); project_root plus applicable:true instead lists every Playbook APPLICABLE to it (global Playbooks plus Playbooks whose membership includes it) -- what pi-papyrus's before_agent_start uses to inject only relevant Playbooks. Returns a lean summary (no body/steps) by default -- pass full: true for the complete artifact.",
 		"read",
-		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp, full: booleanProp },
+		{ status: stringProp, text: stringProp, limit: numberProp, project_root: stringProp, applicable: booleanProp, full: booleanProp },
 		[],
 		(input) => input,
 	);
@@ -197,6 +203,63 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"local-write",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"scope",
+		"Shows a Playbook's real project scope: global (applies everywhere) or the bounded set of registered projects it applies to.",
+		"read",
+		{ id: stringProp, name: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"set_global",
+		"Makes a Playbook apply in every project, clearing any project membership. The only way to widen a project-bound Playbook back to global -- removing its last membership through remove_project is rejected instead.",
+		"local-write",
+		{ id: stringProp, name: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"add_project",
+		"Adds one registered project (exact id, name, alias, or root) to a Playbook's membership, switching it from global to project-bound if it was global. Idempotent if the project is already a member.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			project: { ...stringProp, description: "Exact project id, name, alias, or registered root to add." },
+		},
+		["project"],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"remove_project",
+		"Removes one registered project from a Playbook's membership. Rejected while it is the Playbook's only remaining membership -- call set_global first if the Playbook should stop being project-bound entirely.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			project: { ...stringProp, description: "Exact project id, name, alias, or registered root to remove." },
+		},
+		["project"],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"replace_projects",
+		"Replaces a Playbook's entire project membership with exactly this bounded, non-empty list of registered project references (id/name/alias/root). Use set_global instead to clear scoping entirely.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			projects: { type: "array", description: "Non-empty list of exact project id/name/alias/root references." },
+		},
+		["projects"],
 		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
 	);
 

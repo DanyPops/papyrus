@@ -25,9 +25,10 @@
 import type { Artifact } from "../artifact/artifact.ts";
 import { requireLocallyOwnedContent } from "../artifact/artifact.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
-import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
+	ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT,
 	ARTIFACT_TITLE_MAX_LENGTH,
 	PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH,
 	PLAYBOOK_ARGUMENT_MAX_COUNT,
@@ -43,6 +44,7 @@ import {
 	type BlueprintInputType,
 	validateArgumentValue,
 } from "../domain/blueprint-definition.ts";
+import { resolveProjectReference } from "../domain/project-registry.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
 import {
 	assertBodyBounds,
@@ -57,6 +59,7 @@ import {
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 
 export interface PlaybookArgument {
 	name: string;
@@ -220,6 +223,8 @@ export interface CreatePlaybookInput {
 	extra?: Record<string, unknown>;
 	templateId?: string;
 	projectRoot?: string;
+	/** Bounded exact registered project references (id/name/alias/root) -- fail-closed unlike projectRoot's auto-register-by-root legacy form. Takes precedence over projectRoot when both are given. */
+	projectReferences?: string[];
 }
 
 export type PlaybookTransition = "enable" | "disable";
@@ -235,7 +240,11 @@ export function createPlaybook(
 	scopes: ArtifactScopeStore,
 	input: CreatePlaybookInput,
 	context?: ArtifactEventContext,
+	registry?: ProjectRegistryStore,
 ): Artifact {
+	if (input.projectReferences !== undefined && input.projectReferences.length > 0 && registry === undefined) {
+		throw new Error("projectReferences requires a project registry");
+	}
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 	const declaredArguments = validatePlaybookArguments(input.arguments);
 	const declaredSteps = validatePlaybookSteps(input.steps);
@@ -258,7 +267,15 @@ export function createPlaybook(
 		},
 		context,
 	);
-	scopes.assign(playbook.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	if (input.projectReferences !== undefined && input.projectReferences.length > 0) {
+		if (input.projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
+			throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
+		}
+		const ids = input.projectReferences.map((reference) => resolveProjectReference(registry!, reference).id);
+		scopes.replaceProjects(playbook.id, ids, "explicit");
+	} else {
+		scopes.assign(playbook.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	}
 	return playbook;
 }
 
@@ -273,6 +290,65 @@ export function assignPlaybookProject(
 	projectRoot: string | undefined,
 ): Artifact {
 	return assignArtifactProject(artifacts, scopes, id, "playbook", projectRoot);
+}
+
+/**
+ * The multi-project scope surface playbooks.assign_project cannot express -- mirrors
+ * docs.ts's own docScope/setDocGlobal/addDocProject/removeDocProject/replaceDocProjects (which
+ * itself mirrors rules.ts's original). id is resolved through requireKind so these reject the
+ * same way against a non-Playbook or unknown id as every other playbooks.* mutation; the
+ * project REFERENCE (name/alias/root) is resolved through the shared registry's
+ * resolveProjectReference, so an unknown or ambiguous project fails closed with bounded
+ * candidates rather than silently creating a new registration.
+ */
+export function playbookScope(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	return scopes.scope(id);
+}
+
+export function setPlaybookGlobal(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	return scopes.setGlobal(id, "explicit");
+}
+
+export function replacePlaybookProjects(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReferences: readonly string[],
+): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use playbooks.set_global to clear scoping");
+	if (projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
+		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
+	}
+	const ids = projectReferences.map((reference) => resolveProjectReference(registry, reference).id);
+	return scopes.replaceProjects(id, ids, "explicit");
+}
+
+export function addPlaybookProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.addProject(id, project.id, "explicit");
+}
+
+export function removePlaybookProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.removeProject(id, project.id);
 }
 
 export function showPlaybook(artifacts: ArtifactStore, id: string): Artifact {

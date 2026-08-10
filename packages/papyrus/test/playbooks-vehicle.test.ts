@@ -23,6 +23,7 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 			.filter((name: string) => name.startsWith("playbooks."))
 			.sort();
 		expect(names).toEqual([
+			"playbooks.add_project",
 			"playbooks.assign_project",
 			"playbooks.contain",
 			"playbooks.create",
@@ -32,6 +33,10 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 			"playbooks.invoke",
 			"playbooks.list",
 			"playbooks.preview",
+			"playbooks.remove_project",
+			"playbooks.replace_projects",
+			"playbooks.scope",
+			"playbooks.set_global",
 			"playbooks.show",
 			"playbooks.uncontain",
 			"playbooks.undepend",
@@ -369,6 +374,183 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 		const restored = (await registry.invoke("artifact.restore", 1, { id: created.id }, PERMS)) as { restored: boolean };
 		expect(restored.restored).toBe(true);
+		service.close();
+	});
+
+	it("create accepts bounded projectReferences (multi-project at creation), taking precedence over project_root", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/playbooks-create-scope-a", name: "Playbooks Create Scope A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/playbooks-create-scope-b", name: "Playbooks Create Scope B" });
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Multi-scoped playbook", project_root: "/tmp/other", projects: ["Playbooks Create Scope A", "Playbooks Create Scope B"] },
+			PERMS,
+		)) as { id: string };
+		const scope = (await registry.invoke("playbooks.scope", 1, { id: created.id }, PERMS)) as { mode: string; projectIds: string[] };
+		expect(scope.mode).toBe("projects");
+		expect(scope.projectIds).toHaveLength(2);
+		service.close();
+	});
+
+	it("exposes scope/add_project/remove_project/replace_projects/set_global end to end (playbooks-add-multi-project-applicability-and-prop)", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/playbooks-scope-project-a", name: "Playbooks Scope Project A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/playbooks-scope-project-b", name: "Playbooks Scope Project B" });
+		const created = (await registry.invoke("playbooks.create", 1, { title: "Scope surface playbook" }, PERMS)) as { id: string };
+
+		expect(await registry.invoke("playbooks.scope", 1, { id: created.id }, PERMS)).toEqual({
+			artifactId: created.id,
+			mode: "global",
+			projectIds: [],
+			source: "unscoped",
+		});
+
+		const afterAdd = (await registry.invoke(
+			"playbooks.add_project",
+			1,
+			{ id: created.id, project: "Playbooks Scope Project A" },
+			PERMS,
+		)) as { mode: string; projectIds: string[] };
+		expect(afterAdd.mode).toBe("projects");
+		expect(afterAdd.projectIds).toHaveLength(1);
+
+		const afterAddSecond = (await registry.invoke(
+			"playbooks.add_project",
+			1,
+			{ id: created.id, project: "Playbooks Scope Project B" },
+			PERMS,
+		)) as { projectIds: string[] };
+		expect(afterAddSecond.projectIds).toHaveLength(2);
+
+		const afterRemove = (await registry.invoke(
+			"playbooks.remove_project",
+			1,
+			{ id: created.id, project: "Playbooks Scope Project B" },
+			PERMS,
+		)) as { projectIds: string[] };
+		expect(afterRemove.projectIds).toHaveLength(1);
+
+		const afterReplace = (await registry.invoke(
+			"playbooks.replace_projects",
+			1,
+			{ id: created.id, projects: ["Playbooks Scope Project A", "Playbooks Scope Project B"] },
+			PERMS,
+		)) as { projectIds: string[] };
+		expect(afterReplace.projectIds).toHaveLength(2);
+
+		const afterGlobal = (await registry.invoke("playbooks.set_global", 1, { id: created.id }, PERMS)) as {
+			artifactId: string;
+			mode: string;
+			projectIds: string[];
+			source: string;
+		};
+		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+		service.close();
+	});
+
+	it("rejects removing an active Playbook's last project membership -- set_global must be called explicitly instead of accidentally broadening scope", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", {
+			project_root: "/tmp/playbooks-last-membership-project",
+			name: "Playbooks Last Membership Project",
+		});
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Last membership playbook", projects: ["Playbooks Last Membership Project"] },
+			PERMS,
+		)) as { id: string };
+
+		await expect(
+			registry.invoke("playbooks.remove_project", 1, { id: created.id, project: "Playbooks Last Membership Project" }, PERMS),
+		).rejects.toThrow(/set_global|last|only remaining|non-empty/i);
+
+		const madeGlobal = (await registry.invoke("playbooks.set_global", 1, { id: created.id }, PERMS)) as { mode: string };
+		expect(madeGlobal.mode).toBe("global");
+		service.close();
+	});
+
+	it("playbooks.list applicable:true returns global Playbooks plus Playbooks scoped to that project, distinct from project_root's exact-membership default -- this is what pi-papyrus's before_agent_start now uses instead of every active Playbook unscoped", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/playbooks-applicable-a", name: "Playbooks Applicable A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/playbooks-applicable-b", name: "Playbooks Applicable B" });
+
+		const scopedToA = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Scoped to A", projects: ["Playbooks Applicable A"] },
+			PERMS,
+		)) as { id: string };
+		const scopedToB = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Scoped to B", projects: ["Playbooks Applicable B"] },
+			PERMS,
+		)) as { id: string };
+		const global = (await registry.invoke("playbooks.create", 1, { title: "Global playbook" }, PERMS)) as { id: string };
+
+		const exactMembership = (await registry.invoke(
+			"playbooks.list",
+			1,
+			{ project_root: "/tmp/playbooks-applicable-a", full: true },
+			PERMS,
+		)) as Array<{ id: string }>;
+		expect(exactMembership.map((row) => row.id)).toEqual([scopedToA.id]);
+
+		const applicable = (await registry.invoke(
+			"playbooks.list",
+			1,
+			{ project_root: "/tmp/playbooks-applicable-a", applicable: true, full: true },
+			PERMS,
+		)) as Array<{ id: string }>;
+		const applicableIds = applicable.map((row) => row.id).sort();
+		expect(applicableIds).toContain(scopedToA.id);
+		expect(applicableIds).toContain(global.id);
+		expect(applicableIds).not.toContain(scopedToB.id);
+		service.close();
+	});
+
+	it("playbooks.list rejects applicable:true without project_root", async () => {
+		const { registry, service } = harness();
+		await expect(registry.invoke("playbooks.list", 1, { applicable: true }, PERMS)).rejects.toThrow(/applicable requires project_root/);
+		service.close();
+	});
+
+	it("invocation destination is not conflated with definition scope: an unscoped/global Playbook can still be invoked with an explicit destination project_root for its generated Tasks/Docs/Rules", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", {
+			project_root: "/tmp/playbooks-invoke-destination",
+			name: "Playbooks Invoke Destination",
+		});
+		const playbook = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Destination playbook", steps: [{ kind: "doc", title: "Generated doc" }, "Plain step"] },
+			PERMS,
+		)) as { id: string };
+		// The Playbook DEFINITION itself stays global/unscoped -- invoking it with a destination
+		// project_root is a per-invocation concern, never a mutation of the definition's own scope.
+		const definitionScope = (await registry.invoke("playbooks.scope", 1, { id: playbook.id }, PERMS)) as { mode: string };
+		expect(definitionScope.mode).toBe("global");
+
+		const invocation = (await registry.invoke(
+			"playbooks.invoke",
+			1,
+			{ id: playbook.id, project_root: "/tmp/playbooks-invoke-destination" },
+			PERMS,
+		)) as { created: { docs: string[] } };
+		expect(invocation.created.docs).toHaveLength(1);
+		const generatedDocScope = (await service.execute("docs.scope", { id: invocation.created.docs[0] })) as {
+			mode: string;
+			projectIds: string[];
+		};
+		expect(generatedDocScope.mode).toBe("projects");
+		expect(generatedDocScope.projectIds).toHaveLength(1);
+
+		// The definition itself is unaffected by the invocation's own destination.
+		const definitionScopeAfter = (await registry.invoke("playbooks.scope", 1, { id: playbook.id }, PERMS)) as { mode: string };
+		expect(definitionScopeAfter.mode).toBe("global");
 		service.close();
 	});
 });

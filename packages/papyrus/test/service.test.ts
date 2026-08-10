@@ -429,6 +429,7 @@ describe("Papyrus operation service", () => {
 			version: VERSION,
 			schema: { current: 28, required: 28, migrationRequired: false },
 		});
+		await expect(client.diagnose()).rejects.toThrow("daemon diagnose is unavailable on this instance");
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", {
 			title: "Client task",
 			project_root: PROJECT_ROOT,
@@ -459,6 +460,61 @@ describe("Papyrus operation service", () => {
 		expect(failed.status).toBe(404);
 
 		expect(executed).toEqual(["tasks.create"]);
+		service.close();
+	});
+
+	it("GET /daemon/diagnose 404s when no diagnose callback is supplied -- most embedders (including this test's own fixture) don't run a real supervised daemon", async () => {
+		const { service, app } = fixture();
+		const response = await request(app, "/daemon/diagnose", { method: "GET" });
+		expect(response.status).toBe(404);
+		service.close();
+	});
+
+	it("GET /daemon/diagnose returns the supplied diagnose callback's result verbatim -- daemon.ts's real wiring point", async () => {
+		const dir = tempDir("papyrus-service-diagnose-");
+		const service = createPapyrusService(join(dir, "papyrus.db"));
+		const diagnosis = {
+			instanceId: "instance-1",
+			pid: 4242,
+			startedAt: "2026-01-01T00:00:00.000Z",
+			provenance: "service" as const,
+			history: [
+				{ instanceId: "instance-0", pid: 1, type: "stopped" as const, at: "2025-12-31T00:00:00.000Z", provenance: "service" as const },
+			],
+		};
+		const app = createApp({ service, token: "test-token", diagnose: () => Promise.resolve(diagnosis) });
+		const response = await request(app, "/daemon/diagnose", { method: "GET" });
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual(diagnosis);
+		service.close();
+	});
+
+	it("PapyrusClient.diagnose() round-trips a real diagnosis through the same client every CLI command uses", async () => {
+		const dir = tempDir("papyrus-service-client-diagnose-");
+		const service = createPapyrusService(join(dir, "papyrus.db"));
+		const diagnosis = {
+			instanceId: "instance-2",
+			pid: 555,
+			startedAt: "2026-02-02T00:00:00.000Z",
+			provenance: "auto-spawn" as const,
+			history: [],
+		};
+		const app = createApp({ service, token: "test-token", diagnose: () => Promise.resolve(diagnosis) });
+		const client = new PapyrusClient("http://papyrus.test", "test-token", (request) => app.fetch(request));
+		expect(await client.diagnose()).toEqual(diagnosis);
+		service.close();
+	});
+
+	it("GET /daemon/diagnose still requires the bearer token, exactly like every other route", async () => {
+		const dir = tempDir("papyrus-service-diagnose-auth-");
+		const service = createPapyrusService(join(dir, "papyrus.db"));
+		const app = createApp({
+			service,
+			token: "test-token",
+			diagnose: () => Promise.resolve({ instanceId: "i", pid: 1, startedAt: "now", provenance: "service" as const, history: [] }),
+		});
+		const response = await app.fetch(new Request("http://papyrus.test/daemon/diagnose"));
+		expect(response.status).toBe(401);
 		service.close();
 	});
 });

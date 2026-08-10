@@ -1,5 +1,6 @@
 import { VehicleError } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
+import type { DaemonDiagnosis } from "@danypops/vehicle-server/daemon-lifecycle";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import type { CreateArtifactInput } from "./artifact/artifact.ts";
@@ -577,6 +578,14 @@ export function createApp(deps: {
 	onOperationExecuted?: (operation: string, input: OperationInput) => void;
 	/** Defaults to a no-op (createVehicleHttpApp's own default) -- daemon.ts wires vehicleLogger() so a failed invocation is actually logged, not silently discarded. */
 	logger?: Logger;
+	/**
+	 * Backs GET /daemon/diagnose -- "who am I, and what happened recently" (see
+	 * @danypops/vehicle-server's daemon-lifecycle.ts), without a caller reading Papyrus's own
+	 * SQLite database or state files directly. Omitted (e.g. in most tests, which don't run a
+	 * real supervised daemon process) means the route 404s, matching how /health always exists
+	 * but this diagnostic identity does not until a real serveMain() supplies it.
+	 */
+	diagnose?: () => Promise<DaemonDiagnosis>;
 }): { fetch(request: Request): Promise<Response> } {
 	// Same Bearer token, daemon, and port as the rest of this API -- see ./handlers/registry.ts.
 	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicle, token: deps.token, logger: deps.logger });
@@ -605,6 +614,10 @@ export function createApp(deps: {
 			}
 			if (request.method === "GET" && url.pathname === "/health") {
 				return json({ ok: true, version: VERSION, schema: deps.service.schemaState() });
+			}
+			if (request.method === "GET" && url.pathname === "/daemon/diagnose") {
+				if (!deps.diagnose) return json({ error: "daemon diagnose is unavailable on this instance" }, { status: 404 });
+				return json(await deps.diagnose());
 			}
 			if (request.method === "GET" && url.pathname === "/api/v1/ops") {
 				return json({ operations: deps.service.operationNames() });

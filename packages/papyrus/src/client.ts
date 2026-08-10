@@ -7,6 +7,7 @@ import {
 	spawnDetachedDaemon,
 } from "@danypops/vehicle-client/daemon-client";
 import { createLiveVersionExpectation } from "@danypops/vehicle-client/version";
+import type { DaemonDiagnosis } from "@danypops/vehicle-server/daemon-lifecycle";
 import { DAEMON_CLIENT_TIMEOUT_MS, DAEMON_DIR_ENV, DAEMON_PROBE_TIMEOUT_MS } from "./constants.ts";
 import { type DaemonHandle, daemonStateDir, readDaemonHandle } from "./daemon/daemon-state.ts";
 import type { OperationName, SchemaState } from "./service.ts";
@@ -48,6 +49,11 @@ export class PapyrusClient {
 
 	health(): Promise<{ ok: true; version: string; schema: SchemaState }> {
 		return this.request("/health");
+	}
+
+	/** Backed by GET /daemon/diagnose -- see service.ts's createApp and vehicle-server's daemon-lifecycle.ts. */
+	diagnose(): Promise<DaemonDiagnosis> {
+		return this.request("/daemon/diagnose");
 	}
 
 	async operations(): Promise<OperationName[]> {

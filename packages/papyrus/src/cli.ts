@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFi
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { runArtifactCli } from "./cli/artifact-command.ts";
+import { runDaemonCli } from "./cli/daemon-command.ts";
 import { runDiscussCli } from "./cli/discuss-command.ts";
 import { runDocsCli } from "./cli/docs-command.ts";
 import { runGatesCli } from "./cli/gates-command.ts";
@@ -206,7 +207,7 @@ function usage(): never {
 	process.exit(2);
 }
 
-export { runMigrationCli };
+export { runDaemonCli, runMigrationCli };
 
 function readIdMap(sidecarPath: string): IdMigrationPlan {
 	const raw = JSON.parse(readFileSync(sidecarPath, "utf8")) as { idMap: Record<string, string> };
@@ -366,7 +367,7 @@ export {
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {
 	const [command, action] = args;
 	if (command === "serve") {
-		serveMain();
+		await serveMain();
 		return;
 	}
 	if (command === "tasks") {
@@ -402,6 +403,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "migrate") {
 		const client = await connectPapyrusClient();
 		console.log(await runMigrationCli(args.slice(1), client));
+		return;
+	}
+	if (command === "daemon") {
+		const client = await connectPapyrusClient();
+		console.log(await runDaemonCli(args.slice(1), client));
 		return;
 	}
 	if (command === "migrate-ids") {

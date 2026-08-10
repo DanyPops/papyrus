@@ -4,6 +4,7 @@ export const DAEMON_PORT_FILE = "port";
 export const DAEMON_TOKEN_FILE = "token";
 /** vehicle-server's own {host,port,pid} handle format -- read by Armada's readiness probe once Papyrus is service-installed, see cli.ts's papyrusServiceSpec. */
 export const DAEMON_HANDLE_FILE = "vehicle-handle.json";
+export const DAEMON_LIFECYCLE_FILE = "lifecycle.json";
 export const DAEMON_CLIENT_TIMEOUT_MS = 15_000;
 export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";

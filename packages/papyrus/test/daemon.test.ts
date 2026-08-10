@@ -6,6 +6,7 @@ import { papyrusServiceSpec, renderSystemdUnit } from "../src/cli.ts";
 import {
 	clearVehicleHandle,
 	daemonStateDir,
+	lifecyclePath,
 	loadOrCreateToken,
 	readDaemonHandle,
 	vehicleHandlePath,
@@ -42,6 +43,11 @@ describe("Papyrus daemon state", () => {
 		expect(readVehicleHandle(vehicleHandlePath(dir))).toEqual({ host: "127.0.0.1", port: 43124, pid: 88888 });
 		clearVehicleHandle(dir);
 		expect(readVehicleHandle(vehicleHandlePath(dir))).toBeNull();
+	});
+
+	it("places the structured lifecycle event log beside every other daemon state file", () => {
+		const dir = tempDir("papyrus-daemon-state-");
+		expect(lifecyclePath(dir)).toBe(join(dir, "lifecycle.json"));
 	});
 });
 

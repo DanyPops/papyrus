@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { createNodeAtomicJsonFsAdapter } from "@danypops/vehicle-server/atomic-json";
+import { readLaunchProvenance } from "@danypops/vehicle-server/daemon";
+import { diagnoseDaemon, openDaemonLifecycleLog } from "@danypops/vehicle-server/daemon-lifecycle";
 import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
@@ -8,6 +12,7 @@ import {
 	clearDaemonPort,
 	clearVehicleHandle,
 	daemonStateDir,
+	lifecyclePath,
 	loadOrCreateToken,
 	writeDaemonPort,
 	writeVehicleHandle,
@@ -35,14 +40,26 @@ const TASK_READ_ONLY_OPERATIONS = new Set([
 ]);
 
 /** Start the supervised, long-running Papyrus service. */
-export function serveMain(): void {
+export async function serveMain(): Promise<void> {
 	const stateDir = daemonStateDir();
 	const lockPath = join(stateDir, "daemon.lock");
+	const instanceId = randomUUID();
+	const provenance = readLaunchProvenance();
+	const lifecycleLog = openDaemonLifecycleLog({ path: lifecyclePath(stateDir), fs: createNodeAtomicJsonFsAdapter() });
+	const recordLifecycle = async (type: "started" | "already_running" | "stopped", reason?: string): Promise<void> => {
+		try {
+			await lifecycleLog.record({ instanceId, pid: process.pid, type, provenance, reason });
+		} catch (error) {
+			logEvent("error", "lifecycle_log_record_failed", { message: error instanceof Error ? error.message : String(error) });
+		}
+	};
 	const lock = acquireDaemonLock(lockPath);
 	if (!lock.acquired) {
 		logEvent("info", "already_running", { holderPid: lock.holderPid });
+		await recordLifecycle("already_running", lock.holderPid === null ? undefined : `holder pid ${lock.holderPid}`);
 		return;
 	}
+	const startedAt = new Date().toISOString();
 	const token = loadOrCreateToken(stateDir);
 	const service = createPapyrusService(dbPath());
 	const pushChannel = new PushChannel({ token });
@@ -55,6 +72,7 @@ export function serveMain(): void {
 			}
 		},
 		logger: vehicleLogger(),
+		diagnose: () => diagnoseDaemon({ lifecycleLog, current: { instanceId, pid: process.pid, startedAt, provenance } }),
 	});
 	const server = Bun.serve({
 		hostname: DAEMON_HOST,
@@ -110,7 +128,7 @@ export function serveMain(): void {
 		}
 	}, DB_OPTIMIZE_INTERVAL_MS);
 	let stopping = false;
-	const shutdown = () => {
+	const shutdown = (signal: string) => {
 		if (stopping) return;
 		stopping = true;
 		clearInterval(checkpointTimer);
@@ -123,12 +141,13 @@ export function serveMain(): void {
 		service.close();
 		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare
 		// unhandled-rejection warning into a real, queryable shutdown-failure log line.
-		void server
-			.stop(true)
+		void recordLifecycle("stopped", signal)
+			.then(() => server.stop(true))
 			.catch((error) => logEvent("error", "server_stop_failed", { message: error instanceof Error ? error.message : String(error) }))
 			.finally(() => process.exit(0));
 	};
-	process.on("SIGINT", shutdown);
-	process.on("SIGTERM", shutdown);
+	process.on("SIGINT", () => shutdown("SIGINT"));
+	process.on("SIGTERM", () => shutdown("SIGTERM"));
 	logEvent("info", "listening", { host: DAEMON_HOST, port: server.port });
+	await recordLifecycle("started");
 }

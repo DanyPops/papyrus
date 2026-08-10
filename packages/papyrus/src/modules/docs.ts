@@ -12,16 +12,22 @@ import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import {
+	addDocProject,
 	assignDocumentProject,
 	createDocument,
 	type DocumentRelation,
+	docScope,
 	linkDocument,
 	listDocuments,
+	removeDocProject,
+	replaceDocProjects,
+	setDocGlobal,
 	showDocument,
 	transitionDocument,
 	updateDocument,
 } from "../docs/docs-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "docs";
@@ -32,12 +38,23 @@ const eventContext = (input: OperationInput) => ({
 	sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 });
 
-const artifactFilter = (input: OperationInput) => ({
-	status: optionalString(input, "status"),
-	text: optionalString(input, "text"),
-	limit: optionalNumber(input, "limit"),
-	projectRoot: optionalString(input, "project_root"),
-});
+/**
+ * applicable=true switches project_root's meaning from exact-membership audit listing to
+ * applicable listing (global Docs plus Docs whose bounded membership includes this project) --
+ * see ListFilter's own doc comment on projectRoot vs applicableToProjectRoot for why these are
+ * two distinct, non-overlapping query modes rather than one.
+ */
+const artifactFilter = (input: OperationInput) => {
+	const projectRoot = optionalString(input, "project_root");
+	const applicable = optionalBoolean(input, "applicable") === true;
+	if (applicable && projectRoot === undefined) throw new Error("applicable requires project_root");
+	return {
+		status: optionalString(input, "status"),
+		text: optionalString(input, "text"),
+		limit: optionalNumber(input, "limit"),
+		...(applicable ? { applicableToProjectRoot: projectRoot } : { projectRoot }),
+	};
+};
 
 /** Registers every docs.* operation against the shared ArtifactStore port. Behavior is unchanged from the prior inline handlers in src/service.ts. */
 /** This module's own operation names, the single source of truth src/service.ts's EXPECTED_OPERATION_NAMES spreads in rather than re-listing by hand. */
@@ -50,10 +67,20 @@ export const DOCS_OPERATION_NAMES = [
 	"docs.reopen",
 	"docs.link",
 	"docs.assign_project",
+	"docs.scope",
+	"docs.set_global",
+	"docs.add_project",
+	"docs.remove_project",
+	"docs.replace_projects",
 	"docs.update",
 ] as const;
 
-export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeStore, authority: AuthorityRegistry): OperationDefinition[] {
+export function docsOperations(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	authority: AuthorityRegistry,
+	registry: ProjectRegistryStore,
+): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name,
 		moduleId: MODULE_ID,
@@ -72,9 +99,11 @@ export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeSt
 					extra: input.extra as Record<string, unknown> | undefined,
 					templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 					projectRoot: optionalString(input, "project_root"),
+					projectReferences: input.projects as string[] | undefined,
 				},
 				authority,
 				eventContext(input),
+				registry,
 			),
 		),
 		define("docs.list", (input: OperationInput) => {
@@ -103,6 +132,17 @@ export function docsOperations(artifacts: ArtifactStore, scopes: ArtifactScopeSt
 		),
 		define("docs.assign_project", (input: OperationInput) =>
 			assignDocumentProject(artifacts, scopes, string(input, "id"), optionalString(input, "project_root")),
+		),
+		define("docs.scope", (input: OperationInput) => docScope(artifacts, scopes, string(input, "id"))),
+		define("docs.set_global", (input: OperationInput) => setDocGlobal(artifacts, scopes, string(input, "id"))),
+		define("docs.add_project", (input: OperationInput) =>
+			addDocProject(artifacts, scopes, registry, string(input, "id"), string(input, "project")),
+		),
+		define("docs.remove_project", (input: OperationInput) =>
+			removeDocProject(artifacts, scopes, registry, string(input, "id"), string(input, "project")),
+		),
+		define("docs.replace_projects", (input: OperationInput) =>
+			replaceDocProjects(artifacts, scopes, registry, string(input, "id"), (input.projects as string[] | undefined) ?? []),
 		),
 		define("docs.update", (input: OperationInput) =>
 			updateDocument(

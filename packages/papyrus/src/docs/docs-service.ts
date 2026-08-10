@@ -6,9 +6,11 @@
 
 import { type Artifact, requireLocallyOwnedContent } from "../artifact/artifact.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
-import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
+import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { ArtifactAction, AuthorityRegistry } from "../authority-registry.ts";
+import { ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT } from "../constants.ts";
+import { resolveProjectReference } from "../domain/project-registry.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
 import {
 	assertBodyBounds,
@@ -23,6 +25,7 @@ import {
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import { NOTE_SUBTYPE } from "../note/note-service.ts";
+import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 
 function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | undefined, subtype: string | undefined): boolean {
 	if (subtype === NOTE_SUBTYPE) return true;
@@ -68,6 +71,8 @@ export interface CreateDocumentInput {
 	templateId?: string;
 	/** Optional at creation, unlike Tasks -- omitting it leaves the Doc in the unscoped bucket, matching today's default behavior for every existing caller. */
 	projectRoot?: string;
+	/** Bounded exact registered project references (id/name/alias/root) -- fail-closed unlike projectRoot's auto-register-by-root legacy form. Takes precedence over projectRoot when both are given. */
+	projectReferences?: string[];
 }
 
 export type UpdateDocumentInput = UpdateContentInput;
@@ -87,9 +92,13 @@ export function createDocument(
 	input: CreateDocumentInput,
 	authority: AuthorityRegistry,
 	context?: ArtifactEventContext,
+	registry?: ProjectRegistryStore,
 ): Artifact {
 	if (rejectsNoteTemplate(artifacts, input.templateId, input.subtype)) requireNotesFacade(authority, "docs");
 	authority.requireArtifactAllowed("doc", input.subtype ?? templateSubtype(artifacts, input.templateId), "create", "docs");
+	if (input.projectReferences !== undefined && input.projectReferences.length > 0 && registry === undefined) {
+		throw new Error("projectReferences requires a project registry");
+	}
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 	const document = artifacts.create(
 		{
@@ -107,7 +116,15 @@ export function createDocument(
 		},
 		context,
 	);
-	scopes.assign(document.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	if (input.projectReferences !== undefined && input.projectReferences.length > 0) {
+		if (input.projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
+			throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
+		}
+		const ids = input.projectReferences.map((reference) => resolveProjectReference(registry!, reference).id);
+		scopes.replaceProjects(document.id, ids, "explicit");
+	} else {
+		scopes.assign(document.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
+	}
 	return document;
 }
 
@@ -128,6 +145,65 @@ export function assignDocumentProject(
 		projectRoot === undefined ? "unscoped" : "explicit",
 	);
 	return artifacts.get(id)!;
+}
+
+/**
+ * The multi-project scope surface docs.assign_project cannot express (more than one membership,
+ * or exact fail-closed reference resolution instead of assign's auto-register-by-root). Mirrors
+ * rules.ts's own ruleScope/setRuleGlobal/replaceRuleProjects/addRuleProject/removeRuleProject --
+ * id is resolved through requireDocument so these reject the same way against a non-Doc, unknown
+ * id, or a Note as every other docs.* mutation; the project REFERENCE (name/alias/root) is
+ * resolved through the shared registry's resolveProjectReference, so an unknown or ambiguous
+ * project fails closed with bounded candidates rather than silently creating a new registration.
+ */
+export function docScope(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireDocument(artifacts, id);
+	return scopes.scope(id);
+}
+
+export function setDocGlobal(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireDocument(artifacts, id);
+	return scopes.setGlobal(id, "explicit");
+}
+
+export function replaceDocProjects(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReferences: readonly string[],
+): ArtifactScope {
+	requireDocument(artifacts, id);
+	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use docs.set_global to clear scoping");
+	if (projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
+		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
+	}
+	const ids = projectReferences.map((reference) => resolveProjectReference(registry, reference).id);
+	return scopes.replaceProjects(id, ids, "explicit");
+}
+
+export function addDocProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReference: string,
+): ArtifactScope {
+	requireDocument(artifacts, id);
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.addProject(id, project.id, "explicit");
+}
+
+export function removeDocProject(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	id: string,
+	projectReference: string,
+): ArtifactScope {
+	requireDocument(artifacts, id);
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.removeProject(id, project.id);
 }
 
 function requireDocument(artifacts: ArtifactStore, id: string): Artifact {

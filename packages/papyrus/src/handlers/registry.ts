@@ -51,7 +51,7 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 	registry.setExposeHandlerFailureDetails(true);
 	registerNotesVehicleOperations(registry, deps.notes, deps.artifacts);
 	registerRulesVehicleOperations(registry, deps.artifacts, deps.scopes, deps.projectRegistry);
-	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority);
+	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority, deps.projectRegistry);
 	registerPlaybooksVehicleOperations(registry, {
 		artifacts: deps.artifacts,
 		events: deps.events,

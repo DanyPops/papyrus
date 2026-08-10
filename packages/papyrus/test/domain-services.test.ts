@@ -10,6 +10,7 @@ import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import {
+	addDocProject,
 	assignDocumentProject,
 	createDocument,
 	linkDocument,
@@ -562,6 +563,63 @@ describe("documents domain service", () => {
 		const { db, artifacts, authority, tasks } = fixture();
 		const task = tasks.create({ title: "Not a document" });
 		expect(() => transitionDocument(artifacts, task.id, "archive", authority)).toThrow("is not a doc");
+		db.close();
+	});
+
+	it("each query mode -- exact membership, applicable, and unscoped all-list -- returns the documented union without duplicates and enforces limits (docs-add-bounded-multi-project-membership-and-fail)", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const registry = new SQLiteProjectRegistryStore(db);
+		const projectA = registry.registerProject({ projectRoot: "/tmp/docs-determinism-a", name: "Docs Determinism A" });
+		const projectB = registry.registerProject({ projectRoot: "/tmp/docs-determinism-b", name: "Docs Determinism B" });
+
+		const multiMembershipDoc = createDocument(
+			artifacts,
+			scopes,
+			{ title: "Belongs to A and B", body: "Shared", projectReferences: [projectA.id, projectB.id] },
+			authority,
+			undefined,
+			registry,
+		);
+		const onlyA = createDocument(
+			artifacts,
+			scopes,
+			{ title: "Only A", body: "A", projectReferences: [projectA.id] },
+			authority,
+			undefined,
+			registry,
+		);
+		const globalDoc = createDocument(artifacts, scopes, { title: "Global doc" }, authority);
+
+		// Exact membership: only docs whose bounded membership set literally includes project A --
+		// never the global doc, which carries no membership row at all.
+		const exactA = listDocuments(artifacts, scopes, { projectRoot: "/tmp/docs-determinism-a" }).map((doc) => doc.id);
+		expect(exactA.sort()).toEqual([multiMembershipDoc.id, onlyA.id].sort());
+		expect(exactA).not.toContain(globalDoc.id);
+
+		// Applicable: global docs plus docs whose membership includes project A -- no duplicate entry
+		// for the multi-membership doc, and deterministic across repeat calls.
+		const applicableA = listDocuments(artifacts, scopes, { applicableToProjectRoot: "/tmp/docs-determinism-a" }).map((doc) => doc.id);
+		expect(applicableA.filter((id) => id === multiMembershipDoc.id)).toHaveLength(1);
+		expect(applicableA).toContain(onlyA.id);
+		expect(applicableA).toContain(globalDoc.id);
+		const applicableAAgain = listDocuments(artifacts, scopes, { applicableToProjectRoot: "/tmp/docs-determinism-a" }).map((doc) => doc.id);
+		expect(applicableA).toEqual(applicableAAgain);
+
+		// Omitted project filter: the current bounded all-Docs search, unaffected by scoping.
+		const allDocs = listDocuments(artifacts, scopes, {}).map((doc) => doc.id);
+		expect(allDocs).toEqual(expect.arrayContaining([multiMembershipDoc.id, onlyA.id, globalDoc.id]));
+
+		// limit is honored for the applicable branch too, not just the exact-membership branch.
+		const limited = listDocuments(artifacts, scopes, { applicableToProjectRoot: "/tmp/docs-determinism-a", limit: 1 });
+		expect(limited).toHaveLength(1);
+		db.close();
+	});
+
+	it("docScope/addDocProject/removeDocProject/replaceDocProjects/setDocGlobal reject a Note the same way every other docs.* mutation does", () => {
+		const { db, artifacts, scopes } = fixture();
+		const registry = new SQLiteProjectRegistryStore(db);
+		const note = artifacts.create({ kind: "doc", subtype: "note", title: "A note" });
+		expect(() => addDocProject(artifacts, scopes, registry, note.id, "anything")).toThrow(/note access requires a notes/);
 		db.close();
 	});
 

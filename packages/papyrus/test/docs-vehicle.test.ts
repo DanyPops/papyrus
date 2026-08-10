@@ -25,12 +25,17 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 			.sort();
 		expect(names).toEqual([
 			"docs.activate",
+			"docs.add_project",
 			"docs.archive",
 			"docs.assign_project",
 			"docs.create",
 			"docs.link",
 			"docs.list",
+			"docs.remove_project",
 			"docs.reopen",
+			"docs.replace_projects",
+			"docs.scope",
+			"docs.set_global",
 			"docs.show",
 			"docs.update",
 		]);
@@ -174,6 +179,206 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 
 		const restored = (await registry.invoke("artifact.restore", 1, { id: created.id }, PERMS)) as { restored: boolean };
 		expect(restored.restored).toBe(true);
+		service.close();
+	});
+
+	it("create accepts bounded projectReferences (multi-project at creation), taking precedence over project_root", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-create-scope-a", name: "Docs Create Scope A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-create-scope-b", name: "Docs Create Scope B" });
+		const created = (await registry.invoke(
+			"docs.create",
+			1,
+			{ title: "Multi-scoped doc", project_root: PROJECT, projects: ["Docs Create Scope A", "Docs Create Scope B"] },
+			PERMS,
+		)) as { id: string };
+		const scope = (await registry.invoke("docs.scope", 1, { id: created.id }, PERMS)) as { mode: string; projectIds: string[] };
+		expect(scope.mode).toBe("projects");
+		expect(scope.projectIds).toHaveLength(2);
+		service.close();
+	});
+
+	it("exposes scope/add_project/remove_project/replace_projects/set_global end to end (docs-add-bounded-multi-project-membership-and-fail)", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-scope-project-a", name: "Docs Scope Project A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-scope-project-b", name: "Docs Scope Project B" });
+		const created = (await registry.invoke("docs.create", 1, { title: "Scope surface doc" }, PERMS)) as { id: string };
+
+		expect(await registry.invoke("docs.scope", 1, { id: created.id }, PERMS)).toEqual({
+			artifactId: created.id,
+			mode: "global",
+			projectIds: [],
+			source: "unscoped",
+		});
+
+		const afterAdd = (await registry.invoke("docs.add_project", 1, { id: created.id, project: "Docs Scope Project A" }, PERMS)) as {
+			mode: string;
+			projectIds: string[];
+		};
+		expect(afterAdd.mode).toBe("projects");
+		expect(afterAdd.projectIds).toHaveLength(1);
+
+		// Idempotent: adding an already-present project is a no-op, not a duplicate or an error.
+		const afterDuplicateAdd = (await registry.invoke(
+			"docs.add_project",
+			1,
+			{ id: created.id, project: "Docs Scope Project A" },
+			PERMS,
+		)) as {
+			projectIds: string[];
+		};
+		expect(afterDuplicateAdd.projectIds).toHaveLength(1);
+
+		const afterAddSecond = (await registry.invoke("docs.add_project", 1, { id: created.id, project: "Docs Scope Project B" }, PERMS)) as {
+			projectIds: string[];
+		};
+		expect(afterAddSecond.projectIds).toHaveLength(2);
+
+		const afterRemove = (await registry.invoke("docs.remove_project", 1, { id: created.id, project: "Docs Scope Project B" }, PERMS)) as {
+			projectIds: string[];
+		};
+		expect(afterRemove.projectIds).toHaveLength(1);
+
+		const afterReplace = (await registry.invoke(
+			"docs.replace_projects",
+			1,
+			{ id: created.id, projects: ["Docs Scope Project A", "Docs Scope Project B"] },
+			PERMS,
+		)) as { projectIds: string[] };
+		expect(afterReplace.projectIds).toHaveLength(2);
+
+		const afterGlobal = (await registry.invoke("docs.set_global", 1, { id: created.id }, PERMS)) as {
+			artifactId: string;
+			mode: string;
+			projectIds: string[];
+			source: string;
+		};
+		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+		service.close();
+	});
+
+	it("rejects removing an active Doc's last project membership -- set_global must be called explicitly instead of accidentally broadening scope", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", {
+			project_root: "/tmp/docs-last-membership-project",
+			name: "Docs Last Membership Project",
+		});
+		const created = (await registry.invoke(
+			"docs.create",
+			1,
+			{ title: "Last membership doc", projects: ["Docs Last Membership Project"] },
+			PERMS,
+		)) as { id: string };
+
+		await expect(
+			registry.invoke("docs.remove_project", 1, { id: created.id, project: "Docs Last Membership Project" }, PERMS),
+		).rejects.toThrow(/set_global|last|only remaining|non-empty/i);
+
+		const madeGlobal = (await registry.invoke("docs.set_global", 1, { id: created.id }, PERMS)) as { mode: string };
+		expect(madeGlobal.mode).toBe("global");
+		service.close();
+	});
+
+	it("never widens a name-based docs.* mutation across projects -- a same-named Doc in a different project is invisible, but the searching project's own scoped or global Doc still resolves", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-widen-project-a", name: "Docs Widen Project A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-widen-project-b", name: "Docs Widen Project B" });
+
+		const docInA = (await registry.invoke(
+			"docs.create",
+			1,
+			{ title: "Shared Doc Name", body: "Belongs to A", projects: ["Docs Widen Project A"] },
+			PERMS,
+		)) as { id: string };
+		const docInB = (await registry.invoke(
+			"docs.create",
+			1,
+			{ title: "Shared Doc Name", body: "Belongs to B", projects: ["Docs Widen Project B"] },
+			PERMS,
+		)) as { id: string };
+
+		// Resolving "Shared Doc Name" from project B's context must hit B's own doc, never A's --
+		// even though A's scoped search comes up empty first and used to widen to every project.
+		const shownFromB = (await registry.invoke(
+			"docs.show",
+			1,
+			{ name: "Shared Doc Name", project_root: "/tmp/docs-widen-project-b" },
+			PERMS,
+		)) as { id: string };
+		expect(shownFromB.id).toBe(docInB.id);
+		expect(shownFromB.id).not.toBe(docInA.id);
+
+		const globalDoc = (await registry.invoke("docs.create", 1, { title: "Global Shared Doc Name", body: "Applies everywhere" }, PERMS)) as {
+			id: string;
+		};
+		// A global doc is still found via the widen fallback even when a project_root is given and
+		// nothing is scoped to that project under this name -- widening to "applies here" is fine;
+		// widening to "some other project entirely" is the bug this guards against.
+		const shownGlobal = (await registry.invoke(
+			"docs.show",
+			1,
+			{ name: "Global Shared Doc Name", project_root: "/tmp/docs-widen-project-a" },
+			PERMS,
+		)) as { id: string };
+		expect(shownGlobal.id).toBe(globalDoc.id);
+		service.close();
+	});
+
+	it("docs.list applicable:true returns global Docs plus Docs scoped to that project, distinct from project_root's exact-membership default", async () => {
+		const { registry, service } = harness();
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-applicable-a", name: "Docs Applicable A" });
+		await service.execute("tasks.register_project", { project_root: "/tmp/docs-applicable-b", name: "Docs Applicable B" });
+
+		const scopedToA = (await registry.invoke("docs.create", 1, { title: "Scoped to A", projects: ["Docs Applicable A"] }, PERMS)) as {
+			id: string;
+		};
+		const scopedToB = (await registry.invoke("docs.create", 1, { title: "Scoped to B", projects: ["Docs Applicable B"] }, PERMS)) as {
+			id: string;
+		};
+		const global = (await registry.invoke("docs.create", 1, { title: "Global doc" }, PERMS)) as { id: string };
+
+		const exactMembership = (await registry.invoke(
+			"docs.list",
+			1,
+			{ project_root: "/tmp/docs-applicable-a", full: true },
+			PERMS,
+		)) as Array<{ id: string }>;
+		expect(exactMembership.map((row) => row.id)).toEqual([scopedToA.id]);
+
+		const applicable = (await registry.invoke(
+			"docs.list",
+			1,
+			{ project_root: "/tmp/docs-applicable-a", applicable: true, full: true },
+			PERMS,
+		)) as Array<{ id: string }>;
+		const applicableIds = applicable.map((row) => row.id).sort();
+		expect(applicableIds).toContain(scopedToA.id);
+		expect(applicableIds).toContain(global.id);
+		expect(applicableIds).not.toContain(scopedToB.id);
+		service.close();
+	});
+
+	it("docs.list rejects applicable:true without project_root", async () => {
+		const { registry, service } = harness();
+		await expect(registry.invoke("docs.list", 1, { applicable: true }, PERMS)).rejects.toThrow(/applicable requires project_root/);
+		service.close();
+	});
+
+	it("every new docs scope mutation rejects Note subtype -- Notes stay behind notes.*", async () => {
+		const { registry, service } = harness();
+		const note = (await service.execute("notes.capture", { body: "a captured note", project_root: PROJECT })) as { id: string };
+
+		await expect(registry.invoke("docs.scope", 1, { id: note.id }, PERMS)).rejects.toThrow(/note access requires a notes/);
+		await expect(registry.invoke("docs.set_global", 1, { id: note.id }, PERMS)).rejects.toThrow(/note access requires a notes/);
+		await expect(registry.invoke("docs.add_project", 1, { id: note.id, project: "anything" }, PERMS)).rejects.toThrow(
+			/note access requires a notes/,
+		);
+		await expect(registry.invoke("docs.remove_project", 1, { id: note.id, project: "anything" }, PERMS)).rejects.toThrow(
+			/note access requires a notes/,
+		);
+		await expect(registry.invoke("docs.replace_projects", 1, { id: note.id, projects: ["anything"] }, PERMS)).rejects.toThrow(
+			/note access requires a notes/,
+		);
 		service.close();
 	});
 });

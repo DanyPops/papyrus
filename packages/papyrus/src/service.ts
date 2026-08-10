@@ -406,6 +406,11 @@ function handlers(
 		"docs.reopen": forwardToModule("docs.reopen"),
 		"docs.link": forwardToModule("docs.link"),
 		"docs.assign_project": forwardToModule("docs.assign_project"),
+		"docs.scope": forwardToModule("docs.scope"),
+		"docs.set_global": forwardToModule("docs.set_global"),
+		"docs.add_project": forwardToModule("docs.add_project"),
+		"docs.remove_project": forwardToModule("docs.remove_project"),
+		"docs.replace_projects": forwardToModule("docs.replace_projects"),
 		"docs.update": forwardToModule("docs.update"),
 		"notes.capture": forwardToModule("notes.capture"),
 		"notes.list": forwardToModule("notes.list"),
@@ -498,7 +503,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(sessionIdentityOperations(sessionIdentity));
 	moduleRegistry.registerAll(discussOperations(discussions));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
-	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority));
+	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority, projectRegistry));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry));
 	moduleRegistry.registerAll(playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity }));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));

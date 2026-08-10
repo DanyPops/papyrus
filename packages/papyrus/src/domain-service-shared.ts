@@ -53,8 +53,10 @@ export interface ListFilter {
 	status?: string;
 	text?: string;
 	limit?: number;
-	/** When supplied, results are limited to artifacts scoped to this project (or the unscoped bucket, for an empty string is not accepted -- use assignArtifactProject's own validation). */
+	/** When supplied, results are limited to artifacts with EXACT membership in this project (or the unscoped bucket) -- audit semantics, never includes a global artifact unless it happens to also carry this exact membership (it never does; global and "projects" are mutually exclusive modes). Mutually exclusive with applicableToProjectRoot -- pass at most one. */
 	projectRoot?: string;
+	/** When supplied instead of projectRoot, results are APPLICABLE to this project: every global artifact, plus every artifact whose bounded membership set includes this registered project root -- "would this show up for someone working in this project", not "is this project its only home". Distinct from projectRoot's exact-membership audit semantics. An empty string is not accepted -- use normalizeProjectRoot's own validation. */
+	applicableToProjectRoot?: string;
 }
 
 /**
@@ -62,7 +64,8 @@ export interface ListFilter {
  * via ArtifactScopeStore first and post-filter by kind/status/text (mirrors Tasks.list's
  * established scoped-listing shape); otherwise fall back to the existing unscoped query
  * path unchanged, so every caller that predates project scoping keeps working exactly as
- * before.
+ * before. filter.applicableToProjectRoot takes a separate, additive branch -- see its own
+ * doc comment on ListFilter for why this is not the same query as filter.projectRoot.
  */
 export function listScoped(
 	artifacts: ArtifactStore,
@@ -71,6 +74,23 @@ export function listScoped(
 	filter: ListFilter,
 	excludeSubtype?: string,
 ): Artifact[] {
+	if (filter.applicableToProjectRoot !== undefined) {
+		const limit = filter.limit ?? ARTIFACT_SCOPE_MAX_ARTIFACTS;
+		if (!Number.isInteger(limit) || limit < 1 || limit > ARTIFACT_SCOPE_MAX_ARTIFACTS) {
+			throw new Error(`list limit must be between 1 and ${ARTIFACT_SCOPE_MAX_ARTIFACTS}`);
+		}
+		const projectRoot = normalizeProjectRoot(filter.applicableToProjectRoot);
+		// Bounded (not a genuinely unlimited table scan) by capping the underlying query at
+		// ARTIFACT_SCOPE_MAX_ARTIFACTS before the applicability filter -- the same bounded-
+		// approximation tradeoff listInjectableRules already makes for "active rules," accepted
+		// here since a real kind/status/text-matching artifact count beyond that bound is not a
+		// realistic Papyrus deployment shape.
+		return artifacts
+			.query({ kind, excludeSubtype, status: filter.status, text: filter.text, limit: ARTIFACT_SCOPE_MAX_ARTIFACTS })
+			.filter((artifact) => scopes.appliesToProjectRoot(artifact.id, projectRoot))
+			.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))
+			.slice(0, limit);
+	}
 	if (filter.projectRoot === undefined)
 		return artifacts.query({ kind, excludeSubtype, status: filter.status, text: filter.text, limit: filter.limit });
 	const limit = filter.limit ?? ARTIFACT_SCOPE_MAX_ARTIFACTS;

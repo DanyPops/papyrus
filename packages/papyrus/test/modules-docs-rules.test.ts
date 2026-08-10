@@ -15,7 +15,7 @@ function fixture() {
 	const projectRegistry = new SQLiteProjectRegistryStore(db);
 	const authority = new AuthorityRegistry();
 	const registry = new OperationRegistry();
-	registry.registerAll(docsOperations(artifacts, artifactScopes, authority));
+	registry.registerAll(docsOperations(artifacts, artifactScopes, authority, projectRegistry));
 	registry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry));
 	return { registry, artifacts };
 }

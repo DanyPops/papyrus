@@ -9,6 +9,7 @@ The daemon, CLI, and domain services behind Papyrus's graph artifact store: evid
 - [Schema protocol](#schema-protocol)
 - [Hierarchy and traversal](#hierarchy-and-traversal)
 - [Playbooks](#playbooks)
+- [Project scope](#project-scope)
 - [Naming vs. ids](#naming-vs-ids)
 - [Mutability](#mutability)
 - [Idempotent lifecycle mutations](#idempotent-lifecycle-mutations)
@@ -73,6 +74,23 @@ A run result carries a stable schema: Playbook id, run id, normalized arguments,
 papyrus playbooks invoke <playbook-id> \
   --arguments-json '{"project":"Papyrus"}' \
   --json
+```
+
+## Project scope
+
+A Doc, Rule, or Playbook is either global (applies everywhere) or bound to a bounded, non-empty set of registered projects — never both, and never inferred from an accidentally empty membership. `scope` inspects an artifact's own mode and membership; `add_project`/`remove_project` mutate one membership at a time (`add_project` is idempotent for an already-present project; `remove_project` for an absent one); `replace_projects` swaps the whole set atomically; `set_global` is the only way back to global — removing an artifact's last remaining membership through `remove_project` is rejected instead of silently widening it. `assign_project` remains a documented compatibility delegate for the pre-multi-project single-root shape (replace, not add).
+
+Listing follows the same distinction: an omitted project filter keeps the existing bounded all-artifacts search; `project_root` alone means exact membership (audit semantics — only artifacts actually bound to that project); `project_root` plus `applicable: true` means every artifact *applicable* to that project instead — global artifacts plus artifacts whose membership includes it. `pi-papyrus`'s own context injection uses `applicable` for both Rules (`rules.injectable`) and Playbooks, so a project-bound artifact never leaks into an unrelated project's prompt. Project scope governs applicability and discovery, never authorization: exact-id access works regardless of scope, the same as it always has.
+
+A Playbook's own definition scope is a separate concern from where `playbooks.invoke` sends its generated artifacts. An unscoped or global Playbook can still be invoked with a destination `project_root`; the generated Tasks, Docs, and Rules inherit that destination, while the Playbook definition itself is untouched. A run-created Rule's injection requires both its own run to be active *and* its generated project membership to match — either alone is not enough.
+
+The shared project catalog behind all of this (`projects.list`/`projects.resolve`/`projects.register`) is the exact one Tasks has always used, and `tasks.projects`/`tasks.resolve_project`/`tasks.register_project` remain fully working, documented compatibility delegates over it.
+
+```bash
+papyrus docs scope <doc-id> --json
+papyrus rules add-project <rule-id> Lector --json
+papyrus playbooks list --project-root <root> --applicable --json
+papyrus projects register /path/to/project --name Lector --json
 ```
 
 ## Naming vs. ids

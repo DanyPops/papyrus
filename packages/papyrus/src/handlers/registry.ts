@@ -22,6 +22,7 @@ import { registerDiscussVehicleOperations } from "./discuss.ts";
 import { registerDocsVehicleOperations } from "./docs.ts";
 import { registerNotesVehicleOperations } from "./notes.ts";
 import { registerPlaybooksVehicleOperations } from "./playbooks.ts";
+import { registerProjectsVehicleOperations } from "./projects.ts";
 import { registerRulesVehicleOperations } from "./rules.ts";
 import { registerTasksVehicleOperations } from "./tasks.ts";
 
@@ -62,6 +63,7 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 		projectRegistry: deps.projectRegistry,
 	});
 	registerTasksVehicleOperations(registry, { tasks: deps.tasks, artifacts: deps.artifacts, sessionIdentity: deps.sessionIdentity });
+	registerProjectsVehicleOperations(registry, deps.projectRegistry);
 	registerDiscussVehicleOperations(registry, deps.discussions, deps.artifacts);
 	registerArtifactTrashOperations(registry, deps.artifacts);
 	return registry;

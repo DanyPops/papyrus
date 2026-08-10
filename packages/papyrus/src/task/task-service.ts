@@ -14,15 +14,14 @@ import {
 	TASK_LABEL_MAX_LENGTH,
 	TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH,
 	TASK_MUTATION_IDEMPOTENCY_RETENTION_MS,
-	TASK_PROJECT_ALIAS_MAX_COUNT,
 	TASK_PROJECT_LIST_MAX_RESULTS,
-	TASK_PROJECT_NAME_MAX_LENGTH,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "../constants.ts";
 import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "../domain/checklist.ts";
 import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "../domain/discussion.ts";
 import { type Gate, type GateResult, validateGates } from "../domain/gate.ts";
+import { assertRegisterProjectInputBounds } from "../domain/project-registry.ts";
 import type {
 	AppendTaskEvent,
 	TaskEventContext,
@@ -549,17 +548,7 @@ export class Tasks {
 	registerProject(input: RegisterTaskProjectInput, existingReference?: string): TaskProject {
 		const projectRoot = normalizeProjectRoot(input.projectRoot);
 		const name = input.name?.trim();
-		if (name !== undefined && (name.length === 0 || name.length > TASK_PROJECT_NAME_MAX_LENGTH)) {
-			throw new Error(`project name must be between 1 and ${TASK_PROJECT_NAME_MAX_LENGTH} characters`);
-		}
-		if ((input.aliases?.length ?? 0) > TASK_PROJECT_ALIAS_MAX_COUNT) {
-			throw new Error(`project aliases cannot exceed ${TASK_PROJECT_ALIAS_MAX_COUNT} entries`);
-		}
-		for (const alias of input.aliases ?? []) {
-			if (alias.trim().length === 0 || alias.length > TASK_PROJECT_NAME_MAX_LENGTH) {
-				throw new Error(`each project alias must be between 1 and ${TASK_PROJECT_NAME_MAX_LENGTH} characters`);
-			}
-		}
+		assertRegisterProjectInputBounds(name, input.aliases);
 		const existingId = existingReference ? this.resolveProject(existingReference).id : input.existingId;
 		return this.scopes.registerProject({ projectRoot, ...(name ? { name } : {}), aliases: input.aliases, existingId });
 	}

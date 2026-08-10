@@ -28,6 +28,7 @@ import { LOGS_OPERATION_NAMES, logsOperations } from "./modules/logs.ts";
 import { NOTES_OPERATION_NAMES, notesOperations } from "./modules/notes.ts";
 import { type OperationInput, optionalNumber, optionalString, string } from "./modules/operation-input.ts";
 import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "./modules/playbooks.ts";
+import { PROJECTS_OPERATION_NAMES, projectsOperations } from "./modules/projects.ts";
 import { RULES_OPERATION_NAMES, rulesOperations } from "./modules/rules.ts";
 import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "./modules/session-identity.ts";
 import { TASKS_OPERATION_NAMES, tasksOperations } from "./modules/tasks.ts";
@@ -98,6 +99,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...NOTES_OPERATION_NAMES,
 	...RULES_OPERATION_NAMES,
 	...PLAYBOOKS_OPERATION_NAMES,
+	...PROJECTS_OPERATION_NAMES,
 	...GRAPH_PROJECTION_OPERATION_NAMES,
 	...LOGS_OPERATION_NAMES,
 	...SESSION_IDENTITY_OPERATION_NAMES,
@@ -451,6 +453,9 @@ function handlers(
 		"playbooks.uncontain": forwardToModule("playbooks.uncontain"),
 		"playbooks.depend": forwardToModule("playbooks.depend"),
 		"playbooks.undepend": forwardToModule("playbooks.undepend"),
+		"projects.list": forwardToModule("projects.list"),
+		"projects.resolve": forwardToModule("projects.resolve"),
+		"projects.register": forwardToModule("projects.register"),
 		"graph_projection.apply": forwardToModule("graph_projection.apply"),
 		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 		"logs.append": forwardToModule("logs.append"),
@@ -513,6 +518,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(
 		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry }),
 	);
+	moduleRegistry.registerAll(projectsOperations(projectRegistry));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, artifactScopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {

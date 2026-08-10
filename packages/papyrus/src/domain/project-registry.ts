@@ -1,3 +1,5 @@
+import { TASK_PROJECT_ALIAS_MAX_COUNT, TASK_PROJECT_NAME_MAX_LENGTH } from "../constants.ts";
+
 /**
  * A registered project identity, shared across every artifact kind (Tasks, Docs, Rules,
  * Playbooks) rather than owned by Tasks alone -- extracted so a Doc/Rule/Playbook can resolve
@@ -18,6 +20,29 @@ export interface RegisterProjectInput {
 	name?: string;
 	aliases?: string[];
 	existingId?: string;
+}
+
+/**
+ * The one bounded schema vocabulary for a registered project name/alias set -- shared by Tasks'
+ * own registerProject and the kind-neutral projects.register operation, rather than each domain
+ * enforcing a slightly different bound. Reuses constants.ts's existing TASK_PROJECT_* bounds
+ * (unchanged names -- the underlying catalog is Tasks' own historical one, just no longer
+ * Tasks-exclusive) rather than introducing a second, parallel set of the same numbers.
+ * Store-level registerProject (SQLiteProjectRegistryStore) does not itself validate
+ * length/count, so every caller must go through this first.
+ */
+export function assertRegisterProjectInputBounds(name: string | undefined, aliases: string[] | undefined): void {
+	if (name !== undefined && (name.trim().length === 0 || name.length > TASK_PROJECT_NAME_MAX_LENGTH)) {
+		throw new Error(`project name must be between 1 and ${TASK_PROJECT_NAME_MAX_LENGTH} characters`);
+	}
+	if ((aliases?.length ?? 0) > TASK_PROJECT_ALIAS_MAX_COUNT) {
+		throw new Error(`project aliases cannot exceed ${TASK_PROJECT_ALIAS_MAX_COUNT} entries`);
+	}
+	for (const alias of aliases ?? []) {
+		if (alias.trim().length === 0 || alias.length > TASK_PROJECT_NAME_MAX_LENGTH) {
+			throw new Error(`each project alias must be between 1 and ${TASK_PROJECT_NAME_MAX_LENGTH} characters`);
+		}
+	}
 }
 
 export class ProjectNotFoundError extends Error {}

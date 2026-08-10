@@ -21,6 +21,7 @@ import {
 	runMigrationCli,
 	runNoteCli,
 	runPlaybooksCli,
+	runProjectsCli,
 	runRulesCli,
 	runSessionIdentityCli,
 	runTaskCli,
@@ -39,6 +40,7 @@ class FakeClient {
 const artifact = { id: "a1", title: "Title", status: "todo" };
 const artifactList = [artifact];
 const artifactScope = { artifactId: "a1", mode: "global", projectIds: [] as string[], source: "unscoped" };
+const project = { id: "p1", name: "Project One", aliases: [] as string[], projectRoot: "/workspace/papyrus" };
 
 interface Fixture {
 	operation: OperationName;
@@ -308,6 +310,9 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "discuss.show", result: { discussion: artifact, rounds: [] }, invoke: (c) => runDiscussCli(["show", "a1", "--json"], c) },
 	{ operation: "discuss.rounds", result: [], invoke: (c) => runDiscussCli(["rounds", "a1", "--json"], c) },
 	{ operation: "discuss.list", result: [], invoke: (c) => runDiscussCli(["list", "--json"], c) },
+	{ operation: "projects.list", result: [project], invoke: (c) => runProjectsCli(["list", "--json"], c) },
+	{ operation: "projects.resolve", result: project, invoke: (c) => runProjectsCli(["resolve", "proj1", "--json"], c) },
+	{ operation: "projects.register", result: project, invoke: (c) => runProjectsCli(["register", "/workspace/papyrus", "--json"], c) },
 ];
 
 describe("Papyrus CLI \u2014 structural operation parity", () => {

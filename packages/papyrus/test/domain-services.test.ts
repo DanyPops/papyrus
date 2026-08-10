@@ -739,6 +739,14 @@ describe("Docs/Rules/Skills project scoping (papyrus-defect-docs-and-likely-rule
 		db.close();
 	});
 
+	it("excludes a trashed Document from project-scoped listing, matching the unscoped and applicable branches' own trash exclusion (found live-verifying docs-add-bounded-multi-project-membership-and-fail)", () => {
+		const { db, artifacts, scopes, authority } = fixture();
+		const scoped = createDocument(artifacts, scopes, { title: "Scoped doc", projectRoot: "/workspace/papyrus" }, authority);
+		artifacts.trash(scoped.id);
+		expect(listDocuments(artifacts, scopes, { projectRoot: "/workspace/papyrus" })).toEqual([]);
+		db.close();
+	});
+
 	it("reassigns a Document to a different project after creation, and can unscope it", () => {
 		const { db, artifacts, scopes, authority } = fixture();
 		const document = createDocument(artifacts, scopes, { title: "Doc", projectRoot: "/workspace/papyrus" }, authority);

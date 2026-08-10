@@ -99,12 +99,14 @@ export function listScoped(
 	}
 	const projectRoot = normalizeProjectRoot(filter.projectRoot);
 	const ids = scopes.ids(projectRoot, ARTIFACT_SCOPE_MAX_ARTIFACTS);
-	const text = filter.text?.toLowerCase();
-	return ids
-		.map((id) => artifacts.get(id))
-		.filter((artifact): artifact is Artifact => artifact?.kind === kind && artifact.subtype !== excludeSubtype)
-		.filter((artifact) => filter.status === undefined || artifact.status === filter.status)
-		.filter((artifact) => text === undefined || artifact.title.toLowerCase().includes(text) || artifact.body.toLowerCase().includes(text))
+	if (ids.length === 0) return [];
+	// artifacts.query (not a manual ids.map(artifacts.get)) so a trashed member is excluded the
+	// same way every other listing path already excludes trash by default -- a real, confirmed
+	// bug live-verifying this feature: artifacts.get() has no trash awareness at all, so a
+	// project-scoped listing kept surfacing an artifact for weeks after artifact.remove trashed
+	// it, while the unscoped and applicable branches (both already query-backed) never did.
+	return artifacts
+		.query({ ids, kind, excludeSubtype, status: filter.status, text: filter.text })
 		.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))
 		.slice(0, limit);
 }

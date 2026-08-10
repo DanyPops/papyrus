@@ -102,4 +102,45 @@ describe("runDocsCli (Stricli-backed)", () => {
 		const client = new FakeClient({});
 		await expect(runDocsCli(["bogus"], client)).rejects.toThrow();
 	});
+
+	it("list: threads --applicable through to docs.list", async () => {
+		const client = new FakeClient([]);
+		await runDocsCli(["list", "--project-root", "/proj", "--applicable"], client);
+		expect(client.calls).toEqual([
+			{ operation: "docs.list", input: { status: undefined, text: undefined, limit: undefined, project_root: "/proj", applicable: true } },
+		]);
+	});
+
+	const scope = { artifactId: "d1", mode: "projects", projectIds: ["p1"], source: "explicit" };
+
+	it("scope: shows a Doc's project scope", async () => {
+		const client = new FakeClient(scope);
+		const output = await runDocsCli(["scope", "d1"], client);
+		expect(client.calls).toEqual([{ operation: "docs.scope", input: { id: "d1" } }]);
+		expect(output).toContain("p1");
+	});
+
+	it("set-global: makes a Doc global", async () => {
+		const client = new FakeClient({ ...scope, mode: "global", projectIds: [] });
+		await runDocsCli(["set-global", "d1"], client);
+		expect(client.calls).toEqual([{ operation: "docs.set_global", input: { id: "d1" } }]);
+	});
+
+	it("add-project: adds one project to a Doc's membership", async () => {
+		const client = new FakeClient(scope);
+		await runDocsCli(["add-project", "d1", "p1"], client);
+		expect(client.calls).toEqual([{ operation: "docs.add_project", input: { id: "d1", project: "p1" } }]);
+	});
+
+	it("remove-project: removes one project from a Doc's membership", async () => {
+		const client = new FakeClient(scope);
+		await runDocsCli(["remove-project", "d1", "p1"], client);
+		expect(client.calls).toEqual([{ operation: "docs.remove_project", input: { id: "d1", project: "p1" } }]);
+	});
+
+	it("replace-projects: replaces a Doc's entire project membership from a JSON array", async () => {
+		const client = new FakeClient(scope);
+		await runDocsCli(["replace-projects", "d1", "--projects-json", '["p1","p2"]'], client);
+		expect(client.calls).toEqual([{ operation: "docs.replace_projects", input: { id: "d1", projects: ["p1", "p2"] } }]);
+	});
 });

@@ -67,12 +67,16 @@ const createCommand = buildCommand({
 });
 
 const listCommand = buildCommand({
-	func: async function (this: DocsContext, flags: { status?: string; text?: string; limit?: number; projectRoot?: string }) {
+	func: async function (
+		this: DocsContext,
+		flags: { status?: string; text?: string; limit?: number; projectRoot?: string; applicable?: boolean },
+	) {
 		const rows = await this.client.call<Record<string, unknown>, CliArtifact[]>("docs.list", {
 			status: flags.status,
 			text: flags.text,
 			limit: flags.limit,
 			project_root: flags.projectRoot,
+			applicable: flags.applicable,
 		});
 		render.call(this, rows, rows.length === 0 ? "No documents found." : rows.map((row) => artifactLabel(row)).join("\n"));
 	},
@@ -82,6 +86,11 @@ const listCommand = buildCommand({
 			text: { brief: "Substring match against title/body", kind: "parsed", parse: String, placeholder: "text", optional: true },
 			limit: { brief: "Maximum docs to return", kind: "parsed", parse: numberParser, optional: true },
 			projectRoot: { brief: "Project scope", kind: "parsed", parse: String, placeholder: "path", optional: true },
+			applicable: {
+				brief: "With --project-root: list global Docs plus Docs applicable to it, instead of exact membership",
+				kind: "boolean",
+				optional: true,
+			},
 		},
 	},
 	docs: { brief: "List Docs" },

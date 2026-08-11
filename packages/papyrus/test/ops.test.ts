@@ -411,6 +411,42 @@ describe("papyrus: four-kind model", () => {
 		db.close();
 	});
 
+	// Real gap (papyrus task d0eb81b7): GATE_OUTPUT_LIMIT was 200 characters, sliced from the
+	// START of the buffer -- for a real, longer-running command (e.g. a full bun test run), the
+	// meaningful pass/fail summary lives at the END, not the start, so a failing gate's own
+	// `output` field carried none of the actually diagnostic content: just the first line or two
+	// of banner/setup noise. Both the sync and async paths must show a real tail, not a head, and
+	// enough of it to actually diagnose a failure from.
+	describe("gate output carries a genuinely diagnostic tail, not a truncated head", () => {
+		const LONG_OUTPUT_COMMAND = "node -e \"console.log('x'.repeat(2000)); console.log('DIAGNOSTIC-SUMMARY-AT-THE-END')\"";
+
+		it("runGates (sync): a long command's displayed output ends with its own real tail, not truncated mid-noise", () => {
+			const { db } = tmpDb();
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "long output gate (sync)",
+				extra: { gates: [{ type: "command", target: LONG_OUTPUT_COMMAND }] },
+			});
+			const results = runGates(db, task.id!);
+			expect(results[0]?.output).toContain("DIAGNOSTIC-SUMMARY-AT-THE-END");
+			expect(results[0]?.output.length).toBeGreaterThan(200);
+			db.close();
+		});
+
+		it("runGatesAsync: a long command's displayed output ends with its own real tail, not truncated mid-noise", async () => {
+			const { db } = tmpDb();
+			const task = createArtifact(db, {
+				kind: "task",
+				title: "long output gate (async)",
+				extra: { gates: [{ type: "command", target: LONG_OUTPUT_COMMAND }] },
+			});
+			const results = await runGatesAsync(db, task.id!);
+			expect(results[0]?.output).toContain("DIAGNOSTIC-SUMMARY-AT-THE-END");
+			expect(results[0]?.output.length).toBeGreaterThan(200);
+			db.close();
+		});
+	});
+
 	it("rule with condition/action/severity in extra", () => {
 		const { db } = tmpDb();
 		const rule = createArtifact(db, {

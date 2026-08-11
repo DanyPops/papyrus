@@ -28,7 +28,16 @@ export const GATE_TEST_TIMEOUT_MS = 60_000;
  * this ceiling has had a chance to.
  */
 export const GATE_TIMEOUT_MAX_MS = 300_000;
-export const GATE_OUTPUT_LIMIT = 200;
+/**
+ * How much of a command/test gate's own combined stdout+stderr is kept in the caller-facing
+ * `output` field -- taken from the END of the buffer (see ops.ts's callers), not the start.
+ * Real, confirmed bug this exists for (papyrus task d0eb81b7): at the previous value (200,
+ * head-sliced), a failing gate's `output` carried only the first line or two of banner/setup
+ * noise -- exactly the LEAST useful part of a real test run, whose actual pass/fail summary is
+ * always its last lines. GATE_OPERATION_LIMITS' own maxResponseBytes (262_144, handlers/tasks.ts)
+ * comfortably holds many gates at this size.
+ */
+export const GATE_OUTPUT_LIMIT = 8_000;
 export const GATE_MAX_BUFFER_BYTES = 1_048_576;
 export const GATE_FILE_MAX_BYTES = 1_048_576;
 

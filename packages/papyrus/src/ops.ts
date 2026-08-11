@@ -628,17 +628,26 @@ function processGateCommand(gate: Gate): { command: string; timeout: number } {
  * previously "test" was a second, separately-maintained execSync path that never checked
  * gate.expect at all.
  */
+/**
+ * Keeps the LAST GATE_OUTPUT_LIMIT characters, not the first -- a real command's own meaningful
+ * pass/fail summary is its last lines, not its first (setup/banner noise). See GATE_OUTPUT_LIMIT's
+ * own doc comment (constants.ts) for the real incident this fixes.
+ */
+function gateOutputTail(text: string): string {
+	return text.length > GATE_OUTPUT_LIMIT ? text.slice(-GATE_OUTPUT_LIMIT) : text;
+}
+
 function runProcessGateSync(gate: Gate, cwd?: string): GateResult {
 	const { spawnSync } = require_("node:child_process");
 	const { command, timeout } = processGateCommand(gate);
 	const result = spawnSync(command, { shell: true, encoding: "utf-8", timeout, ...(cwd ? { cwd } : {}) });
-	if (result.error) return { gate, passed: false, output: result.error.message.slice(0, GATE_OUTPUT_LIMIT) };
+	if (result.error) return { gate, passed: false, output: gateOutputTail(result.error.message) };
 	const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
 	const passed = result.status === 0 && (gate.expect ? combined.includes(gate.expect) : true);
 	return {
 		gate,
 		passed,
-		output: combined.slice(0, GATE_OUTPUT_LIMIT) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`),
+		output: gateOutputTail(combined) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`),
 	};
 }
 
@@ -695,13 +704,13 @@ function executeGateCommand(
 			resolve(result);
 		};
 
-		child.on("error", (error) => finish({ passed: false, output: error.message.slice(0, GATE_OUTPUT_LIMIT), matchable: error.message }));
+		child.on("error", (error) => finish({ passed: false, output: gateOutputTail(error.message), matchable: error.message }));
 		child.on("close", (code) => {
 			// `matchable` carries the full (GATE_MAX_BUFFER_BYTES-bounded) buffer so the caller's
-			// gate.expect substring check sees the whole run, not just the first GATE_OUTPUT_LIMIT
-			// characters -- a real bun test run's pass/fail summary is its last line, not its first.
+			// gate.expect substring check sees the whole run, regardless of GATE_OUTPUT_LIMIT --
+			// `output` (below) is only ever the display copy.
 			const full = buffered.trim();
-			const output = full.slice(0, GATE_OUTPUT_LIMIT);
+			const output = gateOutputTail(full);
 			finish({ passed: code === 0, output: output || (code === 0 ? "ok" : `command exited with code ${code}`), matchable: full });
 		});
 

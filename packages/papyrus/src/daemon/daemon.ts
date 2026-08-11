@@ -10,11 +10,14 @@ import { logEvent, vehicleLogger } from "../log/log.ts";
 import { createApp, createPapyrusService } from "../service.ts";
 import {
 	clearDaemonPort,
+	clearSharedVehicleHandle,
 	clearVehicleHandle,
 	daemonStateDir,
 	lifecyclePath,
 	loadOrCreateToken,
+	tokenPath,
 	writeDaemonPort,
+	writeSharedVehicleHandle,
 	writeVehicleHandle,
 } from "./daemon-state.ts";
 
@@ -92,6 +95,11 @@ export async function serveMain(): Promise<void> {
 	}
 	writeDaemonPort(stateDir, server.port);
 	writeVehicleHandle(stateDir, server.port);
+	try {
+		writeSharedVehicleHandle(server.port, tokenPath(stateDir));
+	} catch (error) {
+		logEvent("error", "shared_vehicle_handle_write_failed", { message: error instanceof Error ? error.message : String(error) });
+	}
 	const checkpointTimer = setInterval(() => {
 		try {
 			service.checkpoint();
@@ -137,6 +145,11 @@ export async function serveMain(): Promise<void> {
 		clearInterval(purgeTrashTimer);
 		clearDaemonPort(stateDir);
 		clearVehicleHandle(stateDir);
+		try {
+			clearSharedVehicleHandle();
+		} catch (error) {
+			logEvent("error", "shared_vehicle_handle_remove_failed", { message: error instanceof Error ? error.message : String(error) });
+		}
 		releaseDaemonLock(lockPath);
 		service.close();
 		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare

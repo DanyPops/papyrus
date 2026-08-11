@@ -248,4 +248,41 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 			stop();
 		}
 	});
+
+	it('enables Vehicle Shell broker mode under ownVehicleName "papyrus" -- tools_list actually advertises cross-daemon discovery', async () => {
+		const { baseUrl, stop } = manifestServer();
+		try {
+			setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));
+			setPapyrusClientConnectorForTests(() => Promise.resolve(fakeSessionRegisterClient()));
+
+			const registeredTools: ToolDefinition[] = [];
+			let activeTools: string[] = [];
+			const sessionStartHandlers: Array<(event: unknown, ctx: unknown) => unknown> = [];
+			const api = {
+				registerTool(tool: ToolDefinition) {
+					registeredTools.push(tool);
+				},
+				registerCommand() {},
+				on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
+					if (event === "session_start") sessionStartHandlers.push(handler);
+				},
+				getAllTools: () => registeredTools.map((tool) => ({ name: tool.name })),
+				getActiveTools: () => activeTools,
+				setActiveTools: (names: string[]) => {
+					activeTools = names;
+				},
+				events: { emit() {} },
+			} as unknown as ExtensionAPI;
+
+			await registerPapyrus(api);
+			const ctx = { hasUI: false, cwd: "/workspace/papyrus", sessionManager: { getSessionId: () => "session-a" } };
+			for (const handler of sessionStartHandlers) await handler(undefined, ctx);
+			await waitFor(() => registeredTools.some((tool) => tool.name === "tools_list"));
+
+			const list = registeredTools.find((tool) => tool.name === "tools_list")!;
+			expect(list.description).toContain('namespaced "<vehicle>:<operation>"');
+		} finally {
+			stop();
+		}
+	});
 });

@@ -1,16 +1,20 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { readDaemonHandle as readVehicleHandle } from "@danypops/vehicle-server/paths";
+import { readDaemonHandle as readVehicleHandle, resolveSharedVehicleHandlePath } from "@danypops/vehicle-server/paths";
 import { papyrusServiceSpec, renderSystemdUnit } from "../src/cli.ts";
 import {
+	clearSharedVehicleHandle,
 	clearVehicleHandle,
 	daemonStateDir,
 	lifecyclePath,
 	loadOrCreateToken,
+	PAPYRUS_VEHICLE_NAME,
 	readDaemonHandle,
+	tokenPath,
 	vehicleHandlePath,
 	writeDaemonPort,
+	writeSharedVehicleHandle,
 	writeVehicleHandle,
 } from "../src/daemon/daemon-state.ts";
 import { VERSION } from "../src/version.ts";
@@ -48,6 +52,16 @@ describe("Papyrus daemon state", () => {
 	it("places the structured lifecycle event log beside every other daemon state file", () => {
 		const dir = tempDir("papyrus-daemon-state-");
 		expect(lifecyclePath(dir)).toBe(join(dir, "lifecycle.json"));
+	});
+
+	it("writes and clears an entry in the shared Vehicle Handle Directory, carrying a real tokenPath, discoverable by broker mode", () => {
+		const dir = tempDir("papyrus-daemon-state-");
+		const env = { XDG_RUNTIME_DIR: dir };
+		writeSharedVehicleHandle(43125, tokenPath(dir), 77777, env);
+		const sharedPath = resolveSharedVehicleHandlePath(PAPYRUS_VEHICLE_NAME, { env });
+		expect(readVehicleHandle(sharedPath)).toEqual({ host: "127.0.0.1", port: 43125, pid: 77777, tokenPath: tokenPath(dir) });
+		clearSharedVehicleHandle(env);
+		expect(readVehicleHandle(sharedPath)).toBeNull();
 	});
 });
 

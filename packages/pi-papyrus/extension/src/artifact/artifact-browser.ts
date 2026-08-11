@@ -29,8 +29,12 @@ export function filterArtifactRows(rows: Artifact[], query: string): Artifact[] 
 	const needle = query.trim().toLowerCase();
 	if (!needle) return [...rows];
 	return rows.filter((row) =>
-		[row.id, row.title, row.body, row.subtype, row.labels.join(" "), JSON.stringify(row.extra)].some((value) =>
-			value.toLowerCase().includes(needle),
+		// List operations commonly hand back ArtifactSummary rows (body/extra omitted for cheap
+		// listing) rather than the full Artifact this type declares -- body/subtype/extra can be
+		// undefined at runtime here despite the type saying string, so every value is normalized
+		// to "" before lowercasing instead of assuming it's always a real string.
+		[row.id, row.title, row.body, row.subtype, row.labels.join(" "), row.extra ? JSON.stringify(row.extra) : undefined].some((value) =>
+			(value ?? "").toLowerCase().includes(needle),
 		),
 	);
 }

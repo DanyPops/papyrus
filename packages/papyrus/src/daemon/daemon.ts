@@ -6,7 +6,7 @@ import { diagnoseDaemon, openDaemonLifecycleLog } from "@danypops/vehicle-server
 import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
-import { logEvent, vehicleLogger } from "../log/log.ts";
+import { logEvent, logger } from "../log/log.ts";
 import { createApp, createPapyrusService } from "../service.ts";
 import {
 	clearDaemonPort,
@@ -78,7 +78,7 @@ export async function serveMain(): Promise<void> {
 				pushChannel.publish("tasks", { operation });
 			}
 		},
-		logger: vehicleLogger(),
+		logger,
 		diagnose: () => diagnoseDaemon({ lifecycleLog, current: { instanceId, pid: process.pid, startedAt, provenance } }),
 	});
 	const server = Bun.serve({

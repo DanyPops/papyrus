@@ -594,7 +594,7 @@ export function createApp(deps: {
 	 * (daemon.ts) wires this to a PushChannel; tests and other embedders can ignore it.
 	 */
 	onOperationExecuted?: (operation: string, input: OperationInput) => void;
-	/** Defaults to a no-op (createVehicleHttpApp's own default) -- daemon.ts wires vehicleLogger() so a failed invocation is actually logged, not silently discarded. */
+	/** Defaults to a no-op (createVehicleHttpApp's own default) -- daemon.ts wires log/log.ts's own `logger` so a failed invocation is actually logged, not silently discarded. */
 	logger?: Logger;
 	/**
 	 * Backs GET /daemon/diagnose -- "who am I, and what happened recently" (see

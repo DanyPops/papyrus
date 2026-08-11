@@ -11,14 +11,12 @@ import {
 	TASK_EXECUTION_MAX_NODES,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
-	TASK_PROJECT_LIST_MAX_RESULTS,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "../constants.ts";
 import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "../domain/checklist.ts";
 import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "../domain/discussion.ts";
 import { type Gate, type GateResult, validateGates } from "../domain/gate.ts";
-import { assertRegisterProjectInputBounds } from "../domain/project-registry.ts";
 import type {
 	AppendTaskEvent,
 	TaskEventContext,
@@ -66,6 +64,7 @@ import {
 	type TaskMutationReceiptView,
 	type TaskMutationRequestContext,
 } from "./task-mutation-coordinator.ts";
+import { TaskProjectAmbiguousError, TaskProjectNotFoundError, TaskProjectScope } from "./task-project-scope.ts";
 
 export {
 	type TaskFocus,
@@ -74,6 +73,8 @@ export {
 	TaskMutationReceiptNotFoundError,
 	type TaskMutationReceiptView,
 	type TaskMutationRequestContext,
+	TaskProjectAmbiguousError,
+	TaskProjectNotFoundError,
 };
 
 export interface UpdateTaskInput {
@@ -97,9 +98,6 @@ export interface TaskFilter {
 }
 
 export type TaskStatus = TaskLifecycleStatus;
-
-export class TaskProjectNotFoundError extends Error {}
-export class TaskProjectAmbiguousError extends Error {}
 
 export interface TaskMutationMetadata {
 	changed: boolean;
@@ -230,12 +228,19 @@ export class Tasks {
 			(filter) => this.list(filter),
 			(event, context) => this.appendEvent(event, context),
 		);
+		this.projectScope = new TaskProjectScope(
+			this.scopes,
+			this.events,
+			(id) => this.require(id),
+			(event, context) => this.appendEvent(event, context),
+		);
 	}
 
 	private readonly completionFlights = new Map<string, Promise<TaskCompletion>>();
 	private readonly leaseCoordinator: TaskLeaseCoordinator;
 	private readonly mutationCoordinator: TaskMutationCoordinator;
 	private readonly focusCoordinator: TaskFocusCoordinator;
+	private readonly projectScope: TaskProjectScope;
 
 	private require(id: string): Artifact {
 		const artifact = this.artifacts.get(id);
@@ -372,7 +377,7 @@ export class Tasks {
 	}
 
 	list(filter: TaskFilter = {}): Artifact[] {
-		const selection = this.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
+		const selection = this.projectScope.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
 		const limit = filter.limit ?? TASK_SCOPE_MAX_TASKS;
 		if (!Number.isInteger(limit) || limit < 1 || limit > TASK_SCOPE_MAX_TASKS + 1) {
 			throw new Error(`task list limit must be between 1 and ${TASK_SCOPE_MAX_TASKS + 1}`);
@@ -412,41 +417,19 @@ export class Tasks {
 	}
 
 	scopeSelection(projectRoot?: string, mode?: TaskViewMode, rootTaskId?: string): TaskViewSelection {
-		if (mode !== undefined && mode !== "project" && mode !== "graph" && mode !== "all")
-			throw new Error("task scope must be project, graph, or all");
-		if (projectRoot === undefined) return { mode: "all", label: taskScopeLabel("all") };
-		const normalized = normalizeProjectRoot(projectRoot);
-		const persisted = this.scopes.view(normalized);
-		const selectedMode = mode ?? persisted.mode;
-		const selectedRoot = rootTaskId ?? (selectedMode === "graph" ? persisted.rootTaskId : undefined);
-		if (selectedMode === "graph" && !selectedRoot) throw new Error("graph scope requires root_task_id");
-		const root = selectedRoot ? this.require(selectedRoot) : undefined;
-		if (root && this.scopes.get(root.id)?.projectRoot !== normalized) throw new Error(`task "${root.id}" is outside project scope`);
-		return {
-			mode: selectedMode,
-			label: taskScopeLabel(selectedMode, normalized, root?.title),
-			projectRoot: normalized,
-			...(selectedRoot === undefined ? {} : { rootTaskId: selectedRoot }),
-		};
+		return this.projectScope.scopeSelection(projectRoot, mode, rootTaskId);
 	}
 
 	setView(projectRoot: string, mode: TaskViewMode, rootTaskId?: string): TaskViewSelection {
-		const selection = this.scopeSelection(projectRoot, mode, rootTaskId);
-		this.scopes.setView(selection.projectRoot!, selection.mode, selection.rootTaskId);
-		return selection;
+		return this.projectScope.setView(projectRoot, mode, rootTaskId);
 	}
 
 	assignProject(id: string, projectRoot: string, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			const task = this.require(id);
-			this.scopes.assign(id, normalizeProjectRoot(projectRoot), "explicit");
-			this.appendEvent({ taskId: id, type: "project_assigned", reason: context.reason }, context);
-			return task;
-		});
+		return this.projectScope.assignProject(id, projectRoot, context);
 	}
 
 	graph(filter: TaskFilter = {}): TaskGraph {
-		const scope = this.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
+		const scope = this.projectScope.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
 		const requestedLimit = filter.limit ?? TASK_EXECUTION_MAX_NODES + 1;
 		if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > TASK_EXECUTION_MAX_NODES + 1) {
 			throw new Error(`task graph limit must be between 1 and ${TASK_EXECUTION_MAX_NODES + 1}`);
@@ -509,38 +492,15 @@ export class Tasks {
 	}
 
 	projects(query?: string, limit = 20): TaskProject[] {
-		if (!Number.isInteger(limit) || limit < 1 || limit > TASK_PROJECT_LIST_MAX_RESULTS) {
-			throw new Error(`project list limit must be between 1 and ${TASK_PROJECT_LIST_MAX_RESULTS}`);
-		}
-		return this.scopes.projects(query, limit);
+		return this.projectScope.projects(query, limit);
 	}
 
 	resolveProject(reference: string): TaskProject {
-		const matches = this.scopes.matchingProjects(reference);
-		if (matches.length === 0) {
-			const candidates = this.scopes.projects(reference, 10);
-			const fallback = candidates.length === 0 ? this.scopes.projects(undefined, 10) : candidates;
-			const suffix =
-				fallback.length === 0 ? "" : ` Candidates: ${fallback.map((project) => `${project.name} (${project.projectRoot})`).join(", ")}`;
-			throw new TaskProjectNotFoundError(`no task project named or aliased "${reference}" is registered.${suffix}`);
-		}
-		if (matches.length > 1) {
-			throw new TaskProjectAmbiguousError(
-				`task project reference "${reference}" is ambiguous: ${matches
-					.slice(0, 10)
-					.map((project) => `${project.name} (${project.projectRoot})`)
-					.join(", ")}`,
-			);
-		}
-		return matches[0]!;
+		return this.projectScope.resolveProject(reference);
 	}
 
 	registerProject(input: RegisterTaskProjectInput, existingReference?: string): TaskProject {
-		const projectRoot = normalizeProjectRoot(input.projectRoot);
-		const name = input.name?.trim();
-		assertRegisterProjectInputBounds(name, input.aliases);
-		const existingId = existingReference ? this.resolveProject(existingReference).id : input.existingId;
-		return this.scopes.registerProject({ projectRoot, ...(name ? { name } : {}), aliases: input.aliases, existingId });
+		return this.projectScope.registerProject(input, existingReference);
 	}
 
 	show(id: string): Artifact {

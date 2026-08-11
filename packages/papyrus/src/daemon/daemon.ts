@@ -42,6 +42,10 @@ const TASK_READ_ONLY_OPERATIONS = new Set([
 	"tasks.show",
 ]);
 
+/** Matches @danypops/vehicle-server's own STREAMING_IDLE_TIMEOUT_S (daemon.ts) -- see this file's
+ * own fetch handler for why Papyrus needs the identical fix applied directly, not inherited. */
+const VEHICLE_INVOKE_IDLE_TIMEOUT_S = 3_600;
+
 /** Start the supervised, long-running Papyrus service. */
 export async function serveMain(): Promise<void> {
 	const stateDir = daemonStateDir();
@@ -81,7 +85,19 @@ export async function serveMain(): Promise<void> {
 		hostname: DAEMON_HOST,
 		port: 0,
 		fetch: (request, bunServer) => {
-			if (new URL(request.url).pathname === "/push") return pushChannel.upgrade(request, bunServer) ?? undefined;
+			const pathname = new URL(request.url).pathname;
+			if (pathname === "/push") return pushChannel.upgrade(request, bunServer) ?? undefined;
+			// Bun.serve's own idleTimeout defaults to 10s and applies per-connection regardless of
+			// how long a given request is expected to take -- @danypops/vehicle-server's own daemon.ts
+			// (startBunListener) already fixed this for every Vehicle-backed daemon that goes through
+			// its shared startDaemon() substrate; Papyrus's own daemon.ts predates that substrate and
+			// has this separate, hand-rolled Bun.serve() call, so it needs the identical fix applied
+			// directly here. Real live incident (papyrus task d0eb81b7): tasks.run_gates/tasks.complete
+			// can legitimately take tens of seconds to actually run a caller's own gate command,
+			// sending zero response bytes the whole time -- just as exposed to Bun's 10s default as
+			// the streaming case, and neither gate.timeoutMs nor VehicleLimits.maxTimeoutMs ever gets a
+			// chance to apply if the raw TCP connection is already dead first.
+			if (pathname === "/vehicle/invoke") bunServer.timeout(request, VEHICLE_INVOKE_IDLE_TIMEOUT_S);
 			return app.fetch(request);
 		},
 		// A no-op fallback when pushChannel never calls server.upgrade() is safe: Bun only

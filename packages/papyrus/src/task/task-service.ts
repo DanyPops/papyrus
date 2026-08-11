@@ -12,8 +12,6 @@ import {
 	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
-	TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH,
-	TASK_MUTATION_IDEMPOTENCY_RETENTION_MS,
 	TASK_PROJECT_LIST_MAX_RESULTS,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
@@ -31,7 +29,8 @@ import type {
 	TaskHistoryQuery,
 	TaskLifecycleStatus,
 } from "../domain/task-event.ts";
-import type { TaskLease, TaskLeaseView } from "../domain/task-lease.ts";
+import { validateEventContext } from "../domain/task-event.ts";
+import type { TaskLeaseView } from "../domain/task-lease.ts";
 import {
 	normalizeProjectRoot,
 	type RegisterTaskProjectInput,
@@ -53,13 +52,21 @@ import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } fro
 import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../stores/task-lease-store.ts";
 import {
 	InMemoryTaskMutationRequestStore,
-	TaskMutationIdempotencyConflictError,
 	TaskMutationPendingError,
 	type TaskMutationRequestRecord,
 	type TaskMutationRequestStore,
 } from "../stores/task-mutation-request-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "../stores/task-scope-store.ts";
 import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
+import { TaskLeaseCoordinator } from "./task-lease-coordinator.ts";
+import {
+	TaskMutationCoordinator,
+	TaskMutationReceiptNotFoundError,
+	type TaskMutationReceiptView,
+	type TaskMutationRequestContext,
+} from "./task-mutation-coordinator.ts";
+
+export { TaskMutationReceiptNotFoundError, type TaskMutationReceiptView, type TaskMutationRequestContext };
 
 export interface UpdateTaskInput {
 	title?: string;
@@ -85,7 +92,6 @@ export type TaskStatus = TaskLifecycleStatus;
 
 export class TaskProjectNotFoundError extends Error {}
 export class TaskProjectAmbiguousError extends Error {}
-export class TaskMutationReceiptNotFoundError extends Error {}
 
 export class TaskInvalidTransitionError extends Error {
 	constructor(
@@ -99,11 +105,6 @@ export class TaskInvalidTransitionError extends Error {
 	}
 }
 
-export interface TaskMutationRequestContext {
-	key?: string;
-	caller?: string;
-}
-
 export interface TaskMutationMetadata {
 	changed: boolean;
 	operation: string;
@@ -114,19 +115,6 @@ export interface TaskMutationMetadata {
 }
 
 export type TaskLifecycleMutationResult = Artifact & TaskMutationMetadata;
-
-export interface TaskMutationReceiptView {
-	receiptId: string;
-	operation: string;
-	state: "pending" | "completed";
-	taskName?: string;
-	taskTitle?: string;
-	taskStatus?: string;
-	result?: unknown;
-	createdAt: string;
-	updatedAt: string;
-	expiresAt: string;
-}
 
 export interface CreateTaskRequestContext {
 	key?: string;
@@ -243,9 +231,14 @@ export class Tasks {
 		private readonly leases: TaskLeaseStore = new InMemoryTaskLeaseStore(),
 		private readonly createRequests: TaskCreateRequestStore = new InMemoryTaskCreateRequestStore(),
 		private readonly mutationRequests: TaskMutationRequestStore = new InMemoryTaskMutationRequestStore(),
-	) {}
+	) {
+		this.leaseCoordinator = new TaskLeaseCoordinator(this.leases, (id) => this.require(id));
+		this.mutationCoordinator = new TaskMutationCoordinator(this.mutationRequests, this.artifacts);
+	}
 
 	private readonly completionFlights = new Map<string, Promise<TaskCompletion>>();
+	private readonly leaseCoordinator: TaskLeaseCoordinator;
+	private readonly mutationCoordinator: TaskMutationCoordinator;
 
 	private require(id: string): Artifact {
 		const artifact = this.artifacts.get(id);
@@ -603,7 +596,9 @@ export class Tasks {
 				"Focus a non-terminal task before pausing; do not blindly retry pause.",
 			);
 		}
-		const prepared = inspection.pending ? inspection : this.prepareMutation<TaskFocusMutationResult>("pause", undefined, context, request);
+		const prepared = inspection.pending
+			? inspection
+			: this.prepareMutation<TaskFocusMutationResult>("pause", undefined, context, request, true, () => validateEventContext(context));
 		if (focus.status === "paused") {
 			return this.completeMutation(prepared.record, {
 				...focus,
@@ -646,7 +641,7 @@ export class Tasks {
 		}
 		const prepared = inspection.pending
 			? inspection
-			: this.prepareMutation<TaskFocusMutationResult>("unpause", undefined, context, request);
+			: this.prepareMutation<TaskFocusMutationResult>("unpause", undefined, context, request, true, () => validateEventContext(context));
 		if (focus.status === "active") {
 			return this.completeMutation(prepared.record, {
 				...focus,
@@ -695,37 +690,26 @@ export class Tasks {
 		return this.focusStore.reapStale(cutoff);
 	}
 
-	private presentLease(lease: TaskLease): TaskLeaseView {
-		const task = this.require(lease.taskId);
-		const { taskId: _taskId, ...details } = lease;
-		return { taskName: task.alias, taskTitle: task.title, ...details };
-	}
-
 	/** A lease is orthogonal to lifecycle and Focus: claiming a task does not start it, and does not require it to be Focused. */
 	claimLease(id: string, owner: string, ttlMs?: number, note?: string): TaskLeaseView {
-		this.require(id);
-		return this.presentLease(this.leases.claim(id, owner, ttlMs, note));
+		return this.leaseCoordinator.claim(id, owner, ttlMs, note);
 	}
 
 	heartbeatLease(id: string, owner: string, token: string, ttlMs?: number): TaskLeaseView {
-		this.require(id);
-		return this.presentLease(this.leases.heartbeat(id, owner, token, ttlMs));
+		return this.leaseCoordinator.heartbeat(id, owner, token, ttlMs);
 	}
 
 	/** Idempotent for an already-absent or already-expired lease, matching undepend/uncontain's precedent -- never throws merely because there was nothing left to release. */
 	releaseLease(id: string, owner: string, token: string): { released: boolean } {
-		this.require(id);
-		return this.leases.release(id, owner, token);
+		return this.leaseCoordinator.release(id, owner, token);
 	}
 
 	getLease(id: string): TaskLeaseView | undefined {
-		this.require(id);
-		const lease = this.leases.get(id);
-		return lease ? this.presentLease(lease) : undefined;
+		return this.leaseCoordinator.get(id);
 	}
 
 	reapStaleLeases(now: () => string = () => new Date().toISOString()): number {
-		return this.leases.reapExpired(now());
+		return this.leaseCoordinator.reapStale(now);
 	}
 
 	private allowedLifecycleActions(status: string): string[] {
@@ -742,86 +726,21 @@ export class Tasks {
 		payload: unknown,
 		request: TaskMutationRequestContext,
 		reserve = true,
+		validate?: () => void,
 	): { record?: TaskMutationRequestRecord; replay?: Result; pending?: boolean } {
-		const key = request.key?.trim();
-		if (request.key !== undefined && (!key || key.length > TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH)) {
-			throw new Error(`idempotency key must be between 1 and ${TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH} characters`);
-		}
-		if (!key) return {};
-		const now = new Date().toISOString();
-		const scope = request.caller?.trim() || "anonymous";
-		const requestHash = createHash("sha256").update(canonicalJson({ operation, taskId, payload })).digest("hex");
-		this.mutationRequests.prune(now);
-		const existing = this.mutationRequests.get(scope, key, now);
-		if (existing) {
-			if (existing.requestHash !== requestHash) {
-				throw new TaskMutationIdempotencyConflictError(`idempotency key "${key}" was already used with a different mutation payload`);
-			}
-			if (existing.state === "completed" && existing.responseJson !== undefined) {
-				const replay = JSON.parse(existing.responseJson) as Result;
-				return {
-					record: existing,
-					replay:
-						typeof replay === "object" && replay !== null && "changed" in replay
-							? ({ ...replay, changed: false, replayed: true } as Result)
-							: replay,
-				};
-			}
-			return { record: existing, pending: true };
-		}
-		if (!reserve) return {};
-		const record: TaskMutationRequestRecord = {
-			scope,
-			key,
-			receiptId: crypto.randomUUID(),
-			...(taskId === undefined ? {} : { taskId }),
-			operation,
-			requestHash,
-			state: "pending",
-			createdAt: now,
-			updatedAt: now,
-			expiresAt: new Date(Date.parse(now) + TASK_MUTATION_IDEMPOTENCY_RETENTION_MS).toISOString(),
-		};
-		this.mutationRequests.put(record);
-		return { record };
+		return this.mutationCoordinator.prepare<Result>(operation, taskId, payload, request, reserve, validate);
 	}
 
 	private rejectDifferentPendingMutation(taskId: string, operation: string, inspectionPending: boolean): void {
-		if (inspectionPending) return;
-		const pending = this.mutationRequests.findPending(taskId, operation, new Date().toISOString());
-		if (!pending) return;
-		throw new TaskMutationPendingError(
-			`an earlier ${operation} outcome is still pending; inspect tasks.mutation_status with its original idempotency_key before retrying`,
-			pending.receiptId,
-			pending.operation,
-		);
+		this.mutationCoordinator.rejectDifferentPending(taskId, operation, inspectionPending);
 	}
 
 	private completeMutation<Result>(record: TaskMutationRequestRecord | undefined, result: Result): Result {
-		if (!record) return result;
-		this.mutationRequests.complete(record.scope, record.key, JSON.stringify(result), new Date().toISOString());
-		return result;
+		return this.mutationCoordinator.complete(record, result);
 	}
 
 	mutationStatus(keyInput: string, caller?: string): TaskMutationReceiptView {
-		const key = keyInput.trim();
-		if (!key || key.length > TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH) {
-			throw new Error(`idempotency key must be between 1 and ${TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH} characters`);
-		}
-		const now = new Date().toISOString();
-		const record = this.mutationRequests.get(caller?.trim() || "anonymous", key, now);
-		if (!record) throw new TaskMutationReceiptNotFoundError("no retained task mutation receipt exists for this idempotency key");
-		const task = record.taskId ? this.artifacts.get(record.taskId) : null;
-		return {
-			receiptId: record.receiptId,
-			operation: record.operation,
-			state: record.state,
-			...(task?.kind === "task" ? { taskName: task.alias, taskTitle: task.title, taskStatus: task.status } : {}),
-			...(record.responseJson === undefined ? {} : { result: JSON.parse(record.responseJson) as unknown }),
-			createdAt: record.createdAt,
-			updatedAt: record.updatedAt,
-			expiresAt: record.expiresAt,
-		};
+		return this.mutationCoordinator.status(keyInput, caller);
 	}
 
 	transition(
@@ -854,7 +773,9 @@ export class Tasks {
 				);
 			}
 		}
-		const prepared = inspection.pending ? inspection : this.prepareMutation<TaskLifecycleMutationResult>(action, id, context, request);
+		const prepared = inspection.pending
+			? inspection
+			: this.prepareMutation<TaskLifecycleMutationResult>(action, id, context, request, true, () => validateEventContext(context));
 		if (task.status === intendedStatus) {
 			return this.completeMutation(prepared.record, {
 				...this.show(id),
@@ -946,7 +867,9 @@ export class Tasks {
 		}
 		if (task.status !== "review" && task.status !== "done") this.throwInvalidCompletion(task.status);
 		if (task.status === "review") this.requireNotBlocked(task);
-		const prepared = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request);
+		const prepared = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request, true, () =>
+			validateEventContext(context),
+		);
 		if (task.status === "done") return this.completeMutation(prepared.record, this.completedNoop(id, context, prepared.record));
 		const attemptId = prepared.record?.receiptId ?? crypto.randomUUID();
 		this.events.atomic(() =>
@@ -983,7 +906,9 @@ export class Tasks {
 			}
 			if (task.status !== "review" && task.status !== "done") this.throwInvalidCompletion(task.status);
 			if (task.status === "review") this.requireNotBlocked(task);
-			const prepared = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request);
+			const prepared = this.prepareMutation<TaskCompletion>("complete", id, { context, options }, request, true, () =>
+				validateEventContext(context),
+			);
 			if (task.status === "done") return this.completeMutation(prepared.record, this.completedNoop(id, context, prepared.record));
 			const attemptId = prepared.record?.receiptId ?? crypto.randomUUID();
 			this.events.atomic(() =>

@@ -141,6 +141,24 @@ export function normalizeTaskHistoryQuery(
 	return { limit, direction: query.direction ?? "desc", ...(query.cursor === undefined ? {} : { cursor: query.cursor }) };
 }
 
+/**
+ * Validates just the caller-supplied context fields (sessionId/reason) that are already fully
+ * known BEFORE a mutation method does anything else -- unlike actor/source (always filled with
+ * defaults by appendEvent, never caller-controlled in practice) or evidence (often not known
+ * until real work, e.g. gate results, has already happened). Exported specifically so a mutation
+ * method can call it BEFORE reserving an idempotency receipt (see TaskMutationCoordinator.prepare's
+ * own `validate` hook) rather than only discovering an invalid reason deep inside events.atomic(),
+ * after a receipt was already durably written as pending -- a real incident (task a54f0649): a
+ * validation failure that fires only after the reserve leaves that receipt permanently stuck,
+ * since nothing else in the call ever reaches the code path that marks it complete.
+ */
+export function validateEventContext(context: Pick<TaskEventContext, "sessionId" | "reason">): void {
+	if (context.sessionId !== undefined && context.sessionId.length > TASK_EVENT_ACTOR_MAX_LENGTH)
+		throw new Error(`sessionId cannot exceed ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
+	if (context.reason !== undefined && context.reason.length > TASK_EVENT_REASON_MAX_LENGTH)
+		throw new Error(`reason cannot exceed ${TASK_EVENT_REASON_MAX_LENGTH} characters`);
+}
+
 export function validateTaskEvent(event: AppendTaskEvent): AppendTaskEvent {
 	for (const [field, value] of [
 		["actor", event.actor],
@@ -149,10 +167,7 @@ export function validateTaskEvent(event: AppendTaskEvent): AppendTaskEvent {
 		if (!value || value.length > TASK_EVENT_ACTOR_MAX_LENGTH)
 			throw new Error(`${field} must be between 1 and ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
 	}
-	if (event.sessionId !== undefined && event.sessionId.length > TASK_EVENT_ACTOR_MAX_LENGTH)
-		throw new Error(`sessionId cannot exceed ${TASK_EVENT_ACTOR_MAX_LENGTH} characters`);
-	if (event.reason !== undefined && event.reason.length > TASK_EVENT_REASON_MAX_LENGTH)
-		throw new Error(`reason cannot exceed ${TASK_EVENT_REASON_MAX_LENGTH} characters`);
+	validateEventContext(event);
 	if (event.evidence !== undefined && new TextEncoder().encode(JSON.stringify(event.evidence)).byteLength > TASK_EVENT_MAX_EVIDENCE_BYTES) {
 		throw new Error(`task event evidence cannot exceed ${TASK_EVENT_MAX_EVIDENCE_BYTES} bytes`);
 	}

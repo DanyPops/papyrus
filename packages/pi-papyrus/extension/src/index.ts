@@ -15,6 +15,7 @@ import {
 	NOTE_LIST_MAX_LIMIT,
 	NOTE_WIDGET_POLL_INTERVAL_MS,
 	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
+	PAPYRUS_VEHICLE_NAME,
 	TASK_DRIVER_MAX_TURNS,
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
 	TASK_WIDGET_POLL_INTERVAL_MS,
@@ -22,6 +23,7 @@ import {
 	type TaskStatus,
 } from "@danypops/papyrus";
 import type { PushChannelClient } from "@danypops/vehicle-client/daemon-client";
+import { vehicleWidgetTitle } from "@danypops/vehicle-client-pi/widget-header";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -96,7 +98,8 @@ const WIDGET_KEY = "pi-papyrus";
 
 export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjection, width: number): string[] {
 	if (projection.openTotal === 0) return [];
-	const lines: string[] = [theme.fg("muted", `Tasks · ${projection.scopeLabel}`)];
+	const header = truncateToWidth(theme.fg("muted", vehicleWidgetTitle(PAPYRUS_VEHICLE_NAME, "Tasks", projection.scopeLabel)), width, "…");
+	const lines: string[] = [header];
 	for (let index = 0; index < projection.rows.length; index++) {
 		const row = projection.rows[index]!;
 		const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);

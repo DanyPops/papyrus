@@ -29,7 +29,7 @@ describe("renderNoteWidgetLines", () => {
 	});
 
 	it("shows a simple label and count when there are open notes", () => {
-		expect(renderNoteWidgetLines(theme, 3, 40)).toEqual(["Notes 3"]);
+		expect(renderNoteWidgetLines(theme, 3, 40)).toEqual(["Papyrus · Notes 3"]);
 	});
 });
 

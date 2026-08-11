@@ -1,3 +1,10 @@
+/** This package's own Vehicle manifest identity name -- the exact string createPapyrusVehicleRegistry
+ * constructs its VehicleRegistry with (handlers/registry.ts). Exported so a consumer that needs to
+ * name "the Vehicle behind Papyrus" (e.g. pi-papyrus's own persistent widget headers, via
+ * @danypops/vehicle-client-pi's vehicleWidgetTitle) has one real source instead of a second
+ * hand-typed "papyrus" literal that could silently drift from the registry's own. */
+export const PAPYRUS_VEHICLE_NAME = "papyrus";
+
 /** Long-running daemon transport and state. */
 export const DAEMON_HOST = "127.0.0.1";
 export const DAEMON_PORT_FILE = "port";

@@ -40,7 +40,7 @@ describe("task widget rendering", () => {
 		for (const width of [40, 80, 120]) {
 			const lines = renderTaskWidgetLines(theme, projection, width);
 			expect(lines).toHaveLength(2);
-			expect(lines[0]).toBe("Tasks · papyrus · Release epic");
+			expect(lines[0]).toBe("Papyrus · Tasks · papyrus · Release epic");
 			expect(lines[1]).toContain("▶ · ● Fix graph crash");
 			expect(lines.join("\n")).not.toContain("49 open");
 			expect(lines.join("\n")).not.toContain("▶ active");

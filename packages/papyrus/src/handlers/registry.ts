@@ -10,6 +10,7 @@ import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { ArtifactTrashStore } from "../artifact/artifact-trash-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
+import { PAPYRUS_VEHICLE_NAME } from "../constants.ts";
 import type { Discussions } from "../discussion/discussion-service.ts";
 import type { Notes } from "../note/note-service.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
@@ -41,7 +42,7 @@ export interface PapyrusVehicleDeps {
 
 export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleRegistry {
 	const registry = new VehicleRegistry({
-		name: "papyrus",
+		name: PAPYRUS_VEHICLE_NAME,
 		version: "1.0.0",
 		description: "Papyrus's graph-artifact domains, one honest operation per real action.",
 	});

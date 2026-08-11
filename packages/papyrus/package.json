@@ -15,6 +15,17 @@
     "serve": "bun src/cli.ts serve",
     "service:install": "bun src/cli.ts service install"
   },
+  "packed": {
+    "daemonService": {
+      "name": "papyrus",
+      "displayName": "Papyrus graph artifact service",
+      "binPath": "src/cli.ts",
+      "args": ["serve"],
+      "handleFilename": "vehicle-handle.json",
+      "restartOnFailure": true,
+      "restartSec": 2
+    }
+  },
   "devDependencies": {
     "bun-types": "latest",
     "typescript": "^5.7.3"

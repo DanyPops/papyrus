@@ -1,6 +1,6 @@
 import type { Db } from "../db.ts";
 import type { GateResult, GateRunOptions } from "../domain/gate.ts";
-import { runGates, runGatesAsync } from "../ops.ts";
+import { runGates, runGatesAsync } from "../domain/gate-execution.ts";
 import type { GateRunner } from "./gate-runner.ts";
 
 export class SQLiteGateRunner implements GateRunner {

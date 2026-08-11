@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dbPath } from "../src/constants.ts";
 import { type Db, openDb } from "../src/db.ts";
-import { createArtifact, getArtifact, linkArtifacts, queryArtifacts, runGates, runGatesAsync } from "../src/ops.ts";
+import { runGates, runGatesAsync } from "../src/domain/gate-execution.ts";
+import { createArtifact, getArtifact, linkArtifacts, queryArtifacts } from "../src/ops.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

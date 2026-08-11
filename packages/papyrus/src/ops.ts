@@ -2,7 +2,6 @@
  * ops.ts — typed operations over the Papyrus DB.
  * Enforces the schema protocol (kinds, statuses, relations) via FK + app validation.
  */
-import { createRequire } from "node:module";
 import type { Artifact, ArtifactQuery, CreateArtifactInput, UpdateArtifactInput } from "./artifact/artifact.ts";
 import { generateUniqueAlias, isValidAlias, slugify } from "./artifact/artifact-alias.ts";
 import type { ArtifactTrashRecord } from "./artifact/artifact-trash.ts";
@@ -22,25 +21,11 @@ import {
 	normalizeArtifactEventQuery,
 	resolveArtifactEvent,
 } from "./artifact/artifact-event.ts";
-import type { Gate, GateResult, GateRunOptions } from "./domain/gate.ts";
 
 export type { Artifact } from "./artifact/artifact.ts";
-export type { Gate, GateResult } from "./domain/gate.ts";
 export type CreateInput = CreateArtifactInput;
 
-import {
-	DEFAULT_GRAPH_DEPTH,
-	DEFAULT_GRAPH_MAX_NODES,
-	GATE_COMMAND_TIMEOUT_MS,
-	GATE_FILE_MAX_BYTES,
-	GATE_MAX_BUFFER_BYTES,
-	GATE_OUTPUT_LIMIT,
-	GATE_TEST_TIMEOUT_MS,
-	MAX_GRAPH_DEPTH,
-	MAX_GRAPH_NODES,
-} from "./constants.ts";
-
-const require_ = createRequire(import.meta.url);
+import { DEFAULT_GRAPH_DEPTH, DEFAULT_GRAPH_MAX_NODES, MAX_GRAPH_DEPTH, MAX_GRAPH_NODES } from "./constants.ts";
 
 interface ResolvedCreateInput extends CreateInput {
 	kind: string;
@@ -591,186 +576,4 @@ export function injectableRules(db: Db): Array<{ id: string; title: string; body
 		const art = rowToArtifact(row);
 		return { id: art.id, title: art.title, body: art.body, extra: art.extra };
 	});
-}
-
-function readBoundedGateFile(path: string): string {
-	const { readFileSync, statSync } = require_("node:fs");
-	if (statSync(path).size > GATE_FILE_MAX_BYTES) throw new Error(`file exceeds ${GATE_FILE_MAX_BYTES} bytes`);
-	return readFileSync(path, "utf-8") as string;
-}
-
-/**
- * Shared by the sync and async process-gate runners so "test" is never a second, independently
- * maintained copy of "command"'s own command-template selection.
- *
- * "test" runs `gate.target` verbatim, exactly like "command" -- the only real difference is a
- * more generous default timeout (GATE_TEST_TIMEOUT_MS vs GATE_COMMAND_TIMEOUT_MS), since a test
- * suite routinely runs longer than an arbitrary command. It previously wrapped target in
- * `npx vitest run ${target} --reporter=dot`, silently wrong for every real consumer in this
- * ecosystem (all Bun-native, none use vitest): a target that was itself a full command (e.g.
- * `bun test path/to.test.ts`, exactly what every existing gate/checklist example here has always
- * shown) got parsed by vitest as three separate positional args, triggering vitest's own broad
- * discovery across the whole repo instead of running the intended command at all -- a real
- * incident (task ab1463e2) that produced an unrelated multi-suite vitest failure cascade instead
- * of the actual target ever running.
- */
-function processGateCommand(gate: Gate): { command: string; timeout: number } {
-	if (gate.type === "test") return { command: gate.target, timeout: gate.timeoutMs ?? GATE_TEST_TIMEOUT_MS };
-	return { command: gate.target, timeout: gate.timeoutMs ?? GATE_COMMAND_TIMEOUT_MS };
-}
-
-/**
- * spawnSync + manual stdout/stderr concatenation, not execSync: execSync's return value is stdout
- * only. Many real commands (bun test's own per-test lines and its pass/fail summary among them)
- * write their actual output to stderr, so an execSync-based match against gate.expect saw only the
- * first line of a banner and never the result -- every such gate failed regardless of whether the
- * command actually passed. This one function now serves both "command" and "test" gates;
- * previously "test" was a second, separately-maintained execSync path that never checked
- * gate.expect at all.
- */
-/**
- * Keeps the LAST GATE_OUTPUT_LIMIT characters, not the first -- a real command's own meaningful
- * pass/fail summary is its last lines, not its first (setup/banner noise). See GATE_OUTPUT_LIMIT's
- * own doc comment (constants.ts) for the real incident this fixes.
- */
-function gateOutputTail(text: string): string {
-	return text.length > GATE_OUTPUT_LIMIT ? text.slice(-GATE_OUTPUT_LIMIT) : text;
-}
-
-/**
- * The one place "did this process gate pass, and what should its display output say" is decided,
- * shared by the sync (runProcessGateSync) and async (executeGateCommand's caller) process-gate
- * runners -- previously two hand-copied inline checks that already had to be fixed twice, by
- * hand, more than once (gate.expect seeing stderr too; GATE_OUTPUT_LIMIT's truncation direction).
- * `matchable` must be the FULL captured output (bounded only by GATE_MAX_BUFFER_BYTES / Node's own
- * spawnSync maxBuffer, never GATE_OUTPUT_LIMIT), so gate.expect always sees the whole run, never
- * the truncated display copy `output` becomes.
- */
-function evaluateProcessGateResult(gate: Gate, code: number | null, matchable: string): { passed: boolean; output: string } {
-	const exitedZero = code === 0;
-	return {
-		passed: exitedZero && (gate.expect ? matchable.includes(gate.expect) : true),
-		output: gateOutputTail(matchable) || (exitedZero ? "ok" : `command exited with code ${code}`),
-	};
-}
-
-/** The other shared branch: a literal spawn-level failure (command not found, spawnSync's own maxBuffer exceeded, etc.) -- distinct from a process that ran and exited non-zero, which evaluateProcessGateResult above handles. Identical treatment on both the sync and async paths: the raw error message, tail-truncated like any other gate output. */
-function spawnErrorGateResult(gate: Gate, error: Error): GateResult {
-	return { gate, passed: false, output: gateOutputTail(error.message) };
-}
-
-function runProcessGateSync(gate: Gate, cwd?: string): GateResult {
-	const { spawnSync } = require_("node:child_process");
-	const { command, timeout } = processGateCommand(gate);
-	const result = spawnSync(command, { shell: true, encoding: "utf-8", timeout, ...(cwd ? { cwd } : {}) });
-	if (result.error) return spawnErrorGateResult(gate, result.error);
-	const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-	return { gate, ...evaluateProcessGateResult(gate, result.status, combined) };
-}
-
-export function runGates(db: Db, artifactId: string, options: GateRunOptions = {}): GateResult[] {
-	const art = getArtifact(db, artifactId);
-	if (!art) throw new Error("artifact not found");
-	const gates = (art.extra.gates as Gate[]) ?? [];
-	const cwd = options.cwd;
-	return gates.map((gate) => (gate.type === "command" || gate.type === "test" ? runProcessGateSync(gate, cwd) : runNonProcessGate(gate)));
-}
-
-/**
- * Runs one gate command with two invariants a prior implementation lacked (a real incident; see
- * GateRunOptions.cwd's doc comment):
- *   1. `cwd` is always explicit, never inherited from the daemon's own process cwd.
- *   2. The whole process group is killed on timeout, not just the immediate shell. `exec()`'s own
- *      `timeout` option only signals the process it directly spawned (the shell running
- *      `command`); a shell's own child (e.g. `bun` under `sh -c "bun test"`) is not in general
- *      killed by that signal and can be reparented and keep running -- and consuming memory --
- *      indefinitely after Papyrus considers the gate "timed out". Spawning detached (its own
- *      process group) and killing the negated pid on our own timer reaches the whole tree.
- */
-function executeGateCommand(gate: Gate, command: string, timeout: number, cwd?: string): Promise<GateResult> {
-	// `spawn(..., { shell: true, detached: true })` instead of the `exec()` convenience wrapper:
-	// `detached` (needed to make the shell the leader of its own process group, so the negated pid
-	// below reaches every descendant, not just the shell) is not part of Node's `exec()`/
-	// `ExecOptions` type at all -- `spawn`'s options support it directly and correctly.
-	const { spawn } = require_("node:child_process") as typeof import("node:child_process");
-	return new Promise((resolve) => {
-		let settled = false;
-		let buffered = "";
-		let truncated = false;
-		const child = spawn(command, { shell: true, detached: true, ...(cwd ? { cwd } : {}) });
-
-		const append = (chunk: Buffer): void => {
-			if (truncated) return;
-			buffered += chunk.toString("utf8");
-			if (buffered.length > GATE_MAX_BUFFER_BYTES) {
-				buffered = buffered.slice(0, GATE_MAX_BUFFER_BYTES);
-				truncated = true;
-			}
-		};
-		child.stdout?.on("data", append);
-		child.stderr?.on("data", append);
-
-		const finish = (result: GateResult): void => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			resolve(result);
-		};
-
-		child.on("error", (error) => finish(spawnErrorGateResult(gate, error)));
-		child.on("close", (code) => finish({ gate, ...evaluateProcessGateResult(gate, code, buffered.trim()) }));
-
-		const timer = setTimeout(() => {
-			if (settled) return;
-			if (child.pid !== undefined) {
-				try {
-					process.kill(-child.pid, "SIGKILL");
-				} catch {
-					child.kill("SIGKILL");
-				}
-			}
-			finish({ gate, passed: false, output: `gate command timed out after ${timeout}ms` });
-		}, timeout);
-	});
-}
-
-function runNonProcessGate(gate: Gate): GateResult {
-	if (gate.type === "file-exists") {
-		const { existsSync } = require_("node:fs");
-		const exists = existsSync(gate.target);
-		return { gate, passed: exists, output: exists ? "exists" : "not found" };
-	}
-	if (gate.type === "contains") {
-		try {
-			const content = readBoundedGateFile(gate.target);
-			const found = gate.expect ? content.includes(gate.expect) : content.length > 0;
-			return { gate, passed: found, output: found ? "found" : `"${gate.expect ?? ""}" not found` };
-		} catch {
-			return { gate, passed: false, output: "file not readable" };
-		}
-	}
-	return { gate, passed: false, output: `unknown gate type: ${String(gate.type)}` };
-}
-
-/** Gate runner for daemon request paths; subprocess gates never block the event loop. */
-export async function runGatesAsync(db: Db, artifactId: string, options: GateRunOptions = {}): Promise<GateResult[]> {
-	const art = getArtifact(db, artifactId);
-	if (!art) throw new Error("artifact not found");
-	const gates = (art.extra.gates as Gate[]) ?? [];
-	const results: GateResult[] = [];
-	for (const gate of gates) {
-		const remainingMs = options.deadlineMs === undefined ? undefined : options.deadlineMs - Date.now();
-		if (remainingMs !== undefined && remainingMs <= 0) {
-			results.push({ gate, passed: false, output: "gate runtime deadline exceeded" });
-			continue;
-		}
-		if (gate.type === "command" || gate.type === "test") {
-			const { command, timeout: configuredTimeout } = processGateCommand(gate);
-			const timeout = remainingMs === undefined ? configuredTimeout : Math.max(1, Math.min(configuredTimeout, remainingMs));
-			results.push(await executeGateCommand(gate, command, timeout, options.cwd));
-		} else {
-			results.push(runNonProcessGate(gate));
-		}
-	}
-	return results;
 }

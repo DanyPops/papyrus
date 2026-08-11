@@ -38,7 +38,7 @@
         "@danypops/jittor": "^0.14.0",
         "@danypops/papyrus": "^0.52.0",
         "@danypops/vehicle-client": "^0.7.0",
-        "@danypops/vehicle-client-pi": "^0.31.1",
+        "@danypops/vehicle-client-pi": "^0.31.2",
         "@danypops/vehicle-core": "^0.12.3",
         "@danypops/vehicle-server": "^0.18.1",
         "beautiful-mermaid": "1.1.3",
@@ -144,7 +144,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.6.2", "", { "dependencies": { "@danypops/vehicle-core": "^0.12.4", "@danypops/vehicle-server": "^0.18.1" } }, "sha512-HEL4pd35oiE8dcuxpIoLZ2vnZvXwZlrVULrepiO64bdYK2Eiq5+SEDS4ZB/n+7nRoZ/76dAn7G9gqbIaJSm7UQ=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.31.1", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.8.1", "@danypops/vehicle-core": "^0.15.0", "@danypops/vehicle-server": "^0.22.0", "malevich-tui-components": "^0.25.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-6jpZgUEdWiUYIxlziZzBevi9ObU2CJv7W6Ot6j1c5l2S/rvyMnYZ0UvClOwPKpbMmX/XgUkY/RcGuvmzTh+1yg=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.31.2", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.8.1", "@danypops/vehicle-core": "^0.15.0", "@danypops/vehicle-server": "^0.22.0", "malevich-tui-components": "^0.25.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-/kiIL4CYK0EQXidt3GwZjH8kb3b5CrJP1Lu7rcAcw5FrxUmvnGAyhSHxb0UeVjhDOjiSS22n0eQUNTwLDqVrEw=="],
 
     "@danypops/vehicle-conformance": ["@danypops/vehicle-conformance@0.3.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.3" } }, "sha512-DUMqiIJt4SGdo9rsNvXDFOR5iaOZeaoSR3LrI/V9CFIHjUv+Ke/WjvsA6gLreFfih6l7O7zy+jLQ/NhONI0Z6A=="],
 

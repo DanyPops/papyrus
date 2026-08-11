@@ -637,18 +637,35 @@ function gateOutputTail(text: string): string {
 	return text.length > GATE_OUTPUT_LIMIT ? text.slice(-GATE_OUTPUT_LIMIT) : text;
 }
 
+/**
+ * The one place "did this process gate pass, and what should its display output say" is decided,
+ * shared by the sync (runProcessGateSync) and async (executeGateCommand's caller) process-gate
+ * runners -- previously two hand-copied inline checks that already had to be fixed twice, by
+ * hand, more than once (gate.expect seeing stderr too; GATE_OUTPUT_LIMIT's truncation direction).
+ * `matchable` must be the FULL captured output (bounded only by GATE_MAX_BUFFER_BYTES / Node's own
+ * spawnSync maxBuffer, never GATE_OUTPUT_LIMIT), so gate.expect always sees the whole run, never
+ * the truncated display copy `output` becomes.
+ */
+function evaluateProcessGateResult(gate: Gate, code: number | null, matchable: string): { passed: boolean; output: string } {
+	const exitedZero = code === 0;
+	return {
+		passed: exitedZero && (gate.expect ? matchable.includes(gate.expect) : true),
+		output: gateOutputTail(matchable) || (exitedZero ? "ok" : `command exited with code ${code}`),
+	};
+}
+
+/** The other shared branch: a literal spawn-level failure (command not found, spawnSync's own maxBuffer exceeded, etc.) -- distinct from a process that ran and exited non-zero, which evaluateProcessGateResult above handles. Identical treatment on both the sync and async paths: the raw error message, tail-truncated like any other gate output. */
+function spawnErrorGateResult(gate: Gate, error: Error): GateResult {
+	return { gate, passed: false, output: gateOutputTail(error.message) };
+}
+
 function runProcessGateSync(gate: Gate, cwd?: string): GateResult {
 	const { spawnSync } = require_("node:child_process");
 	const { command, timeout } = processGateCommand(gate);
 	const result = spawnSync(command, { shell: true, encoding: "utf-8", timeout, ...(cwd ? { cwd } : {}) });
-	if (result.error) return { gate, passed: false, output: gateOutputTail(result.error.message) };
+	if (result.error) return spawnErrorGateResult(gate, result.error);
 	const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-	const passed = result.status === 0 && (gate.expect ? combined.includes(gate.expect) : true);
-	return {
-		gate,
-		passed,
-		output: gateOutputTail(combined) || (result.status === 0 ? "ok" : `command exited with code ${result.status}`),
-	};
+	return { gate, ...evaluateProcessGateResult(gate, result.status, combined) };
 }
 
 export function runGates(db: Db, artifactId: string, options: GateRunOptions = {}): GateResult[] {
@@ -670,11 +687,7 @@ export function runGates(db: Db, artifactId: string, options: GateRunOptions = {
  *      indefinitely after Papyrus considers the gate "timed out". Spawning detached (its own
  *      process group) and killing the negated pid on our own timer reaches the whole tree.
  */
-function executeGateCommand(
-	command: string,
-	timeout: number,
-	cwd?: string,
-): Promise<{ passed: boolean; output: string; matchable: string }> {
+function executeGateCommand(gate: Gate, command: string, timeout: number, cwd?: string): Promise<GateResult> {
 	// `spawn(..., { shell: true, detached: true })` instead of the `exec()` convenience wrapper:
 	// `detached` (needed to make the shell the leader of its own process group, so the negated pid
 	// below reaches every descendant, not just the shell) is not part of Node's `exec()`/
@@ -697,22 +710,15 @@ function executeGateCommand(
 		child.stdout?.on("data", append);
 		child.stderr?.on("data", append);
 
-		const finish = (result: { passed: boolean; output: string; matchable: string }): void => {
+		const finish = (result: GateResult): void => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
 			resolve(result);
 		};
 
-		child.on("error", (error) => finish({ passed: false, output: gateOutputTail(error.message), matchable: error.message }));
-		child.on("close", (code) => {
-			// `matchable` carries the full (GATE_MAX_BUFFER_BYTES-bounded) buffer so the caller's
-			// gate.expect substring check sees the whole run, regardless of GATE_OUTPUT_LIMIT --
-			// `output` (below) is only ever the display copy.
-			const full = buffered.trim();
-			const output = gateOutputTail(full);
-			finish({ passed: code === 0, output: output || (code === 0 ? "ok" : `command exited with code ${code}`), matchable: full });
-		});
+		child.on("error", (error) => finish(spawnErrorGateResult(gate, error)));
+		child.on("close", (code) => finish({ gate, ...evaluateProcessGateResult(gate, code, buffered.trim()) }));
 
 		const timer = setTimeout(() => {
 			if (settled) return;
@@ -723,7 +729,7 @@ function executeGateCommand(
 					child.kill("SIGKILL");
 				}
 			}
-			finish({ passed: false, output: `gate command timed out after ${timeout}ms`, matchable: "" });
+			finish({ gate, passed: false, output: `gate command timed out after ${timeout}ms` });
 		}, timeout);
 	});
 }
@@ -761,12 +767,7 @@ export async function runGatesAsync(db: Db, artifactId: string, options: GateRun
 		if (gate.type === "command" || gate.type === "test") {
 			const { command, timeout: configuredTimeout } = processGateCommand(gate);
 			const timeout = remainingMs === undefined ? configuredTimeout : Math.max(1, Math.min(configuredTimeout, remainingMs));
-			const executed = await executeGateCommand(command, timeout, options.cwd);
-			results.push({
-				gate,
-				passed: executed.passed && (gate.expect ? executed.matchable.includes(gate.expect) : true),
-				output: executed.output,
-			});
+			results.push(await executeGateCommand(gate, command, timeout, options.cwd));
 		} else {
 			results.push(runNonProcessGate(gate));
 		}

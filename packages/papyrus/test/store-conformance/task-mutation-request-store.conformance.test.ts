@@ -151,24 +151,20 @@ for (const backend of backends) {
 			).not.toThrow();
 		});
 
-		// NOT a shared conformance assertion -- this is a documented, currently-real DIVERGENCE
-		// between the two backends, found by this suite (filed as its own follow-up task rather than
-		// fixed here, matching this task's own stated scope). Every write through the real Tasks
-		// service already dedupes by requestHash before ever calling put() a second time for the same
-		// (scope, key) (see task-service.ts's prepareMutation()), so this path is never exercised in
-		// production today -- but the two implementations disagree about what happens if it ever is:
-		it("DIVERGENCE: a genuine duplicate (scope, key) with a different taskId/operation -- SQLite's schema rejects it, InMemory silently overwrites", () => {
+		// Used to be a documented DIVERGENCE (InMemory silently overwrote a genuine duplicate
+		// (scope, key) instead of rejecting it like SQLite's own PRIMARY KEY does) -- fixed in
+		// InMemoryTaskMutationRequestStore.put(), now a real shared assertion both backends satisfy
+		// identically. Every write through the real Tasks service already dedupes by requestHash
+		// before ever calling put() a second time for the same (scope, key) (see task-service.ts's
+		// prepareMutation()), so this path is never exercised in production today -- this only guards
+		// a caller that talks to the store interface directly.
+		it("put() of a genuine duplicate (scope, key) with a different taskId/operation always throws, regardless of backing implementation", () => {
 			const store = make();
 			const now = new Date().toISOString();
 			const rec = record({ createdAt: now, updatedAt: now });
 			store.put(rec);
 			const clashing = record({ receiptId: crypto.randomUUID(), taskId: "task-99", operation: "cancel", createdAt: now, updatedAt: now });
-			if (backend.name === "SQLiteTaskMutationRequestStore") {
-				expect(() => store.put(clashing)).toThrow();
-			} else {
-				expect(() => store.put(clashing)).not.toThrow();
-				expect(store.get(clashing.scope, clashing.key, now)).toMatchObject({ taskId: "task-99", operation: "cancel" });
-			}
+			expect(() => store.put(clashing)).toThrow();
 		});
 
 		it("complete() transitions a pending record to completed and attaches the response", () => {

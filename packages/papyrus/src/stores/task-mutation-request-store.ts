@@ -56,6 +56,10 @@ export class InMemoryTaskMutationRequestStore implements TaskMutationRequestStor
 	}
 
 	put(record: TaskMutationRequestRecord): void {
+		// Checked in the same order sqlite-task-mutation-request-store.ts's own catch-and-reclassify
+		// does: a still-pending (taskId, operation) always becomes the more specific
+		// TaskMutationPendingError first, regardless of which underlying constraint actually
+		// collided (SQLite's partial unique pending index, or the PRIMARY KEY check below).
 		if (record.state === "pending" && record.taskId) {
 			const existing = this.findPending(record.taskId, record.operation, record.createdAt);
 			if (existing) {
@@ -66,7 +70,18 @@ export class InMemoryTaskMutationRequestStore implements TaskMutationRequestStor
 				);
 			}
 		}
-		this.records.set(this.recordKey(record.scope, record.key), { ...record });
+		// Mirror SQLite's own PRIMARY KEY (request_scope, idempotency_key): a genuine duplicate
+		// (scope, key) is always rejected, never silently overwritten -- SQLite throws on any such
+		// collision regardless of whether the colliding row's other columns match, so this does too,
+		// rather than only checking receiptId. Every real write path already dedupes via
+		// mutationRequests.get() before ever calling put() twice for the same (scope, key)
+		// (task-service.ts's prepareMutation()), so this is unreachable through normal application
+		// flow today -- it only guards a caller that talks to the store interface directly.
+		const recordKey = this.recordKey(record.scope, record.key);
+		if (this.records.has(recordKey)) {
+			throw new Error(`task mutation request already exists for scope "${record.scope}" key "${record.key}"`);
+		}
+		this.records.set(recordKey, { ...record });
 	}
 
 	complete(scope: string, key: string, responseJson: string, updatedAt: string): void {

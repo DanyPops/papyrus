@@ -9,7 +9,6 @@ import {
 	TASK_EXECUTION_MAX_DEGREE,
 	TASK_EXECUTION_MAX_EDGES,
 	TASK_EXECUTION_MAX_NODES,
-	TASK_FOCUS_STALE_AFTER_MS,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
 	TASK_PROJECT_LIST_MAX_RESULTS,
@@ -58,7 +57,9 @@ import {
 } from "../stores/task-mutation-request-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "../stores/task-scope-store.ts";
 import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
+import { type TaskFocus, TaskFocusCoordinator, type TaskFocusMutationResult } from "./task-focus-coordinator.ts";
 import { TaskLeaseCoordinator } from "./task-lease-coordinator.ts";
+import { TaskInvalidTransitionError } from "./task-lifecycle-errors.ts";
 import {
 	TaskMutationCoordinator,
 	TaskMutationReceiptNotFoundError,
@@ -66,7 +67,14 @@ import {
 	type TaskMutationRequestContext,
 } from "./task-mutation-coordinator.ts";
 
-export { TaskMutationReceiptNotFoundError, type TaskMutationReceiptView, type TaskMutationRequestContext };
+export {
+	type TaskFocus,
+	type TaskFocusMutationResult,
+	TaskInvalidTransitionError,
+	TaskMutationReceiptNotFoundError,
+	type TaskMutationReceiptView,
+	type TaskMutationRequestContext,
+};
 
 export interface UpdateTaskInput {
 	title?: string;
@@ -92,18 +100,6 @@ export type TaskStatus = TaskLifecycleStatus;
 
 export class TaskProjectNotFoundError extends Error {}
 export class TaskProjectAmbiguousError extends Error {}
-
-export class TaskInvalidTransitionError extends Error {
-	constructor(
-		readonly operation: string,
-		readonly currentStatus: string,
-		readonly intendedStatus: string,
-		readonly allowedActions: readonly string[],
-		readonly recovery: string,
-	) {
-		super(`cannot ${operation} task from ${currentStatus}; intended status is ${intendedStatus}`);
-	}
-}
 
 export interface TaskMutationMetadata {
 	changed: boolean;
@@ -151,15 +147,6 @@ export interface ChecklistReview {
 	accepted: boolean;
 	reason?: string;
 }
-
-export interface TaskFocus {
-	artifact: Artifact;
-	status: TaskFocusStatus;
-	updatedAt: string;
-	pauseReason?: string;
-}
-
-export type TaskFocusMutationResult = TaskFocus & TaskMutationMetadata;
 
 export interface TaskCompletionOptions {
 	focusSuccessor?: boolean;
@@ -234,11 +221,21 @@ export class Tasks {
 	) {
 		this.leaseCoordinator = new TaskLeaseCoordinator(this.leases, (id) => this.require(id));
 		this.mutationCoordinator = new TaskMutationCoordinator(this.mutationRequests, this.artifacts);
+		this.focusCoordinator = new TaskFocusCoordinator(
+			this.artifacts,
+			this.focusStore,
+			this.events,
+			this.mutationCoordinator,
+			(id) => this.require(id),
+			(filter) => this.list(filter),
+			(event, context) => this.appendEvent(event, context),
+		);
 	}
 
 	private readonly completionFlights = new Map<string, Promise<TaskCompletion>>();
 	private readonly leaseCoordinator: TaskLeaseCoordinator;
 	private readonly mutationCoordinator: TaskMutationCoordinator;
+	private readonly focusCoordinator: TaskFocusCoordinator;
 
 	private require(id: string): Artifact {
 		const artifact = this.artifacts.get(id);
@@ -552,142 +549,32 @@ export class Tasks {
 	}
 
 	focused(filter?: TaskFilter): TaskFocus | null {
-		const focus = this.focusStore.get(filter?.sessionId);
-		if (!focus) return null;
-		const task = this.artifacts.get(focus.taskId);
-		if (task?.kind !== "task" || task.status === "done" || task.status === "canceled") {
-			this.focusStore.clear(focus.taskId, filter?.sessionId);
-			return null;
-		}
-		if (filter?.projectRoot && !this.list(filter).some((candidate) => candidate.id === task.id)) return null;
-		return {
-			artifact: task,
-			status: focus.status,
-			updatedAt: focus.updatedAt,
-			...(focus.pauseReason ? { pauseReason: focus.pauseReason } : {}),
-		};
+		return this.focusCoordinator.focused(filter);
 	}
 
 	active(filter?: TaskFilter): Artifact | null {
-		const focus = this.focused(filter);
-		return focus?.status === "active" ? focus.artifact : null;
+		return this.focusCoordinator.active(filter);
 	}
 
 	focus(id: string, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			const task = this.require(id);
-			if (task.status === "done" || task.status === "canceled") throw new Error(`cannot focus task from ${task.status}`);
-			this.focusStore.set(id, context.sessionId);
-			this.appendEvent({ taskId: id, type: "focus_set" }, context);
-			return task;
-		});
+		return this.focusCoordinator.focus(id, context);
 	}
 
 	pauseFocus(context: TaskEventContext = {}, request: TaskMutationRequestContext = {}): TaskFocusMutationResult {
-		const inspection = this.prepareMutation<TaskFocusMutationResult>("pause", undefined, context, request, false);
-		if (inspection.replay) return inspection.replay;
-		const focus = this.focused({ sessionId: context.sessionId });
-		if (!focus) {
-			throw new TaskInvalidTransitionError(
-				"pause",
-				"none",
-				"paused",
-				["focus"],
-				"Focus a non-terminal task before pausing; do not blindly retry pause.",
-			);
-		}
-		const prepared = inspection.pending
-			? inspection
-			: this.prepareMutation<TaskFocusMutationResult>("pause", undefined, context, request, true, () => validateEventContext(context));
-		if (focus.status === "paused") {
-			return this.completeMutation(prepared.record, {
-				...focus,
-				changed: false,
-				operation: "pause",
-				currentStatus: "paused",
-				intendedStatus: "paused",
-				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
-			});
-		}
-		return this.events.atomic(() => {
-			const state = this.focusStore.pause(focus.artifact.id, context.reason, context.sessionId);
-			this.appendEvent({ taskId: focus.artifact.id, type: "focus_paused" }, context);
-			return this.completeMutation(prepared.record, {
-				artifact: focus.artifact,
-				status: state.status,
-				updatedAt: state.updatedAt,
-				...(state.pauseReason ? { pauseReason: state.pauseReason } : {}),
-				changed: true,
-				operation: "pause",
-				currentStatus: "paused",
-				intendedStatus: "paused",
-				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
-			});
-		});
+		return this.focusCoordinator.pauseFocus(context, request);
 	}
 
 	unpauseFocus(context: TaskEventContext = {}, request: TaskMutationRequestContext = {}): TaskFocusMutationResult {
-		const inspection = this.prepareMutation<TaskFocusMutationResult>("unpause", undefined, context, request, false);
-		if (inspection.replay) return inspection.replay;
-		const focus = this.focused({ sessionId: context.sessionId });
-		if (!focus) {
-			throw new TaskInvalidTransitionError(
-				"unpause",
-				"none",
-				"active",
-				["focus"],
-				"Focus a non-terminal task before resuming; do not blindly retry unpause.",
-			);
-		}
-		const prepared = inspection.pending
-			? inspection
-			: this.prepareMutation<TaskFocusMutationResult>("unpause", undefined, context, request, true, () => validateEventContext(context));
-		if (focus.status === "active") {
-			return this.completeMutation(prepared.record, {
-				...focus,
-				changed: false,
-				operation: "unpause",
-				currentStatus: "active",
-				intendedStatus: "active",
-				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
-			});
-		}
-		return this.events.atomic(() => {
-			const state = this.focusStore.unpause(focus.artifact.id, context.sessionId);
-			this.appendEvent({ taskId: focus.artifact.id, type: "focus_unpaused" }, context);
-			return this.completeMutation(prepared.record, {
-				artifact: focus.artifact,
-				status: state.status,
-				updatedAt: state.updatedAt,
-				changed: true,
-				operation: "unpause",
-				currentStatus: "active",
-				intendedStatus: "active",
-				...(prepared.record ? { receiptId: prepared.record.receiptId } : {}),
-			});
-		});
+		return this.focusCoordinator.unpauseFocus(context, request);
 	}
 
 	clearFocus(context: TaskEventContext = {}): { cleared: boolean } {
-		return this.events.atomic(() => {
-			const focus = this.focusStore.get(context.sessionId);
-			if (focus) this.appendEvent({ taskId: focus.taskId, type: "focus_cleared" }, context);
-			this.focusStore.clear(undefined, context.sessionId);
-			return { cleared: focus !== undefined };
-		});
+		return this.focusCoordinator.clearFocus(context);
 	}
 
-	/**
-	 * Time-based reclamation of Focus scopes nobody has touched in TASK_FOCUS_STALE_AFTER_MS,
-	 * independent of and in addition to the TASK_FOCUS_MAX_SCOPES hard cap -- see
-	 * clean-up-stale-per-session-task-focus-rows-on-real-session-l-9i7s and constants.ts's
-	 * comment on why this is deliberately not driven by session_start/session_shutdown.
-	 * No task-lifecycle event is appended: this is daemon housekeeping, not a caller-driven
-	 * mutation, and there is no longer a specific session/actor to attribute it to.
-	 */
-	reapStaleFocus(now: () => string = () => new Date().toISOString()): number {
-		const cutoff = new Date(new Date(now()).getTime() - TASK_FOCUS_STALE_AFTER_MS).toISOString();
-		return this.focusStore.reapStale(cutoff);
+	/** Delegates to TaskFocusCoordinator -- see its own doc comment on TASK_FOCUS_STALE_AFTER_MS/TASK_FOCUS_MAX_SCOPES. */
+	reapStaleFocus(now?: () => string): number {
+		return this.focusCoordinator.reapStaleFocus(now);
 	}
 
 	/** A lease is orthogonal to lifecycle and Focus: claiming a task does not start it, and does not require it to be Focused. */

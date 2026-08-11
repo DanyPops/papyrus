@@ -16,7 +16,7 @@
     },
     "packages/papyrus": {
       "name": "@danypops/papyrus",
-      "version": "0.54.2",
+      "version": "0.54.3",
       "bin": {
         "papyrus": "src/cli.ts",
       },
@@ -33,7 +33,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.54.0",
+      "version": "0.54.1",
       "dependencies": {
         "@danypops/jittor": "^0.14.0",
         "@danypops/papyrus": "^0.54.2",

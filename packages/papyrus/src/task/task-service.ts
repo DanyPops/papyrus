@@ -54,7 +54,8 @@ import {
 	type TaskMutationRequestStore,
 } from "../stores/task-mutation-request-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "../stores/task-scope-store.ts";
-import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
+import { TaskEdges } from "./task-edges.ts";
+import { TaskExecutionBoundExceededError } from "./task-execution.ts";
 import { type TaskFocus, TaskFocusCoordinator, type TaskFocusMutationResult } from "./task-focus-coordinator.ts";
 import { TaskLeaseCoordinator } from "./task-lease-coordinator.ts";
 import { TaskInvalidTransitionError } from "./task-lifecycle-errors.ts";
@@ -234,6 +235,16 @@ export class Tasks {
 			(id) => this.require(id),
 			(event, context) => this.appendEvent(event, context),
 		);
+		this.taskEdges = new TaskEdges(
+			this.artifacts,
+			this.events,
+			(id) => this.require(id),
+			(id) => this.show(id),
+			(event, context) => this.appendEvent(event, context),
+			(id, dependencyId) => this.dependencyCheckGraph(id, dependencyId),
+			(id) => this.dependencyIds(id),
+			(id) => this.relationships(id),
+		);
 	}
 
 	private readonly completionFlights = new Map<string, Promise<TaskCompletion>>();
@@ -241,6 +252,7 @@ export class Tasks {
 	private readonly mutationCoordinator: TaskMutationCoordinator;
 	private readonly focusCoordinator: TaskFocusCoordinator;
 	private readonly projectScope: TaskProjectScope;
+	private readonly taskEdges: TaskEdges;
 
 	private require(id: string): Artifact {
 		const artifact = this.artifacts.get(id);
@@ -821,24 +833,7 @@ export class Tasks {
 	}
 
 	depend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			this.require(id);
-			this.require(dependencyId);
-			const graph = this.dependencyCheckGraph(id, dependencyId);
-			assertDependencyEdgeAllowed(graph, id, dependencyId);
-			const node = graph.nodes.find((entry) => entry.task.id === id)!;
-			if (node.dependencyIds.includes(dependencyId)) return this.show(id);
-			if (node.dependencyIds.length >= TASK_EXECUTION_MAX_DEGREE) {
-				throw new TaskExecutionBoundExceededError(`task "${id}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} prerequisites`);
-			}
-			const successorCount = graph.nodes.filter((entry) => entry.dependencyIds.includes(dependencyId)).length;
-			if (successorCount >= TASK_EXECUTION_MAX_DEGREE) {
-				throw new TaskExecutionBoundExceededError(`task "${dependencyId}" cannot exceed ${TASK_EXECUTION_MAX_DEGREE} successors`);
-			}
-			this.artifacts.link({ from: id, relation: "depends_on", to: dependencyId }, context);
-			this.appendEvent({ taskId: id, type: "dependency_added", reason: context.reason }, context);
-			return this.show(id);
-		});
+		return this.taskEdges.depend(id, dependencyId, context);
 	}
 
 	/**
@@ -872,45 +867,16 @@ export class Tasks {
 
 	/** Idempotent: undepending an already-absent dependency is a no-op. Never starts, completes, or focuses work — only removes the edge. */
 	undepend(id: string, dependencyId: string, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			const task = this.require(id);
-			const dependency = this.require(dependencyId);
-			const removed = this.artifacts.unlink({ from: id, relation: "depends_on", to: dependencyId }, context);
-			if (removed) this.appendEvent({ taskId: id, type: "dependency_removed", reason: context.reason }, context);
-			// Only meaningful if the removed edge was itself unmet -- removing an already-satisfied
-			// dependency, or removing one from a task that was already unblocked, changes nothing.
-			if (removed && task.status === "todo" && dependency.status !== "done") {
-				const stillBlocking = this.dependencyIds(id).filter((remainingId) => this.require(remainingId).status !== "done");
-				if (stillBlocking.length === 0) this.appendEvent({ taskId: id, type: "became_ready" }, context);
-			}
-			return this.show(id);
-		});
+		return this.taskEdges.undepend(id, dependencyId, context);
 	}
 
 	contain(parentId: string, childId: string, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			this.require(parentId);
-			this.require(childId);
-			const alreadyContained = this.relationships(parentId).some(
-				(edge) => edge.relation === "contains" && edge.from === parentId && edge.to === childId,
-			);
-			this.artifacts.link({ from: parentId, relation: "contains", to: childId }, context);
-			this.artifacts.link({ from: childId, relation: "part_of", to: parentId }, context);
-			if (!alreadyContained) this.appendEvent({ taskId: parentId, type: "containment_added", reason: context.reason }, context);
-			return this.show(parentId);
-		});
+		return this.taskEdges.contain(parentId, childId, context);
 	}
 
 	/** Idempotent: removing an already-absent containment is a no-op. Both contains/part_of edges are removed atomically. */
 	uncontain(parentId: string, childId: string, context: TaskEventContext = {}): Artifact {
-		return this.events.atomic(() => {
-			this.require(parentId);
-			this.require(childId);
-			const removedContains = this.artifacts.unlink({ from: parentId, relation: "contains", to: childId }, context);
-			this.artifacts.unlink({ from: childId, relation: "part_of", to: parentId }, context);
-			if (removedContains) this.appendEvent({ taskId: parentId, type: "containment_removed", reason: context.reason }, context);
-			return this.show(parentId);
-		});
+		return this.taskEdges.uncontain(parentId, childId, context);
 	}
 
 	private descendantIds(rootTaskId: string, projectTaskIds: string[]): Set<string> {

@@ -17,7 +17,7 @@
     "typebox": "*"
   },
   "dependencies": {
-    "@danypops/jittor": "^0.14.0",
+    "@danypops/jittor": "^0.18.1",
     "@danypops/papyrus": "^0.54.2",
     "@danypops/vehicle-client": "^0.7.0",
     "@danypops/vehicle-client-pi": "^0.40.1",

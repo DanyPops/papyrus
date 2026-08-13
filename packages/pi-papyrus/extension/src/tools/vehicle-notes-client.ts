@@ -141,10 +141,10 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 		// renderResult takes priority over renderers' renderResult, and falls back to it for a
 		// partial/error result or a historical session row persisted before this seam existed).
 		presentations: papyrusVehiclePresentations,
-		// ownVehicleName must match daemon-state.ts's PAPYRUS_VEHICLE_NAME (the shared Vehicle
-		// Handle Directory entry Papyrus's own daemon writes on startup) -- see @danypops/papyrus's
-		// src/daemon/daemon.ts. activateForeignOperation is auto-supplied by registerVehicleTools.
-		shell: { coreOperations: CORE_OPERATIONS, broker: { ownVehicleName: "papyrus" } },
+		// tools_list/tools_man are a neutral, process-wide singleton now (vehicle-client-pi's own
+		// ensureVehicleShellHandle) -- no ownVehicleName/broker option needed here anymore; every
+		// vehicle in the process (including papyrus's own) is discovered and namespaced uniformly.
+		shell: { coreOperations: CORE_OPERATIONS },
 		// playbooks.invoke's own module handler, and tasks.focus/pause/unpause/clear_focus's
 		// own module handlers, authorize an internal Task Focus write via
 		// sessionIdentity.assertAuthorized(session_id, session_secret) -- see

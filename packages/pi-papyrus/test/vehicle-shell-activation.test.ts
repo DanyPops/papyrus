@@ -6,11 +6,12 @@
  * this test only proves pi-papyrus actually opted in and wired a sane core set, not the
  * mechanism itself (already covered upstream).
  */
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PapyrusClient } from "@danypops/papyrus";
+import { __resetInProcessVehicleRegistryForTests, __resetVehicleShellHandleForTests } from "@danypops/vehicle-client-pi/test-utils";
 import type { VehicleManifest } from "@danypops/vehicle-core";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -102,6 +103,16 @@ function manifestServer(
 }
 
 describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
+	// registerVehicleTools()'s shared Vehicle Shell handle and in-process vehicle registry are both
+	// process-wide globalThis singletons -- bun test runs this whole package's test files in one
+	// process, so an earlier test's own registration would otherwise silently "win" the shared
+	// handle forever, leaving a later test's own fresh fake api with tools_list/tools_man never
+	// registered on it at all. See @danypops/vehicle-client-pi/test-utils's own doc comment.
+	beforeEach(() => {
+		__resetVehicleShellHandleForTests();
+		__resetInProcessVehicleRegistryForTests();
+	});
+
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
 		resetPapyrusClientForTests();
@@ -144,7 +155,7 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 			const manual = registeredTools.find((tool) => tool.name === "tools_man")!;
 			const result = (await manual.execute(
 				"manual-call",
-				{ names: ["tasks.create"] } as never,
+				{ names: ["papyrus:tasks.create"] } as never,
 				undefined as never,
 				undefined as never,
 				ctx as never,
@@ -249,7 +260,7 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 		}
 	});
 
-	it('enables Vehicle Shell broker mode under ownVehicleName "papyrus" -- tools_list actually advertises cross-daemon discovery', async () => {
+	it("tools_list's own description advertises namespaced cross-vehicle discovery, the neutral shared-owner shape", async () => {
 		const { baseUrl, stop } = manifestServer();
 		try {
 			setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));

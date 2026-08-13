@@ -18,8 +18,9 @@
  * operation count) so registerNotesVehicle actually reaches those calls instead of
  * no-op'ing on an unresolved target.
  */
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PapyrusClient } from "@danypops/papyrus";
+import { __resetInProcessVehicleRegistryForTests, __resetVehicleShellHandleForTests } from "@danypops/vehicle-client-pi/test-utils";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerPapyrus from "../extension/src/index.ts";
 import {
@@ -61,6 +62,12 @@ function emptyManifestServer(): { baseUrl: string; stop: () => void } {
 }
 
 describe("registerNotesVehicle is deferred to session_start, not called from the top-level factory body", () => {
+	// See vehicle-shell-activation.test.ts's own identical beforeEach for why this is needed.
+	beforeEach(() => {
+		__resetVehicleShellHandleForTests();
+		__resetInProcessVehicleRegistryForTests();
+	});
+
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
 		resetPapyrusClientForTests();

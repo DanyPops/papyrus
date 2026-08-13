@@ -16,8 +16,9 @@
  * the injected resolver, exactly like a real restart rewrites the handle
  * file), then invoke the SAME already-registered tool again.
  */
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { PapyrusClient } from "@danypops/papyrus";
+import { __resetInProcessVehicleRegistryForTests, __resetVehicleShellHandleForTests } from "@danypops/vehicle-client-pi/test-utils";
 import { bindVehicleOperation, defineVehicleOperation, defineVehicleSchema } from "@danypops/vehicle-core";
 import { VehicleRegistry } from "@danypops/vehicle-server";
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
@@ -75,6 +76,12 @@ function startServer(instanceLabel: string): { baseUrl: string; stop: () => void
 }
 
 describe("registerNotesVehicle survives a daemon restart without a Pi extension reload", () => {
+	// See vehicle-shell-activation.test.ts's own identical beforeEach for why this is needed.
+	beforeEach(() => {
+		__resetVehicleShellHandleForTests();
+		__resetInProcessVehicleRegistryForTests();
+	});
+
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
 		resetPapyrusClientForTests();

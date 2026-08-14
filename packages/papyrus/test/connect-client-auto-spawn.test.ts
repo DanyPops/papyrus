@@ -31,13 +31,26 @@ function isolatedEnv(root: string): Record<string, string> {
 	};
 }
 
-describe("connectPapyrusClient -- real subprocess auto-spawn", () => {
-	it("auto-starts the real daemon when none is running, then connects", async () => {
+describe("connectPapyrusClient -- fails closed by default now that Armada supervises Papyrus", () => {
+	it("fails closed with an actionable message when nothing is reachable and autoStart is not explicitly opted into", async () => {
+		// Real, live incident: Papyrus's own client-side auto-spawn (the old default) raced Armada's
+		// systemd unit for who gets to start Papyrus -- whichever child won the OS-level
+		// single-instance-lock race became an orphan invisible to systemd's own tracking, permanently
+		// confusing `armada status`. Now that Armada is the one and only thing responsible for keeping
+		// Papyrus running, the default must be fail-closed, matching lector/pi-packed.
+		const root = tempDir("papyrus-fail-closed-");
+		const dir = `${root}/daemon-dir`;
+		const env = isolatedEnv(root);
+
+		await expect(connectPapyrusClient(dir, { env })).rejects.toThrow(/Armada/);
+	});
+
+	it("auto-starts the real daemon when none is running, then connects -- test-only opt-in via autoStart:true", async () => {
 		const root = tempDir("papyrus-auto-spawn-");
 		const dir = `${root}/daemon-dir`;
 		const env = isolatedEnv(root);
 
-		const client = await connectPapyrusClient(dir, { env });
+		const client = await connectPapyrusClient(dir, { env, autoStart: true });
 		try {
 			const health = await client.health();
 			expect(health.ok).toBe(true);
@@ -58,11 +71,11 @@ describe("connectPapyrusClient -- real subprocess auto-spawn", () => {
 		const dir = `${root}/daemon-dir`;
 		const env = isolatedEnv(root);
 
-		const first = await connectPapyrusClient(dir, { env });
+		const first = await connectPapyrusClient(dir, { env, autoStart: true });
 		await first.health();
 		const handleAfterFirst = readDaemonHandle(dir);
 
-		const second = await connectPapyrusClient(dir, { env });
+		const second = await connectPapyrusClient(dir, { env, autoStart: true });
 		await second.health();
 		const handleAfterSecond = readDaemonHandle(dir);
 

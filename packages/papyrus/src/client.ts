@@ -126,18 +126,31 @@ export interface ConnectPapyrusClientOptions {
 	env?: Record<string, string | undefined>;
 	/** Overrides the version connectWithVersionCheck compares against. Defaults to PAPYRUS_VERSION; test-only -- lets a test force a mismatch against a real daemon without a second build. */
 	expectedVersion?: ExpectedVersion;
+	/**
+	 * Overrides the default fail-closed behavior (see connectPapyrusClient's own doc comment for
+	 * why that default changed). Test-only -- covers the auto-spawn mechanism itself
+	 * (connect-client-auto-spawn.test.ts) and lets other real-daemon integration tests keep using
+	 * it as convenient bootstrap. A real, non-Armada-supervised standalone deployment could also
+	 * set this explicitly, but that is not this option's primary purpose.
+	 */
+	autoStart?: boolean;
 }
 
 /**
- * Transparently starts the daemon first if it is not already running -- matches
- * every other daemon-backed ecosystem package that opted into auto-start (see
- * @danypops/vehicle-client's connectWithPolicy doc comment: web-spider opts in,
- * lector/pi-packed fail closed by design). Papyrus previously failed closed with
- * "install/start papyrus.service", requiring a human to separately discover and
- * run `papyrus service install` before the very first tool call could succeed.
- * A handle file that exists but points at a dead/unreachable daemon is a distinct
- * failure (stale, not "never started") and is NOT auto-recovered here -- it still
- * throws its own actionable "restart manually" error, unchanged from before.
+ * Fails closed if nothing is reachable at all -- matches lector/pi-packed (see
+ * @danypops/vehicle-client's connectWithPolicy doc comment). Papyrus used to auto-start here
+ * (autoStart: true) because it predated being a properly Armada-supervised Vehicle; that flag
+ * is now a genuine liability, not a convenience: a real, live race was traced to it directly --
+ * Armada's own systemd unit and THIS client's auto-spawn each independently tried to be "the one
+ * that starts Papyrus" whenever no daemon was momentarily reachable (e.g. mid-restart), and
+ * whichever one's child won the OS-level single-instance-lock race became an orphan invisible to
+ * systemd's own tracking, permanently confusing `armada status`. Now that Armada's systemd unit
+ * (Restart=on-failure) is the one and only thing responsible for keeping Papyrus running, a
+ * client that finds nothing reachable should say so plainly, not compete to fix it.
+ *
+ * Stale-VERSION self-healing (an already-running daemon reporting an older version than this
+ * client expects) is unrelated to autoStart and still works: connectWithVersionCheck's own kill-
+ * and-replace path only requires `spawn` to be defined, independent of the autoStart flag above.
  */
 export async function connectPapyrusClient(
 	dir: string = daemonStateDir(),
@@ -147,7 +160,7 @@ export async function connectPapyrusClient(
 		{
 			readHandle: () => readDaemonHandle(dir) ?? null,
 			buildClient: probedPapyrusClient,
-			autoStart: true,
+			autoStart: options.autoStart ?? false,
 			spawn: () => {
 				spawnDetachedDaemon({
 					binPath: papyrusCliPath(),
@@ -156,7 +169,8 @@ export async function connectPapyrusClient(
 					spawn: spawnPapyrusDaemonProcess,
 				});
 			},
-			fallbackMessage: "Papyrus daemon failed to start automatically; run `papyrus service install` or `papyrus serve` manually.",
+			fallbackMessage:
+				"Papyrus daemon is not running; Armada should be supervising it -- run `armada status`/`armada reconcile`, or `papyrus serve` directly if this is a standalone (non-Armada) setup.",
 		},
 		{
 			expectedVersion: options.expectedVersion ?? papyrusExpectedVersion,

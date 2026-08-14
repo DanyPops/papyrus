@@ -50,7 +50,7 @@ describe("connectPapyrusClient -- real stale-daemon detection and self-heal", ()
 		const dir = `${root}/daemon-dir`;
 		const env = isolatedEnv(root);
 
-		const first = await connectPapyrusClient(dir, { env });
+		const first = await connectPapyrusClient(dir, { env, autoStart: true });
 		const firstHealth = await first.health();
 		const originalHandle = readDaemonHandle(dir);
 		expect(originalHandle?.pid).toBeGreaterThan(0);
@@ -58,7 +58,7 @@ describe("connectPapyrusClient -- real stale-daemon detection and self-heal", ()
 		try {
 			// Higher than any real version -- this client is the one that's up to date, the running
 			// daemon is the genuinely stale side, which is what should trigger a kill+respawn.
-			const healed = await connectPapyrusClient(dir, { env, expectedVersion: "999.999.999" });
+			const healed = await connectPapyrusClient(dir, { env, autoStart: true, expectedVersion: "999.999.999" });
 
 			const originalKilled = await waitUntil(() => !isProcessAlive(originalHandle!.pid), 3_000);
 			expect(originalKilled).toBe(true);
@@ -87,12 +87,12 @@ describe("connectPapyrusClient -- real stale-daemon detection and self-heal", ()
 		const dir = `${root}/daemon-dir`;
 		const env = isolatedEnv(root);
 
-		const first = await connectPapyrusClient(dir, { env });
+		const first = await connectPapyrusClient(dir, { env, autoStart: true });
 		await first.health();
 		const handleAfterFirst = readDaemonHandle(dir);
 
 		try {
-			const second = await connectPapyrusClient(dir, { env });
+			const second = await connectPapyrusClient(dir, { env, autoStart: true });
 			await second.health();
 			const handleAfterSecond = readDaemonHandle(dir);
 

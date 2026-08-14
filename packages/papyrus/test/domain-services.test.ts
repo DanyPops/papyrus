@@ -18,6 +18,7 @@ import {
 	transitionDocument,
 	updateDocument,
 } from "../src/docs/docs-service.ts";
+import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
 import {
 	assignPlaybookProject,
 	containPlaybook,
@@ -31,6 +32,7 @@ import {
 	undependPlaybook,
 	updatePlaybook,
 } from "../src/playbook/playbook-service.ts";
+import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import {
 	assignRuleProject,
 	createRule,
@@ -44,8 +46,6 @@ import {
 	updateRule,
 } from "../src/rules/rules-service.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
-import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
-import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {

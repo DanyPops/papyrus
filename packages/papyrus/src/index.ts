@@ -17,20 +17,17 @@ export {
 	type VehicleClientTarget,
 } from "./client.ts";
 export * from "./constants.ts";
+export { DISCUSSION_SUBTYPE, type DiscussionRound, readDiscussionExtra } from "./discussion/discussion.ts";
 export type { DiscussionAndRounds } from "./discussion/discussion-service.ts";
-export { checklistEntries, PROOF_TYPES, type ProofReference } from "./domain/checklist.ts";
-export { DISCUSSION_SUBTYPE, type DiscussionRound, readDiscussionExtra } from "./domain/discussion.ts";
 export type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode, RenderedGraph } from "./display-graph/display-graph.ts";
+export type { GraphRenderer } from "./display-graph/graph-renderer.ts";
 export type { GateResult } from "./gate/gate.ts";
-export type { NoteHistoryPage } from "./domain/note-event.ts";
-export type { TaskEvent, TaskHistoryPage } from "./task-event/task-event.ts";
-export type { TaskLease, TaskLeaseView } from "./task-lease/task-lease.ts";
-export type { TaskViewSelection } from "./task-scope/task-scope.ts";
+export type { NoteHistoryPage } from "./note/note-event.ts";
 export { NOTE_DISPOSITIONS } from "./note/note-service.ts";
 export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook/playbook-execution.ts";
 export type { WorkflowRunResult } from "./playbook/workflow-execution.ts";
 export type { OperationName, SchemaState } from "./service.ts";
-export type { GraphRenderer } from "./display-graph/graph-renderer.ts";
+export { checklistEntries, PROOF_TYPES, type ProofReference } from "./task/checklist.ts";
 export { taskContext } from "./task/task-context.ts";
 export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState } from "./task/task-execution.ts";
 export { projectTaskGraph, type TaskGraphView } from "./task/task-graph-view.ts";
@@ -44,3 +41,6 @@ export type {
 	TaskStatus,
 } from "./task/task-service.ts";
 export { TaskInvalidTransitionError, TaskMutationReceiptNotFoundError } from "./task/task-service.ts";
+export type { TaskEvent, TaskHistoryPage } from "./task-event/task-event.ts";
+export type { TaskLease, TaskLeaseView } from "./task-lease/task-lease.ts";
+export type { TaskViewSelection } from "./task-scope/task-scope.ts";

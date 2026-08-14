@@ -1,4 +1,4 @@
-import type { AppendDiscussionRound, DiscussionRound, DiscussionRoundQuery } from "../domain/discussion.ts";
+import type { AppendDiscussionRound, DiscussionRound, DiscussionRoundQuery } from "../discussion/discussion.ts";
 
 /** Persistence port for a Discussion's append-only rounds (see domain/discussion.ts). */
 export interface DiscussionRoundStore {

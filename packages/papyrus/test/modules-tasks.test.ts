@@ -1,16 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
+import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { TASKS_OPERATION_NAMES, tasksOperations } from "../src/modules/tasks.ts";
 import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
-import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
-import { SQLiteSessionIdentityStore } from "../src/stores/sqlite-session-identity-store.ts";
+import { SQLiteSessionIdentityStore } from "../src/session-identity/sqlite-session-identity-store.ts";
+import { Tasks } from "../src/task/task-service.ts";
 import { SQLiteTaskEventStore } from "../src/task-event/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/task-focus/sqlite-task-focus-store.ts";
 import { SQLiteTaskLeaseStore } from "../src/task-lease/sqlite-task-lease-store.ts";
 import { SQLiteTaskScopeStore } from "../src/task-scope/sqlite-task-scope-store.ts";
-import { Tasks } from "../src/task/task-service.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";
 

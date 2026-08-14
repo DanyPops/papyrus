@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { TASK_FOCUS_STALE_AFTER_MS } from "../src/constants.ts";
 import { type Db, openDb } from "../src/db.ts";
+import { Tasks } from "../src/task/task-service.ts";
 import { SQLiteTaskFocusStore } from "../src/task-focus/sqlite-task-focus-store.ts";
 import { InMemoryTaskFocusStore } from "../src/task-focus/task-focus-store.ts";
-import { Tasks } from "../src/task/task-service.ts";
 
 const gates = { run: () => [], runAsync: async () => [] };
 

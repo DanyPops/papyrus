@@ -1,5 +1,6 @@
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
+import { SQLiteProjectRegistryStore } from "../project-registry/sqlite-project-registry-store.ts";
 import type {
 	RegisterTaskProjectInput,
 	TaskProject,
@@ -8,7 +9,6 @@ import type {
 	TaskViewMode,
 	TaskViewPreference,
 } from "../task-scope/task-scope.ts";
-import { SQLiteProjectRegistryStore } from "../project-registry/sqlite-project-registry-store.ts";
 import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 
 /** Rewrites every task_scopes/task_views row pinned to a project root that just moved -- called inside the same registerProject() transaction, so a rename/move is atomic with the rewrite. */

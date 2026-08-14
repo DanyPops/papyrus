@@ -40,9 +40,9 @@ import {
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import type { Tasks } from "../task/task-service.ts";
 import type { TaskEventStore } from "../task-event/task-event-store.ts";
 import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
-import type { Tasks } from "../task/task-service.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "playbooks";

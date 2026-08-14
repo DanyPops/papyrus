@@ -7,8 +7,8 @@ import {
 	type NoteHistoryQuery,
 	normalizeNoteHistoryQuery,
 	validateNoteEvent,
-} from "../domain/note-event.ts";
-import type { NoteEventStore } from "./note-event-store.ts";
+} from "../note/note-event.ts";
+import type { NoteEventStore } from "../note/note-event-store.ts";
 
 interface NoteEventRow {
 	id: number;

@@ -13,8 +13,8 @@
  * module's infrastructure" constraint.
  */
 
-import type { NoteEventDirection } from "../domain/note-event.ts";
 import type { OperationDefinition } from "../module-registry.ts";
+import type { NoteEventDirection } from "../note/note-event.ts";
 import type { NoteDisposition, Notes } from "../note/note-service.ts";
 import { type OperationInput, optionalNumber, optionalString, string } from "./operation-input.ts";
 

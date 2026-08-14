@@ -10,8 +10,8 @@
 
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { requireAtomicArtifactStore } from "../artifact/atomic-artifact-store.ts";
-import type { BlueprintArgumentValue } from "../domain/blueprint-definition.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
+import type { BlueprintArgumentValue } from "./blueprint-definition.ts";
 import { compilePlaybookDefinition } from "./playbook-definition.ts";
 import {
 	applyPlaybookExternalLinks,

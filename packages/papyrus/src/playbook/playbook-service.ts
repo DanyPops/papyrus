@@ -38,13 +38,6 @@ import {
 	SKILL_MAX_ENUM_VALUES,
 } from "../constants.ts";
 import {
-	BLUEPRINT_INPUT_TYPES,
-	type BlueprintArgumentValue,
-	type BlueprintInputType,
-	validateArgumentValue,
-} from "../domain/blueprint-definition.ts";
-import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
-import {
 	addArtifactScopeGroup,
 	addArtifactScopeProject,
 	assertBodyBounds,
@@ -65,6 +58,13 @@ import {
 } from "../domain-service-shared.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
+import {
+	BLUEPRINT_INPUT_TYPES,
+	type BlueprintArgumentValue,
+	type BlueprintInputType,
+	validateArgumentValue,
+} from "./blueprint-definition.ts";
 
 export interface PlaybookArgument {
 	name: string;

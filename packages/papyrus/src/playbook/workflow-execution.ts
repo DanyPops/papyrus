@@ -9,20 +9,20 @@ import {
 	SKILL_WORKFLOW_MAX_NESTING_DEPTH,
 	TASK_EXECUTION_MAX_EDGES,
 } from "../constants.ts";
+import { validateChecklist } from "../task/checklist.ts";
+import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
+import type { TaskGraph, TaskNode, TaskStatus } from "../task/task-service.ts";
+import type { TaskEventContext } from "../task-event/task-event.ts";
+import type { TaskEventStore } from "../task-event/task-event-store.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
+import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import {
 	type BlueprintArgumentValue,
 	type BlueprintDefinition,
 	type CallBlueprint,
 	resolveBlueprintArguments,
 	validateBlueprintDefinition,
-} from "../domain/blueprint-definition.ts";
-import { validateChecklist } from "../domain/checklist.ts";
-import type { TaskEventContext } from "../task-event/task-event.ts";
-import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
-import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
-import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
-import type { TaskGraph, TaskNode, TaskStatus } from "../task/task-service.ts";
+} from "./blueprint-definition.ts";
 import { compilePlaybookDefinition, type PlaybookExternalLink } from "./playbook-definition.ts";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;

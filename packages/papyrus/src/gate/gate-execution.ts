@@ -26,8 +26,8 @@ import {
 	GATE_TEST_TIMEOUT_MS,
 } from "../constants.ts";
 import type { Db } from "../db.ts";
-import { getArtifact } from "../ops.ts";
 import type { Gate, GateResult, GateRunOptions } from "../gate/gate.ts";
+import { getArtifact } from "../ops.ts";
 
 const require_ = createRequire(import.meta.url);
 

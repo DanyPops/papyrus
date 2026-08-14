@@ -4,8 +4,8 @@ import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
 import { GRAPH_PROJECTION_SCHEMA_VERSION, type GraphProjectionBatch } from "../src/graph-projection/graph-projection.ts";
 import { GraphProjection } from "../src/graph-projection/graph-projection-service.ts";
-import { NOTE_SUBTYPE } from "../src/note/note-service.ts";
 import { SQLiteGraphProjectionStore } from "../src/graph-projection/sqlite-graph-projection-store.ts";
+import { NOTE_SUBTYPE } from "../src/note/note-service.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

@@ -5,7 +5,7 @@ import {
 	type NoteHistoryQuery,
 	normalizeNoteHistoryQuery,
 	validateNoteEvent,
-} from "../domain/note-event.ts";
+} from "../note/note-event.ts";
 
 export interface NoteEventStore {
 	append(event: AppendNoteEvent): NoteEvent;

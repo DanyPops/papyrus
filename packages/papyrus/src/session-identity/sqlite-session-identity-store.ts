@@ -1,7 +1,7 @@
 import { SESSION_IDENTITY_MAX_ROWS } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import type { SessionIdentityRecord, SessionIdentityStore } from "./session-identity-store.ts";
+import type { SessionIdentityRecord, SessionIdentityStore } from "../session-identity/session-identity-store.ts";
 
 export class SQLiteSessionIdentityStore implements SessionIdentityStore {
 	constructor(private readonly db: Db) {}

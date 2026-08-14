@@ -18,8 +18,8 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH, DISCUSSION_OPTION_MAX_LENGTH, DISCUSSION_OPTIONS_MAX_COUNT } from "../constants.ts";
+import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../discussion/discussion.ts";
 import type { DiscussionAndRounds, Discussions } from "../discussion/discussion-service.ts";
-import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../domain/discussion.ts";
 import { discussOperations } from "../modules/discuss.ts";
 import {
 	createOperationDefiner,

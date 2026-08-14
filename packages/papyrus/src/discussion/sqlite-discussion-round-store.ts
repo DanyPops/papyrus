@@ -8,8 +8,8 @@ import {
 	validateDiscussionActor,
 	validateDiscussionContent,
 	validateDiscussionOptions,
-} from "../domain/discussion.ts";
-import type { DiscussionRoundStore } from "./discussion-round-store.ts";
+} from "../discussion/discussion.ts";
+import type { DiscussionRoundStore } from "../discussion/discussion-round-store.ts";
 
 interface DiscussionRoundRow {
 	id: number;

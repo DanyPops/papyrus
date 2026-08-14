@@ -1,7 +1,7 @@
 import type { CommandContext } from "@stricli/core";
 import { buildApplication, buildCommand, buildRouteMap, numberParser } from "@stricli/core";
 import type { PapyrusClient } from "../client.ts";
-import type { NoteHistoryPage } from "../domain/note-event.ts";
+import type { NoteHistoryPage } from "../note/note-event.ts";
 import { artifactLabel, type CliArtifact } from "./shared.ts";
 import { runStricliToString } from "./stricli-run.ts";
 

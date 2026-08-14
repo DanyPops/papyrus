@@ -14,9 +14,15 @@ import {
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "../constants.ts";
-import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "../domain/checklist.ts";
-import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "../domain/discussion.ts";
+import { DISCUSSION_SUBTYPE, isDiscussionArtifact, readDiscussionExtra } from "../discussion/discussion.ts";
+import type { TransitionTable } from "../domain-service-shared.ts";
 import { type Gate, type GateResult, validateGates } from "../gate/gate.ts";
+import type { GateRunner } from "../gate/gate-runner.ts";
+import {
+	InMemoryTaskCreateRequestStore,
+	TaskCreateIdempotencyConflictError,
+	type TaskCreateRequestStore,
+} from "../task-create-request/task-create-request-store.ts";
 import type {
 	AppendTaskEvent,
 	TaskEventContext,
@@ -27,7 +33,16 @@ import type {
 	TaskLifecycleStatus,
 } from "../task-event/task-event.ts";
 import { validateEventContext } from "../task-event/task-event.ts";
+import { InMemoryTaskEventStore, type TaskEventStore } from "../task-event/task-event-store.ts";
+import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../task-focus/task-focus-store.ts";
 import type { TaskLeaseView } from "../task-lease/task-lease.ts";
+import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../task-lease/task-lease-store.ts";
+import {
+	InMemoryTaskMutationRequestStore,
+	TaskMutationPendingError,
+	type TaskMutationRequestRecord,
+	type TaskMutationRequestStore,
+} from "../task-mutation-request/task-mutation-request-store.ts";
 import {
 	normalizeProjectRoot,
 	type RegisterTaskProjectInput,
@@ -37,23 +52,8 @@ import {
 	type TaskViewSelection,
 	taskScopeLabel,
 } from "../task-scope/task-scope.ts";
-import type { TransitionTable } from "../domain-service-shared.ts";
-import type { GateRunner } from "../gate/gate-runner.ts";
-import {
-	InMemoryTaskCreateRequestStore,
-	TaskCreateIdempotencyConflictError,
-	type TaskCreateRequestStore,
-} from "../task-create-request/task-create-request-store.ts";
-import { InMemoryTaskEventStore, type TaskEventStore } from "../task-event/task-event-store.ts";
-import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../task-focus/task-focus-store.ts";
-import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../task-lease/task-lease-store.ts";
-import {
-	InMemoryTaskMutationRequestStore,
-	TaskMutationPendingError,
-	type TaskMutationRequestRecord,
-	type TaskMutationRequestStore,
-} from "../task-mutation-request/task-mutation-request-store.ts";
 import { InMemoryTaskScopeStore, type TaskScopeStore } from "../task-scope/task-scope-store.ts";
+import { type Checklist, checklistEntries, type ProofReference, validateChecklist } from "./checklist.ts";
 import { TaskEdges } from "./task-edges.ts";
 import { TaskExecutionBoundExceededError } from "./task-execution.ts";
 import { type TaskFocus, TaskFocusCoordinator, type TaskFocusMutationResult } from "./task-focus-coordinator.ts";

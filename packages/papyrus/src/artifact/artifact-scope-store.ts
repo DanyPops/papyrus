@@ -1,5 +1,5 @@
-import type { TaskScopeSource } from "../task-scope/task-scope.ts";
 import type { ScopeMemberRef } from "../scope-group/scope-group.ts";
+import type { TaskScopeSource } from "../task-scope/task-scope.ts";
 
 /**
  * Project scoping for Docs/Rules/Playbooks: an artifact is explicitly "none" (hidden -- never

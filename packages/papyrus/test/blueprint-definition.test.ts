@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { resolveBlueprintArguments, validateBlueprintDefinition } from "../src/domain/blueprint-definition.ts";
+import { resolveBlueprintArguments, validateBlueprintDefinition } from "../src/playbook/blueprint-definition.ts";
 
 const definition = {
 	version: 1,

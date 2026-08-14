@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { openDb } from "../src/db.ts";
 import { InvalidSessionSecretError, SessionIdentity } from "../src/session-identity/session-identity-service.ts";
-import { SQLiteSessionIdentityStore } from "../src/stores/sqlite-session-identity-store.ts";
+import { SQLiteSessionIdentityStore } from "../src/session-identity/sqlite-session-identity-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

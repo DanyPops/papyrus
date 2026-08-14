@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { SQLITE_BUSY_TIMEOUT_MS } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
-import { createApp, createPapyrusService } from "../src/service.ts";
 import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
+import { createApp, createPapyrusService } from "../src/service.ts";
 import { Tasks } from "../src/task/task-service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 

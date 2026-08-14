@@ -21,8 +21,8 @@ import {
 	validateDiscussionOptions,
 	validateSelectedOptions,
 	validateSettlement,
-} from "../domain/discussion.ts";
-import type { DiscussionRoundStore } from "../stores/discussion-round-store.ts";
+} from "./discussion.ts";
+import type { DiscussionRoundStore } from "./discussion-round-store.ts";
 
 export class DiscussionError extends Error {}
 

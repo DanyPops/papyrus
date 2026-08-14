@@ -23,12 +23,10 @@ import { VehicleError, type VehicleLimits, type VehicleOperationContext } from "
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { GATE_TIMEOUT_MAX_MS, TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH, TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "../constants.ts";
-import { PROOF_TYPES } from "../domain/checklist.ts";
 import { GATE_TYPES } from "../gate/gate.ts";
-import type { TaskViewMode } from "../task-scope/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
-import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../task-mutation-request/task-mutation-request-store.ts";
+import { PROOF_TYPES } from "../task/checklist.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import {
 	type TaskCompletion,
@@ -38,6 +36,8 @@ import {
 	TaskProjectNotFoundError,
 	type Tasks,
 } from "../task/task-service.ts";
+import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../task-mutation-request/task-mutation-request-store.ts";
+import type { TaskViewMode } from "../task-scope/task-scope.ts";
 import {
 	booleanProp,
 	classifySessionAuthorization,

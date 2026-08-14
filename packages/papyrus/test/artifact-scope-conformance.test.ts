@@ -31,6 +31,7 @@ import {
 	replacePlaybookProjects,
 	setPlaybookGlobal,
 } from "../src/playbook/playbook-service.ts";
+import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import {
 	addRuleProject,
 	createRule,
@@ -40,7 +41,6 @@ import {
 	ruleScope,
 	setRuleGlobal,
 } from "../src/rules/rules-service.ts";
-import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

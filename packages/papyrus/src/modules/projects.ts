@@ -8,10 +8,10 @@
  */
 
 import { TASK_PROJECT_LIST_MAX_RESULTS } from "../constants.ts";
-import { assertRegisterProjectInputBounds, resolveProjectReference } from "../project-registry/project-registry.ts";
-import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 import type { OperationDefinition } from "../module-registry.ts";
+import { assertRegisterProjectInputBounds, resolveProjectReference } from "../project-registry/project-registry.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 import { type OperationInput, optionalNumber, optionalString, optionalStringArray, string } from "./operation-input.ts";
 
 const MODULE_ID = "projects";

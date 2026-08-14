@@ -319,14 +319,26 @@ const replaceProjectsCommand = buildCommand({
 });
 
 const updateCommand = buildCommand({
-	func: async function (this: PlaybooksContext, flags: { title?: string; body?: string; labelsJson?: string[] }, id: string) {
-		if (flags.title === undefined && flags.body === undefined && flags.labelsJson === undefined)
-			throw new Error("playbooks update requires --title, --body, or --labels-json");
+	func: async function (
+		this: PlaybooksContext,
+		flags: { title?: string; body?: string; labelsJson?: string[]; trigger?: string; stepsJson?: unknown[] | Record<string, unknown> },
+		id: string,
+	) {
+		if (
+			flags.title === undefined &&
+			flags.body === undefined &&
+			flags.labelsJson === undefined &&
+			flags.trigger === undefined &&
+			flags.stepsJson === undefined
+		)
+			throw new Error("playbooks update requires --title, --body, --labels-json, --trigger, or --steps-json");
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("playbooks.update", {
 			id,
 			title: flags.title,
 			body: flags.body,
 			labels: flags.labelsJson,
+			trigger: flags.trigger,
+			steps: flags.stepsJson,
 		});
 		render.call(this, artifact, artifactLabel(artifact));
 	},
@@ -335,10 +347,18 @@ const updateCommand = buildCommand({
 			title: { brief: "New title", kind: "parsed", parse: String, placeholder: "text", optional: true },
 			body: { brief: "New body", kind: "parsed", parse: String, placeholder: "text", optional: true },
 			labelsJson: { brief: "JSON string array of labels", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
+			trigger: { brief: "New trigger -- replaces the existing one", kind: "parsed", parse: String, placeholder: "text", optional: true },
+			stepsJson: {
+				brief: "JSON array of steps -- REPLACES the entire existing step list, same shape as create's --steps-json",
+				kind: "parsed",
+				parse: parseAny,
+				placeholder: "json",
+				optional: true,
+			},
 		},
 		positional: { kind: "tuple", parameters: [{ brief: "Playbook id", parse: String, placeholder: "id" }] },
 	},
-	docs: { brief: "Change a Playbook's title/body/labels" },
+	docs: { brief: "Change a Playbook's title/body/labels/trigger/steps" },
 });
 
 function buildPairedIdCommand(

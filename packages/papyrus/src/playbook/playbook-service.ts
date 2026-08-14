@@ -53,7 +53,6 @@ import {
 	assignArtifactProject,
 	type ListFilter,
 	listScoped,
-	requireContentUpdateFields,
 	requireKind,
 	runTransition,
 	type TransitionTable,
@@ -228,7 +227,20 @@ export interface CreatePlaybookInput {
 }
 
 export type PlaybookTransition = "enable" | "disable";
-export type UpdatePlaybookInput = UpdateContentInput;
+/**
+ * Extends the shared {title,body,labels} content-update shape with the two fields that make a
+ * Playbook a Playbook -- steps and trigger -- previously settable only at creation. Before this,
+ * revising either after creation had no supported path: the only workaround was create-new +
+ * supersedes-link + disable-original, purely to fix a typo in one step or generalize a
+ * project-specific Playbook for reuse. `steps` accepts the exact same shape playbooks.create
+ * does (validated the same way, via validatePlaybookSteps) and REPLACES the Playbook's entire
+ * step list when given, matching replace_projects' own "replace the whole thing" semantics
+ * rather than a per-step edit -- Playbooks are typically short and hand-authored, so a full
+ * replace is simpler to reason about than a step-index-addressed patch. */
+export interface UpdatePlaybookInput extends UpdateContentInput {
+	trigger?: string;
+	steps?: unknown;
+}
 
 const PLAYBOOK_TRANSITIONS: TransitionTable<PlaybookTransition, string> = {
 	enable: { from: ["deprecated"], to: "active" },
@@ -357,14 +369,37 @@ export function showPlaybook(artifacts: ArtifactStore, id: string): Artifact {
 }
 
 export function updatePlaybook(artifacts: ArtifactStore, id: string, input: UpdatePlaybookInput, context?: ArtifactEventContext): Artifact {
-	requireContentUpdateFields(input);
+	if (
+		input.title === undefined &&
+		input.body === undefined &&
+		input.labels === undefined &&
+		input.trigger === undefined &&
+		input.steps === undefined
+	) {
+		throw new Error("update requires title, body, labels, trigger, or steps");
+	}
 	assertTitleBounds(input.title);
 	assertBodyBounds(input.body);
 	assertLabelsBounds(input.labels);
+	// Validated the same way create does, BEFORE any write -- an invalid steps array must never
+	// partially apply a title/body/labels change alongside a rejected steps change.
+	const declaredSteps = validatePlaybookSteps(input.steps);
 	const playbook = requireLocallyOwnedContent(requireKind(artifacts, id, "playbook"));
-	const updated = artifacts.updateContent(playbook.id, input, context);
+	const hasContentFields = input.title !== undefined || input.body !== undefined || input.labels !== undefined;
+	const updated = hasContentFields ? artifacts.updateContent(playbook.id, input, context) : playbook;
 	if (!updated) throw new Error(`playbook "${id}" not found`);
-	return updated;
+	if (declaredSteps === undefined && input.trigger === undefined) return updated;
+	const withExtra = artifacts.setExtra(
+		updated.id,
+		{
+			...updated.extra,
+			...(input.trigger !== undefined ? { trigger: input.trigger } : {}),
+			...(declaredSteps !== undefined ? { steps: declaredSteps } : {}),
+		},
+		context,
+	);
+	if (!withExtra) throw new Error(`playbook "${id}" not found`);
+	return withExtra;
 }
 
 export function transitionPlaybook(

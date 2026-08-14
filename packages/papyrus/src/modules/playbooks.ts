@@ -202,6 +202,8 @@ export function playbooksOperations({
 					title: optionalString(input, "title"),
 					body: optionalString(input, "body"),
 					labels: input.labels as string[] | undefined,
+					trigger: optionalString(input, "trigger"),
+					steps: input.steps,
 				},
 				eventContext(input),
 			),

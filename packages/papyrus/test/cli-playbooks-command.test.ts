@@ -112,9 +112,20 @@ describe("runPlaybooksCli (Stricli-backed)", () => {
 		expect(client.calls).toEqual([{ operation: "playbooks.assign_project", input: { id: "p1", project_root: "/target" } }]);
 	});
 
-	it("update: requires at least one of title/body/labels-json", async () => {
+	it("update: requires at least one of title/body/labels-json/trigger/steps-json", async () => {
 		const client = new FakeClient(artifact);
 		await expect(runPlaybooksCli(["update", "p1"], client)).rejects.toThrow();
+	});
+
+	it("update: threads trigger/steps-json, the exact gap this closes -- no more create-new+supersedes+disable workaround", async () => {
+		const client = new FakeClient(artifact);
+		await runPlaybooksCli(["update", "p1", "--trigger", "new, generic trigger", "--steps-json", '["new, generic step"]'], client);
+		expect(client.calls).toEqual([
+			{
+				operation: "playbooks.update",
+				input: { id: "p1", trigger: "new, generic trigger", steps: ["new, generic step"] },
+			},
+		]);
 	});
 
 	it("contain: nests child under parent", async () => {

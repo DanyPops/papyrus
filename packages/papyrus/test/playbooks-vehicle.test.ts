@@ -264,6 +264,25 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		service.close();
 	});
 
+	it("update also revises steps/trigger through the real Vehicle wire protocol -- not just title/body/labels", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Project-specific playbook", trigger: "Old trigger", steps: ["Old, project-specific step"] },
+			PERMS,
+		)) as { id: string };
+		const updated = (await registry.invoke(
+			"playbooks.update",
+			1,
+			{ id: created.id, trigger: "New, generic trigger", steps: ["New, generic step"] },
+			PERMS,
+		)) as { extra: { trigger: string; steps: unknown[] } };
+		expect(updated.extra.trigger).toBe("New, generic trigger");
+		expect(updated.extra.steps).toEqual(["New, generic step"]);
+		service.close();
+	});
+
 	it("contain/uncontain resolve parent_name/child_name server-side", async () => {
 		const { registry, service } = harness();
 		const parent = (await registry.invoke("playbooks.create", 1, { title: "Parent playbook", steps: ["Parent step"] }, PERMS)) as {

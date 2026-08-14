@@ -516,10 +516,59 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 
 		const updated = updatePlaybook(artifacts, playbook.id, { title: "Renamed playbook" });
 		expect(updated.title).toBe("Renamed playbook");
-		expect(() => updatePlaybook(artifacts, playbook.id, {})).toThrow("update requires title, body, or labels");
+		expect(() => updatePlaybook(artifacts, playbook.id, {})).toThrow("update requires title, body, labels, trigger, or steps");
 
 		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
 		expect(() => updatePlaybook(artifacts, projected.id, { title: "Edited locally" })).toThrow(
+			/read-only projection from some-external-system/,
+		);
+		db.close();
+	});
+
+	it("revises steps and trigger after creation -- no more create-new+supersedes+disable workaround", () => {
+		const { db, artifacts, scopes } = fixture();
+		const playbook = createPlaybook(artifacts, scopes, {
+			title: "Add a tier",
+			trigger: "When Zodiac needs a new elevation tier",
+			steps: ["Edit zodiac-web/src/tiers.ts", "Add the ZODIAC_TIER_5 constant"],
+		});
+		expect(playbook.extra.trigger).toBe("When Zodiac needs a new elevation tier");
+		expect(playbook.extra.steps).toEqual(["Edit zodiac-web/src/tiers.ts", "Add the ZODIAC_TIER_5 constant"]);
+
+		// Generalizing for reuse elsewhere: revise both trigger and steps in place, title/body untouched.
+		const generalized = updatePlaybook(artifacts, playbook.id, {
+			trigger: "When a project needs a new elevation tier",
+			steps: ["Edit the project's own tiers module", "Add the new tier constant", { kind: "task", body: "Update the tier docs" }],
+		});
+		expect(generalized.title).toBe("Add a tier"); // untouched
+		expect(generalized.extra.trigger).toBe("When a project needs a new elevation tier");
+		expect(generalized.extra.steps).toEqual([
+			"Edit the project's own tiers module",
+			"Add the new tier constant",
+			{ kind: "task", body: "Update the tier docs" },
+		]);
+
+		// steps/trigger alone (no title/body/labels) still counts as a real update -- not rejected
+		// by the "at least one field" guard, and other extra fields (e.g. tools set at creation)
+		// survive a steps-only revision untouched.
+		const withTools = createPlaybook(artifacts, scopes, { title: "Has tools", tools: ["read"], steps: ["first"] });
+		const stepsOnly = updatePlaybook(artifacts, withTools.id, { steps: ["first", "second"] });
+		expect(stepsOnly.extra.tools).toEqual(["read"]);
+		expect(stepsOnly.extra.steps).toEqual(["first", "second"]);
+
+		// An invalid steps array is rejected the same way create rejects it, and never partially
+		// applies alongside a title change in the same call.
+		expect(() => updatePlaybook(artifacts, playbook.id, { title: "Should not apply", steps: "not-an-array" })).toThrow(
+			"playbook steps must be an array",
+		);
+		expect(artifacts.get(playbook.id)!.title).toBe("Add a tier");
+		db.close();
+	});
+
+	it("refuses a steps/trigger update on a read-only external projection, the same as title/body", () => {
+		const { db, artifacts, scopes } = fixture();
+		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
+		expect(() => updatePlaybook(artifacts, projected.id, { steps: ["new step"] })).toThrow(
 			/read-only projection from some-external-system/,
 		);
 		db.close();

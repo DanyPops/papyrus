@@ -265,7 +265,7 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 
 	define(
 		"update",
-		"Changes a Playbook's title/body/labels (at least one required). Refused for a read-only external projection.",
+		"Changes a Playbook's title/body/labels/trigger/steps (at least one required). `steps` accepts the exact same shape playbooks.create does and REPLACES the entire step list -- the way to fix a mistake or generalize a Playbook's steps after creation instead of the create-new+supersedes+disable workaround. Refused for a read-only external projection.",
 		"local-write",
 		{
 			id: stringProp,
@@ -273,6 +273,8 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 			title: stringProp,
 			body: stringProp,
 			labels: { type: "array" },
+			trigger: stringProp,
+			steps: { type: "array" },
 			actor: stringProp,
 			source: stringProp,
 			session_id: stringProp,

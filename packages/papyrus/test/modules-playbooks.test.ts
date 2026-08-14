@@ -89,6 +89,27 @@ describe("modules/playbooks — a Papyrus-native registered module, recycling th
 		expect(disabled.status).toBe("deprecated");
 	});
 
+	it("revises steps/trigger through the real operation, end to end -- the exact gap this closes (no more create-new+supersedes+disable workaround)", async () => {
+		const { registry } = fixture();
+		const created = (await registry.get("playbooks.create")!.execute({
+			title: "Add a tier",
+			trigger: "When Zodiac needs a new tier",
+			steps: ["Edit zodiac-web/src/tiers.ts"],
+		})) as { id: string };
+
+		const generalized = (await registry.get("playbooks.update")!.execute({
+			id: created.id,
+			trigger: "When a project needs a new tier",
+			steps: ["Edit the project's own tiers module"],
+		})) as { extra: { trigger: string; steps: unknown[] } };
+		expect(generalized.extra.trigger).toBe("When a project needs a new tier");
+		expect(generalized.extra.steps).toEqual(["Edit the project's own tiers module"]);
+
+		const preview = (await registry.get("playbooks.preview")!.execute({ id: created.id })) as string;
+		expect(preview).toContain("Edit the project's own tiers module");
+		expect(preview).not.toContain("zodiac-web");
+	});
+
 	it("declares arguments at create; invoke without a required value creates nothing and reports it; invoke with the value substitutes it into the step task", async () => {
 		const { registry, artifacts } = fixture();
 		const created = (await registry.get("playbooks.create")!.execute({

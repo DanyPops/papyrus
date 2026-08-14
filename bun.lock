@@ -16,7 +16,7 @@
     },
     "packages/papyrus": {
       "name": "@danypops/papyrus",
-      "version": "0.54.4",
+      "version": "0.55.0",
       "bin": {
         "papyrus": "src/cli.ts",
       },
@@ -33,7 +33,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.55.1",
+      "version": "0.55.2",
       "dependencies": {
         "@danypops/jittor": "^0.18.1",
         "@danypops/papyrus": "^0.54.2",
@@ -634,6 +634,8 @@
 
     "@danypops/jittor/@danypops/vehicle-server": ["@danypops/vehicle-server@0.17.2", "", { "dependencies": { "@danypops/armada": "^0.3.1", "@danypops/vehicle-core": "^0.12.3", "pino": "^10.3.1" } }, "sha512-nemWSTkNv9yh1t3V6lL3YO92q9U7tDZInemrHk9dkJpmI6dmCymU7h/ZbXqjId0fnbRbsowt8HmtC9WxMWiuMQ=="],
 
+    "@danypops/pi-papyrus/@danypops/papyrus": ["@danypops/papyrus@0.54.5", "", { "dependencies": { "@danypops/vehicle-client": "^0.6.1", "@danypops/vehicle-core": "^0.12.3", "@danypops/vehicle-server": "^0.22.0", "@stricli/core": "^1.3.0" }, "bin": { "papyrus": "src/cli.ts" } }, "sha512-U7gPtUqEBuZuqVQ2xSRRGwNIEDcuVVcUiDr9utrP9dj6vJvjXXhZXBnO5HqECufW0bZCRN08Cw+P3peyGazXDg=="],
+
     "@danypops/pi-papyrus/@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.17.0", "@danypops/vehicle-server": "^0.24.1" } }, "sha512-xDWVgUMRYQ22gT9GYNsHykde0JS6m94qil+PypNG1tp9FWpN7+yqu8atyBNLkzVWhjQN7dDm+FMIkwv6a1RywA=="],
 
     "@danypops/pi-papyrus/@danypops/vehicle-server": ["@danypops/vehicle-server@0.18.5", "", { "dependencies": { "@danypops/armada": "^0.4.2", "@danypops/vehicle-core": "^0.13.1", "pino": "^10.3.1" } }, "sha512-d5/cWxWWCuy6sxr28QoGZe2FRuVfmYC3+a8kdsuIkfGJ3nrjZiNiR1S6FLsQR4Lc8K8V87IZhGIfP9ABsx2gIw=="],
@@ -680,6 +682,10 @@
 
     "@danypops/jittor/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.3.1", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-AxfFTJnsSbZXibgeHgPs97mt670AYqogKthI6sGNsNiFCNFqy7iXFdKt3ZusboN/SUKHtFCd+0j/B8jryi8EnQ=="],
 
+    "@danypops/pi-papyrus/@danypops/papyrus/@danypops/vehicle-client": ["@danypops/vehicle-client@0.6.2", "", { "dependencies": { "@danypops/vehicle-core": "^0.12.4", "@danypops/vehicle-server": "^0.18.1" } }, "sha512-HEL4pd35oiE8dcuxpIoLZ2vnZvXwZlrVULrepiO64bdYK2Eiq5+SEDS4ZB/n+7nRoZ/76dAn7G9gqbIaJSm7UQ=="],
+
+    "@danypops/pi-papyrus/@danypops/papyrus/@danypops/vehicle-server": ["@danypops/vehicle-server@0.22.0", "", { "dependencies": { "@danypops/armada": "^0.4.3", "@danypops/vehicle-core": "^0.15.0", "pino": "^10.3.1" } }, "sha512-qDvhAMkTavop/zlDvpjD43cKsr1l13IHV/13D8/RaojbX3uaaYjfmsPmmxPlllpUwR4RHbP48vEV6i4ZYrDYxQ=="],
+
     "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-core": ["@danypops/vehicle-core@0.17.0", "", {}, "sha512-APdqMHaBfQmCOdki7hcT3XDrz6c/ql/aHS2sgVlxaFFFofb+aLvGIhx2lDZc2z80XQp/PD87Nv3p2dx/n6HFjA=="],
 
     "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.24.1", "", { "dependencies": { "@danypops/armada": "^0.4.4", "@danypops/vehicle-core": "^0.17.0", "pino": "^10.3.1" } }, "sha512-3tC0WYnYq47mj0QFT1K1n+70LqjdEQZR/DceXT40fkpxZJwtlKu5XoDXIkry4LhP9gOvdwVHCqrr1MMy4Yqrww=="],
@@ -694,6 +700,14 @@
 
     "@danypops/vehicle-conformance/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.2", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-GYKGzSSc7K3kTVLA0FysAj4m8G3h+/vFzgOWvvE/Ss/yq9Ei7ISLxoe0U7UrsVO0PWK4y7u1/YcfT7hrVnsMjw=="],
 
+    "@danypops/pi-papyrus/@danypops/papyrus/@danypops/vehicle-client/@danypops/vehicle-core": ["@danypops/vehicle-core@0.12.4", "", {}, "sha512-fefdWpjCZMm2AP5oAf1ee7rcnEK2o5/iwu+pIX7BQXZaiq/atK2i/1aKwul9xPutsPx4qSPZNPls7t90uw1EfQ=="],
+
+    "@danypops/pi-papyrus/@danypops/papyrus/@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.18.2", "", { "dependencies": { "@danypops/armada": "^0.3.1", "@danypops/vehicle-core": "^0.12.4", "pino": "^10.3.1" } }, "sha512-ypQrvIzJFCwYIAc/k/KS9jtbd9yZFFt0QHhWw96R8EYFK9fVWIBCg3H6uwwLr7vHbQ5bD3WFo4eFBA36ZhiGnA=="],
+
+    "@danypops/pi-papyrus/@danypops/papyrus/@danypops/vehicle-server/@danypops/vehicle-core": ["@danypops/vehicle-core@0.15.0", "", {}, "sha512-2IWDriuNZmndpgpqCJ5DF56ZCBTxjJL7kxyws9H9jkLjxF5U412R4GNpdcbNvYY0NHmL5P5lk4/oCFZHC+XXOA=="],
+
     "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.4", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-stJl4y/wchf2+QpBf1jUZvDbey2yXMOFU66hLNqc99sKo3CiaMTE8m9bdKIHPJ5MnFHx6NUiCX5Y5T5BfR6K5w=="],
+
+    "@danypops/pi-papyrus/@danypops/papyrus/@danypops/vehicle-client/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.3.1", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-AxfFTJnsSbZXibgeHgPs97mt670AYqogKthI6sGNsNiFCNFqy7iXFdKt3ZusboN/SUKHtFCd+0j/B8jryi8EnQ=="],
   }
 }

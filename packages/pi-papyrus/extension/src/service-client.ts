@@ -17,7 +17,13 @@ import {
 type ClientConnector = () => Promise<PapyrusClient>;
 
 let connector: ClientConnector = () => connectPapyrusClient();
-const client: RetryingClient<PapyrusClient> = createRetryingClient<PapyrusClient>(() => connector(), { label: "Papyrus" });
+// connectRetry:true (vehicle-client's own bounded background retry budget) covers a
+// daemon that crashed and is mid systemd-restart -- without it, the very first call
+// during that window fails immediately instead of waiting the ~2s restart out.
+const client: RetryingClient<PapyrusClient> = createRetryingClient<PapyrusClient>(() => connector(), {
+	label: "Papyrus",
+	connectRetry: true,
+});
 
 export async function papyrusClient(): Promise<PapyrusClient> {
 	return client.call(async (resolved) => resolved);

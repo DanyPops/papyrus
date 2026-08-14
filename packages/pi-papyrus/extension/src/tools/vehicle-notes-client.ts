@@ -121,6 +121,10 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 			// every dispatch so a long-lived Pi session never sends one sacrificial call to a
 			// cached dead port just to discover what the handle file already says.
 			resolveIdentity: () => daemonInstanceIdentity(resolveTarget().baseUrl),
+			// connectRetry:true (vehicle-client's own bounded background retry budget) covers a
+			// daemon that crashed and is mid systemd-restart -- without it, the very first call
+			// during that window fails immediately instead of waiting the ~2s restart out.
+			connectRetry: true,
 		},
 	);
 	return registerVehicleToolsWhenReady(pi, () => Promise.resolve(currentVehicleClientTarget() ? client : undefined), {

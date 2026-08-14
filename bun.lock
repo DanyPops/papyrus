@@ -33,11 +33,11 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.55.0",
+      "version": "0.55.1",
       "dependencies": {
         "@danypops/jittor": "^0.18.1",
         "@danypops/papyrus": "^0.54.2",
-        "@danypops/vehicle-client": "^0.7.0",
+        "@danypops/vehicle-client": "^0.10.0",
         "@danypops/vehicle-client-pi": "^0.40.1",
         "@danypops/vehicle-core": "^0.12.3",
         "@danypops/vehicle-server": "^0.18.1",
@@ -634,7 +634,7 @@
 
     "@danypops/jittor/@danypops/vehicle-server": ["@danypops/vehicle-server@0.17.2", "", { "dependencies": { "@danypops/armada": "^0.3.1", "@danypops/vehicle-core": "^0.12.3", "pino": "^10.3.1" } }, "sha512-nemWSTkNv9yh1t3V6lL3YO92q9U7tDZInemrHk9dkJpmI6dmCymU7h/ZbXqjId0fnbRbsowt8HmtC9WxMWiuMQ=="],
 
-    "@danypops/pi-papyrus/@danypops/vehicle-client": ["@danypops/vehicle-client@0.7.1", "", { "dependencies": { "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.4" } }, "sha512-aob1GKRwM3/nMkeijkjEQ2yLrEWBFOOVBzswl4z0oS5Lvgt9fJNyxMzVedW1e7fngp/AmqbRzSaQm0eqkadWbQ=="],
+    "@danypops/pi-papyrus/@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.17.0", "@danypops/vehicle-server": "^0.24.1" } }, "sha512-xDWVgUMRYQ22gT9GYNsHykde0JS6m94qil+PypNG1tp9FWpN7+yqu8atyBNLkzVWhjQN7dDm+FMIkwv6a1RywA=="],
 
     "@danypops/pi-papyrus/@danypops/vehicle-server": ["@danypops/vehicle-server@0.18.5", "", { "dependencies": { "@danypops/armada": "^0.4.2", "@danypops/vehicle-core": "^0.13.1", "pino": "^10.3.1" } }, "sha512-d5/cWxWWCuy6sxr28QoGZe2FRuVfmYC3+a8kdsuIkfGJ3nrjZiNiR1S6FLsQR4Lc8K8V87IZhGIfP9ABsx2gIw=="],
 
@@ -680,9 +680,9 @@
 
     "@danypops/jittor/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.3.1", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-AxfFTJnsSbZXibgeHgPs97mt670AYqogKthI6sGNsNiFCNFqy7iXFdKt3ZusboN/SUKHtFCd+0j/B8jryi8EnQ=="],
 
-    "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-core": ["@danypops/vehicle-core@0.13.0", "", {}, "sha512-kGsZcJDqJSV52dyYM06qMD7TWHn/sybAh8RN0ZGM+yvOolSW/zpRFKbO7dXk/k7mxdgsrviWGRkOHlByH7fDsA=="],
+    "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-core": ["@danypops/vehicle-core@0.17.0", "", {}, "sha512-APdqMHaBfQmCOdki7hcT3XDrz6c/ql/aHS2sgVlxaFFFofb+aLvGIhx2lDZc2z80XQp/PD87Nv3p2dx/n6HFjA=="],
 
-    "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.18.4", "", { "dependencies": { "@danypops/armada": "^0.4.2", "@danypops/vehicle-core": "^0.13.0", "pino": "^10.3.1" } }, "sha512-hpY3O+cvh9MnXIl/MAc6m5rJOlTaKudstbuS9oxWHsN2APuMRp540/cNFC+S1gVkwdaK6TBAYA/xRLOKM7o6Fg=="],
+    "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.24.1", "", { "dependencies": { "@danypops/armada": "^0.4.4", "@danypops/vehicle-core": "^0.17.0", "pino": "^10.3.1" } }, "sha512-3tC0WYnYq47mj0QFT1K1n+70LqjdEQZR/DceXT40fkpxZJwtlKu5XoDXIkry4LhP9gOvdwVHCqrr1MMy4Yqrww=="],
 
     "@danypops/pi-papyrus/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.2", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-GYKGzSSc7K3kTVLA0FysAj4m8G3h+/vFzgOWvvE/Ss/yq9Ei7ISLxoe0U7UrsVO0PWK4y7u1/YcfT7hrVnsMjw=="],
 
@@ -694,6 +694,6 @@
 
     "@danypops/vehicle-conformance/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.2", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-GYKGzSSc7K3kTVLA0FysAj4m8G3h+/vFzgOWvvE/Ss/yq9Ei7ISLxoe0U7UrsVO0PWK4y7u1/YcfT7hrVnsMjw=="],
 
-    "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.2", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-GYKGzSSc7K3kTVLA0FysAj4m8G3h+/vFzgOWvvE/Ss/yq9Ei7ISLxoe0U7UrsVO0PWK4y7u1/YcfT7hrVnsMjw=="],
+    "@danypops/pi-papyrus/@danypops/vehicle-client/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.4", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-stJl4y/wchf2+QpBf1jUZvDbey2yXMOFU66hLNqc99sKo3CiaMTE8m9bdKIHPJ5MnFHx6NUiCX5Y5T5BfR6K5w=="],
   }
 }

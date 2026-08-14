@@ -3,7 +3,7 @@ import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
-import { SQLiteTaskEventStore } from "../src/stores/sqlite-task-event-store.ts";
+import { SQLiteTaskEventStore } from "../src/task-event/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/stores/sqlite-task-focus-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 

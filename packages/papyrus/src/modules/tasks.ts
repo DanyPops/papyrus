@@ -22,8 +22,8 @@
 import { summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { Checklist } from "../domain/checklist.ts";
-import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../domain/task-event.ts";
-import type { TaskViewMode } from "../domain/task-scope.ts";
+import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../task-event/task-event.ts";
+import type { TaskViewMode } from "../task-scope/task-scope.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import { taskContext } from "../task/task-context.ts";

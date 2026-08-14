@@ -24,11 +24,11 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
 import { listPlaybooks } from "../playbook/playbook-service.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
-import type { TaskEventStore } from "../stores/task-event-store.ts";
-import type { TaskScopeStore } from "../stores/task-scope-store.ts";
+import type { TaskEventStore } from "../task-event/task-event-store.ts";
+import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
 import {
 	booleanProp,

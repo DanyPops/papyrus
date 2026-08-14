@@ -1,4 +1,4 @@
-import type { Project, RegisterProjectInput } from "../domain/project-registry.ts";
+import type { Project, RegisterProjectInput } from "../project-registry/project-registry.ts";
 
 /**
  * Kind-neutral project identity, shared by Task scope and every non-Task artifact scope

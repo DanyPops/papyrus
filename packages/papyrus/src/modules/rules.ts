@@ -15,7 +15,7 @@ import { type Artifact, summarizeArtifact } from "../artifact/artifact.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import {
 	addRuleGroup,
 	addRuleProject,

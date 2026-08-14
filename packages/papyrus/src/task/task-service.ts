@@ -25,9 +25,9 @@ import type {
 	TaskHistoryPage,
 	TaskHistoryQuery,
 	TaskLifecycleStatus,
-} from "../domain/task-event.ts";
-import { validateEventContext } from "../domain/task-event.ts";
-import type { TaskLeaseView } from "../domain/task-lease.ts";
+} from "../task-event/task-event.ts";
+import { validateEventContext } from "../task-event/task-event.ts";
+import type { TaskLeaseView } from "../task-lease/task-lease.ts";
 import {
 	normalizeProjectRoot,
 	type RegisterTaskProjectInput,
@@ -36,7 +36,7 @@ import {
 	type TaskViewMode,
 	type TaskViewSelection,
 	taskScopeLabel,
-} from "../domain/task-scope.ts";
+} from "../task-scope/task-scope.ts";
 import type { TransitionTable } from "../domain-service-shared.ts";
 import type { GateRunner } from "../stores/gate-runner.ts";
 import {
@@ -44,16 +44,16 @@ import {
 	TaskCreateIdempotencyConflictError,
 	type TaskCreateRequestStore,
 } from "../stores/task-create-request-store.ts";
-import { InMemoryTaskEventStore, type TaskEventStore } from "../stores/task-event-store.ts";
+import { InMemoryTaskEventStore, type TaskEventStore } from "../task-event/task-event-store.ts";
 import { InMemoryTaskFocusStore, type TaskFocusStatus, type TaskFocusStore } from "../stores/task-focus-store.ts";
-import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../stores/task-lease-store.ts";
+import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../task-lease/task-lease-store.ts";
 import {
 	InMemoryTaskMutationRequestStore,
 	TaskMutationPendingError,
 	type TaskMutationRequestRecord,
 	type TaskMutationRequestStore,
 } from "../stores/task-mutation-request-store.ts";
-import { InMemoryTaskScopeStore, type TaskScopeStore } from "../stores/task-scope-store.ts";
+import { InMemoryTaskScopeStore, type TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import { TaskEdges } from "./task-edges.ts";
 import { TaskExecutionBoundExceededError } from "./task-execution.ts";
 import { type TaskFocus, TaskFocusCoordinator, type TaskFocusMutationResult } from "./task-focus-coordinator.ts";

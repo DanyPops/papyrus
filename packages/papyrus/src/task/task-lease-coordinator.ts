@@ -1,6 +1,6 @@
 import type { Artifact } from "../artifact/artifact.ts";
-import type { TaskLease, TaskLeaseView } from "../domain/task-lease.ts";
-import type { TaskLeaseStore } from "../stores/task-lease-store.ts";
+import type { TaskLease, TaskLeaseView } from "../task-lease/task-lease.ts";
+import type { TaskLeaseStore } from "../task-lease/task-lease-store.ts";
 
 /**
  * Task lease management (claim/heartbeat/release/get/reap), split out of the Tasks god class as

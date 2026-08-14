@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import type { Project, RegisterProjectInput } from "../domain/project-registry.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
-import { uniqueAliases } from "./in-memory-project-registry-store.ts";
+import type { Project, RegisterProjectInput } from "../project-registry/project-registry.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import { uniqueAliases } from "../project-registry/in-memory-project-registry-store.ts";
 
 interface ProjectRow {
 	id: string;

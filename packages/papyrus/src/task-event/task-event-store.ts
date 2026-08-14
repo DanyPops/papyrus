@@ -8,7 +8,7 @@ import {
 	type TaskHistoryPage,
 	type TaskHistoryQuery,
 	validateTaskEvent,
-} from "../domain/task-event.ts";
+} from "../task-event/task-event.ts";
 
 export interface TaskEventStore {
 	atomic<T>(operation: () => T): T;

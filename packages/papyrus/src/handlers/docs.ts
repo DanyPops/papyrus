@@ -9,7 +9,7 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import { listDocuments } from "../docs/docs-service.ts";
 import { docsOperations } from "../modules/docs.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 

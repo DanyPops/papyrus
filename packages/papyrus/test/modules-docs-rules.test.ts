@@ -7,7 +7,7 @@ import { OperationRegistry } from "../src/module-registry.ts";
 import { DOCS_OPERATION_NAMES, docsOperations } from "../src/modules/docs.ts";
 import { RULES_OPERATION_NAMES, rulesOperations } from "../src/modules/rules.ts";
 import { SQLiteScopeGroupStore } from "../src/scope-group/sqlite-scope-group-store.ts";
-import { SQLiteProjectRegistryStore } from "../src/stores/sqlite-project-registry-store.ts";
+import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

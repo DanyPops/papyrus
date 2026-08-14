@@ -17,10 +17,10 @@ import {
 	validateBlueprintDefinition,
 } from "../domain/blueprint-definition.ts";
 import { validateChecklist } from "../domain/checklist.ts";
-import type { TaskEventContext } from "../domain/task-event.ts";
-import { normalizeProjectRoot } from "../domain/task-scope.ts";
-import type { TaskEventStore } from "../stores/task-event-store.ts";
-import type { TaskScopeStore } from "../stores/task-scope-store.ts";
+import type { TaskEventContext } from "../task-event/task-event.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
+import type { TaskEventStore } from "../task-event/task-event-store.ts";
+import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 import type { TaskGraph, TaskNode, TaskStatus } from "../task/task-service.ts";
 import { compilePlaybookDefinition, type PlaybookExternalLink } from "./playbook-definition.ts";

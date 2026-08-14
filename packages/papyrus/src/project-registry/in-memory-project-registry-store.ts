@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { TASK_PROJECT_ALIAS_MAX_COUNT } from "../constants.ts";
-import type { Project, RegisterProjectInput } from "../domain/project-registry.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { Project, RegisterProjectInput } from "../project-registry/project-registry.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 
 export function uniqueAliases(values: readonly string[], name: string): string[] {
 	const seen = new Set([name.trim().toLowerCase()]);

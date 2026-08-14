@@ -1,4 +1,4 @@
-import type { TaskScopeSource } from "../domain/task-scope.ts";
+import type { TaskScopeSource } from "../task-scope/task-scope.ts";
 import type { ScopeMemberRef } from "../scope-group/scope-group.ts";
 
 /**

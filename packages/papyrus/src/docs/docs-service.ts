@@ -9,7 +9,7 @@ import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { ArtifactAction, AuthorityRegistry } from "../authority-registry.ts";
-import { normalizeProjectRoot } from "../domain/task-scope.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 import {
 	addArtifactScopeGroup,
 	addArtifactScopeProject,
@@ -30,7 +30,7 @@ import {
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import { NOTE_SUBTYPE } from "../note/note-service.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 
 function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | undefined, subtype: string | undefined): boolean {

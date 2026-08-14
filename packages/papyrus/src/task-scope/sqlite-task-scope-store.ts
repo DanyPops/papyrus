@@ -7,9 +7,9 @@ import type {
 	TaskScopeSource,
 	TaskViewMode,
 	TaskViewPreference,
-} from "../domain/task-scope.ts";
-import { SQLiteProjectRegistryStore } from "./sqlite-project-registry-store.ts";
-import type { TaskScopeStore } from "./task-scope-store.ts";
+} from "../task-scope/task-scope.ts";
+import { SQLiteProjectRegistryStore } from "../project-registry/sqlite-project-registry-store.ts";
+import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 
 /** Rewrites every task_scopes/task_views row pinned to a project root that just moved -- called inside the same registerProject() transaction, so a rename/move is atomic with the rewrite. */
 function rewriteTaskRowsForMovedRoot(db: Db, previousRoot: string, nextRoot: string): void {

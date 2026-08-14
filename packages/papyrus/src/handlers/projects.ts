@@ -6,7 +6,7 @@
  */
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { projectsOperations } from "../modules/projects.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import { createOperationDefiner, numberProp, stringProp } from "./shared.ts";
 
 const OWNER = "projects";

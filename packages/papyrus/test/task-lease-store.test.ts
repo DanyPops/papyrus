@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { TASK_LEASE_MAX_TTL_MS, TASK_LEASE_MIN_TTL_MS, TASK_LEASE_OWNER_MAX_LENGTH } from "../src/constants.ts";
 import { openDb } from "../src/db.ts";
-import { SQLiteTaskLeaseStore } from "../src/stores/sqlite-task-lease-store.ts";
-import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../src/stores/task-lease-store.ts";
+import { SQLiteTaskLeaseStore } from "../src/task-lease/sqlite-task-lease-store.ts";
+import { InMemoryTaskLeaseStore, type TaskLeaseStore } from "../src/task-lease/task-lease-store.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);

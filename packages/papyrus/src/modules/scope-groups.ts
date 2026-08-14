@@ -10,9 +10,9 @@
 
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import { SCOPE_GROUP_LIST_MAX_RESULTS } from "../constants.ts";
-import { resolveProjectReference } from "../domain/project-registry.ts";
+import { resolveProjectReference } from "../project-registry/project-registry.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import { deleteScopeGroup } from "../scope-group/delete-scope-group.ts";
 import { resolveScopeGroupReference, type ScopeMemberRef } from "../scope-group/scope-group.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";

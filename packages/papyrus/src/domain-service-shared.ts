@@ -17,9 +17,9 @@ import {
 	ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT,
 	ARTIFACT_TITLE_MAX_LENGTH,
 } from "./constants.ts";
-import { resolveProjectReference } from "./domain/project-registry.ts";
-import { normalizeProjectRoot } from "./domain/task-scope.ts";
-import type { ProjectRegistryStore } from "./ports/project-registry-store.ts";
+import { resolveProjectReference } from "./project-registry/project-registry.ts";
+import { normalizeProjectRoot } from "./task-scope/task-scope.ts";
+import type { ProjectRegistryStore } from "./project-registry/project-registry-store.ts";
 import { resolveScopeGroupReference } from "./scope-group/scope-group.ts";
 import type { ScopeGroupStore } from "./scope-group/scope-group-store.ts";
 

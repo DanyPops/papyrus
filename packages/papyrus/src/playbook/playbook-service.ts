@@ -43,7 +43,7 @@ import {
 	type BlueprintInputType,
 	validateArgumentValue,
 } from "../domain/blueprint-definition.ts";
-import { normalizeProjectRoot } from "../domain/task-scope.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 import {
 	addArtifactScopeGroup,
 	addArtifactScopeProject,
@@ -63,7 +63,7 @@ import {
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 
 export interface PlaybookArgument {

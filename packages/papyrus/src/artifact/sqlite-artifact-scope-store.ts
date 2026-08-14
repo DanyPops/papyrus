@@ -1,10 +1,10 @@
 import { ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import type { TaskScopeSource } from "../domain/task-scope.ts";
+import type { TaskScopeSource } from "../task-scope/task-scope.ts";
 import type { ScopeMemberRef } from "../scope-group/scope-group.ts";
 import { SQLiteScopeGroupStore } from "../scope-group/sqlite-scope-group-store.ts";
-import { SQLiteProjectRegistryStore } from "../stores/sqlite-project-registry-store.ts";
+import { SQLiteProjectRegistryStore } from "../project-registry/sqlite-project-registry-store.ts";
 import type { ArtifactScope, ArtifactScopeMode, ArtifactScopeStore, LegacyArtifactScope } from "./artifact-scope-store.ts";
 
 interface ScopeRow {

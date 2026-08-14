@@ -31,7 +31,7 @@ import {
 	updateDocument,
 } from "../docs/docs-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 

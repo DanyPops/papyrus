@@ -23,9 +23,9 @@ export { DISCUSSION_SUBTYPE, type DiscussionRound, readDiscussionExtra } from ".
 export type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode, RenderedGraph } from "./domain/display-graph.ts";
 export type { GateResult } from "./domain/gate.ts";
 export type { NoteHistoryPage } from "./domain/note-event.ts";
-export type { TaskEvent, TaskHistoryPage } from "./domain/task-event.ts";
-export type { TaskLease, TaskLeaseView } from "./domain/task-lease.ts";
-export type { TaskViewSelection } from "./domain/task-scope.ts";
+export type { TaskEvent, TaskHistoryPage } from "./task-event/task-event.ts";
+export type { TaskLease, TaskLeaseView } from "./task-lease/task-lease.ts";
+export type { TaskViewSelection } from "./task-scope/task-scope.ts";
 export { NOTE_DISPOSITIONS } from "./note/note-service.ts";
 export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playbook/playbook-execution.ts";
 export type { WorkflowRunResult } from "./playbook/workflow-execution.ts";

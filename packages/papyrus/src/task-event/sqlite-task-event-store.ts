@@ -13,8 +13,8 @@ import {
 	type TaskHistoryQuery,
 	type TaskLifecycleStatus,
 	validateTaskEvent,
-} from "../domain/task-event.ts";
-import type { TaskEventStore } from "./task-event-store.ts";
+} from "../task-event/task-event.ts";
+import type { TaskEventStore } from "../task-event/task-event-store.ts";
 
 interface TaskEventRow {
 	id: number;

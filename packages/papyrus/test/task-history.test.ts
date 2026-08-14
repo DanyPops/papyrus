@@ -7,7 +7,7 @@ afterAll(cleanupTempDirs);
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { migrateDb, openDb } from "../src/db.ts";
 import type { GateRunner } from "../src/stores/gate-runner.ts";
-import { SQLiteTaskEventStore } from "../src/stores/sqlite-task-event-store.ts";
+import { SQLiteTaskEventStore } from "../src/task-event/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/stores/sqlite-task-focus-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 

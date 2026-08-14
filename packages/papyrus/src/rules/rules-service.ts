@@ -11,7 +11,7 @@ import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { RULE_TEXT_HARD_LIMIT_CHARACTERS, RULE_TEXT_SOFT_TARGET_CHARACTERS } from "../constants.ts";
-import { normalizeProjectRoot } from "../domain/task-scope.ts";
+import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 import {
 	addArtifactScopeGroup,
 	addArtifactScopeProject,
@@ -31,7 +31,7 @@ import {
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 
 export interface CreateRuleInput {

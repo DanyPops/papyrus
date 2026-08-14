@@ -1,5 +1,5 @@
 import { TASK_LEASE_DEFAULT_TTL_MS } from "../constants.ts";
-import { isLeaseExpired, type TaskLease, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs } from "../domain/task-lease.ts";
+import { isLeaseExpired, type TaskLease, validateLeaseNote, validateLeaseOwner, validateLeaseTtlMs } from "../task-lease/task-lease.ts";
 
 export interface TaskLeaseStore {
 	/**

@@ -1,10 +1,10 @@
 import { ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT } from "../constants.ts";
-import type { TaskScopeSource } from "../domain/task-scope.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { TaskScopeSource } from "../task-scope/task-scope.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import { InMemoryScopeGroupStore } from "../scope-group/in-memory-scope-group-store.ts";
 import { type ScopeMemberRef, sameScopeMember } from "../scope-group/scope-group.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
-import { InMemoryProjectRegistryStore } from "../stores/in-memory-project-registry-store.ts";
+import { InMemoryProjectRegistryStore } from "../project-registry/in-memory-project-registry-store.ts";
 import type { ArtifactScope, ArtifactScopeMode, ArtifactScopeStore, LegacyArtifactScope } from "./artifact-scope-store.ts";
 
 interface Row {

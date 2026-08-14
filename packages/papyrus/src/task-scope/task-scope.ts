@@ -1,6 +1,6 @@
 import { basename, isAbsolute, normalize } from "node:path";
 import { TASK_PROJECT_ROOT_MAX_LENGTH } from "../constants.ts";
-import type { Project, RegisterProjectInput } from "./project-registry.ts";
+import type { Project, RegisterProjectInput } from "../project-registry/project-registry.ts";
 
 export type TaskViewMode = "project" | "graph" | "all";
 export type TaskScopeSource = "cwd" | "explicit" | "unscoped";

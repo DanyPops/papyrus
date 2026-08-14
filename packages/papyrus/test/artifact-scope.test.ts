@@ -10,8 +10,8 @@ import { createArtifact } from "../src/ops.ts";
 import { InMemoryScopeGroupStore } from "../src/scope-group/in-memory-scope-group-store.ts";
 import type { ScopeGroupStore } from "../src/scope-group/scope-group-store.ts";
 import { SQLiteScopeGroupStore } from "../src/scope-group/sqlite-scope-group-store.ts";
-import { InMemoryProjectRegistryStore } from "../src/stores/in-memory-project-registry-store.ts";
-import { SQLiteProjectRegistryStore } from "../src/stores/sqlite-project-registry-store.ts";
+import { InMemoryProjectRegistryStore } from "../src/project-registry/in-memory-project-registry-store.ts";
+import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import { tempDir } from "./helpers/tmp-dir.ts";
 
 describe("ArtifactScopeStore: none/all/explicit tri-state scope with nested scope-group membership", () => {

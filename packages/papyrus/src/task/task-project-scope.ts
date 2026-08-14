@@ -1,7 +1,7 @@
 import type { Artifact } from "../artifact/artifact.ts";
 import { TASK_PROJECT_LIST_MAX_RESULTS } from "../constants.ts";
-import { assertRegisterProjectInputBounds } from "../domain/project-registry.ts";
-import type { AppendTaskEvent, TaskEventContext } from "../domain/task-event.ts";
+import { assertRegisterProjectInputBounds } from "../project-registry/project-registry.ts";
+import type { AppendTaskEvent, TaskEventContext } from "../task-event/task-event.ts";
 import {
 	normalizeProjectRoot,
 	type RegisterTaskProjectInput,
@@ -9,9 +9,9 @@ import {
 	type TaskViewMode,
 	type TaskViewSelection,
 	taskScopeLabel,
-} from "../domain/task-scope.ts";
-import type { TaskEventStore } from "../stores/task-event-store.ts";
-import type { TaskScopeStore } from "../stores/task-scope-store.ts";
+} from "../task-scope/task-scope.ts";
+import type { TaskEventStore } from "../task-event/task-event-store.ts";
+import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 
 export class TaskProjectNotFoundError extends Error {}
 export class TaskProjectAmbiguousError extends Error {}

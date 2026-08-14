@@ -5,9 +5,9 @@ import type {
 	TaskScopeSource,
 	TaskViewMode,
 	TaskViewPreference,
-} from "../domain/task-scope.ts";
-import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
-import { InMemoryProjectRegistryStore } from "./in-memory-project-registry-store.ts";
+} from "../task-scope/task-scope.ts";
+import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import { InMemoryProjectRegistryStore } from "../project-registry/in-memory-project-registry-store.ts";
 
 export interface TaskScopeStore {
 	assign(taskId: string, projectRoot: string | undefined, source: TaskScopeSource): TaskProjectScope;

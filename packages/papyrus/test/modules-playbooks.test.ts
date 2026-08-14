@@ -7,12 +7,12 @@ import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "../src/modules/p
 import { SQLiteScopeGroupStore } from "../src/scope-group/sqlite-scope-group-store.ts";
 import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
 import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
-import { SQLiteProjectRegistryStore } from "../src/stores/sqlite-project-registry-store.ts";
+import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import { SQLiteSessionIdentityStore } from "../src/stores/sqlite-session-identity-store.ts";
-import { SQLiteTaskEventStore } from "../src/stores/sqlite-task-event-store.ts";
+import { SQLiteTaskEventStore } from "../src/task-event/sqlite-task-event-store.ts";
 import { SQLiteTaskFocusStore } from "../src/stores/sqlite-task-focus-store.ts";
-import { SQLiteTaskLeaseStore } from "../src/stores/sqlite-task-lease-store.ts";
-import { SQLiteTaskScopeStore } from "../src/stores/sqlite-task-scope-store.ts";
+import { SQLiteTaskLeaseStore } from "../src/task-lease/sqlite-task-lease-store.ts";
+import { SQLiteTaskScopeStore } from "../src/task-scope/sqlite-task-scope-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 function fixture() {

@@ -1,4 +1,4 @@
-import type { DisplayGraph, DisplayGraphEdge } from "../domain/display-graph.ts";
+import type { DisplayGraph, DisplayGraphEdge } from "../display-graph/display-graph.ts";
 import { projectTaskExecution, type TaskExecutionState } from "./task-execution.ts";
 import type { TaskGraph } from "./task-service.ts";
 

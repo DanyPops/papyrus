@@ -1,4 +1,4 @@
-import type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode } from "../domain/display-graph.ts";
+import type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode } from "../display-graph/display-graph.ts";
 import { fallbackLabel } from "../task/task-relationship-view.ts";
 import type { Artifact } from "./artifact.ts";
 

@@ -5,7 +5,7 @@
  * logs never touch the Artifact graph directly (see src/domain/log-entry.ts's own module
  * comment on why `log` is not an Artifact kind).
  */
-import type { JsonValue, LogLevel } from "../domain/log-entry.ts";
+import type { JsonValue, LogLevel } from "../log/log-entry.ts";
 import type { Logs } from "../log/log-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import { type OperationInput, optionalNumber, optionalString, string } from "./operation-input.ts";

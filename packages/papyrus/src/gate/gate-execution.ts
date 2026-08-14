@@ -27,7 +27,7 @@ import {
 } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { getArtifact } from "../ops.ts";
-import type { Gate, GateResult, GateRunOptions } from "./gate.ts";
+import type { Gate, GateResult, GateRunOptions } from "../gate/gate.ts";
 
 const require_ = createRequire(import.meta.url);
 

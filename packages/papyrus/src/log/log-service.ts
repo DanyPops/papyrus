@@ -9,8 +9,8 @@ import {
 	type LogQuery,
 	meetsLevel,
 	validateAppendLogEntryCommand,
-} from "../domain/log-entry.ts";
-import type { LogStore } from "../stores/log-store.ts";
+} from "./log-entry.ts";
+import type { LogStore } from "./log-store.ts";
 
 export class Logs {
 	constructor(private readonly store: LogStore) {}

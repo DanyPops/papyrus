@@ -24,11 +24,11 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { GATE_TIMEOUT_MAX_MS, TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH, TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "../constants.ts";
 import { PROOF_TYPES } from "../domain/checklist.ts";
-import { GATE_TYPES } from "../domain/gate.ts";
+import { GATE_TYPES } from "../gate/gate.ts";
 import type { TaskViewMode } from "../task-scope/task-scope.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
-import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../stores/task-mutation-request-store.ts";
+import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../task-mutation-request/task-mutation-request-store.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import {
 	type TaskCompletion,

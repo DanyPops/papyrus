@@ -2,7 +2,7 @@ import type { CommandContext } from "@stricli/core";
 import { buildApplication, buildCommand, buildRouteMap, numberParser } from "@stricli/core";
 import type { PapyrusClient } from "../client.ts";
 import { TASK_EXECUTION_MAX_NODES } from "../constants.ts";
-import type { GateResult } from "../domain/gate.ts";
+import type { GateResult } from "../gate/gate.ts";
 import type { OperationName } from "../service.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import type { TaskBlockage, TaskCompletion } from "../task/task-service.ts";

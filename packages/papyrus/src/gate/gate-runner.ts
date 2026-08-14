@@ -1,4 +1,4 @@
-import type { GateResult, GateRunOptions } from "../domain/gate.ts";
+import type { GateResult, GateRunOptions } from "../gate/gate.ts";
 
 export interface GateRunner {
 	run(artifactId: string, options?: GateRunOptions): GateResult[];

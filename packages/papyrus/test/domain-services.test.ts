@@ -44,7 +44,7 @@ import {
 	updateRule,
 } from "../src/rules/rules-service.ts";
 import { createAuthorityRegistry } from "../src/service.ts";
-import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
+import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
 import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 

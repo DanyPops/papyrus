@@ -1,6 +1,6 @@
 import type { Db } from "../db.ts";
-import type { JsonValue, LogEntry, LogLevel, LogSource } from "../domain/log-entry.ts";
-import type { LogStore } from "./log-store.ts";
+import type { JsonValue, LogEntry, LogLevel, LogSource } from "../log/log-entry.ts";
+import type { LogStore } from "../log/log-store.ts";
 
 interface SourceRow {
 	id: string;

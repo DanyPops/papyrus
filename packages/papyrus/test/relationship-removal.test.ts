@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { createPapyrusService } from "../src/service.ts";
-import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
+import { SQLiteGateRunner } from "../src/gate/sqlite-gate-runner.ts";
 import { SQLiteTaskEventStore } from "../src/task-event/sqlite-task-event-store.ts";
-import { SQLiteTaskFocusStore } from "../src/stores/sqlite-task-focus-store.ts";
+import { SQLiteTaskFocusStore } from "../src/task-focus/sqlite-task-focus-store.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
 const PROJECT_ROOT = "/workspace/papyrus";

@@ -1,7 +1,7 @@
 import type { CommandContext } from "@stricli/core";
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import type { PapyrusClient } from "../client.ts";
-import type { GateResult } from "../domain/gate.ts";
+import type { GateResult } from "../gate/gate.ts";
 import { runStricliToString } from "./stricli-run.ts";
 
 type GatesClient = Pick<PapyrusClient, "call">;

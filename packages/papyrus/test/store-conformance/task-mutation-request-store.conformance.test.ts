@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { type Db, openDb } from "../../src/db.ts";
 import { createArtifact } from "../../src/ops.ts";
-import { SQLiteTaskMutationRequestStore } from "../../src/stores/sqlite-task-mutation-request-store.ts";
+import { SQLiteTaskMutationRequestStore } from "../../src/task-mutation-request/sqlite-task-mutation-request-store.ts";
 import {
 	InMemoryTaskMutationRequestStore,
 	TaskMutationPendingError,
 	type TaskMutationRequestRecord,
 	type TaskMutationRequestStore,
-} from "../../src/stores/task-mutation-request-store.ts";
+} from "../../src/task-mutation-request/task-mutation-request-store.ts";
 
 /**
  * Runs one shared assertion suite against every real TaskMutationRequestStore implementation --

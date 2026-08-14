@@ -1,5 +1,5 @@
 import type { Artifact, ArtifactEdge } from "../artifact/artifact.ts";
-import type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode } from "../domain/display-graph.ts";
+import type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode } from "../display-graph/display-graph.ts";
 import type { TaskGraph } from "./task-service.ts";
 
 function normalizeEdge(edge: ArtifactEdge): DisplayGraphEdge {

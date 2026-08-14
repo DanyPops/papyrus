@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import type { LogEntry, LogSource } from "../src/domain/log-entry.ts";
-import { LOG_FIELDS_MAX_CHARACTERS, LOG_MESSAGE_MAX_CHARACTERS, LOG_RETENTION_MAX_ENTRIES_PER_SOURCE } from "../src/domain/log-entry.ts";
+import type { LogEntry, LogSource } from "../src/log/log-entry.ts";
+import { LOG_FIELDS_MAX_CHARACTERS, LOG_MESSAGE_MAX_CHARACTERS, LOG_RETENTION_MAX_ENTRIES_PER_SOURCE } from "../src/log/log-entry.ts";
 import { Logs } from "../src/log/log-service.ts";
-import type { LogStore } from "../src/stores/log-store.ts";
+import type { LogStore } from "../src/log/log-store.ts";
 
 class InMemoryLogStore implements LogStore {
 	private readonly sources = new Map<string, LogSource>();

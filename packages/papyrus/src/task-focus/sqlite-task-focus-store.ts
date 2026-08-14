@@ -1,7 +1,7 @@
 import { TASK_FOCUS_MAX_SCOPES } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
-import { normalizeFocusScope, type TaskFocusState, type TaskFocusStatus, type TaskFocusStore } from "./task-focus-store.ts";
+import { normalizeFocusScope, type TaskFocusState, type TaskFocusStatus, type TaskFocusStore } from "../task-focus/task-focus-store.ts";
 
 export class SQLiteTaskFocusStore implements TaskFocusStore {
 	constructor(private readonly db: Db) {}

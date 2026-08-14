@@ -12,8 +12,8 @@ import type {
 import type { ArtifactEventPage, ArtifactEventQuery } from "../src/artifact/artifact-event.ts";
 import type { ArtifactStore } from "../src/artifact/artifact-store.ts";
 import type { ArtifactTrashRecord } from "../src/artifact/artifact-trash.ts";
-import type { GateResult } from "../src/domain/gate.ts";
-import type { GateRunner } from "../src/stores/gate-runner.ts";
+import type { GateResult } from "../src/gate/gate.ts";
+import type { GateRunner } from "../src/gate/gate-runner.ts";
 import { projectTaskExecution } from "../src/task/task-execution.ts";
 import { Tasks } from "../src/task/task-service.ts";
 
@@ -136,14 +136,14 @@ class FakeArtifactStore implements ArtifactStore {
 class FakeGateRunner implements GateRunner {
 	results: GateResult[] = [];
 	readonly calls: string[] = [];
-	readonly runOptions: Array<import("../src/domain/gate.ts").GateRunOptions | undefined> = [];
-	readonly runAsyncOptions: Array<import("../src/domain/gate.ts").GateRunOptions | undefined> = [];
-	run(artifactId: string, options?: import("../src/domain/gate.ts").GateRunOptions): GateResult[] {
+	readonly runOptions: Array<import("../src/gate/gate.ts").GateRunOptions | undefined> = [];
+	readonly runAsyncOptions: Array<import("../src/gate/gate.ts").GateRunOptions | undefined> = [];
+	run(artifactId: string, options?: import("../src/gate/gate.ts").GateRunOptions): GateResult[] {
 		this.calls.push(artifactId);
 		this.runOptions.push(options);
 		return structuredClone(this.results);
 	}
-	async runAsync(artifactId: string, options?: import("../src/domain/gate.ts").GateRunOptions): Promise<GateResult[]> {
+	async runAsync(artifactId: string, options?: import("../src/gate/gate.ts").GateRunOptions): Promise<GateResult[]> {
 		this.calls.push(artifactId);
 		this.runAsyncOptions.push(options);
 		return structuredClone(this.results);

@@ -6,7 +6,7 @@ import {
 	TaskMutationPendingError,
 	type TaskMutationRequestRecord,
 	type TaskMutationRequestStore,
-} from "../stores/task-mutation-request-store.ts";
+} from "../task-mutation-request/task-mutation-request-store.ts";
 
 export class TaskMutationReceiptNotFoundError extends Error {}
 

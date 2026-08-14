@@ -2,10 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
 import { openDb } from "../src/db.ts";
-import { GRAPH_PROJECTION_SCHEMA_VERSION } from "../src/domain/graph-projection.ts";
+import { GRAPH_PROJECTION_SCHEMA_VERSION } from "../src/graph-projection/graph-projection.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { GRAPH_PROJECTION_OPERATION_NAMES, graphProjectionOperations } from "../src/modules/graph-projection.ts";
-import { SQLiteGraphProjectionStore } from "../src/stores/sqlite-graph-projection-store.ts";
+import { SQLiteGraphProjectionStore } from "../src/graph-projection/sqlite-graph-projection-store.ts";
 
 function fixture() {
 	const db = openDb(":memory:");

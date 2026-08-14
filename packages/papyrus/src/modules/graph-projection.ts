@@ -13,10 +13,10 @@ import type {
 	GraphProjectionBatch,
 	ProjectedArtifact,
 	ProjectedEdge,
-} from "../domain/graph-projection.ts";
+} from "../graph-projection/graph-projection.ts";
 import { GraphProjection } from "../graph-projection/graph-projection-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
-import type { GraphProjectionStore } from "../stores/graph-projection-store.ts";
+import type { GraphProjectionStore } from "../graph-projection/graph-projection-store.ts";
 import { type OperationInput, string } from "./operation-input.ts";
 
 const MODULE_ID = "graph_projection";

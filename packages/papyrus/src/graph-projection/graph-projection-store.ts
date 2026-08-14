@@ -1,4 +1,4 @@
-import type { ProjectionCheckpoint } from "../domain/graph-projection.ts";
+import type { ProjectionCheckpoint } from "../graph-projection/graph-projection.ts";
 
 /**
  * Producer-scoped state a graph projection consumer needs beyond the generic ArtifactStore:

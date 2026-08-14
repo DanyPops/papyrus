@@ -1,4 +1,4 @@
-import type { LogEntry, LogSource } from "../domain/log-entry.ts";
+import type { LogEntry, LogSource } from "../log/log-entry.ts";
 
 /**
  * Persistence port for the `log` domain. Deliberately minimal, matching the split established

@@ -16,6 +16,7 @@ import { runNoteCli } from "./cli/note-command.ts";
 import { runPlaybooksCli } from "./cli/playbooks-command.ts";
 import { runProjectsCli } from "./cli/projects-command.ts";
 import { runRulesCli } from "./cli/rules-command.ts";
+import { runScopeGroupsCli } from "./cli/scope-groups-command.ts";
 import { runSessionIdentityCli } from "./cli/session-identity-command.ts";
 import { runTaskCli } from "./cli/task-command.ts";
 import { connectPapyrusClient } from "./client.ts";
@@ -362,6 +363,7 @@ export {
 	runPlaybooksCli,
 	runProjectsCli,
 	runRulesCli,
+	runScopeGroupsCli,
 	runSessionIdentityCli,
 	runTaskCli,
 };
@@ -385,6 +387,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "projects") {
 		const client = await connectPapyrusClient();
 		console.log(await runProjectsCli(args.slice(1), client));
+		return;
+	}
+	if (command === "scope-groups") {
+		const client = await connectPapyrusClient();
+		console.log(await runScopeGroupsCli(args.slice(1), client));
 		return;
 	}
 	if (command === "notes") {

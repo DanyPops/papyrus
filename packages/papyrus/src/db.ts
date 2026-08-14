@@ -233,17 +233,34 @@ CREATE INDEX IF NOT EXISTS graph_projection_identities_artifact_idx ON graph_pro
 CREATE TABLE IF NOT EXISTS artifact_scopes (
 	artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
 	project_root  TEXT,
-	mode          TEXT NOT NULL DEFAULT 'global' CHECK (mode IN ('global', 'projects')),
+	mode          TEXT NOT NULL DEFAULT 'all' CHECK (mode IN ('none', 'all', 'explicit')),
 	source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
 	assigned_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
-CREATE TABLE IF NOT EXISTS artifact_scope_projects (
+CREATE TABLE IF NOT EXISTS artifact_scope_members (
 	artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
-	project_id   TEXT NOT NULL REFERENCES task_projects(id),
-	PRIMARY KEY (artifact_id, project_id)
+	member_type  TEXT NOT NULL CHECK (member_type IN ('project', 'group')),
+	member_id    TEXT NOT NULL,
+	PRIMARY KEY (artifact_id, member_type, member_id)
 );
-CREATE INDEX IF NOT EXISTS artifact_scope_projects_project_idx ON artifact_scope_projects(project_id, artifact_id);
+CREATE INDEX IF NOT EXISTS artifact_scope_members_member_idx ON artifact_scope_members(member_type, member_id, artifact_id);
+CREATE TABLE IF NOT EXISTS scope_groups (
+	id            TEXT PRIMARY KEY,
+	name          TEXT NOT NULL,
+	aliases_json  TEXT NOT NULL DEFAULT '[]',
+	created_at    TEXT NOT NULL,
+	updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS scope_groups_name_idx ON scope_groups(name);
+CREATE TABLE IF NOT EXISTS scope_group_members (
+	group_id     TEXT NOT NULL REFERENCES scope_groups(id) ON DELETE CASCADE,
+	member_type  TEXT NOT NULL CHECK (member_type IN ('project', 'group')),
+	member_id    TEXT NOT NULL,
+	PRIMARY KEY (group_id, member_type, member_id)
+);
+CREATE INDEX IF NOT EXISTS scope_group_members_group_idx ON scope_group_members(group_id);
+CREATE INDEX IF NOT EXISTS scope_group_members_member_idx ON scope_group_members(member_type, member_id);
 CREATE TABLE IF NOT EXISTS log_sources (
 	id            TEXT PRIMARY KEY,
 	label         TEXT NOT NULL,
@@ -864,7 +881,18 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 		// first if no Task ever used it either.
 		up: (db) => {
 			const existing = new Set((db.prepare("PRAGMA table_info(artifact_scopes)").all() as Array<{ name: string }>).map((row) => row.name));
-			if (!existing.has("mode")) {
+			// True only when migrating a genuinely pre-v28 database. A fixture that bootstraps from
+			// the CURRENT SCHEMA text (which already declares this column, in whatever its own current
+			// CHECK vocabulary is -- version 29 later widens/renames it from 'global'/'projects' to
+			// 'none'/'all'/'explicit') and then only fakes an older user_version to exercise an earlier
+			// migration's own path already has the column; forcing this migration's literal 'projects'
+			// value into it would violate version 29's tighter CHECK once that has shipped. The
+			// membership-table backfill below still always runs regardless (idempotent, and never
+			// touches the CHECK-restricted mode column itself) -- version 29's own remap pass detects
+			// "has a membership row" directly rather than trusting this flag's own mode literal, so a
+			// fixture that skips this exact write still ends up in the correct final 'explicit' state.
+			const columnPreexisted = existing.has("mode");
+			if (!columnPreexisted) {
 				db.exec("ALTER TABLE artifact_scopes ADD COLUMN mode TEXT NOT NULL DEFAULT 'global' CHECK (mode IN ('global', 'projects'))");
 			}
 			db.exec(`
@@ -893,9 +921,91 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 					const now = new Date().toISOString();
 					insertProject.run(projectId, basename(row.project_root) || row.project_root, row.project_root, now, now);
 				}
-				setProjectsMode.run(row.artifact_id);
+				if (!columnPreexisted) setProjectsMode.run(row.artifact_id);
 				insertMembership.run(row.artifact_id, projectId);
 			}
+		},
+	},
+	{
+		version: 29,
+		name: "artifact-scope-tri-state-and-scope-groups",
+		// See scope-group/. Adds the nested-scope-group registry (scope_groups/scope_group_members),
+		// and replaces artifact_scopes' two-state mode ('global'|'projects') with a real three-state
+		// one ('none'|'all'|'explicit') -- 'none' (fully hidden, never applicable) did not exist
+		// before this. SQLite has no ALTER TABLE ... CHECK, so artifact_scopes is rebuilt (copy with
+		// remapped mode values, drop, rename) rather than altered in place; every row's own
+		// artifact_id/project_root/source/assigned_at is preserved byte-for-byte, only `mode`'s
+		// values change (global->all, projects->explicit) and its CHECK constraint widens.
+		// artifact_scope_projects is folded into the new, kind-neutral artifact_scope_members
+		// (adding member_type so a membership row can name a project OR a scope group) --
+		// existing project memberships become member_type='project' rows, unchanged in meaning.
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS scope_groups (
+					id            TEXT PRIMARY KEY,
+					name          TEXT NOT NULL,
+					aliases_json  TEXT NOT NULL DEFAULT '[]',
+					created_at    TEXT NOT NULL,
+					updated_at    TEXT NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS scope_groups_name_idx ON scope_groups(name);
+				CREATE TABLE IF NOT EXISTS scope_group_members (
+					group_id     TEXT NOT NULL REFERENCES scope_groups(id) ON DELETE CASCADE,
+					member_type  TEXT NOT NULL CHECK (member_type IN ('project', 'group')),
+					member_id    TEXT NOT NULL,
+					PRIMARY KEY (group_id, member_type, member_id)
+				);
+				CREATE INDEX IF NOT EXISTS scope_group_members_group_idx ON scope_group_members(group_id);
+				CREATE INDEX IF NOT EXISTS scope_group_members_member_idx ON scope_group_members(member_type, member_id);
+			`);
+			// Guarded by whether the OLD artifact_scope_projects table still exists, the same class of
+			// concern version 16's/note-events' own comments cover: a fixture that bootstraps from the
+			// CURRENT SCHEMA text (which already declares artifact_scopes/artifact_scope_members in
+			// their POST-this-migration shape) and then only fakes an older user_version to exercise an
+			// earlier migration's own path must not attempt to rebuild a table that's already correctly
+			// shaped -- rebuilding it again with a CASE mode remap over already-new mode values ('all'/
+			// 'explicit') would violate the new CHECK, since those aren't 'global'/'projects' either.
+			const oldTableExists =
+				db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'artifact_scope_projects'").get() != null;
+			if (!oldTableExists) return;
+			db.exec(`
+				CREATE TABLE artifact_scopes_v29 (
+					artifact_id   TEXT PRIMARY KEY REFERENCES artifacts(id),
+					project_root  TEXT,
+					mode          TEXT NOT NULL DEFAULT 'all' CHECK (mode IN ('none', 'all', 'explicit')),
+					source        TEXT NOT NULL CHECK (source IN ('cwd', 'explicit', 'unscoped')),
+					assigned_at   TEXT NOT NULL
+				);
+				-- Keyed off real membership-row existence, not the old mode literal: v28's own write of
+				-- that literal is itself conditionally skipped (see its own comment) when replaying
+				-- against a fixture that already has this column in a later, tightened CHECK shape --
+				-- membership rows are still always backfilled unconditionally either way, so checking
+				-- for one directly is correct in every case, historical or fixture-simulated alike.
+				INSERT INTO artifact_scopes_v29 (artifact_id, project_root, mode, source, assigned_at)
+					SELECT s.artifact_id, s.project_root,
+						CASE
+							WHEN EXISTS (SELECT 1 FROM artifact_scope_projects p WHERE p.artifact_id = s.artifact_id) THEN 'explicit'
+							WHEN s.mode = 'global' THEN 'all'
+							WHEN s.mode = 'projects' THEN 'explicit'
+							ELSE s.mode
+						END,
+						s.source, s.assigned_at
+					FROM artifact_scopes s;
+				DROP TABLE artifact_scopes;
+				ALTER TABLE artifact_scopes_v29 RENAME TO artifact_scopes;
+				CREATE INDEX IF NOT EXISTS artifact_scopes_project_idx ON artifact_scopes(project_root, artifact_id);
+
+				CREATE TABLE IF NOT EXISTS artifact_scope_members (
+					artifact_id  TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+					member_type  TEXT NOT NULL CHECK (member_type IN ('project', 'group')),
+					member_id    TEXT NOT NULL,
+					PRIMARY KEY (artifact_id, member_type, member_id)
+				);
+				INSERT INTO artifact_scope_members (artifact_id, member_type, member_id)
+					SELECT artifact_id, 'project', project_id FROM artifact_scope_projects;
+				DROP TABLE artifact_scope_projects;
+				CREATE INDEX IF NOT EXISTS artifact_scope_members_member_idx ON artifact_scope_members(member_type, member_id, artifact_id);
+			`);
 		},
 	},
 ];

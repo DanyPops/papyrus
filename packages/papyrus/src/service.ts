@@ -30,10 +30,12 @@ import { type OperationInput, optionalNumber, optionalString, string } from "./m
 import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "./modules/playbooks.ts";
 import { PROJECTS_OPERATION_NAMES, projectsOperations } from "./modules/projects.ts";
 import { RULES_OPERATION_NAMES, rulesOperations } from "./modules/rules.ts";
+import { SCOPE_GROUPS_OPERATION_NAMES, scopeGroupsOperations } from "./modules/scope-groups.ts";
 import { SESSION_IDENTITY_OPERATION_NAMES, sessionIdentityOperations } from "./modules/session-identity.ts";
 import { TASKS_OPERATION_NAMES, tasksOperations } from "./modules/tasks.ts";
 import { NOTE_SUBTYPE, Notes } from "./note/note-service.ts";
 import { listInjectableRules } from "./rules/rules-service.ts";
+import { SQLiteScopeGroupStore } from "./scope-group/sqlite-scope-group-store.ts";
 import { InvalidSessionSecretError, SessionIdentity } from "./session-identity/session-identity-service.ts";
 import type { GateRunner } from "./stores/gate-runner.ts";
 import { SQLiteDiscussionRoundStore } from "./stores/sqlite-discussion-round-store.ts";
@@ -100,6 +102,7 @@ export const EXPECTED_OPERATION_NAMES = [
 	...RULES_OPERATION_NAMES,
 	...PLAYBOOKS_OPERATION_NAMES,
 	...PROJECTS_OPERATION_NAMES,
+	...SCOPE_GROUPS_OPERATION_NAMES,
 	...GRAPH_PROJECTION_OPERATION_NAMES,
 	...LOGS_OPERATION_NAMES,
 	...SESSION_IDENTITY_OPERATION_NAMES,
@@ -410,9 +413,13 @@ function handlers(
 		"docs.assign_project": forwardToModule("docs.assign_project"),
 		"docs.scope": forwardToModule("docs.scope"),
 		"docs.set_global": forwardToModule("docs.set_global"),
+		"docs.set_none": forwardToModule("docs.set_none"),
 		"docs.add_project": forwardToModule("docs.add_project"),
 		"docs.remove_project": forwardToModule("docs.remove_project"),
 		"docs.replace_projects": forwardToModule("docs.replace_projects"),
+		"docs.add_group": forwardToModule("docs.add_group"),
+		"docs.remove_group": forwardToModule("docs.remove_group"),
+		"docs.replace_groups": forwardToModule("docs.replace_groups"),
 		"docs.update": forwardToModule("docs.update"),
 		"notes.capture": forwardToModule("notes.capture"),
 		"notes.list": forwardToModule("notes.list"),
@@ -431,9 +438,13 @@ function handlers(
 		"rules.assign_project": forwardToModule("rules.assign_project"),
 		"rules.scope": forwardToModule("rules.scope"),
 		"rules.set_global": forwardToModule("rules.set_global"),
+		"rules.set_none": forwardToModule("rules.set_none"),
 		"rules.add_project": forwardToModule("rules.add_project"),
 		"rules.remove_project": forwardToModule("rules.remove_project"),
 		"rules.replace_projects": forwardToModule("rules.replace_projects"),
+		"rules.add_group": forwardToModule("rules.add_group"),
+		"rules.remove_group": forwardToModule("rules.remove_group"),
+		"rules.replace_groups": forwardToModule("rules.replace_groups"),
 		"rules.update": forwardToModule("rules.update"),
 		"playbooks.create": forwardToModule("playbooks.create"),
 		"playbooks.list": forwardToModule("playbooks.list"),
@@ -445,9 +456,13 @@ function handlers(
 		"playbooks.assign_project": forwardToModule("playbooks.assign_project"),
 		"playbooks.scope": forwardToModule("playbooks.scope"),
 		"playbooks.set_global": forwardToModule("playbooks.set_global"),
+		"playbooks.set_none": forwardToModule("playbooks.set_none"),
 		"playbooks.add_project": forwardToModule("playbooks.add_project"),
 		"playbooks.remove_project": forwardToModule("playbooks.remove_project"),
 		"playbooks.replace_projects": forwardToModule("playbooks.replace_projects"),
+		"playbooks.add_group": forwardToModule("playbooks.add_group"),
+		"playbooks.remove_group": forwardToModule("playbooks.remove_group"),
+		"playbooks.replace_groups": forwardToModule("playbooks.replace_groups"),
 		"playbooks.update": forwardToModule("playbooks.update"),
 		"playbooks.contain": forwardToModule("playbooks.contain"),
 		"playbooks.uncontain": forwardToModule("playbooks.uncontain"),
@@ -456,6 +471,13 @@ function handlers(
 		"projects.list": forwardToModule("projects.list"),
 		"projects.resolve": forwardToModule("projects.resolve"),
 		"projects.register": forwardToModule("projects.register"),
+		"scope_groups.list": forwardToModule("scope_groups.list"),
+		"scope_groups.resolve": forwardToModule("scope_groups.resolve"),
+		"scope_groups.register": forwardToModule("scope_groups.register"),
+		"scope_groups.show": forwardToModule("scope_groups.show"),
+		"scope_groups.add_member": forwardToModule("scope_groups.add_member"),
+		"scope_groups.remove_member": forwardToModule("scope_groups.remove_member"),
+		"scope_groups.delete": forwardToModule("scope_groups.delete"),
 		"graph_projection.apply": forwardToModule("graph_projection.apply"),
 		"graph_projection.checkpoint": forwardToModule("graph_projection.checkpoint"),
 		"logs.append": forwardToModule("logs.append"),
@@ -491,6 +513,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	const projections = new SQLiteGraphProjectionStore(db);
 	const artifactScopes = new SQLiteArtifactScopeStore(db);
 	const projectRegistry = new SQLiteProjectRegistryStore(db);
+	const scopeGroups = new SQLiteScopeGroupStore(db);
 	const logs = new Logs(new SQLiteLogStore(db));
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const discussions = new Discussions(artifacts, new SQLiteDiscussionRoundStore(db));
@@ -506,6 +529,7 @@ export function createPapyrusService(path: string): PapyrusService {
 		discussions,
 		sessionIdentity,
 		projectRegistry,
+		scopeGroups,
 	});
 	const moduleRegistry = new OperationRegistry();
 	moduleRegistry.registerAll(notesOperations(notes));
@@ -513,12 +537,13 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(sessionIdentityOperations(sessionIdentity));
 	moduleRegistry.registerAll(discussOperations(discussions));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
-	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority, projectRegistry));
-	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry));
+	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority, projectRegistry, scopeGroups));
+	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry, scopeGroups));
 	moduleRegistry.registerAll(
-		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry }),
+		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry, scopeGroups }),
 	);
 	moduleRegistry.registerAll(projectsOperations(projectRegistry));
+	moduleRegistry.registerAll(scopeGroupsOperations(scopeGroups, projectRegistry, artifactScopes));
 	moduleRegistry.registerAll(graphProjectionOperations(artifacts, projections, authority));
 	const registry = handlers(artifacts, gates, tasks, notes, events, scopes, artifactScopes, () => migrateDb(db), moduleRegistry, authority);
 	const state = (): SchemaState => {

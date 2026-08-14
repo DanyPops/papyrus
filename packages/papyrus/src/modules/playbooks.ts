@@ -16,6 +16,7 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import { invokePlaybook } from "../playbook/playbook-execution.ts";
 import {
+	addPlaybookGroup,
 	addPlaybookProject,
 	assignPlaybookProject,
 	containPlaybook,
@@ -24,9 +25,12 @@ import {
 	listPlaybooks,
 	playbookInvocation,
 	playbookScope,
+	removePlaybookGroup,
 	removePlaybookProject,
+	replacePlaybookGroups,
 	replacePlaybookProjects,
 	setPlaybookGlobal,
+	setPlaybookNone,
 	showPlaybook,
 	transitionPlaybook,
 	uncontainPlaybook,
@@ -34,6 +38,7 @@ import {
 	updatePlaybook,
 } from "../playbook/playbook-service.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
@@ -84,9 +89,13 @@ export const PLAYBOOKS_OPERATION_NAMES = [
 	"playbooks.assign_project",
 	"playbooks.scope",
 	"playbooks.set_global",
+	"playbooks.set_none",
 	"playbooks.add_project",
 	"playbooks.remove_project",
 	"playbooks.replace_projects",
+	"playbooks.add_group",
+	"playbooks.remove_group",
+	"playbooks.replace_groups",
 	"playbooks.update",
 	"playbooks.contain",
 	"playbooks.uncontain",
@@ -105,6 +114,7 @@ export interface PlaybooksModuleDeps {
 	/** Guards the same session_secret check tasks.focus's own operation enforces (guardFocusMutation in modules/tasks.ts) -- invoke's internal tasks.focus() call goes straight through the Tasks class, bypassing that operation wrapper entirely, so the check must be applied here instead of silently skipped. */
 	sessionIdentity: SessionIdentity;
 	registry: ProjectRegistryStore;
+	scopeGroups: ScopeGroupStore;
 }
 
 export function playbooksOperations({
@@ -115,6 +125,7 @@ export function playbooksOperations({
 	tasks,
 	sessionIdentity,
 	registry,
+	scopeGroups,
 }: PlaybooksModuleDeps): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name,
@@ -185,6 +196,16 @@ export function playbooksOperations({
 		),
 		define("playbooks.scope", (input: OperationInput) => playbookScope(artifacts, artifactScopes, string(input, "id"))),
 		define("playbooks.set_global", (input: OperationInput) => setPlaybookGlobal(artifacts, artifactScopes, string(input, "id"))),
+		define("playbooks.set_none", (input: OperationInput) => setPlaybookNone(artifacts, artifactScopes, string(input, "id"))),
+		define("playbooks.add_group", (input: OperationInput) =>
+			addPlaybookGroup(artifacts, artifactScopes, scopeGroups, string(input, "id"), string(input, "group")),
+		),
+		define("playbooks.remove_group", (input: OperationInput) =>
+			removePlaybookGroup(artifacts, artifactScopes, scopeGroups, string(input, "id"), string(input, "group")),
+		),
+		define("playbooks.replace_groups", (input: OperationInput) =>
+			replacePlaybookGroups(artifacts, artifactScopes, scopeGroups, string(input, "id"), (input.groups as string[] | undefined) ?? []),
+		),
 		define("playbooks.add_project", (input: OperationInput) =>
 			addPlaybookProject(artifacts, artifactScopes, registry, string(input, "id"), string(input, "project")),
 		),

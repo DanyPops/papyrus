@@ -9,23 +9,29 @@ import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { ArtifactAction, AuthorityRegistry } from "../authority-registry.ts";
-import { ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT } from "../constants.ts";
-import { resolveProjectReference } from "../domain/project-registry.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
 import {
+	addArtifactScopeGroup,
+	addArtifactScopeProject,
 	assertBodyBounds,
 	assertLabelsBounds,
 	assertTitleBounds,
 	type ListFilter,
 	listScoped,
+	removeArtifactScopeGroup,
+	removeArtifactScopeProject,
+	replaceArtifactScopeGroups,
+	replaceArtifactScopeProjects,
 	requireContentUpdateFields,
 	requireKind,
 	runTransition,
+	setArtifactScopeNone,
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import { NOTE_SUBTYPE } from "../note/note-service.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 
 function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | undefined, subtype: string | undefined): boolean {
 	if (subtype === NOTE_SUBTYPE) return true;
@@ -117,11 +123,7 @@ export function createDocument(
 		context,
 	);
 	if (input.projectReferences !== undefined && input.projectReferences.length > 0) {
-		if (input.projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
-			throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
-		}
-		const ids = input.projectReferences.map((reference) => resolveProjectReference(registry!, reference).id);
-		scopes.replaceProjects(document.id, ids, "explicit");
+		replaceArtifactScopeProjects(scopes, registry!, document.id, input.projectReferences);
 	} else {
 		scopes.assign(document.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
 	}
@@ -163,7 +165,13 @@ export function docScope(artifacts: ArtifactStore, scopes: ArtifactScopeStore, i
 
 export function setDocGlobal(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
 	requireDocument(artifacts, id);
-	return scopes.setGlobal(id, "explicit");
+	return scopes.setAll(id, "explicit");
+}
+
+/** Fully hides this Doc -- never applicable, never context-injected, regardless of project. The only new mode beyond the pre-existing global/projects pair. */
+export function setDocNone(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireDocument(artifacts, id);
+	return setArtifactScopeNone(scopes, id);
 }
 
 export function replaceDocProjects(
@@ -174,12 +182,7 @@ export function replaceDocProjects(
 	projectReferences: readonly string[],
 ): ArtifactScope {
 	requireDocument(artifacts, id);
-	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use docs.set_global to clear scoping");
-	if (projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
-		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
-	}
-	const ids = projectReferences.map((reference) => resolveProjectReference(registry, reference).id);
-	return scopes.replaceProjects(id, ids, "explicit");
+	return replaceArtifactScopeProjects(scopes, registry, id, projectReferences);
 }
 
 export function addDocProject(
@@ -190,8 +193,7 @@ export function addDocProject(
 	projectReference: string,
 ): ArtifactScope {
 	requireDocument(artifacts, id);
-	const project = resolveProjectReference(registry, projectReference);
-	return scopes.addProject(id, project.id, "explicit");
+	return addArtifactScopeProject(scopes, registry, id, projectReference);
 }
 
 export function removeDocProject(
@@ -202,8 +204,41 @@ export function removeDocProject(
 	projectReference: string,
 ): ArtifactScope {
 	requireDocument(artifacts, id);
-	const project = resolveProjectReference(registry, projectReference);
-	return scopes.removeProject(id, project.id);
+	return removeArtifactScopeProject(scopes, registry, id, projectReference);
+}
+
+/** Scope-group ('nested scope') siblings of replaceDocProjects/addDocProject/removeDocProject -- same Note-rejecting Doc guard, delegating the actual reference-resolution and store call to the shared, kind-agnostic helpers. */
+export function replaceDocGroups(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReferences: readonly string[],
+): ArtifactScope {
+	requireDocument(artifacts, id);
+	return replaceArtifactScopeGroups(scopes, scopeGroups, id, groupReferences);
+}
+
+export function addDocGroup(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReference: string,
+): ArtifactScope {
+	requireDocument(artifacts, id);
+	return addArtifactScopeGroup(scopes, scopeGroups, id, groupReference);
+}
+
+export function removeDocGroup(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReference: string,
+): ArtifactScope {
+	requireDocument(artifacts, id);
+	return removeArtifactScopeGroup(scopes, scopeGroups, id, groupReference);
 }
 
 function requireDocument(artifacts: ArtifactStore, id: string): Artifact {

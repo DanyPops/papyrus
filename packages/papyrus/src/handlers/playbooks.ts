@@ -25,6 +25,7 @@ import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
 import { listPlaybooks } from "../playbook/playbook-service.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { TaskEventStore } from "../stores/task-event-store.ts";
 import type { TaskScopeStore } from "../stores/task-scope-store.ts";
@@ -58,6 +59,7 @@ export interface PlaybooksVehicleDeps {
 	tasks: Tasks;
 	sessionIdentity: SessionIdentity;
 	projectRegistry: ProjectRegistryStore;
+	scopeGroups: ScopeGroupStore;
 }
 
 /** Unscoped resolution -- a Playbook is commonly cross-project (e.g. a lab-deploy playbook), matching the hand-rolled tool's own resolutionRequest choice. */
@@ -68,12 +70,11 @@ function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore,
 }
 
 export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, deps: PlaybooksVehicleDeps): void {
-	const { artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, projectRegistry } = deps;
+	const { artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, projectRegistry, scopeGroups } = deps;
 	const moduleOperations = new Map(
-		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry }).map((op) => [
-			op.name,
-			op,
-		]),
+		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry, scopeGroups }).map(
+			(op) => [op.name, op],
+		),
 	);
 	/**
 	 * Every playbooks.* action funnels through here. invoke's own module handler re-runs
@@ -260,6 +261,46 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 			projects: { type: "array", description: "Non-empty list of exact project id/name/alias/root references." },
 		},
 		["projects"],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"set_none",
+		"Fully hides a Playbook -- never applicable, never injected via before_agent_start, regardless of project. The only way back is set_global, add_project, add_group, or replace_projects/replace_groups.",
+		"local-write",
+		{ id: stringProp, name: stringProp },
+		[],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"add_group",
+		"Adds one scope group (a named, reusable, possibly-nested collection of projects and/or other groups) to a Playbook's explicit scope, switching it from global/none to project-bound if it wasn't already. Idempotent if the group is already a member.",
+		"local-write",
+		{ id: stringProp, name: stringProp, group: { ...stringProp, description: "Exact scope group id, name, or alias to add." } },
+		["group"],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"remove_group",
+		"Removes one scope group from a Playbook's explicit scope. Rejected while it is the Playbook's only remaining scope member -- call set_global or set_none first.",
+		"local-write",
+		{ id: stringProp, name: stringProp, group: { ...stringProp, description: "Exact scope group id, name, or alias to remove." } },
+		["group"],
+		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
+	);
+
+	define(
+		"replace_groups",
+		"Replaces a Playbook's entire scope-group membership with exactly this bounded, non-empty list of scope group references (id/name/alias). Use set_global/set_none instead to clear scoping entirely.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			groups: { type: "array", description: "Non-empty list of exact scope group id/name/alias references." },
+		},
+		["groups"],
 		(input) => ({ ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) }),
 	);
 

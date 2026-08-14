@@ -29,6 +29,7 @@ describe("rule-draft-status migration", () => {
 				"task-projects-and-create-idempotency",
 				"task-lifecycle-mutation-receipts",
 				"artifact-multi-project-scope",
+				"artifact-scope-tri-state-and-scope-groups",
 			],
 		});
 		expect(

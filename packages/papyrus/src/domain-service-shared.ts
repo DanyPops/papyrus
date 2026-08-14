@@ -7,16 +7,21 @@
 
 import type { Artifact } from "./artifact/artifact.ts";
 import type { ArtifactEventContext } from "./artifact/artifact-event.ts";
-import type { ArtifactScopeStore } from "./artifact/artifact-scope-store.ts";
+import type { ArtifactScope, ArtifactScopeStore } from "./artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "./artifact/artifact-store.ts";
 import {
 	ARTIFACT_BODY_MAX_LENGTH,
 	ARTIFACT_LABEL_MAX_COUNT,
 	ARTIFACT_LABEL_MAX_LENGTH,
 	ARTIFACT_SCOPE_MAX_ARTIFACTS,
+	ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT,
 	ARTIFACT_TITLE_MAX_LENGTH,
 } from "./constants.ts";
+import { resolveProjectReference } from "./domain/project-registry.ts";
 import { normalizeProjectRoot } from "./domain/task-scope.ts";
+import type { ProjectRegistryStore } from "./ports/project-registry-store.ts";
+import { resolveScopeGroupReference } from "./scope-group/scope-group.ts";
+import type { ScopeGroupStore } from "./scope-group/scope-group-store.ts";
 
 export interface UpdateContentInput {
 	title?: string;
@@ -180,4 +185,87 @@ export function assignArtifactProject(
 		projectRoot === undefined ? "unscoped" : "explicit",
 	);
 	return artifacts.get(id)!;
+}
+
+/**
+ * Kind-agnostic scope-mutation primitives shared by docs/rules/playbook-service.ts's own thin,
+ * per-kind wrappers (each of which validates the artifact's own kind/subtype first -- e.g.
+ * requireDocument's Note exclusion -- then delegates here for the actual reference-resolution +
+ * bounds-check + store-call, which is genuinely identical across every kind). Mirrors
+ * assignArtifactProject's own already-established split, extended to the tri-state
+ * none/all/explicit model and to scope groups ('nested scopes').
+ */
+export function setArtifactScopeNone(scopes: ArtifactScopeStore, artifactId: string): ArtifactScope {
+	return scopes.setNone(artifactId, "explicit");
+}
+
+export function replaceArtifactScopeProjects(
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	artifactId: string,
+	projectReferences: readonly string[],
+): ArtifactScope {
+	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use set_none/set_global to clear scoping");
+	if (projectReferences.length > ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT) {
+		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT} entries`);
+	}
+	const members = projectReferences.map((reference) => ({ type: "project" as const, id: resolveProjectReference(registry, reference).id }));
+	return scopes.replaceMembers(artifactId, members, "explicit");
+}
+
+export function addArtifactScopeProject(
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	artifactId: string,
+	projectReference: string,
+): ArtifactScope {
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.addMember(artifactId, { type: "project", id: project.id }, "explicit");
+}
+
+export function removeArtifactScopeProject(
+	scopes: ArtifactScopeStore,
+	registry: ProjectRegistryStore,
+	artifactId: string,
+	projectReference: string,
+): ArtifactScope {
+	const project = resolveProjectReference(registry, projectReference);
+	return scopes.removeMember(artifactId, { type: "project", id: project.id });
+}
+
+export function replaceArtifactScopeGroups(
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	artifactId: string,
+	groupReferences: readonly string[],
+): ArtifactScope {
+	if (groupReferences.length === 0) throw new Error("groupReferences must be non-empty; use set_none/set_global to clear scoping");
+	if (groupReferences.length > ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT) {
+		throw new Error(`groupReferences may include at most ${ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT} entries`);
+	}
+	const members = groupReferences.map((reference) => ({
+		type: "group" as const,
+		id: resolveScopeGroupReference(scopeGroups, reference).id,
+	}));
+	return scopes.replaceMembers(artifactId, members, "explicit");
+}
+
+export function addArtifactScopeGroup(
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	artifactId: string,
+	groupReference: string,
+): ArtifactScope {
+	const group = resolveScopeGroupReference(scopeGroups, groupReference);
+	return scopes.addMember(artifactId, { type: "group", id: group.id }, "explicit");
+}
+
+export function removeArtifactScopeGroup(
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	artifactId: string,
+	groupReference: string,
+): ArtifactScope {
+	const group = resolveScopeGroupReference(scopeGroups, groupReference);
+	return scopes.removeMember(artifactId, { type: "group", id: group.id });
 }

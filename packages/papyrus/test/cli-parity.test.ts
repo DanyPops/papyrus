@@ -23,6 +23,7 @@ import {
 	runPlaybooksCli,
 	runProjectsCli,
 	runRulesCli,
+	runScopeGroupsCli,
 	runSessionIdentityCli,
 	runTaskCli,
 } from "../src/cli.ts";
@@ -41,6 +42,7 @@ const artifact = { id: "a1", title: "Title", status: "todo" };
 const artifactList = [artifact];
 const artifactScope = { artifactId: "a1", mode: "global", projectIds: [] as string[], source: "unscoped" };
 const project = { id: "p1", name: "Project One", aliases: [] as string[], projectRoot: "/workspace/papyrus" };
+const scopeGroup = { id: "g1", name: "Ecosystem", aliases: [] as string[] };
 
 interface Fixture {
 	operation: OperationName;
@@ -207,6 +209,14 @@ const CLI_FIXTURES: Fixture[] = [
 		result: artifactScope,
 		invoke: (c) => runDocsCli(["replace-projects", "a1", "--projects-json", '["p1"]', "--json"], c),
 	},
+	{ operation: "docs.set_none", result: artifactScope, invoke: (c) => runDocsCli(["set-none", "a1", "--json"], c) },
+	{ operation: "docs.add_group", result: artifactScope, invoke: (c) => runDocsCli(["add-group", "a1", "g1", "--json"], c) },
+	{ operation: "docs.remove_group", result: artifactScope, invoke: (c) => runDocsCli(["remove-group", "a1", "g1", "--json"], c) },
+	{
+		operation: "docs.replace_groups",
+		result: artifactScope,
+		invoke: (c) => runDocsCli(["replace-groups", "a1", "--groups-json", '["g1"]', "--json"], c),
+	},
 	{ operation: "docs.update", result: artifact, invoke: (c) => runDocsCli(["update", "a1", "--title", "T2", "--json"], c) },
 	{ operation: "notes.capture", result: artifact, invoke: (c) => runNoteCli(["capture", "a request", "--json"], c) },
 	{ operation: "notes.list", result: artifactList, invoke: (c) => runNoteCli(["list", "--json"], c) },
@@ -236,6 +246,14 @@ const CLI_FIXTURES: Fixture[] = [
 		result: artifactScope,
 		invoke: (c) => runRulesCli(["replace-projects", "r1", "--projects-json", '["p1"]', "--json"], c),
 	},
+	{ operation: "rules.set_none", result: artifactScope, invoke: (c) => runRulesCli(["set-none", "r1", "--json"], c) },
+	{ operation: "rules.add_group", result: artifactScope, invoke: (c) => runRulesCli(["add-group", "r1", "g1", "--json"], c) },
+	{ operation: "rules.remove_group", result: artifactScope, invoke: (c) => runRulesCli(["remove-group", "r1", "g1", "--json"], c) },
+	{
+		operation: "rules.replace_groups",
+		result: artifactScope,
+		invoke: (c) => runRulesCli(["replace-groups", "r1", "--groups-json", '["g1"]', "--json"], c),
+	},
 	{ operation: "rules.update", result: artifact, invoke: (c) => runRulesCli(["update", "r1", "--title", "T2", "--json"], c) },
 	{ operation: "playbooks.create", result: artifact, invoke: (c) => runPlaybooksCli(["create", "--title", "T", "--json"], c) },
 	{ operation: "playbooks.list", result: artifactList, invoke: (c) => runPlaybooksCli(["list", "--json"], c) },
@@ -261,6 +279,18 @@ const CLI_FIXTURES: Fixture[] = [
 		operation: "playbooks.replace_projects",
 		result: artifactScope,
 		invoke: (c) => runPlaybooksCli(["replace-projects", "a1", "--projects-json", '["p1"]', "--json"], c),
+	},
+	{ operation: "playbooks.set_none", result: artifactScope, invoke: (c) => runPlaybooksCli(["set-none", "a1", "--json"], c) },
+	{ operation: "playbooks.add_group", result: artifactScope, invoke: (c) => runPlaybooksCli(["add-group", "a1", "g1", "--json"], c) },
+	{
+		operation: "playbooks.remove_group",
+		result: artifactScope,
+		invoke: (c) => runPlaybooksCli(["remove-group", "a1", "g1", "--json"], c),
+	},
+	{
+		operation: "playbooks.replace_groups",
+		result: artifactScope,
+		invoke: (c) => runPlaybooksCli(["replace-groups", "a1", "--groups-json", '["g1"]', "--json"], c),
 	},
 	{ operation: "playbooks.update", result: artifact, invoke: (c) => runPlaybooksCli(["update", "a1", "--title", "T2", "--json"], c) },
 	{ operation: "playbooks.contain", result: artifact, invoke: (c) => runPlaybooksCli(["contain", "a1", "a2", "--json"], c) },
@@ -313,6 +343,29 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "projects.list", result: [project], invoke: (c) => runProjectsCli(["list", "--json"], c) },
 	{ operation: "projects.resolve", result: project, invoke: (c) => runProjectsCli(["resolve", "proj1", "--json"], c) },
 	{ operation: "projects.register", result: project, invoke: (c) => runProjectsCli(["register", "/workspace/papyrus", "--json"], c) },
+	{ operation: "scope_groups.list", result: [scopeGroup], invoke: (c) => runScopeGroupsCli(["list", "--json"], c) },
+	{ operation: "scope_groups.resolve", result: scopeGroup, invoke: (c) => runScopeGroupsCli(["resolve", "g1", "--json"], c) },
+	{ operation: "scope_groups.register", result: scopeGroup, invoke: (c) => runScopeGroupsCli(["register", "Ecosystem", "--json"], c) },
+	{
+		operation: "scope_groups.show",
+		result: { group: scopeGroup, members: [] },
+		invoke: (c) => runScopeGroupsCli(["show", "g1", "--json"], c),
+	},
+	{
+		operation: "scope_groups.add_member",
+		result: { group: scopeGroup, members: [] },
+		invoke: (c) => runScopeGroupsCli(["add-member", "g1", "project", "p1", "--json"], c),
+	},
+	{
+		operation: "scope_groups.remove_member",
+		result: { group: scopeGroup, members: [] },
+		invoke: (c) => runScopeGroupsCli(["remove-member", "g1", "project", "p1", "--json"], c),
+	},
+	{
+		operation: "scope_groups.delete",
+		result: { deleted: true, id: "g1" },
+		invoke: (c) => runScopeGroupsCli(["delete", "g1", "--json"], c),
+	},
 ];
 
 describe("Papyrus CLI \u2014 structural operation parity", () => {

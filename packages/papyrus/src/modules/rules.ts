@@ -17,22 +17,27 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
 import {
+	addRuleGroup,
 	addRuleProject,
 	assignRuleProject,
 	createRule,
 	gateTaskWithRule,
 	listRules,
 	previewRule,
+	removeRuleGroup,
 	removeRuleProject,
+	replaceRuleGroups,
 	replaceRuleProjects,
 	ruleCombinedLength,
 	ruleCombinedLengthWarning,
 	ruleScope,
 	setRuleGlobal,
+	setRuleNone,
 	showRule,
 	transitionRule,
 	updateRule,
 } from "../rules/rules-service.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "rules";
@@ -79,9 +84,13 @@ export const RULES_OPERATION_NAMES = [
 	"rules.assign_project",
 	"rules.scope",
 	"rules.set_global",
+	"rules.set_none",
 	"rules.add_project",
 	"rules.remove_project",
 	"rules.replace_projects",
+	"rules.add_group",
+	"rules.remove_group",
+	"rules.replace_groups",
 	"rules.update",
 ] as const;
 
@@ -89,6 +98,7 @@ export function rulesOperations(
 	artifacts: ArtifactStore,
 	scopes: ArtifactScopeStore,
 	registry: ProjectRegistryStore,
+	scopeGroups: ScopeGroupStore,
 ): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name,
@@ -144,6 +154,16 @@ export function rulesOperations(
 		),
 		define("rules.scope", (input: OperationInput) => ruleScope(artifacts, scopes, string(input, "id"))),
 		define("rules.set_global", (input: OperationInput) => setRuleGlobal(artifacts, scopes, string(input, "id"))),
+		define("rules.set_none", (input: OperationInput) => setRuleNone(artifacts, scopes, string(input, "id"))),
+		define("rules.add_group", (input: OperationInput) =>
+			addRuleGroup(artifacts, scopes, scopeGroups, string(input, "id"), string(input, "group")),
+		),
+		define("rules.remove_group", (input: OperationInput) =>
+			removeRuleGroup(artifacts, scopes, scopeGroups, string(input, "id"), string(input, "group")),
+		),
+		define("rules.replace_groups", (input: OperationInput) =>
+			replaceRuleGroups(artifacts, scopes, scopeGroups, string(input, "id"), (input.groups as string[] | undefined) ?? []),
+		),
 		define("rules.add_project", (input: OperationInput) =>
 			addRuleProject(artifacts, scopes, registry, string(input, "id"), string(input, "project")),
 		),

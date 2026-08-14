@@ -28,7 +28,6 @@ import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import {
-	ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT,
 	ARTIFACT_TITLE_MAX_LENGTH,
 	PLAYBOOK_ARGUMENT_DESCRIPTION_MAX_LENGTH,
 	PLAYBOOK_ARGUMENT_MAX_COUNT,
@@ -44,21 +43,28 @@ import {
 	type BlueprintInputType,
 	validateArgumentValue,
 } from "../domain/blueprint-definition.ts";
-import { resolveProjectReference } from "../domain/project-registry.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
 import {
+	addArtifactScopeGroup,
+	addArtifactScopeProject,
 	assertBodyBounds,
 	assertLabelsBounds,
 	assertTitleBounds,
 	assignArtifactProject,
 	type ListFilter,
 	listScoped,
+	removeArtifactScopeGroup,
+	removeArtifactScopeProject,
+	replaceArtifactScopeGroups,
+	replaceArtifactScopeProjects,
 	requireKind,
 	runTransition,
+	setArtifactScopeNone,
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 
 export interface PlaybookArgument {
 	name: string;
@@ -280,11 +286,7 @@ export function createPlaybook(
 		context,
 	);
 	if (input.projectReferences !== undefined && input.projectReferences.length > 0) {
-		if (input.projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
-			throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
-		}
-		const ids = input.projectReferences.map((reference) => resolveProjectReference(registry!, reference).id);
-		scopes.replaceProjects(playbook.id, ids, "explicit");
+		replaceArtifactScopeProjects(scopes, registry!, playbook.id, input.projectReferences);
 	} else {
 		scopes.assign(playbook.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
 	}
@@ -320,7 +322,13 @@ export function playbookScope(artifacts: ArtifactStore, scopes: ArtifactScopeSto
 
 export function setPlaybookGlobal(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
 	requireKind(artifacts, id, "playbook");
-	return scopes.setGlobal(id, "explicit");
+	return scopes.setAll(id, "explicit");
+}
+
+/** Fully hides this Playbook -- never applicable, never injected via before_agent_start, regardless of project. */
+export function setPlaybookNone(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	return setArtifactScopeNone(scopes, id);
 }
 
 export function replacePlaybookProjects(
@@ -331,12 +339,7 @@ export function replacePlaybookProjects(
 	projectReferences: readonly string[],
 ): ArtifactScope {
 	requireKind(artifacts, id, "playbook");
-	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use playbooks.set_global to clear scoping");
-	if (projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
-		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
-	}
-	const ids = projectReferences.map((reference) => resolveProjectReference(registry, reference).id);
-	return scopes.replaceProjects(id, ids, "explicit");
+	return replaceArtifactScopeProjects(scopes, registry, id, projectReferences);
 }
 
 export function addPlaybookProject(
@@ -347,8 +350,7 @@ export function addPlaybookProject(
 	projectReference: string,
 ): ArtifactScope {
 	requireKind(artifacts, id, "playbook");
-	const project = resolveProjectReference(registry, projectReference);
-	return scopes.addProject(id, project.id, "explicit");
+	return addArtifactScopeProject(scopes, registry, id, projectReference);
 }
 
 export function removePlaybookProject(
@@ -359,8 +361,41 @@ export function removePlaybookProject(
 	projectReference: string,
 ): ArtifactScope {
 	requireKind(artifacts, id, "playbook");
-	const project = resolveProjectReference(registry, projectReference);
-	return scopes.removeProject(id, project.id);
+	return removeArtifactScopeProject(scopes, registry, id, projectReference);
+}
+
+/** Scope-group ('nested scope') siblings of replacePlaybookProjects/addPlaybookProject/removePlaybookProject. */
+export function replacePlaybookGroups(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReferences: readonly string[],
+): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	return replaceArtifactScopeGroups(scopes, scopeGroups, id, groupReferences);
+}
+
+export function addPlaybookGroup(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	return addArtifactScopeGroup(scopes, scopeGroups, id, groupReference);
+}
+
+export function removePlaybookGroup(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "playbook");
+	return removeArtifactScopeGroup(scopes, scopeGroups, id, groupReference);
 }
 
 export function showPlaybook(artifacts: ArtifactStore, id: string): Artifact {

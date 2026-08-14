@@ -26,7 +26,12 @@ describe("task-projects-and-create-idempotency migration", () => {
 		expect(migrateDb(db)).toEqual({
 			from: 25,
 			to: SQLITE_SCHEMA_VERSION,
-			applied: ["task-projects-and-create-idempotency", "task-lifecycle-mutation-receipts", "artifact-multi-project-scope"],
+			applied: [
+				"task-projects-and-create-idempotency",
+				"task-lifecycle-mutation-receipts",
+				"artifact-multi-project-scope",
+				"artifact-scope-tri-state-and-scope-groups",
+			],
 		});
 		expect(db.prepare("SELECT name, aliases_json, project_root FROM task_projects").all()).toEqual([
 			{ name: "Papyrus", aliases_json: "[]", project_root: "/tmp/projects/Papyrus" },

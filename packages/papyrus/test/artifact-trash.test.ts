@@ -205,9 +205,11 @@ describe("purgeDueArtifacts", () => {
 			"INSERT INTO task_projects (id, name, aliases_json, project_root, created_at, updated_at) VALUES ('project-1', 'Lector', '[]', '/repo/lector', ?, ?)",
 		).run(now, now);
 		db.prepare(
-			"INSERT INTO artifact_scopes (artifact_id, project_root, mode, source, assigned_at) VALUES (?, NULL, 'projects', 'explicit', ?)",
+			"INSERT INTO artifact_scopes (artifact_id, project_root, mode, source, assigned_at) VALUES (?, NULL, 'explicit', 'explicit', ?)",
 		).run(doomed.id, now);
-		db.prepare("INSERT INTO artifact_scope_projects (artifact_id, project_id) VALUES (?, 'project-1')").run(doomed.id);
+		db.prepare("INSERT INTO artifact_scope_members (artifact_id, member_type, member_id) VALUES (?, 'project', 'project-1')").run(
+			doomed.id,
+		);
 
 		trashArtifact(db, doomed.id, { now: PAST });
 		db.exec(`UPDATE artifact_trash SET purge_after = '${PAST()}' WHERE artifact_id = '${doomed.id}'`);
@@ -215,7 +217,7 @@ describe("purgeDueArtifacts", () => {
 
 		expect(purged).toBe(1);
 		expect(db.prepare("SELECT 1 FROM artifact_scopes WHERE artifact_id = ?").get(doomed.id)).toBeNull();
-		expect(db.prepare("SELECT 1 FROM artifact_scope_projects WHERE artifact_id = ?").get(doomed.id)).toBeNull();
+		expect(db.prepare("SELECT 1 FROM artifact_scope_members WHERE artifact_id = ?").get(doomed.id)).toBeNull();
 		// the registered project itself is untouched -- only this one artifact's own membership is gone
 		expect(db.prepare("SELECT 1 FROM task_projects WHERE id = 'project-1'").get()).not.toBeNull();
 		db.close();

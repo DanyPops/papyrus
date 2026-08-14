@@ -10,26 +10,29 @@ import { requireLocallyOwnedContent } from "../artifact/artifact.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import {
-	ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT,
-	RULE_TEXT_HARD_LIMIT_CHARACTERS,
-	RULE_TEXT_SOFT_TARGET_CHARACTERS,
-} from "../constants.ts";
-import { resolveProjectReference } from "../domain/project-registry.ts";
+import { RULE_TEXT_HARD_LIMIT_CHARACTERS, RULE_TEXT_SOFT_TARGET_CHARACTERS } from "../constants.ts";
 import { normalizeProjectRoot } from "../domain/task-scope.ts";
 import {
+	addArtifactScopeGroup,
+	addArtifactScopeProject,
 	assertLabelsBounds,
 	assertTitleBounds,
 	assignArtifactProject,
 	type ListFilter,
 	listScoped,
+	removeArtifactScopeGroup,
+	removeArtifactScopeProject,
+	replaceArtifactScopeGroups,
+	replaceArtifactScopeProjects,
 	requireContentUpdateFields,
 	requireKind,
 	runTransition,
+	setArtifactScopeNone,
 	type TransitionTable,
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 
 export interface CreateRuleInput {
 	title: string;
@@ -156,11 +159,7 @@ export function createRule(
 		context,
 	);
 	if (input.projectReferences !== undefined && input.projectReferences.length > 0) {
-		if (input.projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
-			throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
-		}
-		const ids = input.projectReferences.map((reference) => resolveProjectReference(registry!, reference).id);
-		scopes.replaceProjects(rule.id, ids, "explicit");
+		replaceArtifactScopeProjects(scopes, registry!, rule.id, input.projectReferences);
 	} else {
 		scopes.assign(rule.id, projectRoot, projectRoot === undefined ? "unscoped" : "explicit");
 	}
@@ -195,7 +194,13 @@ export function ruleScope(artifacts: ArtifactStore, scopes: ArtifactScopeStore, 
 
 export function setRuleGlobal(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
 	requireKind(artifacts, id, "rule");
-	return scopes.setGlobal(id, "explicit");
+	return scopes.setAll(id, "explicit");
+}
+
+/** Fully hides this Rule -- never applicable, never injected, regardless of project. */
+export function setRuleNone(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: string): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	return setArtifactScopeNone(scopes, id);
 }
 
 export function replaceRuleProjects(
@@ -206,12 +211,7 @@ export function replaceRuleProjects(
 	projectReferences: readonly string[],
 ): ArtifactScope {
 	requireKind(artifacts, id, "rule");
-	if (projectReferences.length === 0) throw new Error("projectReferences must be non-empty; use rules.set_global to clear scoping");
-	if (projectReferences.length > ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT) {
-		throw new Error(`projectReferences may include at most ${ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT} entries`);
-	}
-	const ids = projectReferences.map((reference) => resolveProjectReference(registry, reference).id);
-	return scopes.replaceProjects(id, ids, "explicit");
+	return replaceArtifactScopeProjects(scopes, registry, id, projectReferences);
 }
 
 export function addRuleProject(
@@ -222,8 +222,7 @@ export function addRuleProject(
 	projectReference: string,
 ): ArtifactScope {
 	requireKind(artifacts, id, "rule");
-	const project = resolveProjectReference(registry, projectReference);
-	return scopes.addProject(id, project.id, "explicit");
+	return addArtifactScopeProject(scopes, registry, id, projectReference);
 }
 
 export function removeRuleProject(
@@ -234,8 +233,41 @@ export function removeRuleProject(
 	projectReference: string,
 ): ArtifactScope {
 	requireKind(artifacts, id, "rule");
-	const project = resolveProjectReference(registry, projectReference);
-	return scopes.removeProject(id, project.id);
+	return removeArtifactScopeProject(scopes, registry, id, projectReference);
+}
+
+/** Scope-group ('nested scope') siblings of replaceRuleProjects/addRuleProject/removeRuleProject. */
+export function replaceRuleGroups(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReferences: readonly string[],
+): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	return replaceArtifactScopeGroups(scopes, scopeGroups, id, groupReferences);
+}
+
+export function addRuleGroup(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	return addArtifactScopeGroup(scopes, scopeGroups, id, groupReference);
+}
+
+export function removeRuleGroup(
+	artifacts: ArtifactStore,
+	scopes: ArtifactScopeStore,
+	scopeGroups: ScopeGroupStore,
+	id: string,
+	groupReference: string,
+): ArtifactScope {
+	requireKind(artifacts, id, "rule");
+	return removeArtifactScopeGroup(scopes, scopeGroups, id, groupReference);
 }
 
 /** The extra.scope run-gating check alone -- a Rule with no extra.scope always passes this; one with a skill-run/playbook-run scope passes only while its run owns activeTaskId. Both a workflow-definition target's own run scope ("skill-run", written by workflow-execution.ts's runWorkflowSteps for that target kind) and a Playbook's own run scope ("playbook-run", same call for a Playbook target) are recognized -- confirmed live that only "skill-run" was ever checked here, silently breaking Playbook-run-scoped rule injection since Playbook gained its own doc/rule structured steps. */

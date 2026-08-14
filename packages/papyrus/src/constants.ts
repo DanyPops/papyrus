@@ -17,7 +17,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 28;
+export const SQLITE_SCHEMA_VERSION = 29;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -278,12 +278,20 @@ export const ARTIFACT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const TASK_SCOPE_MAX_TASKS = 1_000;
 /** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */
 export const ARTIFACT_SCOPE_MAX_ARTIFACTS = 1_000;
-/** How many distinct registered projects a single Doc/Rule/Playbook may belong to at once, in "projects" scope mode. */
+/** How many distinct registered projects a single Doc/Rule/Playbook may belong to at once, in "projects" scope mode. Kept alongside ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT (identical value) for the pure-project call sites/tests that predate mixed project+group membership. */
 export const ARTIFACT_SCOPE_MAX_PROJECTS_PER_ARTIFACT = 50;
+/** How many total members (projects and/or scope groups combined) a single Doc/Rule/Playbook may have at once, in "explicit" scope mode. */
+export const ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT = 50;
 export const TASK_PROJECT_ROOT_MAX_LENGTH = 4_096;
 export const TASK_PROJECT_NAME_MAX_LENGTH = 200;
 export const TASK_PROJECT_ALIAS_MAX_COUNT = 20;
 export const TASK_PROJECT_LIST_MAX_RESULTS = 100;
+export const SCOPE_GROUP_NAME_MAX_LENGTH = 200;
+export const SCOPE_GROUP_ALIAS_MAX_COUNT = 20;
+export const SCOPE_GROUP_MAX_MEMBERS = 50;
+/** Bounds recursive group-in-group expansion at both add-time (refuses a nesting that would exceed it) and resolution time. */
+export const SCOPE_GROUP_MAX_NESTING_DEPTH = 5;
+export const SCOPE_GROUP_LIST_MAX_RESULTS = 100;
 export const TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH = 200;
 export const TASK_CREATE_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH = 200;

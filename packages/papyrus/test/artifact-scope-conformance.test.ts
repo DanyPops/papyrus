@@ -147,14 +147,19 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 			const projectB = adapter.registerProject("/tmp/conformance-b", "Conformance B");
 
 			const global = adapter.create("Global");
-			expect(adapter.scope(global.id)).toEqual({ artifactId: global.id, mode: "global", projectIds: [], source: "unscoped" });
+			expect(adapter.scope(global.id)).toEqual({ artifactId: global.id, mode: "all", members: [], source: "unscoped" });
 
 			const oneProject = adapter.create("One project", { projectReferences: [projectA.id] });
-			expect(adapter.scope(oneProject.id).mode).toBe("projects");
-			expect(adapter.scope(oneProject.id).projectIds).toEqual([projectA.id]);
+			expect(adapter.scope(oneProject.id).mode).toBe("explicit");
+			expect(adapter.scope(oneProject.id).members.map((m) => m.id)).toEqual([projectA.id]);
 
 			const twoProjects = adapter.create("Two projects", { projectReferences: [projectA.id, projectB.id] });
-			expect(adapter.scope(twoProjects.id).projectIds.sort()).toEqual([projectA.id, projectB.id].sort());
+			expect(
+				adapter
+					.scope(twoProjects.id)
+					.members.map((m) => m.id)
+					.sort(),
+			).toEqual([projectA.id, projectB.id].sort());
 			db.close();
 		});
 
@@ -163,7 +168,7 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 			const adapter = adapters[adapterKey]!;
 			const project = adapter.registerProject("/tmp/conformance-stable", "Conformance Stable");
 			const created = adapter.create("Scoped", { projectReferences: [project.id] });
-			expect(adapter.scope(created.id).projectIds).toEqual([project.id]);
+			expect(adapter.scope(created.id).members.map((m) => m.id)).toEqual([project.id]);
 			db.close();
 		});
 
@@ -175,12 +180,12 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 			const created = adapter.create("Idempotent");
 
 			const afterFirstAdd = adapter.addProject(created.id, project.id);
-			expect(afterFirstAdd.projectIds).toEqual([project.id]);
+			expect(afterFirstAdd.members.map((m) => m.id)).toEqual([project.id]);
 			const afterSecondAdd = adapter.addProject(created.id, project.id);
-			expect(afterSecondAdd.projectIds).toEqual([project.id]);
+			expect(afterSecondAdd.members.map((m) => m.id)).toEqual([project.id]);
 
 			const afterRemoveAbsent = adapter.removeProject(created.id, other.id);
-			expect(afterRemoveAbsent.projectIds).toEqual([project.id]);
+			expect(afterRemoveAbsent.members.map((m) => m.id)).toEqual([project.id]);
 			db.close();
 		});
 
@@ -191,7 +196,7 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 			const created = adapter.create("Final membership", { projectReferences: [project.id] });
 			expect(() => adapter.removeProject(created.id, project.id)).toThrow(/set_global|last|only remaining|non-empty/i);
 			const madeGlobal = adapter.setGlobal(created.id);
-			expect(madeGlobal.mode).toBe("global");
+			expect(madeGlobal.mode).toBe("all");
 			db.close();
 		});
 
@@ -204,10 +209,10 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 			const created = adapter.create("Atomic", { projectReferences: [projectA.id] });
 
 			const replaced = adapter.replaceProjects(created.id, [projectB.id, projectC.id]);
-			expect(replaced.projectIds.sort()).toEqual([projectB.id, projectC.id].sort());
+			expect(replaced.members.map((m) => m.id).sort()).toEqual([projectB.id, projectC.id].sort());
 
 			const globalized = adapter.setGlobal(created.id);
-			expect(globalized).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+			expect(globalized).toEqual({ artifactId: created.id, mode: "all", members: [], source: "explicit" });
 			db.close();
 		});
 
@@ -241,7 +246,7 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 			const project = adapter.registerProject("/tmp/conformance-rename-before", "Conformance Rename Before");
 			const created = adapter.create("Survives rename", { projectReferences: [project.id] });
 			adapter.renameProject("/tmp/conformance-rename-before", "Conformance Rename After");
-			expect(adapter.scope(created.id).projectIds).toEqual([project.id]);
+			expect(adapter.scope(created.id).members.map((m) => m.id)).toEqual([project.id]);
 			db.close();
 		});
 

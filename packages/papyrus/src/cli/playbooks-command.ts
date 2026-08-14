@@ -318,6 +318,73 @@ const replaceProjectsCommand = buildCommand({
 	docs: { brief: "Replace a Playbook's entire project membership" },
 });
 
+const setNoneCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.set_none", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Playbook id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Fully hide a Playbook -- never applicable, never injected, regardless of project" },
+});
+
+const addGroupCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string, group: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.add_group", { id, group });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Playbook id", parse: String, placeholder: "id" },
+				{ brief: "Scope group id/name/alias to add", parse: String, placeholder: "group" },
+			],
+		},
+	},
+	docs: { brief: "Add one scope group to a Playbook's explicit scope" },
+});
+
+const removeGroupCommand = buildCommand({
+	func: async function (this: PlaybooksContext, _flags: Record<string, never>, id: string, group: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.remove_group", { id, group });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Playbook id", parse: String, placeholder: "id" },
+				{ brief: "Scope group id/name/alias to remove", parse: String, placeholder: "group" },
+			],
+		},
+	},
+	docs: { brief: "Remove one scope group from a Playbook's explicit scope" },
+});
+
+const replaceGroupsCommand = buildCommand({
+	func: async function (this: PlaybooksContext, flags: { groupsJson: string[] }, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("playbooks.replace_groups", {
+			id,
+			groups: flags.groupsJson,
+		});
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {
+			groupsJson: {
+				brief: "JSON string array of scope group id/name/alias references",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+			},
+		},
+		positional: { kind: "tuple", parameters: [{ brief: "Playbook id", parse: String, placeholder: "id" }] },
+	},
+	docs: { brief: "Replace a Playbook's entire scope-group membership" },
+});
+
 const updateCommand = buildCommand({
 	func: async function (
 		this: PlaybooksContext,
@@ -402,9 +469,13 @@ const app = buildApplication(
 			"assign-project": assignProjectCommand,
 			scope: scopeCommand,
 			"set-global": setGlobalCommand,
+			"set-none": setNoneCommand,
 			"add-project": addProjectCommand,
 			"remove-project": removeProjectCommand,
 			"replace-projects": replaceProjectsCommand,
+			"add-group": addGroupCommand,
+			"remove-group": removeGroupCommand,
+			"replace-groups": replaceGroupsCommand,
 			update: updateCommand,
 			contain: buildPairedIdCommand(
 				"playbooks.contain",

@@ -10,6 +10,7 @@ import type { AuthorityRegistry } from "../authority-registry.ts";
 import { listDocuments } from "../docs/docs-service.ts";
 import { docsOperations } from "../modules/docs.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import { booleanProp, createOperationDefiner, numberProp, resolveArtifactIdWidened, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "docs";
@@ -54,8 +55,9 @@ export function registerDocsVehicleOperations(
 	scopes: ArtifactScopeStore,
 	authority: AuthorityRegistry,
 	projectRegistry: ProjectRegistryStore,
+	scopeGroups: ScopeGroupStore,
 ): void {
-	const moduleOperations = new Map(docsOperations(artifacts, scopes, authority, projectRegistry).map((op) => [op.name, op]));
+	const moduleOperations = new Map(docsOperations(artifacts, scopes, authority, projectRegistry, scopeGroups).map((op) => [op.name, op]));
 	const call = (name: string, input: Record<string, unknown>): unknown => moduleOperations.get(name)!.execute(input);
 	const define = createOperationDefiner(registry, OWNER, "docs", ["docs:read", "docs:write"], call);
 
@@ -206,6 +208,59 @@ export function registerDocsVehicleOperations(
 			project_root: stringProp,
 		},
 		["projects"],
+		(input) => ({ ...input, id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"set_none",
+		"Fully hides a Doc -- never applicable, never context-injected, regardless of project. The only way back is set_global, add_project, add_group, or replace_projects/replace_groups.",
+		"local-write",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({ ...input, id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"add_group",
+		"Adds one scope group (a named, reusable, possibly-nested collection of projects and/or other groups) to a Doc's explicit scope, switching it from global/none to project-bound if it wasn't already. Idempotent if the group is already a member.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			group: { ...stringProp, description: "Exact scope group id, name, or alias to add." },
+			project_root: stringProp,
+		},
+		["group"],
+		(input) => ({ ...input, id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"remove_group",
+		"Removes one scope group from a Doc's explicit scope. Rejected while it is the Doc's only remaining scope member -- call set_global or set_none first.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			group: { ...stringProp, description: "Exact scope group id, name, or alias to remove." },
+			project_root: stringProp,
+		},
+		["group"],
+		(input) => ({ ...input, id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
+	);
+
+	define(
+		"replace_groups",
+		"Replaces a Doc's entire scope-group membership with exactly this bounded, non-empty list of scope group references (id/name/alias). Use set_global/set_none instead to clear scoping entirely.",
+		"local-write",
+		{
+			id: stringProp,
+			name: stringProp,
+			groups: { type: "array", description: "Non-empty list of exact scope group id/name/alias references." } as unknown as {
+				type: string;
+			},
+			project_root: stringProp,
+		},
+		["groups"],
 		(input) => ({ ...input, id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name) }),
 	);
 

@@ -4,6 +4,7 @@ import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { openDb } from "../src/db.ts";
 import { OperationRegistry } from "../src/module-registry.ts";
 import { PLAYBOOKS_OPERATION_NAMES, playbooksOperations } from "../src/modules/playbooks.ts";
+import { SQLiteScopeGroupStore } from "../src/scope-group/sqlite-scope-group-store.ts";
 import { SessionIdentity } from "../src/session-identity/session-identity-service.ts";
 import { SQLiteGateRunner } from "../src/stores/sqlite-gate-runner.ts";
 import { SQLiteProjectRegistryStore } from "../src/stores/sqlite-project-registry-store.ts";
@@ -23,9 +24,10 @@ function fixture() {
 	const tasks = new Tasks(artifacts, new SQLiteGateRunner(db), new SQLiteTaskFocusStore(db), events, scopes, new SQLiteTaskLeaseStore(db));
 	const sessionIdentity = new SessionIdentity(new SQLiteSessionIdentityStore(db));
 	const projectRegistry = new SQLiteProjectRegistryStore(db);
+	const scopeGroups = new SQLiteScopeGroupStore(db);
 	const registry = new OperationRegistry();
 	registry.registerAll(
-		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry }),
+		playbooksOperations({ artifacts, events, scopes, artifactScopes, tasks, sessionIdentity, registry: projectRegistry, scopeGroups }),
 	);
 	return { registry, artifacts, tasks };
 }

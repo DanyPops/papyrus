@@ -149,7 +149,7 @@ describe("session-scoped Task Focus — explicit migration", () => {
 
 		expect(migrateDb(db)).toEqual({
 			from: 7,
-			to: 28,
+			to: 29,
 			applied: [
 				"task-focus-session-scope",
 				"graph-projection-protocol",
@@ -172,6 +172,7 @@ describe("session-scoped Task Focus — explicit migration", () => {
 				"task-projects-and-create-idempotency",
 				"task-lifecycle-mutation-receipts",
 				"artifact-multi-project-scope",
+				"artifact-scope-tri-state-and-scope-groups",
 			],
 		});
 

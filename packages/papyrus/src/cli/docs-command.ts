@@ -210,6 +210,73 @@ const replaceProjectsCommand = buildCommand({
 	docs: { brief: "Replace a Doc's entire project membership" },
 });
 
+const setNoneCommand = buildCommand({
+	func: async function (this: DocsContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("docs.set_none", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Document id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Fully hide a Doc -- never applicable, never context-injected, regardless of project" },
+});
+
+const addGroupCommand = buildCommand({
+	func: async function (this: DocsContext, _flags: Record<string, never>, id: string, group: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("docs.add_group", { id, group });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Document id", parse: String, placeholder: "id" },
+				{ brief: "Scope group id/name/alias to add", parse: String, placeholder: "group" },
+			],
+		},
+	},
+	docs: { brief: "Add one scope group to a Doc's explicit scope" },
+});
+
+const removeGroupCommand = buildCommand({
+	func: async function (this: DocsContext, _flags: Record<string, never>, id: string, group: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("docs.remove_group", { id, group });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Document id", parse: String, placeholder: "id" },
+				{ brief: "Scope group id/name/alias to remove", parse: String, placeholder: "group" },
+			],
+		},
+	},
+	docs: { brief: "Remove one scope group from a Doc's explicit scope" },
+});
+
+const replaceGroupsCommand = buildCommand({
+	func: async function (this: DocsContext, flags: { groupsJson: string[] }, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("docs.replace_groups", {
+			id,
+			groups: flags.groupsJson,
+		});
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {
+			groupsJson: {
+				brief: "JSON string array of scope group id/name/alias references",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+			},
+		},
+		positional: { kind: "tuple", parameters: [{ brief: "Document id", parse: String, placeholder: "id" }] },
+	},
+	docs: { brief: "Replace a Doc's entire scope-group membership" },
+});
+
 function buildStatusTransitionCommand(action: "activate" | "archive" | "reopen") {
 	return buildCommand({
 		func: async function (this: DocsContext, _flags: Record<string, never>, id: string) {
@@ -271,9 +338,13 @@ const app = buildApplication(
 			"assign-project": assignProjectCommand,
 			scope: scopeCommand,
 			"set-global": setGlobalCommand,
+			"set-none": setNoneCommand,
 			"add-project": addProjectCommand,
 			"remove-project": removeProjectCommand,
 			"replace-projects": replaceProjectsCommand,
+			"add-group": addGroupCommand,
+			"remove-group": removeGroupCommand,
+			"replace-groups": replaceGroupsCommand,
 			show: showCommand,
 			activate: buildStatusTransitionCommand("activate"),
 			archive: buildStatusTransitionCommand("archive"),

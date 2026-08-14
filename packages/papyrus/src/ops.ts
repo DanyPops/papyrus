@@ -481,7 +481,7 @@ export function purgeDueArtifacts(db: Db, now: () => string = () => new Date().t
 			db.prepare("DELETE FROM task_scopes WHERE task_id = ?").run(id);
 			db.prepare("DELETE FROM task_views WHERE root_task_id = ?").run(id);
 			db.prepare("DELETE FROM graph_projection_identities WHERE artifact_id = ?").run(id);
-			db.prepare("DELETE FROM artifact_scope_projects WHERE artifact_id = ?").run(id);
+			db.prepare("DELETE FROM artifact_scope_members WHERE artifact_id = ?").run(id);
 			db.prepare("DELETE FROM artifact_scopes WHERE artifact_id = ?").run(id);
 			db.prepare("DELETE FROM task_events WHERE task_id = ?").run(id);
 			db.prepare("DELETE FROM note_events WHERE note_id = ?").run(id);

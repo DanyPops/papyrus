@@ -24,6 +24,7 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 			.filter((name: string) => name.startsWith("rules."))
 			.sort();
 		expect(names).toEqual([
+			"rules.add_group",
 			"rules.add_project",
 			"rules.assign_project",
 			"rules.create",
@@ -32,10 +33,13 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 			"rules.gate",
 			"rules.list",
 			"rules.preview",
+			"rules.remove_group",
 			"rules.remove_project",
+			"rules.replace_groups",
 			"rules.replace_projects",
 			"rules.scope",
 			"rules.set_global",
+			"rules.set_none",
 			"rules.show",
 			"rules.update",
 		]);
@@ -265,43 +269,43 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 
 		expect(await registry.invoke("rules.scope", 1, { id: created.id }, PERMS)).toEqual({
 			artifactId: created.id,
-			mode: "global",
-			projectIds: [],
+			mode: "all",
+			members: [],
 			source: "unscoped",
 		});
 
 		const afterAdd = (await registry.invoke("rules.add_project", 1, { id: created.id, project: "Scope Project A" }, PERMS)) as {
 			mode: string;
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterAdd.mode).toBe("projects");
-		expect(afterAdd.projectIds).toHaveLength(1);
+		expect(afterAdd.mode).toBe("explicit");
+		expect(afterAdd.members).toHaveLength(1);
 
 		const afterAddSecond = (await registry.invoke("rules.add_project", 1, { id: created.id, project: "Scope Project B" }, PERMS)) as {
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterAddSecond.projectIds).toHaveLength(2);
+		expect(afterAddSecond.members).toHaveLength(2);
 
 		const afterRemove = (await registry.invoke("rules.remove_project", 1, { id: created.id, project: "Scope Project B" }, PERMS)) as {
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterRemove.projectIds).toHaveLength(1);
+		expect(afterRemove.members).toHaveLength(1);
 
 		const afterReplace = (await registry.invoke(
 			"rules.replace_projects",
 			1,
 			{ id: created.id, projects: ["Scope Project A", "Scope Project B"] },
 			PERMS,
-		)) as { projectIds: string[] };
-		expect(afterReplace.projectIds).toHaveLength(2);
+		)) as { members: Array<{ type: string; id: string }> };
+		expect(afterReplace.members).toHaveLength(2);
 
 		const afterGlobal = (await registry.invoke("rules.set_global", 1, { id: created.id }, PERMS)) as {
 			artifactId: string;
 			mode: string;
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 			source: string;
 		};
-		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "all", members: [], source: "explicit" });
 		service.close();
 	});
 
@@ -320,7 +324,7 @@ describe("registerRulesVehicleOperations (wired through createPapyrusService)", 
 		);
 
 		const madeGlobal = (await registry.invoke("rules.set_global", 1, { id: created.id }, PERMS)) as { mode: string };
-		expect(madeGlobal.mode).toBe("global");
+		expect(madeGlobal.mode).toBe("all");
 		service.close();
 	});
 

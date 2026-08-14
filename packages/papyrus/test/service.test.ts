@@ -78,11 +78,11 @@ describe("Papyrus operation service", () => {
 		legacy.close();
 
 		const service = createPapyrusService(path);
-		expect(service.schemaState()).toEqual({ current: 1, required: 28, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 1, required: 29, migrationRequired: true });
 		await expect(service.execute("tasks.list", {})).rejects.toThrow("papyrus migrate schema");
 		expect(await service.execute("system.migrate", {})).toEqual({
 			from: 1,
-			to: 28,
+			to: 29,
 			applied: [
 				"task-lifecycle-and-focus",
 				"task-history",
@@ -111,9 +111,10 @@ describe("Papyrus operation service", () => {
 				"task-projects-and-create-idempotency",
 				"task-lifecycle-mutation-receipts",
 				"artifact-multi-project-scope",
+				"artifact-scope-tri-state-and-scope-groups",
 			],
 		});
-		expect(service.schemaState()).toEqual({ current: 28, required: 28, migrationRequired: false });
+		expect(service.schemaState()).toEqual({ current: 29, required: 29, migrationRequired: false });
 		expect(await service.execute("tasks.list", { project_root: PROJECT_ROOT })).toEqual([]);
 		service.close();
 	});
@@ -137,7 +138,7 @@ describe("Papyrus operation service", () => {
 
 		const service = createPapyrusService(path);
 		const app = createApp({ service, token: "test-token" });
-		expect(service.schemaState()).toEqual({ current: 23, required: 28, migrationRequired: true });
+		expect(service.schemaState()).toEqual({ current: 23, required: 29, migrationRequired: true });
 
 		const response = await request(app, "/vehicle/invoke", {
 			method: "POST",
@@ -322,9 +323,12 @@ describe("Papyrus operation service", () => {
 		// generated Docs/Rules previously bypassed ArtifactScopeStore entirely, so a run-created
 		// Rule was global by default and injected into every project's context regardless of
 		// where it was actually invoked.
-		const generatedScope = (await service.execute("rules.scope", { id: ruleId })) as { mode: string; projectIds: string[] };
-		expect(generatedScope.mode).toBe("projects");
-		expect(generatedScope.projectIds).toHaveLength(1);
+		const generatedScope = (await service.execute("rules.scope", { id: ruleId })) as {
+			mode: string;
+			members: Array<{ type: string; id: string }>;
+		};
+		expect(generatedScope.mode).toBe("explicit");
+		expect(generatedScope.members).toHaveLength(1);
 
 		// Active run task AND matching project: passes.
 		expect(await service.execute("rules.injectable", { project_root: PROJECT_A })).toEqual([expect.objectContaining({ id: ruleId })]);
@@ -352,9 +356,9 @@ describe("Papyrus operation service", () => {
 			created: { docs: string[]; rules: string[] };
 		};
 		const docScope = (await service.execute("docs.scope", { id: run.created.docs[0] })) as { mode: string };
-		expect(docScope.mode).toBe("global");
+		expect(docScope.mode).toBe("all");
 		const ruleScope = (await service.execute("rules.scope", { id: run.created.rules[0] })) as { mode: string };
-		expect(ruleScope.mode).toBe("global");
+		expect(ruleScope.mode).toBe("all");
 		service.close();
 	});
 
@@ -377,9 +381,12 @@ describe("Papyrus operation service", () => {
 			project_root: PROJECT,
 		})) as { created: { rules: string[] } };
 		expect(run.created.rules).toHaveLength(1);
-		const nestedRuleScope = (await service.execute("rules.scope", { id: run.created.rules[0] })) as { mode: string; projectIds: string[] };
-		expect(nestedRuleScope.mode).toBe("projects");
-		expect(nestedRuleScope.projectIds).toHaveLength(1);
+		const nestedRuleScope = (await service.execute("rules.scope", { id: run.created.rules[0] })) as {
+			mode: string;
+			members: Array<{ type: string; id: string }>;
+		};
+		expect(nestedRuleScope.mode).toBe("explicit");
+		expect(nestedRuleScope.members).toHaveLength(1);
 		service.close();
 	});
 
@@ -481,7 +488,7 @@ describe("Papyrus operation service", () => {
 		expect(await client.health()).toEqual({
 			ok: true,
 			version: VERSION,
-			schema: { current: 28, required: 28, migrationRequired: false },
+			schema: { current: 29, required: 29, migrationRequired: false },
 		});
 		await expect(client.diagnose()).rejects.toThrow("daemon diagnose is unavailable on this instance");
 		const task = await client.call<{ title: string; project_root: string }, { id: string; kind: string }>("tasks.create", {

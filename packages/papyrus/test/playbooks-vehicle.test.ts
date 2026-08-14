@@ -23,6 +23,7 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 			.filter((name: string) => name.startsWith("playbooks."))
 			.sort();
 		expect(names).toEqual([
+			"playbooks.add_group",
 			"playbooks.add_project",
 			"playbooks.assign_project",
 			"playbooks.contain",
@@ -33,10 +34,13 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 			"playbooks.invoke",
 			"playbooks.list",
 			"playbooks.preview",
+			"playbooks.remove_group",
 			"playbooks.remove_project",
+			"playbooks.replace_groups",
 			"playbooks.replace_projects",
 			"playbooks.scope",
 			"playbooks.set_global",
+			"playbooks.set_none",
 			"playbooks.show",
 			"playbooks.uncontain",
 			"playbooks.undepend",
@@ -406,9 +410,12 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 			{ title: "Multi-scoped playbook", project_root: "/tmp/other", projects: ["Playbooks Create Scope A", "Playbooks Create Scope B"] },
 			PERMS,
 		)) as { id: string };
-		const scope = (await registry.invoke("playbooks.scope", 1, { id: created.id }, PERMS)) as { mode: string; projectIds: string[] };
-		expect(scope.mode).toBe("projects");
-		expect(scope.projectIds).toHaveLength(2);
+		const scope = (await registry.invoke("playbooks.scope", 1, { id: created.id }, PERMS)) as {
+			mode: string;
+			members: Array<{ type: string; id: string }>;
+		};
+		expect(scope.mode).toBe("explicit");
+		expect(scope.members).toHaveLength(2);
 		service.close();
 	});
 
@@ -420,8 +427,8 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 
 		expect(await registry.invoke("playbooks.scope", 1, { id: created.id }, PERMS)).toEqual({
 			artifactId: created.id,
-			mode: "global",
-			projectIds: [],
+			mode: "all",
+			members: [],
 			source: "unscoped",
 		});
 
@@ -430,41 +437,41 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 			1,
 			{ id: created.id, project: "Playbooks Scope Project A" },
 			PERMS,
-		)) as { mode: string; projectIds: string[] };
-		expect(afterAdd.mode).toBe("projects");
-		expect(afterAdd.projectIds).toHaveLength(1);
+		)) as { mode: string; members: Array<{ type: string; id: string }> };
+		expect(afterAdd.mode).toBe("explicit");
+		expect(afterAdd.members).toHaveLength(1);
 
 		const afterAddSecond = (await registry.invoke(
 			"playbooks.add_project",
 			1,
 			{ id: created.id, project: "Playbooks Scope Project B" },
 			PERMS,
-		)) as { projectIds: string[] };
-		expect(afterAddSecond.projectIds).toHaveLength(2);
+		)) as { members: Array<{ type: string; id: string }> };
+		expect(afterAddSecond.members).toHaveLength(2);
 
 		const afterRemove = (await registry.invoke(
 			"playbooks.remove_project",
 			1,
 			{ id: created.id, project: "Playbooks Scope Project B" },
 			PERMS,
-		)) as { projectIds: string[] };
-		expect(afterRemove.projectIds).toHaveLength(1);
+		)) as { members: Array<{ type: string; id: string }> };
+		expect(afterRemove.members).toHaveLength(1);
 
 		const afterReplace = (await registry.invoke(
 			"playbooks.replace_projects",
 			1,
 			{ id: created.id, projects: ["Playbooks Scope Project A", "Playbooks Scope Project B"] },
 			PERMS,
-		)) as { projectIds: string[] };
-		expect(afterReplace.projectIds).toHaveLength(2);
+		)) as { members: Array<{ type: string; id: string }> };
+		expect(afterReplace.members).toHaveLength(2);
 
 		const afterGlobal = (await registry.invoke("playbooks.set_global", 1, { id: created.id }, PERMS)) as {
 			artifactId: string;
 			mode: string;
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 			source: string;
 		};
-		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "all", members: [], source: "explicit" });
 		service.close();
 	});
 
@@ -486,7 +493,7 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		).rejects.toThrow(/set_global|last|only remaining|non-empty/i);
 
 		const madeGlobal = (await registry.invoke("playbooks.set_global", 1, { id: created.id }, PERMS)) as { mode: string };
-		expect(madeGlobal.mode).toBe("global");
+		expect(madeGlobal.mode).toBe("all");
 		service.close();
 	});
 
@@ -551,7 +558,7 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		// The Playbook DEFINITION itself stays global/unscoped -- invoking it with a destination
 		// project_root is a per-invocation concern, never a mutation of the definition's own scope.
 		const definitionScope = (await registry.invoke("playbooks.scope", 1, { id: playbook.id }, PERMS)) as { mode: string };
-		expect(definitionScope.mode).toBe("global");
+		expect(definitionScope.mode).toBe("all");
 
 		const invocation = (await registry.invoke(
 			"playbooks.invoke",
@@ -562,14 +569,14 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		expect(invocation.created.docs).toHaveLength(1);
 		const generatedDocScope = (await service.execute("docs.scope", { id: invocation.created.docs[0] })) as {
 			mode: string;
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(generatedDocScope.mode).toBe("projects");
-		expect(generatedDocScope.projectIds).toHaveLength(1);
+		expect(generatedDocScope.mode).toBe("explicit");
+		expect(generatedDocScope.members).toHaveLength(1);
 
 		// The definition itself is unaffected by the invocation's own destination.
 		const definitionScopeAfter = (await registry.invoke("playbooks.scope", 1, { id: playbook.id }, PERMS)) as { mode: string };
-		expect(definitionScopeAfter.mode).toBe("global");
+		expect(definitionScopeAfter.mode).toBe("all");
 		service.close();
 	});
 });

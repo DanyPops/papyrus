@@ -25,17 +25,21 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 			.sort();
 		expect(names).toEqual([
 			"docs.activate",
+			"docs.add_group",
 			"docs.add_project",
 			"docs.archive",
 			"docs.assign_project",
 			"docs.create",
 			"docs.link",
 			"docs.list",
+			"docs.remove_group",
 			"docs.remove_project",
 			"docs.reopen",
+			"docs.replace_groups",
 			"docs.replace_projects",
 			"docs.scope",
 			"docs.set_global",
+			"docs.set_none",
 			"docs.show",
 			"docs.update",
 		]);
@@ -192,9 +196,12 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 			{ title: "Multi-scoped doc", project_root: PROJECT, projects: ["Docs Create Scope A", "Docs Create Scope B"] },
 			PERMS,
 		)) as { id: string };
-		const scope = (await registry.invoke("docs.scope", 1, { id: created.id }, PERMS)) as { mode: string; projectIds: string[] };
-		expect(scope.mode).toBe("projects");
-		expect(scope.projectIds).toHaveLength(2);
+		const scope = (await registry.invoke("docs.scope", 1, { id: created.id }, PERMS)) as {
+			mode: string;
+			members: Array<{ type: string; id: string }>;
+		};
+		expect(scope.mode).toBe("explicit");
+		expect(scope.members).toHaveLength(2);
 		service.close();
 	});
 
@@ -206,17 +213,17 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 
 		expect(await registry.invoke("docs.scope", 1, { id: created.id }, PERMS)).toEqual({
 			artifactId: created.id,
-			mode: "global",
-			projectIds: [],
+			mode: "all",
+			members: [],
 			source: "unscoped",
 		});
 
 		const afterAdd = (await registry.invoke("docs.add_project", 1, { id: created.id, project: "Docs Scope Project A" }, PERMS)) as {
 			mode: string;
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterAdd.mode).toBe("projects");
-		expect(afterAdd.projectIds).toHaveLength(1);
+		expect(afterAdd.mode).toBe("explicit");
+		expect(afterAdd.members).toHaveLength(1);
 
 		// Idempotent: adding an already-present project is a no-op, not a duplicate or an error.
 		const afterDuplicateAdd = (await registry.invoke(
@@ -225,35 +232,35 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 			{ id: created.id, project: "Docs Scope Project A" },
 			PERMS,
 		)) as {
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterDuplicateAdd.projectIds).toHaveLength(1);
+		expect(afterDuplicateAdd.members).toHaveLength(1);
 
 		const afterAddSecond = (await registry.invoke("docs.add_project", 1, { id: created.id, project: "Docs Scope Project B" }, PERMS)) as {
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterAddSecond.projectIds).toHaveLength(2);
+		expect(afterAddSecond.members).toHaveLength(2);
 
 		const afterRemove = (await registry.invoke("docs.remove_project", 1, { id: created.id, project: "Docs Scope Project B" }, PERMS)) as {
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 		};
-		expect(afterRemove.projectIds).toHaveLength(1);
+		expect(afterRemove.members).toHaveLength(1);
 
 		const afterReplace = (await registry.invoke(
 			"docs.replace_projects",
 			1,
 			{ id: created.id, projects: ["Docs Scope Project A", "Docs Scope Project B"] },
 			PERMS,
-		)) as { projectIds: string[] };
-		expect(afterReplace.projectIds).toHaveLength(2);
+		)) as { members: Array<{ type: string; id: string }> };
+		expect(afterReplace.members).toHaveLength(2);
 
 		const afterGlobal = (await registry.invoke("docs.set_global", 1, { id: created.id }, PERMS)) as {
 			artifactId: string;
 			mode: string;
-			projectIds: string[];
+			members: Array<{ type: string; id: string }>;
 			source: string;
 		};
-		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "global", projectIds: [], source: "explicit" });
+		expect(afterGlobal).toEqual({ artifactId: created.id, mode: "all", members: [], source: "explicit" });
 		service.close();
 	});
 
@@ -275,7 +282,7 @@ describe("registerDocsVehicleOperations (wired through createPapyrusService)", (
 		).rejects.toThrow(/set_global|last|only remaining|non-empty/i);
 
 		const madeGlobal = (await registry.invoke("docs.set_global", 1, { id: created.id }, PERMS)) as { mode: string };
-		expect(madeGlobal.mode).toBe("global");
+		expect(madeGlobal.mode).toBe("all");
 		service.close();
 	});
 

@@ -12,6 +12,7 @@ import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { AuthorityRegistry } from "../authority-registry.ts";
 import {
+	addDocGroup,
 	addDocProject,
 	assignDocumentProject,
 	createDocument,
@@ -19,15 +20,19 @@ import {
 	docScope,
 	linkDocument,
 	listDocuments,
+	removeDocGroup,
 	removeDocProject,
+	replaceDocGroups,
 	replaceDocProjects,
 	setDocGlobal,
+	setDocNone,
 	showDocument,
 	transitionDocument,
 	updateDocument,
 } from "../docs/docs-service.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { ProjectRegistryStore } from "../ports/project-registry-store.ts";
+import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "docs";
@@ -69,8 +74,12 @@ export const DOCS_OPERATION_NAMES = [
 	"docs.assign_project",
 	"docs.scope",
 	"docs.set_global",
+	"docs.set_none",
 	"docs.add_project",
 	"docs.remove_project",
+	"docs.add_group",
+	"docs.remove_group",
+	"docs.replace_groups",
 	"docs.replace_projects",
 	"docs.update",
 ] as const;
@@ -80,6 +89,7 @@ export function docsOperations(
 	scopes: ArtifactScopeStore,
 	authority: AuthorityRegistry,
 	registry: ProjectRegistryStore,
+	scopeGroups: ScopeGroupStore,
 ): OperationDefinition[] {
 	const define = <Input, Output>(name: string, execute: (input: Input) => Output): OperationDefinition<Input, Output> => ({
 		name,
@@ -135,6 +145,7 @@ export function docsOperations(
 		),
 		define("docs.scope", (input: OperationInput) => docScope(artifacts, scopes, string(input, "id"))),
 		define("docs.set_global", (input: OperationInput) => setDocGlobal(artifacts, scopes, string(input, "id"))),
+		define("docs.set_none", (input: OperationInput) => setDocNone(artifacts, scopes, string(input, "id"))),
 		define("docs.add_project", (input: OperationInput) =>
 			addDocProject(artifacts, scopes, registry, string(input, "id"), string(input, "project")),
 		),
@@ -143,6 +154,15 @@ export function docsOperations(
 		),
 		define("docs.replace_projects", (input: OperationInput) =>
 			replaceDocProjects(artifacts, scopes, registry, string(input, "id"), (input.projects as string[] | undefined) ?? []),
+		),
+		define("docs.add_group", (input: OperationInput) =>
+			addDocGroup(artifacts, scopes, scopeGroups, string(input, "id"), string(input, "group")),
+		),
+		define("docs.remove_group", (input: OperationInput) =>
+			removeDocGroup(artifacts, scopes, scopeGroups, string(input, "id"), string(input, "group")),
+		),
+		define("docs.replace_groups", (input: OperationInput) =>
+			replaceDocGroups(artifacts, scopes, scopeGroups, string(input, "id"), (input.groups as string[] | undefined) ?? []),
 		),
 		define("docs.update", (input: OperationInput) =>
 			updateDocument(

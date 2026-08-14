@@ -200,6 +200,73 @@ const replaceProjectsCommand = buildCommand({
 	docs: { brief: "Replace a Rule's entire project membership" },
 });
 
+const setNoneCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.set_none", { id });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: { flags: {}, positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] } },
+	docs: { brief: "Fully hide a Rule -- never applicable, never injected, regardless of project" },
+});
+
+const addGroupCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string, group: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.add_group", { id, group });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Rule id", parse: String, placeholder: "id" },
+				{ brief: "Scope group id/name/alias to add", parse: String, placeholder: "group" },
+			],
+		},
+	},
+	docs: { brief: "Add one scope group to a Rule's explicit scope" },
+});
+
+const removeGroupCommand = buildCommand({
+	func: async function (this: RulesContext, _flags: Record<string, never>, id: string, group: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.remove_group", { id, group });
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {},
+		positional: {
+			kind: "tuple",
+			parameters: [
+				{ brief: "Rule id", parse: String, placeholder: "id" },
+				{ brief: "Scope group id/name/alias to remove", parse: String, placeholder: "group" },
+			],
+		},
+	},
+	docs: { brief: "Remove one scope group from a Rule's explicit scope" },
+});
+
+const replaceGroupsCommand = buildCommand({
+	func: async function (this: RulesContext, flags: { groupsJson: string[] }, id: string) {
+		const scope = await this.client.call<Record<string, unknown>, CliArtifactScope>("rules.replace_groups", {
+			id,
+			groups: flags.groupsJson,
+		});
+		render.call(this, scope, renderScope(scope));
+	},
+	parameters: {
+		flags: {
+			groupsJson: {
+				brief: "JSON string array of scope group id/name/alias references",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+			},
+		},
+		positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] },
+	},
+	docs: { brief: "Replace a Rule's entire scope-group membership" },
+});
+
 const showCommand = buildCommand({
 	func: async function (this: RulesContext, _flags: Record<string, never>, id: string) {
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("rules.show", { id });
@@ -293,9 +360,13 @@ const app = buildApplication(
 			"assign-project": assignProjectCommand,
 			scope: scopeCommand,
 			"set-global": setGlobalCommand,
+			"set-none": setNoneCommand,
 			"add-project": addProjectCommand,
 			"remove-project": removeProjectCommand,
 			"replace-projects": replaceProjectsCommand,
+			"add-group": addGroupCommand,
+			"remove-group": removeGroupCommand,
+			"replace-groups": replaceGroupsCommand,
 			show: showCommand,
 			preview: previewCommand,
 			enable: buildEnableDisableCommand("enable"),

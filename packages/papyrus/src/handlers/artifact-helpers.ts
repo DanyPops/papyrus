@@ -1,9 +1,4 @@
-/**
- * Cross-domain artifact name/id resolution and workflow-run narrative building, split out of
- * handlers/shared.ts as part of a SOLID-audit-driven decomposition (see Doc "Modularity playbook:
- * building-block-shaped TypeScript modules for papyrus/pi-papyrus" and the "handlers/shared.ts
- * split" child of "Epic: Modularize papyrus/pi-papyrus god-files into building-block modules").
- */
+/** Cross-domain artifact name/id resolution and workflow-run narrative building. */
 import { type VehicleContentBlock, VehicleError } from "@danypops/vehicle-core";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";

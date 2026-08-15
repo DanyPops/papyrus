@@ -1,10 +1,7 @@
 /**
  * Base kernel shared by every render-model/*.ts result-kind module: the schema-version marker,
  * the common completeness/bounding primitives, and the base validators nearly every kind's own
- * parse case reuses. Split out of the former single render-model.ts as part of a SOLID-audit-
- * driven decomposition (see Doc "Modularity playbook: building-block-shaped TypeScript modules
- * for papyrus/pi-papyrus" and the "pi-papyrus render-model.ts split" child of "Epic: Modularize
- * papyrus/pi-papyrus god-files into building-block modules").
+ * parse case reuses.
  */
 import {
 	type Artifact,

@@ -1,13 +1,8 @@
 /**
  * render-model/ -- typed, bounded Vehicle-result render details, one file per result-kind
- * (already Strategy-shaped in spirit: one create-and-is-guard pair per kind), split out of the former
- * single 827-line render-model.ts as part of a SOLID-audit-driven decomposition (see Doc
- * "Modularity playbook: building-block-shaped TypeScript modules for papyrus/pi-papyrus" and the
- * "pi-papyrus render-model.ts split" child of "Epic: Modularize papyrus/pi-papyrus god-files into
- * building-block modules"). This file is the one place that assembles every kind into the
- * PapyrusToolDetails union and validates a persisted one back (parsePapyrusToolDetails) -- the
- * "wide internal, narrow public" shape: each sibling module owns one kind's own real complexity,
- * this one only ever needs to know each kind's own type + guard, never re-derive it.
+ * (Strategy-shaped: one create-and-is-guard pair per kind). This file assembles every kind into
+ * the PapyrusToolDetails union and validates a persisted one back (parsePapyrusToolDetails) --
+ * each sibling module owns one kind's own complexity, this one only needs its type + guard.
  */
 import {
 	TOOL_DETAILS_BODY_MAX_CHARACTERS,

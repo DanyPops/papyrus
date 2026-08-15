@@ -1,10 +1,4 @@
-/**
- * Vehicle-operation-definer DSL (createOperationDefiner) and the paired add/remove mutation shape
- * built on top of it (definePairedMutation), split out of handlers/shared.ts as part of a
- * SOLID-audit-driven decomposition (see Doc "Modularity playbook: building-block-shaped
- * TypeScript modules for papyrus/pi-papyrus" and the "handlers/shared.ts split" child of "Epic:
- * Modularize papyrus/pi-papyrus god-files into building-block modules").
- */
+/** Vehicle-operation-definer DSL (createOperationDefiner) and the paired add/remove mutation shape built on top of it (definePairedMutation). */
 import { bindVehicleOperation, defineVehicleOperation, type VehicleLimits, type VehicleOperationContext } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import { looseObjectSchema, passthroughOutput } from "./operation-schema.ts";

@@ -11,14 +11,9 @@
  * Falls back to the generic Vehicle renderer for any other output shape
  * (progress, transitions, gate runs, errors).
  *
- * This file is the one place that assembles every result-kind's own detector/renderer into the
- * two exported Registry entry points (papyrusVehicleRenderers/papyrusVehiclePresentations) -- the
- * "wide internal, narrow public" shape: each sibling module in this directory owns one kind's own
- * real complexity, this one only ever needs to know each kind's own type + guard + renderer, never
- * re-derive it. Split out of the former single 670-line vehicle-artifact-renderers.ts as part of a
- * SOLID-audit-driven decomposition (see Doc "Modularity playbook: building-block-shaped
- * TypeScript modules for papyrus/pi-papyrus" and the "pi-papyrus vehicle-artifact-renderers.ts
- * split" child of "Epic: Modularize papyrus/pi-papyrus god-files into building-block modules").
+ * This file assembles every result-kind's own detector/renderer into the two exported Registry
+ * entry points (papyrusVehicleRenderers/papyrusVehiclePresentations) -- each sibling module owns
+ * one kind's own complexity, this one only needs its type + guard + renderer.
  */
 
 import { TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS } from "@danypops/papyrus";

@@ -1,10 +1,7 @@
 /**
- * Generic, domain-agnostic operation-input schema DSL, split out of handlers/shared.ts as part of
- * a SOLID-audit-driven decomposition (see Doc "Modularity playbook: building-block-shaped
- * TypeScript modules for papyrus/pi-papyrus" and the "handlers/shared.ts split" child of "Epic:
- * Modularize papyrus/pi-papyrus god-files into building-block modules"). Nothing here references
- * a specific Papyrus domain (tasks/docs/rules/...) -- a real candidate to eventually become its
- * own building block other Vehicle-backed daemons could reuse directly.
+ * Generic, domain-agnostic operation-input schema DSL. Nothing here references a specific
+ * Papyrus domain (tasks/docs/rules/...) -- a real candidate to eventually become its own building
+ * block other Vehicle-backed daemons could reuse directly.
  */
 import {
 	defineVehicleSchema,

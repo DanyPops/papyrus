@@ -1,11 +1,8 @@
 /**
  * Base shape-detection kernel shared by every renderers/*.ts result-kind module: the generic
  * "looks like an Artifact" duck-typing every other detector in this directory builds on, plus the
- * Task Focus wrapper shape and small rendering primitives with no kind-specific machinery of their
- * own. Split out of the former single vehicle-artifact-renderers.ts as part of a SOLID-audit-driven
- * decomposition (see Doc "Modularity playbook: building-block-shaped TypeScript modules for
- * papyrus/pi-papyrus" and the "pi-papyrus vehicle-artifact-renderers.ts split" child of "Epic:
- * Modularize papyrus/pi-papyrus god-files into building-block modules").
+ * Task Focus wrapper shape and small rendering primitives with no kind-specific machinery of
+ * their own.
  */
 import type { Artifact } from "@danypops/papyrus";
 import type { Theme } from "@earendil-works/pi-coding-agent";

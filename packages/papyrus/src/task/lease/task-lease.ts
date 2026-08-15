@@ -1,4 +1,4 @@
-import { TASK_LEASE_MAX_TTL_MS, TASK_LEASE_MIN_TTL_MS, TASK_LEASE_NOTE_MAX_LENGTH, TASK_LEASE_OWNER_MAX_LENGTH } from "../constants.ts";
+import { TASK_LEASE_MAX_TTL_MS, TASK_LEASE_MIN_TTL_MS, TASK_LEASE_NOTE_MAX_LENGTH, TASK_LEASE_OWNER_MAX_LENGTH } from "../../constants.ts";
 
 /**
  * A bounded work reservation on a Task, independent of both the Task's own lifecycle status

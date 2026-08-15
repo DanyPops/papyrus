@@ -27,6 +27,7 @@ import { GATE_TYPES } from "../gate/gate.ts";
 import { tasksOperations } from "../modules/tasks.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import { PROOF_TYPES } from "../task/checklist.ts";
+import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../task/mutation-request/task-mutation-request-store.ts";
 import type { TaskExecutionPlan } from "../task/task-execution.ts";
 import {
 	type TaskCompletion,
@@ -36,7 +37,6 @@ import {
 	TaskProjectNotFoundError,
 	type Tasks,
 } from "../task/task-service.ts";
-import { TaskMutationIdempotencyConflictError, TaskMutationPendingError } from "../task-mutation-request/task-mutation-request-store.ts";
 import type { TaskViewMode } from "../task-scope/task-scope.ts";
 import {
 	booleanProp,

@@ -1,9 +1,5 @@
-import type { Db } from "../db.ts";
-import {
-	TaskMutationPendingError,
-	type TaskMutationRequestRecord,
-	type TaskMutationRequestStore,
-} from "../task-mutation-request/task-mutation-request-store.ts";
+import type { Db } from "../../db.ts";
+import { TaskMutationPendingError, type TaskMutationRequestRecord, type TaskMutationRequestStore } from "./task-mutation-request-store.ts";
 
 interface TaskMutationRequestRow {
 	request_scope: string;

@@ -1,5 +1,5 @@
-import type { Db } from "../db.ts";
-import type { TaskCreateRequestRecord, TaskCreateRequestStore } from "../task-create-request/task-create-request-store.ts";
+import type { Db } from "../../db.ts";
+import type { TaskCreateRequestRecord, TaskCreateRequestStore } from "./task-create-request-store.ts";
 
 export class SQLiteTaskCreateRequestStore implements TaskCreateRequestStore {
 	constructor(private readonly db: Db) {}

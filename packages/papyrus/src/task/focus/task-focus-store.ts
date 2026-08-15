@@ -1,4 +1,4 @@
-import { TASK_FOCUS_DEFAULT_SCOPE, TASK_FOCUS_MAX_SCOPES, TASK_FOCUS_SCOPE_MAX_LENGTH } from "../constants.ts";
+import { TASK_FOCUS_DEFAULT_SCOPE, TASK_FOCUS_MAX_SCOPES, TASK_FOCUS_SCOPE_MAX_LENGTH } from "../../constants.ts";
 
 export type TaskFocusStatus = "active" | "paused";
 

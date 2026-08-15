@@ -3,7 +3,7 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { TASK_FOCUS_STALE_AFTER_MS } from "../constants.ts";
 import { type AppendTaskEvent, type TaskEventContext, validateEventContext } from "../task-event/task-event.ts";
 import type { TaskEventStore } from "../task-event/task-event-store.ts";
-import type { TaskFocusStatus, TaskFocusStore } from "../task-focus/task-focus-store.ts";
+import type { TaskFocusStatus, TaskFocusStore } from "./focus/task-focus-store.ts";
 import { TaskInvalidTransitionError } from "./task-lifecycle-errors.ts";
 import type { TaskMutationCoordinator, TaskMutationRequestContext } from "./task-mutation-coordinator.ts";
 // Type-only import: erased entirely at compile time, so this does not create a real runtime

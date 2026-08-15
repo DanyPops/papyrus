@@ -1,21 +1,8 @@
 /**
- * Gate-execution engine, split out of ops.ts (the artifact-CRUD file) as part of a SOLID-audit-
- * driven decomposition (see Doc "Modularity playbook: building-block-shaped TypeScript modules
- * for papyrus/pi-papyrus" and the "gate-execution engine" child of "Epic: Modularize papyrus/
- * pi-papyrus god-files into building-block modules"). This logic was already unified in a prior
- * refactor (sync/async outcome evaluation shared via evaluateProcessGateResult/spawnErrorGateResult)
- * but still lived inside the artifact-CRUD file until now.
- *
- * Only `runGates`/`runGatesAsync` are real public API -- verified via find_references before this
- * move, not assumed from a grep hit count: the only two real importers were
- * stores/sqlite-gate-runner.ts and test/ops.test.ts (every other `runGates`-named hit in the
- * codebase is Tasks.runGates, a same-named but distinct method that calls into this module only
- * indirectly, through the GateRunner port). Both were updated to import from this file directly;
- * no barrel re-export needed.
- *
- * Depends on ops.ts's own `getArtifact` (still the right owner of that read -- it's real
- * artifact-CRUD, not gate-execution's own concern) -- a one-directional dependency, since ops.ts
- * no longer needs to import anything back from here.
+ * Gate-execution engine. `Tasks.runGates` is a separate, same-named method that calls into this
+ * module only indirectly, through the GateRunner port -- not the same thing as this file's
+ * `runGates`/`runGatesAsync`. Depends on ops.ts's `getArtifact` (real artifact-CRUD, not this
+ * module's own concern); ops.ts does not depend back on this file.
  */
 import { createRequire } from "node:module";
 import {

@@ -21,14 +21,8 @@ export interface TaskFocus {
 export type TaskFocusMutationResult = TaskFocus & TaskMutationMetadata;
 
 /**
- * Task Focus (the single active/paused task per session scope), split out of the Tasks god class
- * as part of a SOLID-audit-driven decomposition (see task b51419a0 and the "TaskFocusCoordinator"
- * child of "Epic: Modularize papyrus/pi-papyrus god-files into building-block modules"), mirroring
- * the existing TaskLeaseCoordinator/TaskMutationCoordinator precedent in this same directory.
- *
- * Focus is orthogonal to lifecycle and lease: focusing a task does not start it, and does not
- * claim its lease -- so this concern has nothing to do with status transitions or worker
- * exclusivity, the other concerns that were previously interleaved with it in one class.
+ * Task Focus (the single active/paused task per session scope). Orthogonal to lifecycle and
+ * lease: focusing a task does not start it and does not claim its lease.
  */
 export class TaskFocusCoordinator {
 	constructor(

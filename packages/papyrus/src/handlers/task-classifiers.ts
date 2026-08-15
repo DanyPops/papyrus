@@ -1,12 +1,4 @@
-/**
- * Business-rule error classifiers -- turn an ordinary, expected domain rejection into its own
- * classified VehicleError instead of vehicle-registry's generic opaque "handler-failed", split out
- * of handlers/shared.ts as part of a SOLID-audit-driven decomposition (see Doc "Modularity
- * playbook: building-block-shaped TypeScript modules for papyrus/pi-papyrus" and the
- * "handlers/shared.ts split" child of "Epic: Modularize papyrus/pi-papyrus god-files into
- * building-block modules"). Unlike operation-schema.ts, every function here is specific to this
- * package's own domain error types.
- */
+/** Business-rule error classifiers -- turn an ordinary, expected domain rejection into its own classified VehicleError instead of vehicle-registry's generic opaque "handler-failed". */
 import { VehicleError } from "@danypops/vehicle-core";
 import { PlaybookCompositionError } from "../playbook/playbook-definition.ts";
 import { InvalidSessionSecretError } from "../session-identity/session-identity-service.ts";

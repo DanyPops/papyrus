@@ -10,17 +10,10 @@ import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./
 import type { TaskGraph } from "./task-service.ts";
 
 /**
- * Task dependency/containment edge mutations (depend/undepend/contain/uncontain), split out of
- * the Tasks god class as part of a SOLID-audit-driven decomposition (see task b51419a0 and the
- * "TaskEdges" child of "Epic: Modularize papyrus/pi-papyrus god-files into building-block
- * modules"), mirroring the TaskLeaseCoordinator/TaskMutationCoordinator/TaskFocusCoordinator/
- * TaskProjectScope precedent in this same directory.
- *
- * Unlike those simpler extractions, this one only owns the mutation side of edges -- it reads the
- * graph/relationships it needs through injected callbacks (dependencyCheckGraph/dependencyIds/
- * relationships) rather than duplicating that graph-construction machinery, since those reads are
- * shared with concerns that stay on Tasks (list/graph/buildGraph, progress propagation, blockage
- * checks in transition/complete).
+ * Task dependency/containment edge mutations (depend/undepend/contain/uncontain). Reads the
+ * graph/relationships it needs through injected callbacks rather than owning graph construction,
+ * since those reads are shared with concerns that stay on Tasks (list/graph, progress propagation,
+ * blockage checks).
  */
 export class TaskEdges {
 	constructor(

@@ -41,26 +41,16 @@ function canonicalJson(value: unknown): string {
 }
 
 /**
- * Idempotency-key-backed mutation receipt plumbing, split out of the Tasks god class as part of
- * a SOLID-audit-driven decomposition (see task b51419a0). Owns reserving a "pending" receipt
- * before a real mutation runs, replaying an already-completed one, rejecting a genuinely
- * different payload reused under the same key, and rejecting a NEW attempt against a
- * task+operation that already has one in flight.
+ * Idempotency-key-backed mutation receipt plumbing: reserves a "pending" receipt before a real
+ * mutation runs, replays an already-completed one, rejects a different payload reused under the
+ * same key, and rejects a new attempt against a task+operation that already has one in flight.
  *
- * `validate`, when supplied to prepare(), runs before anything else -- including before the
- * existing/replay lookup -- specifically so a caller-supplied validation failure (e.g. an
- * over-length `reason`) can never leave a receipt reserved with no way to ever mark it complete.
- * This is the direct fix for a real incident (task a54f0649, discovered live completing task
- * d0eb81b7): validation previously ran deep inside the CALLER's own atomic block (appendEvent's
- * own validateTaskEvent), strictly AFTER prepare()'s reserving call had already durably written
- * the receipt as pending. Once that validation threw, nothing downstream ever reached the code
- * path that marks a receipt complete, permanently stranding it -- and since the pending-mutation
- * lock is keyed on (taskId, operation) rather than the idempotency key, that stuck receipt then
- * blocked every subsequent attempt on the same task+operation, under ANY key, until the record's
- * 7-day retention window expired. No self-service recovery existed; the live incident required a
- * direct database row deletion. Every caller that can determine its own event-context validity up
- * front (reason/sessionId length, at minimum) should now pass a `validate` callback here instead
- * of only validating once real mutation work is already underway.
+ * `validate`, when passed to prepare(), runs before the existing/replay lookup, so a
+ * caller-supplied validation failure can never leave a receipt reserved with no way to complete
+ * it -- a stuck pending receipt blocks every later attempt on that task+operation, under any key,
+ * until its retention window expires, with no self-service recovery. Any caller that can
+ * determine its own event-context validity up front should pass `validate` here rather than
+ * validating only once real mutation work is underway.
  */
 export class TaskMutationCoordinator {
 	constructor(

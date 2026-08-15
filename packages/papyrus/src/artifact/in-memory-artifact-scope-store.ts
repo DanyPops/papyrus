@@ -18,9 +18,7 @@ export class InMemoryArtifactScopeStore implements ArtifactScopeStore {
 	private readonly registry: InMemoryProjectRegistryStore;
 	private readonly scopeGroups: ScopeGroupStore;
 
-	// Membership is stored by project/group id, never by root/name, so a registry root move (see
-	// ProjectRegistryStore.registerProject) or a scope group rename needs no rewrite here at all --
-	// unlike InMemoryTaskScopeStore, this store never subscribes to root-move notifications.
+	// Membership is by project/group id, so a registry root move or group rename needs no rewrite here.
 	constructor(registry?: ProjectRegistryStore, scopeGroups?: ScopeGroupStore) {
 		this.registry = registry instanceof InMemoryProjectRegistryStore ? registry : new InMemoryProjectRegistryStore();
 		this.scopeGroups = scopeGroups ?? new InMemoryScopeGroupStore();

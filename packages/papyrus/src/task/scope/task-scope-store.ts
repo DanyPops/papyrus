@@ -9,17 +9,7 @@ import type {
 	TaskViewPreference,
 } from "./task-scope.ts";
 
-/**
- * Role Interface (Fowler: https://martinfowler.com/bliki/RoleInterface.html) for the one
- * collaboration playbook workflow execution actually has with Task's own scope bookkeeping:
- * assigning a task's project scope when a playbook step creates/advances one. Extracted after a
- * SOLID audit found TaskScopeStore's full Header Interface (all 8 methods -- project-catalog
- * registration, view-preference bookkeeping, task-id listing, none of which playbook ever
- * touches) threaded unchanged through handlers/playbooks.ts, modules/playbooks.ts, and
- * playbook/workflow-execution.ts, which only ever calls .assign(). TaskScopeStore still
- * implements this structurally with zero changes to either concrete store; only the
- * playbook-facing field type narrows to this.
- */
+/** What a caller outside Task needs to assign a task's project scope -- the rest of TaskScopeStore (catalog, views, listing) stays Task-only. */
 export interface TaskScopeAssigner {
 	assign(taskId: string, projectRoot: string | undefined, source: TaskScopeSource): TaskProjectScope;
 }
@@ -34,13 +24,7 @@ export interface TaskScopeStore extends TaskScopeAssigner {
 	registerProject(input: RegisterTaskProjectInput): TaskProject;
 }
 
-/**
- * Task's own scope/view bookkeeping, composing a ProjectRegistryStore for the project-catalog
- * methods (projects/matchingProjects/registerProject) rather than implementing that bookkeeping
- * itself -- see project-registry-store.ts. Pass a shared registry instance to keep Task and a
- * non-Task ArtifactScopeStore resolving against the exact same project identities; omitted, this
- * store gets its own private one (matching this class's own behavior before the extraction).
- */
+/** Pass a shared registry to keep Task and ArtifactScopeStore resolving the same project identities; omitted, this gets its own private one. */
 export class InMemoryTaskScopeStore implements TaskScopeStore {
 	private readonly scopes = new Map<string, TaskProjectScope>();
 	private readonly views = new Map<string, TaskViewPreference>();

@@ -3,12 +3,9 @@ import type { TaskLease, TaskLeaseView } from "./lease/task-lease.ts";
 import type { TaskLeaseStore } from "./lease/task-lease-store.ts";
 
 /**
- * Task lease management (claim/heartbeat/release/get/reap), split out of the Tasks god class as
- * part of a SOLID-audit-driven decomposition (see task b51419a0). A lease is orthogonal to
- * lifecycle and Focus -- claiming a task does not start it, and does not require it to be
- * Focused -- so its own concern (a single active worker per task, TTL-based) has nothing to do
- * with status transitions, idempotency receipts, or checklist review, the other concerns that
- * were previously interleaved with it in one class.
+ * Task lease management (claim/heartbeat/release/get/reap) -- a single active worker per task,
+ * TTL-based. Orthogonal to lifecycle and Focus: claiming a task does not start it or require it
+ * to be Focused.
  */
 export class TaskLeaseCoordinator {
 	constructor(

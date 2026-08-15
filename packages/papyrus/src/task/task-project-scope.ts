@@ -18,13 +18,8 @@ export class TaskProjectAmbiguousError extends Error {}
 
 /**
  * Task project-scope management (scopeSelection/setView/assignProject/projects/resolveProject/
- * registerProject), split out of the Tasks god class as part of a SOLID-audit-driven
- * decomposition (see task b51419a0 and the "TaskProjectScope" child of "Epic: Modularize
- * papyrus/pi-papyrus god-files into building-block modules"), mirroring the existing
- * TaskLeaseCoordinator/TaskMutationCoordinator/TaskFocusCoordinator precedent in this directory.
- *
- * list()/graph() (which stay on Tasks -- they're core query/graph-construction, not project-scope
- * itself) still call scopeSelection() on this collaborator via Tasks' own thin delegation.
+ * registerProject). list()/graph() stay on Tasks but still call scopeSelection() here via a thin
+ * delegation, since those are core query/graph-construction, not project-scope itself.
  */
 export class TaskProjectScope {
 	constructor(

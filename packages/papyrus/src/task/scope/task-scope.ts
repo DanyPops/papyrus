@@ -6,7 +6,7 @@ export { normalizeProjectRoot } from "../../project-registry/scope-source.ts";
 
 export type TaskViewMode = "project" | "graph" | "all";
 
-/** Task's own name for the shared, kind-neutral scope-assignment provenance -- see scope-source.ts. Kept as a type alias so every existing Task-scope call site keeps working unchanged. */
+/** Alias of ScopeAssignmentSource for Task's own call sites -- see project-registry/scope-source.ts. */
 export type TaskScopeSource = ScopeAssignmentSource;
 
 export interface TaskProjectScope {

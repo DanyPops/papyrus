@@ -2,15 +2,11 @@ import type { ScopeAssignmentSource } from "../project-registry/scope-source.ts"
 import type { ScopeMemberRef } from "../scope-group/scope-group.ts";
 
 /**
- * Project scoping for Docs/Rules/Playbooks: an artifact is explicitly "none" (hidden -- never
- * applicable, never context-injected, regardless of project), explicitly "all" (applies
- * everywhere), or bound to a bounded, non-empty set of explicit members -- never inferred from
- * an accidentally empty join table, which is why `mode` is its own explicit field rather than
- * "members.length === 0 means none/all". A member is either a registered project (from the
- * shared ProjectRegistryStore) or a scope group (from ScopeGroupStore, itself a possibly-nested
- * collection of projects/groups) -- "explicit scope can include nested scopes". Membership is by
- * id, never by root/name, so a registered project's root (or a group's name) can move without a
- * best-effort string rewrite across every artifact that references it.
+ * Project scoping for Docs/Rules/Playbooks: "none" hides an artifact from context injection
+ * entirely, "all" applies it everywhere, "explicit" binds it to a non-empty member set (a
+ * project or a possibly-nested scope group). `mode` is its own field rather than inferred from
+ * an empty member list, and membership is by id rather than root/name, so a project or group can
+ * be renamed/moved without rewriting every artifact that references it.
  */
 export type ArtifactScopeMode = "none" | "all" | "explicit";
 

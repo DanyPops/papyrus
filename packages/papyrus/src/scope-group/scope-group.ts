@@ -1,17 +1,10 @@
 import { SCOPE_GROUP_ALIAS_MAX_COUNT, SCOPE_GROUP_NAME_MAX_LENGTH } from "../constants.ts";
 
 /**
- * A named, reusable collection of scope members (registered projects and/or other scope groups)
- * -- the "explicit scope can include nested scopes" primitive. Lives alongside the project
- * registry (same shape: id/name/aliases/createdAt/updatedAt) rather than as an Artifact, since
- * it is bookkeeping infrastructure for scoping, not itself a piece of knowledge or work.
- *
- * Deliberately explicit/opt-in membership, not filesystem-path-derived nesting: a registered
- * project whose root happens to be a subdirectory of another registered project's root is NOT
- * automatically its child (a real false-positive confirmed live: alignment-lector is registered
- * under lector/packages/alignment-lector, a subdirectory of lector's own root, but is Lector's
- * adapter for a *different* project, not part of Lector's own scope). A group's membership is
- * only ever what was deliberately added to it.
+ * A named, reusable collection of scope members (registered projects and/or other scope groups).
+ * Membership is explicit/opt-in, never path-derived: a project registered under another
+ * project's root directory (e.g. a vendored adapter package) is not automatically that parent's
+ * child -- only what's deliberately added counts.
  */
 export interface ScopeGroup {
 	id: string;

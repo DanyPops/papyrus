@@ -1,9 +1,13 @@
-import { basename, isAbsolute, normalize } from "node:path";
-import { TASK_PROJECT_ROOT_MAX_LENGTH } from "../constants.ts";
-import type { Project, RegisterProjectInput } from "../project-registry/project-registry.ts";
+import { basename } from "node:path";
+import type { Project, RegisterProjectInput } from "../../project-registry/project-registry.ts";
+import type { ScopeAssignmentSource } from "../../project-registry/scope-source.ts";
+
+export { normalizeProjectRoot } from "../../project-registry/scope-source.ts";
 
 export type TaskViewMode = "project" | "graph" | "all";
-export type TaskScopeSource = "cwd" | "explicit" | "unscoped";
+
+/** Task's own name for the shared, kind-neutral scope-assignment provenance -- see scope-source.ts. Kept as a type alias so every existing Task-scope call site keeps working unchanged. */
+export type TaskScopeSource = ScopeAssignmentSource;
 
 export interface TaskProjectScope {
 	taskId: string;
@@ -27,15 +31,6 @@ export interface TaskViewSelection {
 	label: string;
 	projectRoot?: string;
 	rootTaskId?: string;
-}
-
-export function normalizeProjectRoot(value: string): string {
-	if (!isAbsolute(value)) throw new Error("project_root must be an absolute path");
-	const normalized = normalize(value);
-	if (normalized.length > TASK_PROJECT_ROOT_MAX_LENGTH) {
-		throw new Error(`project_root cannot exceed ${TASK_PROJECT_ROOT_MAX_LENGTH} characters`);
-	}
-	return normalized;
 }
 
 export function taskScopeLabel(mode: TaskViewMode, projectRoot?: string, rootTitle?: string): string {

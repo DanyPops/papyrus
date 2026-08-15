@@ -28,7 +28,9 @@ export type { PlaybookInvocationResult, PlaybookMissingArguments } from "./playb
 export type { WorkflowRunResult } from "./playbook/workflow-execution.ts";
 export type { OperationName, SchemaState } from "./service.ts";
 export { checklistEntries, PROOF_TYPES, type ProofReference } from "./task/checklist.ts";
+export type { TaskEvent, TaskHistoryPage } from "./task/event/task-event.ts";
 export type { TaskLease, TaskLeaseView } from "./task/lease/task-lease.ts";
+export type { TaskViewSelection } from "./task/scope/task-scope.ts";
 export { taskContext } from "./task/task-context.ts";
 export { projectTaskExecution, type TaskExecutionPlan, type TaskExecutionState } from "./task/task-execution.ts";
 export { projectTaskGraph, type TaskGraphView } from "./task/task-graph-view.ts";
@@ -42,5 +44,3 @@ export type {
 	TaskStatus,
 } from "./task/task-service.ts";
 export { TaskInvalidTransitionError, TaskMutationReceiptNotFoundError } from "./task/task-service.ts";
-export type { TaskEvent, TaskHistoryPage } from "./task-event/task-event.ts";
-export type { TaskViewSelection } from "./task-scope/task-scope.ts";

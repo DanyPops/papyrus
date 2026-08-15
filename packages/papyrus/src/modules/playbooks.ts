@@ -40,9 +40,9 @@ import {
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import type { TaskEventSink } from "../task/event/task-event-store.ts";
+import type { TaskScopeAssigner } from "../task/scope/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
-import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, string } from "./operation-input.ts";
 
 const MODULE_ID = "playbooks";
@@ -105,8 +105,8 @@ export const PLAYBOOKS_OPERATION_NAMES = [
 
 export interface PlaybooksModuleDeps {
 	artifacts: ArtifactStore;
-	events: TaskEventStore;
-	scopes: TaskScopeStore;
+	events: TaskEventSink;
+	scopes: TaskScopeAssigner;
 	/** Docs/Rules/Skills/Playbooks project scoping (distinct from `scopes`, which is Task-run project scoping for playbooks.invoke's materialized tasks). */
 	artifactScopes: ArtifactScopeStore;
 	/** Used for exactly one thing: focusing the entry task after a successful invoke -- the one safety-checked Tasks operation this module needs, not bulk graph construction (that goes straight through artifacts/events/scopes in playbook/playbook-execution.ts, mirroring playbook/workflow-execution.ts). */

@@ -6,7 +6,7 @@ import {
 	TASK_EVENT_REASON_MAX_LENGTH,
 	TASK_HISTORY_DEFAULT_LIMIT,
 	TASK_HISTORY_MAX_LIMIT,
-} from "../constants.ts";
+} from "../../constants.ts";
 export type TaskLifecycleStatus = "todo" | "in-progress" | "review" | "rejected" | "done" | "canceled";
 
 export const TASK_EVENT_TYPES = [

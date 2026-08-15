@@ -1,8 +1,8 @@
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { TASK_FOCUS_STALE_AFTER_MS } from "../constants.ts";
-import { type AppendTaskEvent, type TaskEventContext, validateEventContext } from "../task-event/task-event.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
+import { type AppendTaskEvent, type TaskEventContext, validateEventContext } from "./event/task-event.ts";
+import type { TaskEventStore } from "./event/task-event-store.ts";
 import type { TaskFocusStatus, TaskFocusStore } from "./focus/task-focus-store.ts";
 import { TaskInvalidTransitionError } from "./task-lifecycle-errors.ts";
 import type { TaskMutationCoordinator, TaskMutationRequestContext } from "./task-mutation-coordinator.ts";

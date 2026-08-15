@@ -1,5 +1,5 @@
-import { InMemoryProjectRegistryStore } from "../project-registry/in-memory-project-registry-store.ts";
-import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import { InMemoryProjectRegistryStore } from "../../project-registry/in-memory-project-registry-store.ts";
+import type { ProjectRegistryStore } from "../../project-registry/project-registry-store.ts";
 import type {
 	RegisterTaskProjectInput,
 	TaskProject,
@@ -7,10 +7,24 @@ import type {
 	TaskScopeSource,
 	TaskViewMode,
 	TaskViewPreference,
-} from "../task-scope/task-scope.ts";
+} from "./task-scope.ts";
 
-export interface TaskScopeStore {
+/**
+ * Role Interface (Fowler: https://martinfowler.com/bliki/RoleInterface.html) for the one
+ * collaboration playbook workflow execution actually has with Task's own scope bookkeeping:
+ * assigning a task's project scope when a playbook step creates/advances one. Extracted after a
+ * SOLID audit found TaskScopeStore's full Header Interface (all 8 methods -- project-catalog
+ * registration, view-preference bookkeeping, task-id listing, none of which playbook ever
+ * touches) threaded unchanged through handlers/playbooks.ts, modules/playbooks.ts, and
+ * playbook/workflow-execution.ts, which only ever calls .assign(). TaskScopeStore still
+ * implements this structurally with zero changes to either concrete store; only the
+ * playbook-facing field type narrows to this.
+ */
+export interface TaskScopeAssigner {
 	assign(taskId: string, projectRoot: string | undefined, source: TaskScopeSource): TaskProjectScope;
+}
+
+export interface TaskScopeStore extends TaskScopeAssigner {
 	get(taskId: string): TaskProjectScope | undefined;
 	taskIds(projectRoot: string | undefined, limit: number): string[];
 	view(projectRoot: string): TaskViewPreference;

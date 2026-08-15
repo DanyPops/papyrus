@@ -8,11 +8,24 @@ import {
 	type TaskHistoryPage,
 	type TaskHistoryQuery,
 	validateTaskEvent,
-} from "../task-event/task-event.ts";
+} from "./task-event.ts";
 
-export interface TaskEventStore {
+/**
+ * Role Interface (Fowler: https://martinfowler.com/bliki/RoleInterface.html) for the one
+ * collaboration playbook workflow execution actually has with Task's event log: append one event
+ * inside a single atomic transaction. Extracted after a SOLID audit found TaskEventStore's full
+ * Header Interface (all 4 methods, including history/feed -- pagination concerns that exist
+ * purely for Task's own history/feed reader endpoints) threaded unchanged through
+ * handlers/playbooks.ts, modules/playbooks.ts, and playbook/workflow-execution.ts, which never
+ * calls history()/feed() at all. TaskEventStore still implements this structurally with zero
+ * changes to either concrete store; only the playbook-facing field type narrows to this.
+ */
+export interface TaskEventSink {
 	atomic<T>(operation: () => T): T;
 	append(event: AppendTaskEvent): TaskEvent;
+}
+
+export interface TaskEventStore extends TaskEventSink {
 	history(taskId: string, query?: TaskHistoryQuery): TaskHistoryPage;
 	/** Bounded, sequenced, cross-task replay feed -- see TaskEventFeedQuery. */
 	feed(query?: TaskEventFeedQuery): TaskEventFeedPage;

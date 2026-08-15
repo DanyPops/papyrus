@@ -1,5 +1,5 @@
-import type { Db } from "../db.ts";
-import { inTransaction } from "../db.ts";
+import type { Db } from "../../db.ts";
+import { inTransaction } from "../../db.ts";
 import {
 	type AppendTaskEvent,
 	normalizeTaskEventFeedQuery,
@@ -13,8 +13,8 @@ import {
 	type TaskHistoryQuery,
 	type TaskLifecycleStatus,
 	validateTaskEvent,
-} from "../task-event/task-event.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
+} from "./task-event.ts";
+import type { TaskEventStore } from "./task-event-store.ts";
 
 interface TaskEventRow {
 	id: number;

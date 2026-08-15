@@ -9,13 +9,13 @@ import {
 	SKILL_WORKFLOW_MAX_NESTING_DEPTH,
 	TASK_EXECUTION_MAX_EDGES,
 } from "../constants.ts";
+import { normalizeProjectRoot } from "../project-registry/scope-source.ts";
 import { validateChecklist } from "../task/checklist.ts";
+import type { TaskEventContext } from "../task/event/task-event.ts";
+import type { TaskEventSink } from "../task/event/task-event-store.ts";
+import type { TaskScopeAssigner } from "../task/scope/task-scope-store.ts";
 import { projectTaskExecution, TaskExecutionBoundExceededError, type TaskExecutionPlan } from "../task/task-execution.ts";
 import type { TaskGraph, TaskNode, TaskStatus } from "../task/task-service.ts";
-import type { TaskEventContext } from "../task-event/task-event.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
-import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
-import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import {
 	type BlueprintArgumentValue,
 	type BlueprintDefinition,
@@ -167,8 +167,8 @@ function executionGraph(tasks: Artifact[], definition: BlueprintDefinition, ids:
  * other project's context.
  */
 export type WorkflowRunHistory = {
-	events: TaskEventStore;
-	scopes: TaskScopeStore;
+	events: TaskEventSink;
+	scopes: TaskScopeAssigner;
 	artifactScopes?: ArtifactScopeStore;
 	projectRoot?: string;
 	context?: TaskEventContext;

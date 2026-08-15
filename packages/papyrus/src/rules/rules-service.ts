@@ -31,8 +31,8 @@ import {
 	type UpdateContentInput,
 } from "../domain-service-shared.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import { normalizeProjectRoot } from "../project-registry/scope-source.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
-import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 
 export interface CreateRuleInput {
 	title: string;

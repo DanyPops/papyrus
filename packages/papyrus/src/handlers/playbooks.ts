@@ -27,9 +27,9 @@ import { listPlaybooks } from "../playbook/playbook-service.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
+import type { TaskEventSink } from "../task/event/task-event-store.ts";
+import type { TaskScopeAssigner } from "../task/scope/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
-import type { TaskScopeStore } from "../task-scope/task-scope-store.ts";
 import {
 	booleanProp,
 	buildWorkflowRunContent,
@@ -53,8 +53,8 @@ const jsonObjectProp = {
 
 export interface PlaybooksVehicleDeps {
 	artifacts: ArtifactStore;
-	events: TaskEventStore;
-	scopes: TaskScopeStore;
+	events: TaskEventSink;
+	scopes: TaskScopeAssigner;
 	artifactScopes: ArtifactScopeStore;
 	tasks: Tasks;
 	sessionIdentity: SessionIdentity;

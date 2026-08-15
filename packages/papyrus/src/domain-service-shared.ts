@@ -19,9 +19,9 @@ import {
 } from "./constants.ts";
 import { resolveProjectReference } from "./project-registry/project-registry.ts";
 import type { ProjectRegistryStore } from "./project-registry/project-registry-store.ts";
+import { normalizeProjectRoot } from "./project-registry/scope-source.ts";
 import { resolveScopeGroupReference } from "./scope-group/scope-group.ts";
 import type { ScopeGroupStore } from "./scope-group/scope-group-store.ts";
-import { normalizeProjectRoot } from "./task-scope/task-scope.ts";
 
 export interface UpdateContentInput {
 	title?: string;

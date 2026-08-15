@@ -24,11 +24,11 @@ import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
 import type { Checklist } from "../task/checklist.ts";
+import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../task/event/task-event.ts";
+import type { TaskViewMode } from "../task/scope/task-scope.ts";
 import { taskContext } from "../task/task-context.ts";
 import { projectTaskExecution } from "../task/task-execution.ts";
 import type { TaskMutationRequestContext, TaskStatus, Tasks } from "../task/task-service.ts";
-import type { TaskEventContext, TaskEventDirection, TaskEventFeedQuery } from "../task-event/task-event.ts";
-import type { TaskViewMode } from "../task-scope/task-scope.ts";
 import { type OperationInput, optionalBoolean, optionalNumber, optionalString, optionalStringArray, string } from "./operation-input.ts";
 
 const MODULE_ID = "tasks";

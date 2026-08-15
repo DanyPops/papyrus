@@ -30,8 +30,8 @@ import {
 } from "../domain-service-shared.ts";
 import { NOTE_SUBTYPE } from "../note/note-service.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import { normalizeProjectRoot } from "../project-registry/scope-source.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
-import { normalizeProjectRoot } from "../task-scope/task-scope.ts";
 
 function rejectsNoteTemplate(artifacts: ArtifactStore, templateId: string | undefined, subtype: string | undefined): boolean {
 	if (subtype === NOTE_SUBTYPE) return true;

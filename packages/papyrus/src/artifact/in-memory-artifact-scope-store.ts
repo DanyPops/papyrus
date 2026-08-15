@@ -1,16 +1,16 @@
 import { ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT } from "../constants.ts";
 import { InMemoryProjectRegistryStore } from "../project-registry/in-memory-project-registry-store.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
+import type { ScopeAssignmentSource } from "../project-registry/scope-source.ts";
 import { InMemoryScopeGroupStore } from "../scope-group/in-memory-scope-group-store.ts";
 import { type ScopeMemberRef, sameScopeMember } from "../scope-group/scope-group.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
-import type { TaskScopeSource } from "../task-scope/task-scope.ts";
 import type { ArtifactScope, ArtifactScopeMode, ArtifactScopeStore, LegacyArtifactScope } from "./artifact-scope-store.ts";
 
 interface Row {
 	mode: ArtifactScopeMode;
 	members: ScopeMemberRef[];
-	source: TaskScopeSource;
+	source: ScopeAssignmentSource;
 }
 
 export class InMemoryArtifactScopeStore implements ArtifactScopeStore {
@@ -45,7 +45,7 @@ export class InMemoryArtifactScopeStore implements ArtifactScopeStore {
 		return { artifactId, ...(projectRoot === undefined ? {} : { projectRoot }), source: row.source };
 	}
 
-	assign(artifactId: string, projectRoot: string | undefined, source: TaskScopeSource): LegacyArtifactScope {
+	assign(artifactId: string, projectRoot: string | undefined, source: ScopeAssignmentSource): LegacyArtifactScope {
 		if (projectRoot === undefined) {
 			this.setAll(artifactId, source);
 			return { artifactId, source };
@@ -55,19 +55,19 @@ export class InMemoryArtifactScopeStore implements ArtifactScopeStore {
 		return { artifactId, projectRoot: project.projectRoot, source };
 	}
 
-	setAll(artifactId: string, source: TaskScopeSource): ArtifactScope {
+	setAll(artifactId: string, source: ScopeAssignmentSource): ArtifactScope {
 		const row: Row = { mode: "all", members: [], source };
 		this.rows.set(artifactId, row);
 		return this.toScope(artifactId, row);
 	}
 
-	setNone(artifactId: string, source: TaskScopeSource): ArtifactScope {
+	setNone(artifactId: string, source: ScopeAssignmentSource): ArtifactScope {
 		const row: Row = { mode: "none", members: [], source };
 		this.rows.set(artifactId, row);
 		return this.toScope(artifactId, row);
 	}
 
-	replaceMembers(artifactId: string, members: readonly ScopeMemberRef[], source: TaskScopeSource): ArtifactScope {
+	replaceMembers(artifactId: string, members: readonly ScopeMemberRef[], source: ScopeAssignmentSource): ArtifactScope {
 		if (members.length === 0) throw new Error("replaceMembers requires at least one member; use setAll/setNone to clear scoping");
 		if (members.length > ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT) {
 			throw new Error(`an artifact cannot have more than ${ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT} scope members`);
@@ -78,7 +78,7 @@ export class InMemoryArtifactScopeStore implements ArtifactScopeStore {
 		return this.toScope(artifactId, row);
 	}
 
-	addMember(artifactId: string, member: ScopeMemberRef, source: TaskScopeSource): ArtifactScope {
+	addMember(artifactId: string, member: ScopeMemberRef, source: ScopeAssignmentSource): ArtifactScope {
 		const existing = this.rows.get(artifactId);
 		const members = dedupeMembers(existing?.mode === "explicit" ? existing.members : []);
 		if (!members.some((candidate) => sameScopeMember(candidate, member)) && members.length >= ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT) {

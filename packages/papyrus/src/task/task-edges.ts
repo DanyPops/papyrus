@@ -1,8 +1,8 @@
 import type { Artifact, ArtifactEdge } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { TASK_EXECUTION_MAX_DEGREE } from "../constants.ts";
-import type { AppendTaskEvent, TaskEventContext } from "../task-event/task-event.ts";
-import type { TaskEventStore } from "../task-event/task-event-store.ts";
+import type { AppendTaskEvent, TaskEventContext } from "./event/task-event.ts";
+import type { TaskEventStore } from "./event/task-event-store.ts";
 import { assertDependencyEdgeAllowed, TaskExecutionBoundExceededError } from "./task-execution.ts";
 // Type-only import: erased entirely at compile time, so this does not create a real runtime
 // circular dependency even though task-service.ts also imports TaskEdges (a real value) from

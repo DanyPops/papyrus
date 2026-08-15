@@ -1,16 +1,16 @@
 import { ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT } from "../constants.ts";
 import type { Db } from "../db.ts";
 import { inTransaction } from "../db.ts";
+import type { ScopeAssignmentSource } from "../project-registry/scope-source.ts";
 import { SQLiteProjectRegistryStore } from "../project-registry/sqlite-project-registry-store.ts";
 import type { ScopeMemberRef } from "../scope-group/scope-group.ts";
 import { SQLiteScopeGroupStore } from "../scope-group/sqlite-scope-group-store.ts";
-import type { TaskScopeSource } from "../task-scope/task-scope.ts";
 import type { ArtifactScope, ArtifactScopeMode, ArtifactScopeStore, LegacyArtifactScope } from "./artifact-scope-store.ts";
 
 interface ScopeRow {
 	artifact_id: string;
 	mode: ArtifactScopeMode;
-	source: TaskScopeSource;
+	source: ScopeAssignmentSource;
 }
 
 interface MemberRow {
@@ -65,7 +65,7 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 		return { artifactId, ...(project ? { projectRoot: project.projectRoot } : {}), source: row.source };
 	}
 
-	assign(artifactId: string, projectRoot: string | undefined, source: TaskScopeSource): LegacyArtifactScope {
+	assign(artifactId: string, projectRoot: string | undefined, source: ScopeAssignmentSource): LegacyArtifactScope {
 		if (projectRoot === undefined) {
 			this.setAll(artifactId, source);
 			return { artifactId, source };
@@ -77,7 +77,7 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 		});
 	}
 
-	private upsertScopeRow(artifactId: string, mode: ArtifactScopeMode, source: TaskScopeSource): void {
+	private upsertScopeRow(artifactId: string, mode: ArtifactScopeMode, source: ScopeAssignmentSource): void {
 		this.db
 			.prepare(`
 				INSERT INTO artifact_scopes (artifact_id, project_root, mode, source, assigned_at)
@@ -91,7 +91,7 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 			.run(artifactId, mode, source, new Date().toISOString());
 	}
 
-	setAll(artifactId: string, source: TaskScopeSource): ArtifactScope {
+	setAll(artifactId: string, source: ScopeAssignmentSource): ArtifactScope {
 		return inTransaction(this.db, () => {
 			this.upsertScopeRow(artifactId, "all", source);
 			this.db.prepare("DELETE FROM artifact_scope_members WHERE artifact_id = ?").run(artifactId);
@@ -99,7 +99,7 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 		});
 	}
 
-	setNone(artifactId: string, source: TaskScopeSource): ArtifactScope {
+	setNone(artifactId: string, source: ScopeAssignmentSource): ArtifactScope {
 		return inTransaction(this.db, () => {
 			this.upsertScopeRow(artifactId, "none", source);
 			this.db.prepare("DELETE FROM artifact_scope_members WHERE artifact_id = ?").run(artifactId);
@@ -107,7 +107,7 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 		});
 	}
 
-	replaceMembers(artifactId: string, members: readonly ScopeMemberRef[], source: TaskScopeSource): ArtifactScope {
+	replaceMembers(artifactId: string, members: readonly ScopeMemberRef[], source: ScopeAssignmentSource): ArtifactScope {
 		if (members.length === 0) throw new Error("replaceMembers requires at least one member; use setAll/setNone to clear scoping");
 		if (members.length > ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT) {
 			throw new Error(`an artifact cannot have more than ${ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT} scope members`);
@@ -127,7 +127,7 @@ export class SQLiteArtifactScopeStore implements ArtifactScopeStore {
 		});
 	}
 
-	addMember(artifactId: string, member: ScopeMemberRef, source: TaskScopeSource): ArtifactScope {
+	addMember(artifactId: string, member: ScopeMemberRef, source: ScopeAssignmentSource): ArtifactScope {
 		return inTransaction(this.db, () => {
 			const current = this.members(artifactId);
 			const already = current.some((candidate) => candidate.type === member.type && candidate.id === member.id);

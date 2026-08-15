@@ -4,8 +4,8 @@ import { InMemoryArtifactScopeStore } from "../src/artifact/in-memory-artifact-s
 import { openDb } from "../src/db.ts";
 import { InMemoryProjectRegistryStore } from "../src/project-registry/in-memory-project-registry-store.ts";
 import { SQLiteProjectRegistryStore } from "../src/project-registry/sqlite-project-registry-store.ts";
-import { SQLiteTaskScopeStore } from "../src/task-scope/sqlite-task-scope-store.ts";
-import { InMemoryTaskScopeStore } from "../src/task-scope/task-scope-store.ts";
+import { SQLiteTaskScopeStore } from "../src/task/scope/sqlite-task-scope-store.ts";
+import { InMemoryTaskScopeStore } from "../src/task/scope/task-scope-store.ts";
 import { tempDir } from "./helpers/tmp-dir.ts";
 
 describe("ProjectRegistryStore: id/name/alias/root resolution, ambiguity, rename, and root move", () => {

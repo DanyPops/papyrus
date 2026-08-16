@@ -19,6 +19,7 @@ import { SQLiteDiscussionRoundStore } from "./discussion/sqlite-discussion-round
 import type { GateRunner } from "./gate/gate-runner.ts";
 import { SQLiteGateRunner } from "./gate/sqlite-gate-runner.ts";
 import { SQLiteGraphProjectionStore } from "./graph-projection/sqlite-graph-projection-store.ts";
+import { batchItemErrorMessage, parseBatchItems } from "./handlers/batch.ts";
 import { createPapyrusVehicleRegistry } from "./handlers/registry.ts";
 import { logEvent } from "./log/log.ts";
 import { Logs } from "./log/log-service.ts";
@@ -68,6 +69,7 @@ import { VERSION } from "./version.ts";
  */
 const COMPOSITION_ROOT_OPERATION_NAMES = [
 	"system.migrate",
+	"batch.execute",
 	"artifact.create",
 	"artifact.query",
 	"artifact.show",
@@ -260,8 +262,31 @@ function handlers(
 		rootTaskId: optionalString(input, "root_task_id"),
 		sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 	});
-	return {
+	const table: Record<OperationName, OperationHandler> = {
 		"system.migrate": () => migrate(),
+		// A thin fan-out over this SAME table (self-referenced via closure -- `table` is fully
+		// assigned by the time this handler is ever actually called, well after this object
+		// literal finishes constructing), covering both module-forwarded and composition-root
+		// operations alike. Deliberately bypasses execute()'s own migration-required check per
+		// item -- that check already ran once for the outer "batch.execute" call itself, and
+		// migration state cannot change mid-request. This path has no permission model of its
+		// own (matching every other operation reached through this same table via /api/v1/ops or
+		// in-process execute()) -- see handlers/batch.ts's registerBatchVehicleOperation for the
+		// permission-propagating counterpart real Pi tool calls actually reach.
+		"batch.execute": async (input) => {
+			const items = parseBatchItems(input);
+			const results: Array<{ ok: true; result: unknown } | { ok: false; error: string }> = [];
+			for (const item of items) {
+				try {
+					const itemHandler = table[item.op as OperationName];
+					if (!itemHandler) throw new UnknownOperationError(`unknown operation "${item.op}"`);
+					results.push({ ok: true, result: await itemHandler(item.input) });
+				} catch (error) {
+					results.push({ ok: false, error: batchItemErrorMessage(error) });
+				}
+			}
+			return { results };
+		},
 		"artifact.create": (input) => {
 			const normalized = normalizeCreateInput(input);
 			authority.requireArtifactAllowed(
@@ -495,6 +520,7 @@ function handlers(
 		"discuss.rounds": forwardToModule("discuss.rounds"),
 		"discuss.list": forwardToModule("discuss.list"),
 	};
+	return table;
 }
 
 export function createPapyrusService(path: string): PapyrusService {

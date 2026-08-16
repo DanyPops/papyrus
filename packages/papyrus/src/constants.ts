@@ -325,6 +325,10 @@ export const TOOL_COLLAPSED_ROW_LIMIT = 5;
 export const TOOL_DETAILS_MAX_ITEMS = 100;
 export const TOOL_DETAILS_MAX_EDGES = 200;
 
+/** batch.execute's own bound on items.length -- a caller should get a clear rejection above
+ * this, not an unbounded server-side fan-out loop. */
+export const BATCH_MAX_ITEMS = 100;
+
 /** Reconciliation instruction appended whenever Papyrus has open work. */
 export const TASK_RECONCILIATION_INSTRUCTION = [
 	"Reconcile before concluding or moving on:",

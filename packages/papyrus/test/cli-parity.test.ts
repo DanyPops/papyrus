@@ -12,6 +12,7 @@
 import { describe, expect, it } from "bun:test";
 import {
 	runArtifactCli,
+	runBatchCli,
 	runDiscussCli,
 	runDocsCli,
 	runGatesCli,
@@ -52,6 +53,11 @@ interface Fixture {
 
 const CLI_FIXTURES: Fixture[] = [
 	{ operation: "system.migrate", result: { from: 1, to: 2, applied: ["x"] }, invoke: (c) => runMigrationCli(["schema", "--json"], c) },
+	{
+		operation: "batch.execute",
+		result: { results: [{ ok: true, result: {} }] },
+		invoke: (c) => runBatchCli(["--items-json", JSON.stringify([{ op: "tasks.list", input: {} }]), "--json"], c),
+	},
 	{
 		operation: "artifact.create",
 		result: artifact,

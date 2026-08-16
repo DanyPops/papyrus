@@ -20,6 +20,7 @@ import type { TaskEventStore } from "../task/event/task-event-store.ts";
 import type { TaskScopeStore } from "../task/scope/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
 import { registerArtifactTrashOperations } from "./artifact-trash.ts";
+import { registerBatchVehicleOperation } from "./batch.ts";
 import { registerDiscussVehicleOperations } from "./discuss.ts";
 import { registerDocsVehicleOperations } from "./docs.ts";
 import { registerNotesVehicleOperations } from "./notes.ts";
@@ -72,5 +73,6 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 	registerScopeGroupsVehicleOperations(registry, deps.scopeGroups, deps.projectRegistry, deps.scopes);
 	registerDiscussVehicleOperations(registry, deps.discussions, deps.artifacts);
 	registerArtifactTrashOperations(registry, deps.artifacts);
+	registerBatchVehicleOperation(registry);
 	return registry;
 }

@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFi
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { runArtifactCli } from "./cli/artifact-command.ts";
+import { runBatchCli } from "./cli/batch-command.ts";
 import { runDaemonCli } from "./cli/daemon-command.ts";
 import { runDiscussCli } from "./cli/discuss-command.ts";
 import { runDocsCli } from "./cli/docs-command.ts";
@@ -353,6 +354,7 @@ export function runIdMigrationCli(args: string[]): string {
 
 export {
 	runArtifactCli,
+	runBatchCli,
 	runDiscussCli,
 	runDocsCli,
 	runGatesCli,
@@ -417,6 +419,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "migrate") {
 		const client = await connectPapyrusClient();
 		console.log(await runMigrationCli(args.slice(1), client));
+		return;
+	}
+	if (command === "batch") {
+		const client = await connectPapyrusClient();
+		console.log(await runBatchCli(args.slice(1), client));
 		return;
 	}
 	if (command === "daemon") {

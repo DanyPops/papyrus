@@ -613,3 +613,80 @@ describe("graph.status refuses to bypass a kind's own validated lifecycle transi
 		await expect(service.execute("graph.status", { id: note.id, status: "active" })).rejects.toThrow("notes.* operation");
 	});
 });
+
+describe("batch.execute -- N independent operations fanned out over one call (service.execute()/`/api/v1/ops` path)", () => {
+	it("is registered as a real operation, reachable through service.execute() and the /api/v1/ops HTTP route", () => {
+		expect(EXPECTED_OPERATION_NAMES).toContain("batch.execute");
+	});
+
+	it("fans out several independent tasks.update/docs.update items in one call, each reporting {ok:true, result}", async () => {
+		const { service } = fixture();
+		const task = (await service.execute("tasks.create", { title: "Old title", project_root: PROJECT_ROOT })) as { id: string };
+		const doc = (await service.execute("docs.create", { title: "Old doc title", actor: "agent" })) as { id: string };
+
+		const response = (await service.execute("batch.execute", {
+			items: [
+				{ op: "tasks.update", input: { id: task.id, title: "New title" } },
+				{ op: "docs.update", input: { id: doc.id, title: "New doc title" } },
+			],
+		})) as { results: Array<{ ok: boolean; result?: unknown; error?: string }> };
+
+		expect(response.results).toHaveLength(2);
+		expect(response.results[0]).toEqual({ ok: true, result: expect.objectContaining({ id: task.id, title: "New title" }) });
+		expect(response.results[1]).toEqual({ ok: true, result: expect.objectContaining({ id: doc.id, title: "New doc title" }) });
+		expect(((await service.execute("tasks.show", { id: task.id })) as { title: string }).title).toBe("New title");
+		expect(((await service.execute("docs.show", { id: doc.id })) as { title: string }).title).toBe("New doc title");
+		service.close();
+	});
+
+	it("partial failure, not all-or-nothing: an earlier item's failure never rolls back or skips a later item", async () => {
+		const { service } = fixture();
+		const task = (await service.execute("tasks.create", { title: "Real task", project_root: PROJECT_ROOT })) as { id: string };
+
+		const response = (await service.execute("batch.execute", {
+			items: [
+				{ op: "tasks.update", input: { id: "does-not-exist", title: "Ghost" } },
+				{ op: "tasks.update", input: { id: task.id, title: "Renamed for real" } },
+			],
+		})) as { results: Array<{ ok: boolean; result?: unknown; error?: string }> };
+
+		expect(response.results).toHaveLength(2);
+		expect(response.results[0]?.ok).toBe(false);
+		expect(response.results[1]).toEqual({ ok: true, result: expect.objectContaining({ id: task.id, title: "Renamed for real" }) });
+		expect(((await service.execute("tasks.show", { id: task.id })) as { title: string }).title).toBe("Renamed for real");
+		service.close();
+	});
+
+	it("reports an unknown op inside an item as that item's own {ok:false} failure, not a thrown batch-wide error", async () => {
+		const { service } = fixture();
+		const response = (await service.execute("batch.execute", {
+			items: [{ op: "tasks.definitely_not_real", input: {} }],
+		})) as { results: Array<{ ok: boolean; error?: string }> };
+		expect(response.results).toEqual([{ ok: false, error: expect.stringContaining('unknown operation "tasks.definitely_not_real"') }]);
+		service.close();
+	});
+
+	it("rejects an empty or over-bound items array up front, before attempting any item", async () => {
+		const { service } = fixture();
+		await expect(service.execute("batch.execute", { items: [] })).rejects.toThrow("non-empty array");
+		const tooMany = Array.from({ length: 101 }, () => ({ op: "tasks.list", input: { project_root: PROJECT_ROOT } }));
+		await expect(service.execute("batch.execute", { items: tooMany })).rejects.toThrow("cannot contain more than 100 entries");
+		service.close();
+	});
+
+	it("dispatches through the /api/v1/ops HTTP route exactly like any other operation", async () => {
+		const { service, app } = fixture();
+		const task = (await service.execute("tasks.create", { title: "Via HTTP", project_root: PROJECT_ROOT })) as { id: string };
+		const response = await request(app, "/api/v1/ops", {
+			method: "POST",
+			body: JSON.stringify({
+				op: "batch.execute",
+				input: { items: [{ op: "tasks.update", input: { id: task.id, title: "Renamed via HTTP" } }] },
+			}),
+		});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { result: { results: Array<{ ok: boolean; result?: unknown }> } };
+		expect(body.result.results).toEqual([{ ok: true, result: expect.objectContaining({ title: "Renamed via HTTP" }) }]);
+		service.close();
+	});
+});

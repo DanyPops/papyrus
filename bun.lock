@@ -33,7 +33,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.55.3",
+      "version": "0.55.4",
       "dependencies": {
         "@danypops/jittor": "^0.18.1",
         "@danypops/papyrus": "^0.54.2",
@@ -45,7 +45,7 @@
       },
       "devDependencies": {
         "@danypops/pi-tui-harness": "^0.0.2",
-        "@danypops/vehicle-client-pi": "^0.41.2",
+        "@danypops/vehicle-client-pi": "^0.41.3",
         "@danypops/vehicle-conformance": "^0.3.0",
         "@earendil-works/pi-coding-agent": "^0.80.10",
         "bun-types": "latest",
@@ -53,7 +53,7 @@
         "typescript": "^5.7.3",
       },
       "peerDependencies": {
-        "@danypops/vehicle-client-pi": "^0.41.2",
+        "@danypops/vehicle-client-pi": "^0.41.3",
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
         "typebox": "*",
@@ -145,7 +145,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.6.2", "", { "dependencies": { "@danypops/vehicle-core": "^0.12.4", "@danypops/vehicle-server": "^0.18.1" } }, "sha512-HEL4pd35oiE8dcuxpIoLZ2vnZvXwZlrVULrepiO64bdYK2Eiq5+SEDS4ZB/n+7nRoZ/76dAn7G9gqbIaJSm7UQ=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.41.2", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.1", "@danypops/vehicle-core": "^0.17.0", "@danypops/vehicle-server": "^0.24.3", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-aDFJW1RISpPSmeSIsYi27t3oL4y0jAMB8/XciMQyigJtchsuFsX2BS/Hrq1oxfA07YD5+THKJxlXMe1KMrspHQ=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.41.3", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.1", "@danypops/vehicle-core": "^0.17.0", "@danypops/vehicle-server": "^0.24.3", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-3qKVaHPfsRoI0wswRe0mGNGw/s5qt0kCWohUuUwzEQ5nrMe3uD4+4MhU8LYYmgFbeEyZ/YfBupyr7SdFnQThKQ=="],
 
     "@danypops/vehicle-conformance": ["@danypops/vehicle-conformance@0.3.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.3" } }, "sha512-DUMqiIJt4SGdo9rsNvXDFOR5iaOZeaoSR3LrI/V9CFIHjUv+Ke/WjvsA6gLreFfih6l7O7zy+jLQ/NhONI0Z6A=="],
 

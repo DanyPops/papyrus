@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dbPath } from "../src/constants.ts";
@@ -6,6 +7,39 @@ import { type Db, openDb } from "../src/db.ts";
 import { runGates, runGatesAsync } from "../src/gate/gate-execution.ts";
 import { createArtifact, getArtifact, linkArtifacts, queryArtifacts } from "../src/ops.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
+
+/**
+ * Runs one command gate in a genuinely SEPARATE bun process, with `ambientVar` present or absent
+ * in that fresh process's env from the moment it launches -- not mutated into the current test
+ * process's `process.env` afterward. This matters: bun's own `spawnSync` (the exact call
+ * runProcessGateSync makes) resolves the child's inherited env from a snapshot taken when the
+ * calling bun process itself started, not a live re-read of `process.env` on every call -- so a
+ * same-process mutation understates the real incident, which was env fixed once at a long-lived
+ * daemon's own launch time (from its systemd --user unit's inherited session environment).
+ */
+function runGateInFreshProcess(ambientVarValue: string | undefined): { passed: boolean; output: string } {
+	const dir = tempDir("papyrus-ambient-env-");
+	const script = `
+		const { openDb } = require(${JSON.stringify(join(import.meta.dirname, "..", "src", "db.ts"))});
+		const { dbPath } = require(${JSON.stringify(join(import.meta.dirname, "..", "src", "constants.ts"))});
+		const { createArtifact } = require(${JSON.stringify(join(import.meta.dirname, "..", "src", "ops.ts"))});
+		const { runGates } = require(${JSON.stringify(join(import.meta.dirname, "..", "src", "gate", "gate-execution.ts"))});
+		const db = openDb(dbPath());
+		const task = createArtifact(db, {
+			kind: "task",
+			title: "Ambient env gate",
+			extra: { gates: [{ type: "command", target: 'test "$AMBIENT_DAEMON_TOGGLE" != "1"' }] },
+		});
+		const results = runGates(db, task.id);
+		console.log(JSON.stringify(results[0]));
+	`;
+	const env: Record<string, string> = { ...(process.env as Record<string, string>), XDG_DATA_HOME: dir };
+	if (ambientVarValue === undefined) delete env.AMBIENT_DAEMON_TOGGLE;
+	else env.AMBIENT_DAEMON_TOGGLE = ambientVarValue;
+	const proc = spawnSync("bun", ["-e", script], { encoding: "utf-8", env });
+	if (proc.status !== 0) throw new Error(`fresh process itself failed: ${proc.stderr}`);
+	return JSON.parse(proc.stdout.trim());
+}
 
 afterAll(cleanupTempDirs);
 
@@ -209,6 +243,31 @@ describe("papyrus: four-kind model", () => {
 		const withCwd = await runGatesAsync(db, task.id!, { cwd: dir });
 		expect(withCwd[0]?.passed).toBe(true);
 		db.close();
+	});
+
+	// Real incident: a command gate ran a target package's own `bun test` from an Armada-managed
+	// systemd --user daemon (Papyrus's own service). The SAME literal command passed cleanly
+	// (688/0) run directly by hand, 7 times, under varied conditions (plain, CI=1, --parallel=4,
+	// stdin redirected) -- yet the daemon-spawned gate deterministically reported 66 real
+	// failures, always in exactly the same one test file. Root cause: the gate's spawned
+	// subprocess inherits the CALLING (daemon) process's full env, completely unfiltered -- and
+	// the daemon's own systemd --user unit had (via `systemctl --user show-environment`, itself
+	// populated by a stray unconditional `export` left in the desktop session's `~/.zshrc`, an
+	// intentional Vehicle Shell "escape hatch" that outlived its usefulness) an ambient
+	// `VEHICLE_SHELL_DISABLED=1` that a hand-run interactive terminal command never saw. The
+	// target package's own test suite read that var and silently exercised a completely different
+	// code path -- with zero visibility from the gate definition, the task body, or the command
+	// string itself: nothing about the task or gate ever changed. Neither runGates nor
+	// runGatesAsync scopes, allow-lists, or even surfaces which env vars a gate command actually
+	// ran with -- this is the same class of leak as the cwd incident above, for env instead of cwd.
+	it("runGates: a command gate's exit code is silently at the mercy of whatever ambient env var happens to be set on the daemon's own process at launch -- not just the task's own declared gate", () => {
+		const clean = runGateInFreshProcess(undefined);
+		expect(clean.passed).toBe(true); // nothing about the task or gate itself ever changed
+
+		// Only the CALLING process's own ambient env at launch changed -- exactly like a daemon
+		// whose systemd --user unit inherited a stray var from the desktop session.
+		const contaminated = runGateInFreshProcess("1");
+		expect(contaminated.passed).toBe(false);
 	});
 
 	it("runGatesAsync: kills the whole process group on timeout, so a real grandchild does not survive it", async () => {

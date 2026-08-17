@@ -15,7 +15,7 @@
  * human-authored inbox.
  */
 
-import { type Artifact, type DiscussionAndRounds, readDiscussionExtra } from "@danypops/papyrus";
+import { type Artifact, type DiscussionAndRounds, quizOptionLabel, readDiscussionExtra } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { showArtifactBrowser } from "../artifact/artifact-browser.ts";
 import { DISCUSSION_STATE_PRESENTATION, DOC_STATUS_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
@@ -111,27 +111,37 @@ export async function showDiscussions(ctx: ExtensionCommandContext): Promise<voi
 				const transcript = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.show", { id: discussion.id });
 				const question = transcript.rounds.at(-1)?.content?.trim() || `Reply to "${discussion.title}":`;
 				const subtitle = discussion.title;
+				// A quiz's options display lettered (A, B, C, ...) in the picker -- the correct answer itself
+				// never reaches this client before submission (see domain/discussion.ts's own comment on why).
 				const answer =
 					pending?.pendingOptions && pending.pendingOptions.length > 0 && pending.pendingOptionsMode
 						? await askQuestion(commandCtx, {
 								question,
 								subtitle,
 								options: pending.pendingOptions.map((title, index) => ({
-									title,
+									title: pending.pendingIsQuiz ? `${quizOptionLabel(index)}. ${title}` : title,
 									description: pending.pendingOptionDescriptions?.[index] || undefined,
 								})),
 								allowMultiple: pending.pendingOptionsMode === "multi",
 							})
 						: await askQuestion(commandCtx, { question, subtitle });
 				if (!answer) return; // canceled
-				await callService("discuss.reply", {
+				const replied = await callService<Record<string, unknown>, DiscussionAndRounds>("discuss.reply", {
 					id: discussion.id,
 					actor: ACTOR,
 					content: answer.content,
 					...(answer.selected ? { selected: answer.selected } : {}),
 					source: SOURCE,
 				});
-				commandCtx.ui.notify(answer.selected ? `Selected: ${answer.selected.join(", ")}` : "Reply added.", "info");
+				const quizResult = replied.rounds[0]?.quizResult;
+				const message = quizResult
+					? quizResult.correct
+						? `✅ Correct! ${quizResult.explanation}`
+						: `❌ Incorrect -- correct answer(s): ${quizResult.correctOptions.join(", ")}. ${quizResult.explanation}`
+					: answer.selected
+						? `Selected: ${answer.selected.join(", ")}`
+						: "Reply added.";
+				commandCtx.ui.notify(message, "info");
 				return;
 			}
 			if (choice === "Defer") {

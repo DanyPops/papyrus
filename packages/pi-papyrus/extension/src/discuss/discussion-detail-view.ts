@@ -15,6 +15,7 @@ import {
 	ARTIFACT_DETAIL_RESERVED_ROWS,
 	type Artifact,
 	type DiscussionRound,
+	quizOptionLabel,
 	readDiscussionExtra,
 } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -126,17 +127,48 @@ class DiscussionTranscriptViewport {
 			const roundHeader =
 				theme.fg("accent", `[round ${round.roundNumber}] `) + theme.bold(round.actor) + theme.fg("dim", ` · ${round.occurredAt}`);
 			const body = renderMarkdownBody(round.content, width - 2, this.activeTheme).map((line) => ({ text: `  ${line}` }));
+			// Quiz options get lettered (A, B, C, ...) and a distinct "Quiz" label; a plain, non-quiz posed
+			// choice keeps its existing comma-joined "Posed" presentation unchanged (backward compatible).
 			const posed =
 				round.options && round.options.length > 0
 					? [
 							{
-								text: `  ${theme.fg("muted", `Posed (${round.optionsMode === "multi" ? "pick several" : "pick one"}): ${round.options.join(", ")}`)}`,
+								text: `  ${theme.fg(
+									"muted",
+									round.quiz
+										? `Quiz (${round.optionsMode === "multi" ? "pick all that apply" : "pick one"}): ${round.options
+												.map((option, optionIndex) => `${quizOptionLabel(optionIndex)}. ${option}`)
+												.join("  ")}`
+										: `Posed (${round.optionsMode === "multi" ? "pick several" : "pick one"}): ${round.options.join(", ")}`,
+								)}`,
 							},
 						]
 					: [];
 			const picked =
 				round.selected && round.selected.length > 0 ? [{ text: `  ${theme.fg("success", `Selected: ${round.selected.join(", ")}`)}` }] : [];
-			return [{ text: roundHeader }, ...body, ...posed, ...picked, ...(index < this.rounds.length - 1 ? [{ text: "" }] : [])];
+			// The graded verdict -- always includes the explanation, especially when wrong. Only ever
+			// present on the round that actually answered a pending quiz (see domain/discussion.ts).
+			const quizVerdict = round.quizResult
+				? [
+						{
+							text: `  ${theme.fg(
+								round.quizResult.correct ? "success" : "error",
+								round.quizResult.correct
+									? "✅ Correct!"
+									: `❌ Incorrect -- correct answer(s): ${round.quizResult.correctOptions.join(", ")}.`,
+							)}`,
+						},
+						{ text: `  ${theme.fg("muted", round.quizResult.explanation)}` },
+					]
+				: [];
+			return [
+				{ text: roundHeader },
+				...body,
+				...posed,
+				...picked,
+				...quizVerdict,
+				...(index < this.rounds.length - 1 ? [{ text: "" }] : []),
+			];
 		});
 		this.lines = [...header, ...(transcript.length > 0 ? transcript : [{ text: theme.fg("muted", "No rounds recorded.") }])];
 		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));

@@ -1,4 +1,4 @@
-import type { Artifact } from "@danypops/papyrus";
+import { type Artifact, type DiscussionQuizResult, quizOptionLabel } from "@danypops/papyrus";
 import { expandHint } from "@danypops/vehicle-client-pi/expand-hint";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
@@ -7,11 +7,16 @@ import { detailViewTheme, measure, statusColor, statusGlyph } from "../../tool-r
 import { isArtifact, isArtifactArray, type RenderableDiscussionParent } from "./shared.ts";
 
 /** A Discussion round -- discuss.open/reply/show/rounds' own transcript entry. Detected the
- * same name-independent, shape-based way as the others in this directory. */
+ * same name-independent, shape-based way as the others in this directory. quiz/quizResult are
+ * the two quiz-safe fields (see domain/discussion.ts) -- optional, so a plain non-quiz round
+ * renders exactly as before. */
 export interface DiscussionRoundOutput {
 	roundNumber: number;
 	actor: string;
 	content: string;
+	options?: string[];
+	quiz?: boolean;
+	quizResult?: DiscussionQuizResult;
 }
 
 export function isDiscussionRound(value: unknown): value is DiscussionRoundOutput {
@@ -55,10 +60,27 @@ export function isDiscussionListOutput(value: unknown): value is DiscussionListO
 	return isArtifactArray(row.discussions);
 }
 
+/** Appended to a quiz round's own body text -- lettered options when posed, the graded verdict +
+ * explanation (always shown, especially when wrong) once answered. A plain, non-quiz round's
+ * body is untouched (backward compatible). */
+function quizBodySuffix(round: DiscussionRoundOutput): string {
+	const posed =
+		round.quiz && round.options && round.options.length > 0
+			? `\n${round.options.map((option, index) => `${quizOptionLabel(index)}. ${option}`).join("  ")}`
+			: "";
+	const verdict = round.quizResult
+		? `\n${round.quizResult.correct ? "✅ Correct!" : `❌ Incorrect -- correct answer(s): ${round.quizResult.correctOptions.join(", ")}.`} ${round.quizResult.explanation}`
+		: "";
+	return `${posed}${verdict}`;
+}
+
 export function roundsSection(rounds: readonly DiscussionRoundOutput[]): DetailSection {
 	return {
 		heading: `Rounds (${rounds.length}):`,
-		items: rounds.map((round) => ({ byline: `${round.actor} · round ${round.roundNumber}`, body: round.content })),
+		items: rounds.map((round) => ({
+			byline: `${round.actor} · round ${round.roundNumber}`,
+			body: `${round.content}${quizBodySuffix(round)}`,
+		})),
 	};
 }
 

@@ -141,6 +141,73 @@ describe("Discussion transcript view", () => {
 		expect(rendered).toContain("Selected: B");
 	});
 
+	it("letters a quiz's options and shows the graded verdict + explanation, without ever showing the answer before submission", async () => {
+		const harness = tuiContext();
+		const quizRounds: DiscussionRound[] = [
+			{
+				id: 1,
+				discussionId: "discussion-1",
+				roundNumber: 1,
+				actor: "agent",
+				content: "Capital of France?",
+				occurredAt: "2026-01-01T00:00:00.000Z",
+				options: ["Paris", "London"],
+				optionsMode: "single",
+				quiz: true,
+			},
+			{
+				id: 2,
+				discussionId: "discussion-1",
+				roundNumber: 2,
+				actor: "human",
+				content: "Paris",
+				occurredAt: "2026-01-01T00:05:00.000Z",
+				selected: ["Paris"],
+				quizResult: { correct: true, correctOptions: ["Paris"], explanation: "Paris has been the capital since 987 AD." },
+			},
+		];
+		await showDiscussionDetailView(harness.ctx, discussion(), quizRounds);
+		const rendered = harness.renders[0]!.join("\n");
+		expect(rendered).toContain("Quiz (pick one): A. Paris  B. London");
+		expect(rendered).toContain("Correct!");
+		expect(rendered).toContain("987 AD");
+		// Round 1's own rendered line never carries the answer -- only round 2's post-submission verdict does.
+		const roundOneLine = rendered.split("\n").find((line) => line.includes("Quiz (pick one)"));
+		expect(roundOneLine).not.toContain("987 AD");
+	});
+
+	it("shows an incorrect quiz verdict with the correct answer and explanation", async () => {
+		const harness = tuiContext();
+		const quizRounds: DiscussionRound[] = [
+			{
+				id: 1,
+				discussionId: "discussion-1",
+				roundNumber: 1,
+				actor: "agent",
+				content: "Capital of France?",
+				occurredAt: "2026-01-01T00:00:00.000Z",
+				options: ["Paris", "London"],
+				optionsMode: "single",
+				quiz: true,
+			},
+			{
+				id: 2,
+				discussionId: "discussion-1",
+				roundNumber: 2,
+				actor: "human",
+				content: "London",
+				occurredAt: "2026-01-01T00:05:00.000Z",
+				selected: ["London"],
+				quizResult: { correct: false, correctOptions: ["Paris"], explanation: "Paris has been the capital since 987 AD." },
+			},
+		];
+		await showDiscussionDetailView(harness.ctx, discussion(), quizRounds);
+		const rendered = harness.renders[0]!.join("\n");
+		expect(rendered).toContain("Incorrect");
+		expect(rendered).toContain("Paris");
+		expect(rendered).toContain("987 AD");
+	});
+
 	it("falls back to a plain notify outside TUI mode", async () => {
 		const notifications: Array<{ message: string; level?: string }> = [];
 		const ctx = {

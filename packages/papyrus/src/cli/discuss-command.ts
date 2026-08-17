@@ -38,6 +38,8 @@ const openCommand = buildCommand({
 			optionsJson?: string[];
 			optionsMode?: string;
 			optionDescriptionsJson?: string[];
+			correctOptionsJson?: string[];
+			explanation?: string;
 		},
 	) {
 		await call.call(this, "discuss.open", {
@@ -50,6 +52,8 @@ const openCommand = buildCommand({
 			options: flags.optionsJson,
 			options_mode: flags.optionsMode,
 			option_descriptions: flags.optionDescriptionsJson,
+			correct_options: flags.correctOptionsJson,
+			explanation: flags.explanation,
 		});
 	},
 	parameters: {
@@ -81,6 +85,20 @@ const openCommand = buildCommand({
 				placeholder: "json",
 				optional: true,
 			},
+			correctOptionsJson: {
+				brief: "JSON string array of correct options (one or more, verbatim from options) -- makes this a graded quiz",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+				optional: true,
+			},
+			explanation: {
+				brief: "Quiz explanation, required alongside correctOptionsJson, always shown after grading",
+				kind: "parsed",
+				parse: String,
+				placeholder: "text",
+				optional: true,
+			},
 		},
 	},
 	docs: { brief: "Open a new discussion" },
@@ -96,6 +114,8 @@ const replyCommand = buildCommand({
 			optionsJson?: string[];
 			optionsMode?: string;
 			optionDescriptionsJson?: string[];
+			correctOptionsJson?: string[];
+			explanation?: string;
 		},
 		id: string,
 	) {
@@ -107,6 +127,8 @@ const replyCommand = buildCommand({
 			options: flags.optionsJson,
 			options_mode: flags.optionsMode,
 			option_descriptions: flags.optionDescriptionsJson,
+			correct_options: flags.correctOptionsJson,
+			explanation: flags.explanation,
 		});
 	},
 	parameters: {
@@ -133,6 +155,20 @@ const replyCommand = buildCommand({
 				kind: "parsed",
 				parse: parseStringArray,
 				placeholder: "json",
+				optional: true,
+			},
+			correctOptionsJson: {
+				brief: "JSON string array of correct options (one or more, verbatim from options) -- makes this a graded quiz",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+				optional: true,
+			},
+			explanation: {
+				brief: "Quiz explanation, required alongside correctOptionsJson, always shown after grading",
+				kind: "parsed",
+				parse: String,
+				placeholder: "text",
 				optional: true,
 			},
 		},

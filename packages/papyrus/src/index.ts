@@ -17,7 +17,13 @@ export {
 	type VehicleClientTarget,
 } from "./client.ts";
 export * from "./constants.ts";
-export { DISCUSSION_SUBTYPE, type DiscussionRound, readDiscussionExtra } from "./discussion/discussion.ts";
+export {
+	DISCUSSION_SUBTYPE,
+	type DiscussionQuizResult,
+	type DiscussionRound,
+	quizOptionLabel,
+	readDiscussionExtra,
+} from "./discussion/discussion.ts";
 export type { DiscussionAndRounds } from "./discussion/discussion-service.ts";
 export type { DisplayGraph, DisplayGraphEdge, DisplayGraphNode, RenderedGraph } from "./display-graph/display-graph.ts";
 export type { GraphRenderer } from "./display-graph/graph-renderer.ts";

@@ -17,7 +17,12 @@ describe("task-lifecycle-mutation-receipts migration", () => {
 		expect(migrateDb(db)).toEqual({
 			from: 26,
 			to: SQLITE_SCHEMA_VERSION,
-			applied: ["task-lifecycle-mutation-receipts", "artifact-multi-project-scope", "artifact-scope-tri-state-and-scope-groups"],
+			applied: [
+				"task-lifecycle-mutation-receipts",
+				"artifact-multi-project-scope",
+				"artifact-scope-tri-state-and-scope-groups",
+				"discuss-quiz",
+			],
 		});
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_mutation_requests'").get()).not.toBeNull();
 		expect(

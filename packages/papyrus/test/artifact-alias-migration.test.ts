@@ -40,6 +40,7 @@ describe("artifact-aliases migration: every existing row is backfilled with a re
 			"task-lifecycle-mutation-receipts",
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
+			"discuss-quiz",
 		]);
 
 		const a = getArtifact(db, "task-a")!;

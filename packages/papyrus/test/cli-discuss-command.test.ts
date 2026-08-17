@@ -74,6 +74,81 @@ describe("runDiscussCli (Stricli-backed)", () => {
 		expect(client.calls).toEqual([{ operation: "discuss.reply", input: { id: "d1", actor: "a", content: "C", selected: ["x"] } }]);
 	});
 
+	it("open: threads correct-options-json/explanation for a quiz", async () => {
+		const client = new FakeClient({});
+		await runDiscussCli(
+			[
+				"open",
+				"--title",
+				"T",
+				"--actor",
+				"a",
+				"--content",
+				"Capital of France?",
+				"--options-json",
+				'["Paris","London"]',
+				"--options-mode",
+				"single",
+				"--correct-options-json",
+				'["Paris"]',
+				"--explanation",
+				"Paris since 987 AD.",
+			],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{
+				operation: "discuss.open",
+				input: {
+					title: "T",
+					actor: "a",
+					content: "Capital of France?",
+					options: ["Paris", "London"],
+					options_mode: "single",
+					correct_options: ["Paris"],
+					explanation: "Paris since 987 AD.",
+				},
+			},
+		]);
+	});
+
+	it("reply: threads correct-options-json/explanation for a quiz posed on this same round", async () => {
+		const client = new FakeClient({});
+		await runDiscussCli(
+			[
+				"reply",
+				"d1",
+				"--actor",
+				"a",
+				"--content",
+				"Now, capital of Japan?",
+				"--options-json",
+				'["Tokyo","Osaka"]',
+				"--options-mode",
+				"single",
+				"--correct-options-json",
+				'["Tokyo"]',
+				"--explanation",
+				"Tokyo is the capital.",
+			],
+			client,
+		);
+		expect(client.calls).toEqual([
+			{
+				operation: "discuss.reply",
+				input: {
+					id: "d1",
+					actor: "a",
+					content: "Now, capital of Japan?",
+					options: ["Tokyo", "Osaka"],
+					options_mode: "single",
+					correct_options: ["Tokyo"],
+					explanation: "Tokyo is the capital.",
+				},
+			},
+		]);
+	});
+
 	it("reply: rejects when the id positional is missing", async () => {
 		const client = new FakeClient({});
 		await expect(runDiscussCli(["reply", "--actor", "a", "--content", "C"], client)).rejects.toThrow();

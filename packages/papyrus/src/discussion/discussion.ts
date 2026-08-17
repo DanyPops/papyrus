@@ -25,6 +25,8 @@ import {
 	DISCUSSION_OPTION_MAX_LENGTH,
 	DISCUSSION_OPTIONS_MAX_COUNT,
 	DISCUSSION_OPTIONS_MIN_COUNT,
+	DISCUSSION_QUIZ_EXPLANATION_MAX_CHARACTERS,
+	DISCUSSION_QUIZ_OPTION_LABEL_MAX_COUNT,
 	DISCUSSION_ROUND_CONTENT_MAX_CHARACTERS,
 	DISCUSSION_SETTLEMENT_MAX_CHARACTERS,
 } from "../constants.ts";
@@ -55,9 +57,25 @@ export interface DiscussionExtra {
 	 * "no description for this one". Purely descriptive metadata: selection/validation only ever
 	 * matches against pendingOptions itself, never against this array. */
 	pendingOptionDescriptions?: string[];
+	/** True when the currently pending posed choice is a graded quiz -- safe to expose (announces
+	 * "this will be graded", never the answer itself, which never lives in extra.discussion at all;
+	 * see AppendDiscussionRound's own comment for where the real answer is kept instead). */
+	pendingIsQuiz?: boolean;
+	/** The round number that posed the currently pending quiz -- lets reply() look up its hidden
+	 * answer in O(1) via DiscussionRoundStore.resolvePendingQuizAnswer, without scanning history. */
+	pendingQuizRoundNumber?: number;
 }
 
-/** One append-only round of a Discussion -- opening statement is round 1. options/optionsMode/selected are the historical record of what was posed/picked in this specific round (extra.discussion.pendingOptions is the separate, mutable "what's unanswered right now" cache). */
+/**
+ * One append-only round of a Discussion -- opening statement is round 1. options/optionsMode/selected
+ * are the historical record of what was posed/picked in this specific round (extra.discussion.pendingOptions
+ * is the separate, mutable "what's unanswered right now" cache).
+ *
+ * quiz/quizResult are the two quiz-safe fields: `quiz: true` marks a posing round as graded (never
+ * the correct answer itself -- that never appears on this type, by construction, see
+ * AppendDiscussionRound); `quizResult` appears only on the round that actually answered a pending
+ * quiz, once grading has already happened -- safe to reveal at that point since submission is done.
+ */
 export interface DiscussionRound {
 	id: number;
 	discussionId: string;
@@ -70,6 +88,19 @@ export interface DiscussionRound {
 	/** Index-aligned with options -- see DiscussionExtra.pendingOptionDescriptions. */
 	optionDescriptions?: string[];
 	selected?: string[];
+	/** True when this round posed a graded quiz alongside options/optionsMode. */
+	quiz?: boolean;
+	/** Present only on the round that answered a pending quiz -- the graded outcome, safe to show
+	 * because the participant has already submitted by the time this exists. */
+	quizResult?: DiscussionQuizResult;
+}
+
+/** The graded outcome of one quiz submission, attached to the answering round. */
+export interface DiscussionQuizResult {
+	correct: boolean;
+	/** The full correct set, drawn verbatim from the options that were offered. */
+	correctOptions: string[];
+	explanation: string;
 }
 
 export interface AppendDiscussionRound {
@@ -81,6 +112,20 @@ export interface AppendDiscussionRound {
 	optionsMode?: DiscussionOptionsMode;
 	optionDescriptions?: string[];
 	selected?: string[];
+	/** Marks this round as posing a graded quiz -- paired with quizCorrectOptions/quizExplanation below. */
+	quiz?: boolean;
+	/**
+	 * Write-only: the quiz's actual answer, persisted for grading but deliberately absent from
+	 * DiscussionRound (the read-side type) -- a store implementation must never select these columns
+	 * into anything it returns from list()/append()'s own return value. Only
+	 * DiscussionRoundStore.resolvePendingQuizAnswer may ever read them back, from within the same
+	 * reply() transaction that performs grading.
+	 */
+	quizCorrectOptions?: string[];
+	quizExplanation?: string;
+	/** The already-graded outcome to persist on an answering round -- computed by discussion-service.ts
+	 * before this reaches the store, never derived by the store itself. */
+	quizResult?: DiscussionQuizResult;
 }
 
 export interface DiscussionRoundQuery {
@@ -150,7 +195,48 @@ export function validateDiscussionOptions(
 	};
 }
 
-/** Validates an answer against the Discussion's currently pending posed choice, if any. */
+/**
+ * Validates a quiz's correct-answer + explanation against the options it's layered onto (already
+ * validated by validateDiscussionOptions). correctOptions is one or more entries drawn verbatim
+ * from options -- exact text match, the same identity scheme `selected` uses. A "single" quiz
+ * (the participant can only pick one) must have exactly one correct option; a "multi" quiz may
+ * have several. explanation is mandatory -- always shown after grading, never optional.
+ */
+export function validateDiscussionQuiz(
+	options: string[],
+	mode: DiscussionOptionsMode,
+	correctOptions: string[],
+	explanation: string,
+): { correctOptions: string[]; explanation: string } {
+	if (correctOptions.length === 0) throw new Error("quiz correct_options must not be empty");
+	if (new Set(correctOptions).size !== correctOptions.length) throw new Error("quiz correct_options must not repeat an entry");
+	const unknown = correctOptions.filter((entry) => !options.includes(entry));
+	if (unknown.length > 0) throw new Error(`quiz correct_options must be among the offered options: ${unknown.join(", ")}`);
+	if (mode === "single" && correctOptions.length !== 1) {
+		throw new Error('a "single" quiz must have exactly one correct_option');
+	}
+	const validExplanation = boundedString(explanation, "explanation", DISCUSSION_QUIZ_EXPLANATION_MAX_CHARACTERS);
+	return { correctOptions: [...correctOptions], explanation: validExplanation };
+}
+
+/** Correct iff the participant's selection exactly matches the quiz's correct set -- no partial credit. */
+export function gradeQuizAnswer(selected: string[], correctOptions: string[]): boolean {
+	return selected.length === correctOptions.length && selected.every((entry) => correctOptions.includes(entry));
+}
+
+/**
+ * Display-only label for a quiz option by its position (A, B, C, ...) -- never persisted, never
+ * part of a quiz's addressing scheme (options/correct_options/selected all match by exact text).
+ * Single letters only: see DISCUSSION_QUIZ_OPTION_LABEL_MAX_COUNT's own comment for why that's
+ * always enough given the enforced DISCUSSION_OPTIONS_MAX_COUNT.
+ */
+export function quizOptionLabel(index: number): string {
+	if (index < 0 || index >= DISCUSSION_QUIZ_OPTION_LABEL_MAX_COUNT) {
+		throw new Error(`quiz option index ${index} has no single-letter label (max ${DISCUSSION_QUIZ_OPTION_LABEL_MAX_COUNT} options)`);
+	}
+	return String.fromCharCode(65 + index);
+}
+
 export function validateSelectedOptions(
 	selected: string[],
 	pendingOptions: string[] | undefined,
@@ -202,6 +288,15 @@ export function readDiscussionExtra(extra: Record<string, unknown>): DiscussionE
 			throw new Error("invalid Discussion pendingOptionDescriptions: must align 1:1 with pendingOptions");
 		}
 	}
+	const pendingIsQuiz = record.pendingIsQuiz;
+	if (pendingIsQuiz !== undefined && typeof pendingIsQuiz !== "boolean") throw new Error("invalid Discussion pendingIsQuiz");
+	const pendingQuizRoundNumber = record.pendingQuizRoundNumber;
+	if (
+		pendingQuizRoundNumber !== undefined &&
+		(typeof pendingQuizRoundNumber !== "number" || !Number.isInteger(pendingQuizRoundNumber) || pendingQuizRoundNumber < 1)
+	) {
+		throw new Error("invalid Discussion pendingQuizRoundNumber");
+	}
 	return {
 		state: state as DiscussionState,
 		roundCount,
@@ -211,5 +306,7 @@ export function readDiscussionExtra(extra: Record<string, unknown>): DiscussionE
 		...(pendingOptions !== undefined ? { pendingOptions: pendingOptions as string[] } : {}),
 		...(pendingOptionsMode !== undefined ? { pendingOptionsMode: pendingOptionsMode as DiscussionOptionsMode } : {}),
 		...(pendingOptionDescriptions !== undefined ? { pendingOptionDescriptions: pendingOptionDescriptions as string[] } : {}),
+		...(pendingIsQuiz !== undefined ? { pendingIsQuiz } : {}),
+		...(pendingQuizRoundNumber !== undefined ? { pendingQuizRoundNumber } : {}),
 	};
 }

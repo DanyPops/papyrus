@@ -19,7 +19,7 @@ describe("artifact-multi-project-scope migration (v27 -> current, through v28 an
 		expect(result).toEqual({
 			from: 27,
 			to: SQLITE_SCHEMA_VERSION,
-			applied: ["artifact-multi-project-scope", "artifact-scope-tri-state-and-scope-groups"],
+			applied: ["artifact-multi-project-scope", "artifact-scope-tri-state-and-scope-groups", "discuss-quiz"],
 		});
 
 		const scopes = new SQLiteArtifactScopeStore(db);

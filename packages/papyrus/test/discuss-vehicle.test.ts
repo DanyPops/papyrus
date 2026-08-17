@@ -229,6 +229,98 @@ describe("registerDiscussVehicleOperations (wired through createPapyrusService)"
 		service.close();
 	});
 
+	it("open's own content block letters a posed quiz's options, and never leaks the correct answer", async () => {
+		const { registry, service } = harness();
+		const opened = (await registry.invoke(
+			"discuss.open",
+			1,
+			{
+				title: "Capital quiz",
+				content: "Capital of France?",
+				options: ["Paris", "London"],
+				options_mode: "single",
+				correct_options: ["Paris"],
+				explanation: "Paris has been the capital since 987 AD.",
+			},
+			PERMS,
+		)) as { content: { text: string }[]; rounds: unknown[] };
+		expect(opened.content[0]?.text).toContain("A. Paris");
+		expect(opened.content[0]?.text).toContain("B. London");
+		expect(opened.content[0]?.text).not.toContain("987 AD");
+		expect(JSON.stringify(opened.rounds)).not.toContain("987 AD");
+		service.close();
+	});
+
+	it("reply's own content block reports the graded verdict and always includes the explanation", async () => {
+		const { registry, service } = harness();
+		const opened = (await registry.invoke(
+			"discuss.open",
+			1,
+			{
+				title: "Capital quiz",
+				content: "Capital of France?",
+				options: ["Paris", "London"],
+				options_mode: "single",
+				correct_options: ["Paris"],
+				explanation: "Paris has been the capital since 987 AD.",
+			},
+			PERMS,
+		)) as { discussion: { id: string } };
+
+		const correct = (await registry.invoke(
+			"discuss.reply",
+			1,
+			{ id: opened.discussion.id, actor: "human", content: "Paris", selected: ["Paris"] },
+			PERMS,
+		)) as { content: { text: string }[] };
+		expect(correct.content[0]?.text).toContain("Correct");
+		expect(correct.content[0]?.text).toContain("987 AD");
+
+		const secondQuiz = (await registry.invoke(
+			"discuss.open",
+			1,
+			{
+				title: "Capital quiz 2",
+				content: "Capital of France?",
+				options: ["Paris", "London"],
+				options_mode: "single",
+				correct_options: ["Paris"],
+				explanation: "Paris has been the capital since 987 AD.",
+			},
+			PERMS,
+		)) as { discussion: { id: string } };
+		const incorrect = (await registry.invoke(
+			"discuss.reply",
+			1,
+			{ id: secondQuiz.discussion.id, actor: "human", content: "London", selected: ["London"] },
+			PERMS,
+		)) as { content: { text: string }[] };
+		expect(incorrect.content[0]?.text).toContain("Incorrect");
+		expect(incorrect.content[0]?.text).toContain("Paris");
+		expect(incorrect.content[0]?.text).toContain("987 AD");
+		service.close();
+	});
+
+	it("a malformed quiz (correct_options not among options) fails with a specific, actionable message", async () => {
+		const { registry, service } = harness();
+		await expect(
+			registry.invoke(
+				"discuss.open",
+				1,
+				{
+					title: "Bad quiz",
+					content: "q",
+					options: ["A", "B"],
+					options_mode: "single",
+					correct_options: ["C"],
+					explanation: "x",
+				},
+				PERMS,
+			),
+		).rejects.toThrow(/must be among the offered options/);
+		service.close();
+	});
+
 	it("defer then resume round-trips a discussion's state, each carrying a content block", async () => {
 		const { registry, service } = harness();
 		const opened = (await registry.invoke("discuss.open", 1, { title: "Pause me", content: "start" }, PERMS)) as {

@@ -480,6 +480,242 @@ describe("Discuss: per-option descriptions (pros/cons)", () => {
 	});
 });
 
+describe("Discuss: quiz assessments", () => {
+	it("grades a correct two-option submission and preserves the result on the discussion record", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({
+			title: "Capital quiz",
+			actor: "agent",
+			content: "What is the capital of France?",
+			options: ["Paris", "London"],
+			optionsMode: "single",
+			quizCorrectOptions: ["Paris"],
+			quizExplanation: "Paris has been the capital of France since 987 AD.",
+		});
+		expect(discussion.extra.discussion).toMatchObject({ pendingIsQuiz: true, pendingQuizRoundNumber: 1 });
+		const result = discussions.reply(discussion.id, { actor: "human", content: "Paris", selected: ["Paris"] });
+		expect(result.rounds[0]).toMatchObject({
+			selected: ["Paris"],
+			quizResult: { correct: true, correctOptions: ["Paris"], explanation: "Paris has been the capital of France since 987 AD." },
+		});
+		expect(result.discussion.extra.discussion).not.toHaveProperty("pendingIsQuiz");
+		expect(result.discussion.extra.discussion).not.toHaveProperty("pendingQuizRoundNumber");
+	});
+
+	it("grades an incorrect submission, still returning the explanation (especially important when wrong)", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({
+			title: "Capital quiz",
+			actor: "agent",
+			content: "What is the capital of France?",
+			options: ["Paris", "London"],
+			optionsMode: "single",
+			quizCorrectOptions: ["Paris"],
+			quizExplanation: "Paris has been the capital of France since 987 AD.",
+		});
+		const result = discussions.reply(discussion.id, { actor: "human", content: "London", selected: ["London"] });
+		expect(result.rounds[0]?.quizResult).toEqual({
+			correct: false,
+			correctOptions: ["Paris"],
+			explanation: "Paris has been the capital of France since 987 AD.",
+		});
+	});
+
+	it("grades a four-option quiz", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({
+			title: "Ocean quiz",
+			actor: "agent",
+			content: "Largest ocean?",
+			options: ["Atlantic", "Indian", "Arctic", "Pacific"],
+			optionsMode: "single",
+			optionDescriptions: ["An ocean", "An ocean", "An ocean", "An ocean"],
+			quizCorrectOptions: ["Pacific"],
+			quizExplanation: "The Pacific covers roughly a third of Earth's surface.",
+		});
+		const result = discussions.reply(discussion.id, { actor: "human", content: "Pacific", selected: ["Pacific"] });
+		expect(result.rounds[0]?.quizResult?.correct).toBe(true);
+	});
+
+	it("grades a non-four-option (six-option) quiz", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({
+			title: "Planet quiz",
+			actor: "agent",
+			content: "Which planet has the most moons?",
+			options: ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn"],
+			optionsMode: "single",
+			optionDescriptions: ["A planet", "A planet", "A planet", "A planet", "A planet", "A planet"],
+			quizCorrectOptions: ["Saturn"],
+			quizExplanation: "Saturn currently holds the record.",
+		});
+		const result = discussions.reply(discussion.id, { actor: "human", content: "Jupiter", selected: ["Jupiter"] });
+		expect(result.rounds[0]?.quizResult).toMatchObject({ correct: false, correctOptions: ["Saturn"] });
+	});
+
+	it("allows more than one correct option (multi-select), graded correct only on an exact set match -- no partial credit", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({
+			title: "Primes quiz",
+			actor: "agent",
+			content: "Which of these are prime?",
+			options: ["2", "3", "4", "9"],
+			optionsMode: "multi",
+			optionDescriptions: ["prime", "prime", "not prime", "not prime"],
+			quizCorrectOptions: ["2", "3"],
+			quizExplanation: "2 and 3 are prime; 4 and 9 are not.",
+		});
+		const partial = discussions.reply(discussion.id, { actor: "human", content: "just 2", selected: ["2"] });
+		expect(partial.rounds[0]?.quizResult?.correct).toBe(false);
+
+		const { discussion: discussion2 } = discussions.open({
+			title: "Primes quiz 2",
+			actor: "agent",
+			content: "Which of these are prime?",
+			options: ["2", "3", "4", "9"],
+			optionsMode: "multi",
+			optionDescriptions: ["prime", "prime", "not prime", "not prime"],
+			quizCorrectOptions: ["2", "3"],
+			quizExplanation: "2 and 3 are prime; 4 and 9 are not.",
+		});
+		const exact = discussions.reply(discussion2.id, { actor: "human", content: "2 and 3", selected: ["3", "2"] });
+		expect(exact.rounds[0]?.quizResult?.correct).toBe(true);
+	});
+
+	it("never exposes the correct answer before submission -- open()'s own round carries no correct-option/explanation fields", () => {
+		const { discussions } = fixture();
+		const { discussion, rounds } = discussions.open({
+			title: "Capital quiz",
+			actor: "agent",
+			content: "What is the capital of France?",
+			options: ["Paris", "London"],
+			optionsMode: "single",
+			quizCorrectOptions: ["Paris"],
+			quizExplanation: "Paris has been the capital of France since 987 AD.",
+		});
+		expect(rounds[0]).toMatchObject({ quiz: true });
+		expect(rounds[0]).not.toHaveProperty("quizCorrectOptions");
+		expect(rounds[0]).not.toHaveProperty("quizExplanation");
+		expect(JSON.stringify(rounds[0])).not.toContain("Paris has been the capital");
+		// Nor does show()/listRounds() before it's answered.
+		const shown = discussions.show(discussion.id);
+		expect(JSON.stringify(shown.rounds)).not.toContain("Paris has been the capital");
+	});
+
+	it("a reply can pose the next round's quiz while also grading the current one", () => {
+		const { discussions } = fixture();
+		const { discussion } = discussions.open({
+			title: "Quiz chain",
+			actor: "agent",
+			content: "Q1: capital of France?",
+			options: ["Paris", "London"],
+			optionsMode: "single",
+			quizCorrectOptions: ["Paris"],
+			quizExplanation: "Paris.",
+		});
+		const answered = discussions.reply(discussion.id, {
+			actor: "human",
+			content: "Paris -- and now Q2: capital of Japan?",
+			selected: ["Paris"],
+			options: ["Tokyo", "Osaka"],
+			optionsMode: "single",
+			quizCorrectOptions: ["Tokyo"],
+			quizExplanation: "Tokyo.",
+		});
+		expect(answered.rounds[0]).toMatchObject({ quizResult: { correct: true }, quiz: true });
+		expect(answered.discussion.extra.discussion).toMatchObject({ pendingIsQuiz: true, pendingQuizRoundNumber: 2 });
+		const final = discussions.reply(discussion.id, { actor: "human", content: "Tokyo", selected: ["Tokyo"] });
+		expect(final.rounds[0]?.quizResult).toMatchObject({ correct: true, correctOptions: ["Tokyo"] });
+	});
+
+	it("rejects malformed quizzes: empty/duplicate correct_options, one not among the offered options, missing explanation", () => {
+		const { discussions } = fixture();
+		const base = { title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "single" as const };
+		expect(() => discussions.open({ ...base, quizCorrectOptions: [], quizExplanation: "x" })).toThrow(/must not be empty/);
+		expect(() => discussions.open({ ...base, quizCorrectOptions: ["A", "A"], quizExplanation: "x" })).toThrow(/must not repeat/);
+		expect(() => discussions.open({ ...base, quizCorrectOptions: ["C"], quizExplanation: "x" })).toThrow(
+			/must be among the offered options/,
+		);
+		expect(() => discussions.open({ ...base, quizCorrectOptions: ["A"], quizExplanation: "" })).toThrow(/explanation must be between/);
+	});
+
+	it('rejects more than one correct_option for a "single" quiz', () => {
+		const { discussions } = fixture();
+		expect(() =>
+			discussions.open({
+				title: "T",
+				actor: "a",
+				content: "c",
+				options: ["A", "B", "C"],
+				optionsMode: "single",
+				optionDescriptions: ["a", "b", "c"],
+				quizCorrectOptions: ["A", "B"],
+				quizExplanation: "x",
+			}),
+		).toThrow(/"single" quiz must have exactly one/);
+	});
+
+	it("rejects correct_options given without explanation, or vice versa", () => {
+		const { discussions } = fixture();
+		const base = { title: "T", actor: "a", content: "c", options: ["A", "B"], optionsMode: "single" as const };
+		expect(() => discussions.open({ ...base, quizCorrectOptions: ["A"] })).toThrow(/must both be given/);
+		expect(() => discussions.open({ ...base, quizExplanation: "x" })).toThrow(/must both be given/);
+	});
+
+	it("rejects a quiz posed without any options at all", () => {
+		const { discussions } = fixture();
+		expect(() => discussions.open({ title: "T", actor: "a", content: "c", quizCorrectOptions: ["A"], quizExplanation: "x" })).toThrow(
+			/require options and options_mode/,
+		);
+	});
+
+	it("round-trips through a real SQLite DiscussionRoundStore, including grading, with the hidden answer never surfacing through list()", () => {
+		const { db, discussions } = fixture();
+		const opened = discussions.open({
+			title: "Capital quiz",
+			actor: "agent",
+			content: "Capital of France?",
+			options: ["Paris", "London"],
+			optionsMode: "single",
+			quizCorrectOptions: ["Paris"],
+			quizExplanation: "Paris has been the capital of France since 987 AD.",
+		});
+		discussions.reply(opened.discussion.id, { actor: "human", content: "Paris", selected: ["Paris"] });
+		const roundStore = new SQLiteDiscussionRoundStore(db);
+		const reloaded = roundStore.list({ discussionId: opened.discussion.id });
+		expect(reloaded[0]).toMatchObject({ quiz: true });
+		expect(reloaded[0]).not.toHaveProperty("quizCorrectOptions");
+		expect(reloaded[1]?.quizResult).toEqual({
+			correct: true,
+			correctOptions: ["Paris"],
+			explanation: "Paris has been the capital of France since 987 AD.",
+		});
+		expect(JSON.stringify(reloaded)).not.toContain("quiz_correct_options");
+		// The one deliberate hole -- used by grading alone.
+		expect(roundStore.resolvePendingQuizAnswer(opened.discussion.id, 1)).toEqual({
+			correctOptions: ["Paris"],
+			explanation: "Paris has been the capital of France since 987 AD.",
+		});
+		expect(roundStore.resolvePendingQuizAnswer(opened.discussion.id, 999)).toBeUndefined();
+	});
+
+	it("backward compatible: a plain non-quiz options round still round-trips with no quiz fields at all", () => {
+		const { discussions } = fixture();
+		const { discussion, rounds } = discussions.open({
+			title: "Plain poll",
+			actor: "a",
+			content: "A or B?",
+			options: ["A", "B"],
+			optionsMode: "single",
+		});
+		expect(rounds[0]).not.toHaveProperty("quiz");
+		expect(rounds[0]).not.toHaveProperty("quizResult");
+		expect(discussion.extra.discussion).not.toHaveProperty("pendingIsQuiz");
+		const answered = discussions.reply(discussion.id, { actor: "b", content: "B", selected: ["B"] });
+		expect(answered.rounds[0]).not.toHaveProperty("quizResult");
+	});
+});
+
 describe("Discussions.list / listRounds", () => {
 	it("lists discussions filtered by state", () => {
 		const { discussions } = fixture();

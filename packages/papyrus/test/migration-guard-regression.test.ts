@@ -59,6 +59,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"task-lifecycle-mutation-receipts",
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
+			"discuss-quiz",
 		]);
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'log_sources'").get()).not.toBeNull();
 		db.close();
@@ -90,6 +91,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"task-lifecycle-mutation-receipts",
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
+			"discuss-quiz",
 		]);
 		db.close();
 	});
@@ -121,6 +123,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"task-lifecycle-mutation-receipts",
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
+			"discuss-quiz",
 		]);
 		db.close();
 	});

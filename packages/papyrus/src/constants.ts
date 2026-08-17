@@ -17,7 +17,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 29;
+export const SQLITE_SCHEMA_VERSION = 30;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -243,6 +243,25 @@ export const DISCUSSION_OPTION_MAX_LENGTH = 200;
 export const DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH = 240;
 // Below this, a binary yes/no choice is often self-evident and a description would just pad it.
 export const DISCUSSION_OPTION_DESCRIPTION_REQUIRED_FROM_COUNT = 3;
+/**
+ * A posed choice becomes a graded quiz/assessment once correct_options + explanation are given
+ * alongside options/optionsMode. correct_options is one or more entries drawn verbatim from
+ * options (exact text match, the same identity scheme `selected` already uses -- never an index
+ * or the display-only A/B/C/... label). A "single" quiz must have exactly one correct option
+ * (the participant can only pick one); a "multi" quiz allows several, graded correct iff the
+ * selected set exactly equals the correct set (no partial credit). explanation is mandatory --
+ * always shown after grading, especially when wrong, so a wrong answer still teaches something.
+ */
+export const DISCUSSION_QUIZ_EXPLANATION_MAX_CHARACTERS = 2_000;
+/**
+ * Display-only labels (A, B, C, ...) assigned to a quiz's options by position, computed on the
+ * fly wherever a quiz is rendered -- never persisted, never part of a quiz's addressing scheme.
+ * Single-letter labels only support up to 26 options; DISCUSSION_OPTIONS_MAX_COUNT (10) already
+ * sits comfortably under that ceiling, so there is deliberately no AA/AB double-letter overflow
+ * scheme -- raising DISCUSSION_OPTIONS_MAX_COUNT past 26 would need one added at the same time.
+ */
+export const DISCUSSION_QUIZ_OPTION_LABEL_MAX_COUNT = 26;
+
 /** Bounds for the generic graph projection protocol (external bounded contexts). */
 export const GRAPH_PROJECTION_MAX_ARTIFACTS_PER_BATCH = 500;
 export const GRAPH_PROJECTION_MAX_EDGES_PER_BATCH = 1_000;

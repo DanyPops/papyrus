@@ -307,6 +307,16 @@ CREATE TABLE IF NOT EXISTS discussion_rounds (
 	options_mode  TEXT,
 	selected      TEXT,
 	option_descriptions TEXT,
+	-- Quiz: quiz marks a posing round (safe, public); quiz_correct_options/quiz_explanation are the
+	-- hidden answer (never selected by any general-purpose query, only resolvePendingQuizAnswer's
+	-- own dedicated one); quiz_result_* is the graded outcome on the answering round (public, safe
+	-- once submission has already happened). See domain/discussion.ts.
+	quiz          INTEGER,
+	quiz_correct_options TEXT,
+	quiz_explanation TEXT,
+	quiz_result_correct INTEGER,
+	quiz_result_correct_options TEXT,
+	quiz_result_explanation TEXT,
 	UNIQUE (discussion_id, round_number)
 );
 CREATE INDEX IF NOT EXISTS discussion_rounds_discussion_idx ON discussion_rounds(discussion_id, round_number, id);
@@ -1006,6 +1016,35 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 				DROP TABLE artifact_scope_projects;
 				CREATE INDEX IF NOT EXISTS artifact_scope_members_member_idx ON artifact_scope_members(member_type, member_id, artifact_id);
 			`);
+		},
+	},
+	{
+		version: 30,
+		name: "discuss-quiz",
+		// See domain/discussion.ts. Nullable, purely additive columns, same pattern as version 16/19's
+		// own discuss-options/discuss-option-descriptions migrations -- a round with no quiz (the
+		// overwhelming majority) simply stores NULL in all six. quiz_correct_options/quiz_explanation
+		// are the hidden answer (a posing round) -- deliberately never selected by discussion_rounds'
+		// general-purpose read queries, only by SQLiteDiscussionRoundStore's own dedicated
+		// resolvePendingQuizAnswer. quiz_result_* is the graded outcome (an answering round, safe to
+		// read generally since it only exists after submission). Guarded per-column (SQLite has no
+		// `ADD COLUMN IF NOT EXISTS`), the same already-bootstrapped-fixture concern version 9's comment
+		// covers.
+		up: (db) => {
+			const existing = new Set(
+				(db.prepare("PRAGMA table_info(discussion_rounds)").all() as Array<{ name: string }>).map((row) => row.name),
+			);
+			const columns = [
+				["quiz", "INTEGER"],
+				["quiz_correct_options", "TEXT"],
+				["quiz_explanation", "TEXT"],
+				["quiz_result_correct", "INTEGER"],
+				["quiz_result_correct_options", "TEXT"],
+				["quiz_result_explanation", "TEXT"],
+			] as const;
+			for (const [column, type] of columns) {
+				if (!existing.has(column)) db.exec(`ALTER TABLE discussion_rounds ADD COLUMN ${column} ${type}`);
+			}
 		},
 	},
 ];

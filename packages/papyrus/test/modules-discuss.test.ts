@@ -93,6 +93,28 @@ describe("modules/discuss — registered operations", () => {
 		).toThrow(/options_mode must be/);
 	});
 
+	it("discuss.open and discuss.reply accept snake_case correct_options/explanation, grading the reply and hiding the answer beforehand", () => {
+		const { registry } = fixture();
+		const open = registry.get("discuss.open")!;
+		const opened = open.execute({
+			title: "Quiz",
+			actor: "a",
+			content: "Capital of France?",
+			options: ["Paris", "London"],
+			options_mode: "single",
+			correct_options: ["Paris"],
+			explanation: "Paris has been the capital since 987 AD.",
+		}) as { discussion: { id: string; extra: Record<string, unknown> }; rounds: Array<Record<string, unknown>> };
+		expect(opened.discussion.extra.discussion).toMatchObject({ pendingIsQuiz: true, pendingQuizRoundNumber: 1 });
+		expect(opened.rounds[0]).not.toHaveProperty("quizCorrectOptions");
+		expect(JSON.stringify(opened.rounds[0])).not.toContain("987 AD");
+		const reply = registry.get("discuss.reply")!;
+		const replied = reply.execute({ id: opened.discussion.id, actor: "b", content: "Paris", selected: ["Paris"] }) as {
+			rounds: Array<{ quizResult?: { correct: boolean } }>;
+		};
+		expect(replied.rounds[0]?.quizResult).toMatchObject({ correct: true });
+	});
+
 	it("discuss.list and discuss.rounds round-trip through the registry", () => {
 		const { registry } = fixture();
 		const open = registry.get("discuss.open")!;

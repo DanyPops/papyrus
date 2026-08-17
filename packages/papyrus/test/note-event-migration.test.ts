@@ -58,6 +58,7 @@ describe("note-events migration: existing extra.noteHistory blobs are preserved,
 			"task-lifecycle-mutation-receipts",
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
+			"discuss-quiz",
 		]);
 
 		const events = new SQLiteNoteEventStore(db).history("note-1", { direction: "asc" });

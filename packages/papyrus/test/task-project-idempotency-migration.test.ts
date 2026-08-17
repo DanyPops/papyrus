@@ -31,6 +31,7 @@ describe("task-projects-and-create-idempotency migration", () => {
 				"task-lifecycle-mutation-receipts",
 				"artifact-multi-project-scope",
 				"artifact-scope-tri-state-and-scope-groups",
+				"discuss-quiz",
 			],
 		});
 		expect(db.prepare("SELECT name, aliases_json, project_root FROM task_projects").all()).toEqual([

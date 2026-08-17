@@ -17,8 +17,13 @@ import type { VehicleContentBlock } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
-import { DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH, DISCUSSION_OPTION_MAX_LENGTH, DISCUSSION_OPTIONS_MAX_COUNT } from "../constants.ts";
-import { DISCUSSION_SUBTYPE, type DiscussionRound } from "../discussion/discussion.ts";
+import {
+	DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH,
+	DISCUSSION_OPTION_MAX_LENGTH,
+	DISCUSSION_OPTIONS_MAX_COUNT,
+	DISCUSSION_QUIZ_EXPLANATION_MAX_CHARACTERS,
+} from "../constants.ts";
+import { DISCUSSION_SUBTYPE, type DiscussionRound, quizOptionLabel } from "../discussion/discussion.ts";
 import type { DiscussionAndRounds, Discussions } from "../discussion/discussion-service.ts";
 import { discussOperations } from "../modules/discuss.ts";
 import {
@@ -41,6 +46,19 @@ function artifactLine(artifact: Artifact): string {
 
 function roundsTranscript(rounds: readonly DiscussionRound[]): string {
 	return rounds.map((round) => `  [round ${round.roundNumber}] ${round.actor}: ${round.content}`).join("\n") || "  (no rounds)";
+}
+
+/** Lettered rendering of a quiz round's options (A, B, C, ...) -- never shown for a plain, non-quiz
+ * posed choice, which keeps its existing comma-joined presentation unchanged (backward compatible). */
+function formatQuizOptions(options: readonly string[]): string {
+	return options.map((option, index) => `${quizOptionLabel(index)}. ${option}`).join("  ");
+}
+
+/** Appended to reply's own content block once a submission answered a pending quiz -- always states
+ * correct/incorrect and always includes the explanation (never optional, especially when wrong). */
+function formatQuizVerdict(result: { correct: boolean; correctOptions: string[]; explanation: string }): string {
+	const verdict = result.correct ? "✅ Correct!" : `❌ Incorrect -- correct answer(s): ${result.correctOptions.join(", ")}.`;
+	return `${verdict} ${result.explanation}`;
 }
 
 /**
@@ -129,6 +147,12 @@ const optionsUnionSchema = { type: "array" } as const;
  */
 const OPTION_BOUNDS_TEXT = `Each option is at most ${DISCUSSION_OPTION_MAX_LENGTH} characters (up to ${DISCUSSION_OPTIONS_MAX_COUNT} total); each description is at most ${DISCUSSION_OPTION_DESCRIPTION_MAX_LENGTH} characters.`;
 
+/**
+ * Quiz support layered onto the same options/options_mode a plain posed choice already uses.
+ * Interpolates the real, enforced explanation bound the same way OPTION_BOUNDS_TEXT does for options.
+ */
+const QUIZ_BOUNDS_TEXT = `To make it a graded quiz/knowledge assessment instead of a plain posed choice, also pass correct_options (one or more entries drawn verbatim from options -- exact text, not an index or display letter) + explanation (REQUIRED, at most ${DISCUSSION_QUIZ_EXPLANATION_MAX_CHARACTERS} characters, always shown after grading -- especially when wrong). A "single" quiz needs exactly one correct option; "multi" allows several, graded correct iff the reply's selected set exactly matches (no partial credit). Options display as lettered choices (A, B, C, ...) once a quiz is posed.`;
+
 export function registerDiscussVehicleOperations(registry: VehicleRegistry, discussions: Discussions, artifacts: ArtifactStore): void {
 	const moduleOperations = new Map(discussOperations(discussions).map((op) => [op.name, op]));
 	const call = <Output>(name: string, input: Record<string, unknown>): Output => moduleOperations.get(name)!.execute(input) as Output;
@@ -163,7 +187,7 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 
 	define(
 		"open",
-		`Opens a new Discussion and starts round 1. Optionally poses a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several) -- each option a bare string (self-evident) or {title, description} (a real tradeoff worth spelling out; description REQUIRED once there are 3+ options). ${OPTION_BOUNDS_TEXT} Optionally blocks one or more Tasks immediately via blocks_task_ids/blocks_task_names. Pass live:true to get a human's answer synchronously in this same call, via an interactive prompt -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.`,
+		`Opens a new Discussion and starts round 1. Optionally poses a structured choice via options (2-10 entries) + options_mode ('single' mutually exclusive, 'multi' allows several) -- each option a bare string (self-evident) or {title, description} (a real tradeoff worth spelling out; description REQUIRED once there are 3+ options). ${OPTION_BOUNDS_TEXT} ${QUIZ_BOUNDS_TEXT} Optionally blocks one or more Tasks immediately via blocks_task_ids/blocks_task_names. Pass live:true to get a human's answer synchronously in this same call, via an interactive prompt -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.`,
 		"local-write",
 		{
 			title: stringProp,
@@ -176,6 +200,8 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 			options: optionsUnionSchema,
 			options_mode: { type: "string", enum: ["single", "multi"] },
 			option_descriptions: arrayProp,
+			correct_options: arrayProp,
+			explanation: stringProp,
 			live: boolProp,
 			source: stringProp,
 			session_id: stringProp,
@@ -189,13 +215,15 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		},
 		(raw) => {
 			const result = raw as DiscussionAndRounds;
-			return { ...result, content: [contentBlock(`Opened discussion ${artifactLine(result.discussion)}`)] };
+			const posed = result.rounds[0];
+			const quizNote = posed?.quiz && posed.options ? `\n${formatQuizOptions(posed.options)}` : "";
+			return { ...result, content: [contentBlock(`Opened discussion ${artifactLine(result.discussion)}${quizNote}`)] };
 		},
 	);
 
 	define(
 		"reply",
-		`Adds a round to an existing Discussion. Refused once deferred or settled -- resume first. Answers a currently pending posed choice via \`selected\` (validated against it), or poses a new choice via options/options_mode. ${OPTION_BOUNDS_TEXT} Prefer \`name\` over \`id\`. Pass live:true to get a human's answer synchronously in this same call, via the pending choice's picker if one was posed, otherwise a freeform question -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.`,
+		`Adds a round to an existing Discussion. Refused once deferred or settled -- resume first. Answers a currently pending posed choice via \`selected\` (validated against it) -- if that choice was a quiz, the answer is graded automatically and the verdict + explanation come back in this same call. Or poses a new choice via options/options_mode. ${OPTION_BOUNDS_TEXT} ${QUIZ_BOUNDS_TEXT} Prefer \`name\` over \`id\`. Pass live:true to get a human's answer synchronously in this same call, via the pending choice's picker if one was posed, otherwise a freeform question -- only takes effect with an interactive UI available, otherwise degrades silently to the normal durably-recorded round.`,
 		"local-write",
 		{
 			id: stringProp,
@@ -206,6 +234,8 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 			options: optionsUnionSchema,
 			options_mode: { type: "string", enum: ["single", "multi"] },
 			option_descriptions: arrayProp,
+			correct_options: arrayProp,
+			explanation: stringProp,
 			live: boolProp,
 			source: stringProp,
 			session_id: stringProp,
@@ -218,9 +248,12 @@ export function registerDiscussVehicleOperations(registry: VehicleRegistry, disc
 		},
 		(raw) => {
 			const result = raw as DiscussionAndRounds;
+			const answered = result.rounds[0];
+			const posed = answered?.quiz && answered.options ? `\n${formatQuizOptions(answered.options)}` : "";
+			const verdict = answered?.quizResult ? `\n${formatQuizVerdict(answered.quizResult)}` : "";
 			return {
 				...result,
-				content: [contentBlock(`Round ${result.rounds[0]?.roundNumber} added to "${result.discussion.title}"`)],
+				content: [contentBlock(`Round ${answered?.roundNumber} added to "${result.discussion.title}"${posed}${verdict}`)],
 			};
 		},
 	);

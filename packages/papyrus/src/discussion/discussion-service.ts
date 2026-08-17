@@ -12,13 +12,16 @@ import {
 	DISCUSSION_SUBTYPE,
 	type DiscussionExtra,
 	type DiscussionOptionsMode,
+	type DiscussionQuizResult,
 	type DiscussionRound,
+	gradeQuizAnswer,
 	isDiscussionArtifact,
 	readDiscussionExtra,
 	validateDeferReason,
 	validateDiscussionActor,
 	validateDiscussionContent,
 	validateDiscussionOptions,
+	validateDiscussionQuiz,
 	validateSelectedOptions,
 	validateSettlement,
 } from "./discussion.ts";
@@ -38,17 +41,25 @@ export interface OpenDiscussionInput {
 	optionsMode?: DiscussionOptionsMode;
 	/** Index-aligned with options -- see domain/discussion.ts's pendingOptionDescriptions. */
 	optionDescriptions?: string[];
+	/** Turns the posed choice into a graded quiz -- both required together, alongside options/optionsMode.
+	 * See domain/discussion.ts's validateDiscussionQuiz. */
+	quizCorrectOptions?: string[];
+	quizExplanation?: string;
 }
 
 export interface ReplyInput {
 	actor: string;
 	content: string;
-	/** Answers the Discussion's currently pending posed choice, if any; validated against it. */
+	/** Answers the Discussion's currently pending posed choice, if any; validated against it. If the
+	 * pending choice was a quiz, this is also graded automatically -- see the round's own quizResult. */
 	selected?: string[];
 	/** Poses a new choice on this same round, replacing whatever was previously pending. */
 	options?: string[];
 	optionsMode?: DiscussionOptionsMode;
 	optionDescriptions?: string[];
+	/** Turns the newly-posed choice into a graded quiz -- both required together. */
+	quizCorrectOptions?: string[];
+	quizExplanation?: string;
 }
 
 export interface DiscussionAndRounds {
@@ -72,20 +83,50 @@ export class Discussions {
 		return readDiscussionExtra(discussion.extra);
 	}
 
-	/** Validates a freshly-posed choice; undefined when neither field is given (nothing posed), since both/neither is the only valid shape. */
+	/**
+	 * Validates a freshly-posed choice; undefined when nothing is posed at all (neither options nor
+	 * quiz fields given), since both/neither is the only valid shape. correct_options/explanation
+	 * turn the choice into a graded quiz -- both required together, and only once options/optionsMode
+	 * are also given.
+	 */
 	private validatePosedOptions(
 		options: string[] | undefined,
 		optionsMode: DiscussionOptionsMode | undefined,
 		optionDescriptions: string[] | undefined,
-	): { options: string[]; mode: DiscussionOptionsMode; optionDescriptions?: string[] } | undefined {
-		if (options === undefined && optionsMode === undefined) return undefined;
-		return validateDiscussionOptions(options ?? [], optionsMode ?? "", optionDescriptions);
+		quizCorrectOptions: string[] | undefined,
+		quizExplanation: string | undefined,
+	):
+		| {
+				options: string[];
+				mode: DiscussionOptionsMode;
+				optionDescriptions?: string[];
+				quiz?: { correctOptions: string[]; explanation: string };
+		  }
+		| undefined {
+		if (options === undefined && optionsMode === undefined) {
+			if (quizCorrectOptions !== undefined || quizExplanation !== undefined) {
+				throw new Error("correct_options/explanation require options and options_mode to also be posed");
+			}
+			return undefined;
+		}
+		const posed = validateDiscussionOptions(options ?? [], optionsMode ?? "", optionDescriptions);
+		if (quizCorrectOptions === undefined && quizExplanation === undefined) return posed;
+		if (quizCorrectOptions === undefined || quizExplanation === undefined) {
+			throw new Error("correct_options and explanation must both be given to pose a quiz, or neither");
+		}
+		return { ...posed, quiz: validateDiscussionQuiz(posed.options, posed.mode, quizCorrectOptions, quizExplanation) };
 	}
 
 	open(input: OpenDiscussionInput, context?: ArtifactEventContext): DiscussionAndRounds {
 		const actor = validateDiscussionActor(input.actor);
 		const content = validateDiscussionContent(input.content);
-		const posed = this.validatePosedOptions(input.options, input.optionsMode, input.optionDescriptions);
+		const posed = this.validatePosedOptions(
+			input.options,
+			input.optionsMode,
+			input.optionDescriptions,
+			input.quizCorrectOptions,
+			input.quizExplanation,
+		);
 		return this.artifacts.atomic(() => {
 			const discussion = this.artifacts.create(
 				{
@@ -104,6 +145,7 @@ export class Discussions {
 										pendingOptions: posed.options,
 										pendingOptionsMode: posed.mode,
 										...(posed.optionDescriptions ? { pendingOptionDescriptions: posed.optionDescriptions } : {}),
+										...(posed.quiz ? { pendingIsQuiz: true, pendingQuizRoundNumber: 1 } : {}),
 									}
 								: {}),
 						},
@@ -122,6 +164,9 @@ export class Discussions {
 								options: posed.options,
 								optionsMode: posed.mode,
 								...(posed.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}),
+								...(posed.quiz
+									? { quiz: true, quizCorrectOptions: posed.quiz.correctOptions, quizExplanation: posed.quiz.explanation }
+									: {}),
 							}
 						: {}),
 				},
@@ -135,7 +180,13 @@ export class Discussions {
 	reply(discussionId: string, input: ReplyInput, context?: ArtifactEventContext): DiscussionAndRounds {
 		const validActor = validateDiscussionActor(input.actor);
 		const validContent = validateDiscussionContent(input.content);
-		const posed = this.validatePosedOptions(input.options, input.optionsMode, input.optionDescriptions);
+		const posed = this.validatePosedOptions(
+			input.options,
+			input.optionsMode,
+			input.optionDescriptions,
+			input.quizCorrectOptions,
+			input.quizExplanation,
+		);
 		return this.artifacts.atomic(() => {
 			const discussion = requireDiscussion(this.artifacts.get(discussionId), discussionId);
 			const state = this.extra(discussion);
@@ -144,6 +195,24 @@ export class Discussions {
 				throw new DiscussionError(`discussion "${discussionId}" has reached its ${DISCUSSION_MAX_ROUNDS}-round limit; settle or defer it`);
 			const selected =
 				input.selected !== undefined ? validateSelectedOptions(input.selected, state.pendingOptions, state.pendingOptionsMode) : undefined;
+			// Grading happens right here, inside this same transaction: the hidden answer is read via
+			// resolvePendingQuizAnswer (the one deliberate hole in "never expose the quiz's answer",
+			// scoped to exactly this call) and immediately folded into a safe, already-graded quizResult --
+			// nothing upstream of this method ever sees the raw correct-options set for an unanswered quiz.
+			const quizResult: DiscussionQuizResult | undefined =
+				selected && state.pendingIsQuiz && state.pendingQuizRoundNumber !== undefined
+					? (() => {
+							const hidden = this.rounds.resolvePendingQuizAnswer(discussionId, state.pendingQuizRoundNumber as number);
+							if (!hidden) {
+								throw new DiscussionError(`discussion "${discussionId}" has no recorded quiz answer for its pending round`);
+							}
+							return {
+								correct: gradeQuizAnswer(selected, hidden.correctOptions),
+								correctOptions: hidden.correctOptions,
+								explanation: hidden.explanation,
+							};
+						})()
+					: undefined;
 			const nextRound = state.roundCount + 1;
 			const round = this.rounds.append(
 				{
@@ -156,21 +225,28 @@ export class Discussions {
 								options: posed.options,
 								optionsMode: posed.mode,
 								...(posed.optionDescriptions ? { optionDescriptions: posed.optionDescriptions } : {}),
+								...(posed.quiz
+									? { quiz: true, quizCorrectOptions: posed.quiz.correctOptions, quizExplanation: posed.quiz.explanation }
+									: {}),
 							}
 						: {}),
 					...(selected ? { selected } : {}),
+					...(quizResult ? { quizResult } : {}),
 				},
 				new Date().toISOString(),
 			);
 			// Whenever this round answers the pending choice OR poses a new one, the base must drop ALL
-			// three pending* fields first -- otherwise a re-pose that omits descriptions this time would
+			// pending* fields first -- otherwise a re-pose that omits descriptions this time would
 			// leave a stale pendingOptionDescriptions array (sized for the OLD options) spread through
-			// unchanged, no longer aligned 1:1 with the new pendingOptions. Only a plain reply that
-			// neither answers nor re-poses leaves the existing pending state untouched.
+			// unchanged, no longer aligned 1:1 with the new pendingOptions (and likewise for a stale
+			// pendingIsQuiz/pendingQuizRoundNumber pointing at a round that's no longer pending). Only a
+			// plain reply that neither answers nor re-poses leaves the existing pending state untouched.
 			const {
 				pendingOptions: _clearedOptions,
 				pendingOptionsMode: _clearedMode,
 				pendingOptionDescriptions: _clearedDescriptions,
+				pendingIsQuiz: _clearedIsQuiz,
+				pendingQuizRoundNumber: _clearedQuizRoundNumber,
 				...withoutPending
 			} = state;
 			const nextState = {
@@ -181,6 +257,7 @@ export class Discussions {
 							pendingOptions: posed.options,
 							pendingOptionsMode: posed.mode,
 							...(posed.optionDescriptions ? { pendingOptionDescriptions: posed.optionDescriptions } : {}),
+							...(posed.quiz ? { pendingIsQuiz: true, pendingQuizRoundNumber: nextRound } : {}),
 						}
 					: {}),
 			};

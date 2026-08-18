@@ -3,9 +3,12 @@ import { join } from "node:path";
 import { createNodeAtomicJsonFsAdapter } from "@danypops/vehicle-server/atomic-json";
 import { readLaunchProvenance } from "@danypops/vehicle-server/daemon";
 import { diagnoseDaemon, openDaemonLifecycleLog } from "@danypops/vehicle-server/daemon-lifecycle";
+import { openVehicleMetricsStore } from "@danypops/vehicle-server/metrics";
+import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
+import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
 import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
-import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
+import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, metricsPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
 import { logEvent, logger } from "../log/log.ts";
 import { createApp, createPapyrusService } from "../service.ts";
 import {
@@ -69,6 +72,14 @@ export async function serveMain(): Promise<void> {
 	const startedAt = new Date().toISOString();
 	const token = loadOrCreateToken(stateDir);
 	const service = createPapyrusService(dbPath());
+	// Records how often each real operation is invoked (server-side, every caller) plus, via
+	// metrics.recordClientEvent, client-observed Vehicle Shell meta-tool calls -- see
+	// @danypops/vehicle-server's own metrics README section. Wired directly onto the same registry
+	// every real papyrus operation is already registered on, so it's discoverable through the exact
+	// same tools_list/tools_man path as any other operation.
+	const vehicleMetrics = openVehicleMetricsStore(metricsPath());
+	service.vehicle.useExecutionMiddleware(createVehicleMetricsMiddleware(vehicleMetrics, "papyrus"));
+	registerVehicleMetricsOperations(service.vehicle, vehicleMetrics, "papyrus");
 	const pushChannel = new PushChannel({ token });
 	const app = createApp({
 		service,
@@ -106,6 +117,7 @@ export async function serveMain(): Promise<void> {
 	});
 	if (!server.port) {
 		service.close();
+		vehicleMetrics.close();
 		releaseDaemonLock(lockPath);
 		throw new Error("Papyrus daemon failed to bind a listener");
 	}
@@ -168,6 +180,7 @@ export async function serveMain(): Promise<void> {
 		}
 		releaseDaemonLock(lockPath);
 		service.close();
+		vehicleMetrics.close();
 		// .finally() re-throws rather than handling a rejection -- catching it first turns a bare
 		// unhandled-rejection warning into a real, queryable shutdown-failure log line.
 		void recordLifecycle("stopped", signal)

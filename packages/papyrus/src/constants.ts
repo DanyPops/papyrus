@@ -363,6 +363,12 @@ export function dbPath(): string {
 	return `${xdg}/papyrus/papyrus.db`;
 }
 
+/** $XDG_DATA_HOME/papyrus/metrics.sqlite -- vehicle-server's own tool/operation usage metrics store, sibling of dbPath() above. */
+export function metricsPath(): string {
+	const xdg = process.env.XDG_DATA_HOME || `${process.env.HOME}/.local/share`;
+	return `${xdg}/papyrus/metrics.sqlite`;
+}
+
 /**
  * The initial status a newly created artifact of a kind gets when no caller-supplied
  * status is given. This must be an explicit, named mapping — never derived from row order

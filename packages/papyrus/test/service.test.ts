@@ -4,6 +4,9 @@ import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
 
+import { openVehicleMetricsStore } from "@danypops/vehicle-server/metrics";
+import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
+import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
 import { PapyrusClient } from "../src/client.ts";
 import { openDb } from "../src/db.ts";
 import { createApp, createPapyrusService, EXPECTED_OPERATION_NAMES } from "../src/service.ts";
@@ -155,6 +158,39 @@ describe("Papyrus operation service", () => {
 		expect(body.error.code).toBe("migration-required");
 		expect(body.error.category).toBe("unavailable");
 		expect(body.error.message).toContain("papyrus migrate schema");
+		service.close();
+	});
+
+	it("metrics.query/metrics.recordClientEvent -- mirrors daemon.ts's own wiring -- observe a real /vehicle/invoke call", async () => {
+		const { service, app } = fixture();
+		const vehicleMetrics = openVehicleMetricsStore(":memory:");
+		service.vehicle.useExecutionMiddleware(createVehicleMetricsMiddleware(vehicleMetrics, "papyrus"));
+		registerVehicleMetricsOperations(service.vehicle, vehicleMetrics, "papyrus");
+
+		const manifestResponse = await request(app, "/vehicle/manifest");
+		const manifestBody = (await manifestResponse.json()) as { operations: Array<{ name: string }> };
+		expect(manifestBody.operations.map((operation) => operation.name)).toEqual(
+			expect.arrayContaining(["metrics.query", "metrics.recordClientEvent"]),
+		);
+
+		await request(app, "/vehicle/invoke", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "tasks.list",
+				version: 1,
+				input: { project_root: PROJECT_ROOT },
+				permissions: ["tasks:read", "tasks:write"],
+			}),
+		});
+
+		const queryResponse = await request(app, "/vehicle/invoke", {
+			method: "POST",
+			body: JSON.stringify({ name: "metrics.query", version: 1, input: { toolName: "tasks.list" }, permissions: [] }),
+		});
+		const { output } = (await queryResponse.json()) as { output: Array<{ count: number }> };
+		expect(output[0]).toMatchObject({ count: 1 });
+
+		vehicleMetrics.close();
 		service.close();
 	});
 

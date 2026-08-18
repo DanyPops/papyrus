@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "@danypops/vehicle-client-pi": "^0.43.1",
+    "@danypops/vehicle-client-pi": "^0.43.4",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@danypops/pi-tui-harness": "^0.0.2",
-    "@danypops/vehicle-client-pi": "^0.43.1",
+    "@danypops/vehicle-client-pi": "^0.43.4",
     "@danypops/vehicle-conformance": "^0.3.0",
     "@earendil-works/pi-coding-agent": "^0.80.10",
     "bun-types": "latest",

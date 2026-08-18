@@ -25,7 +25,12 @@
 
 import { createReconnectingVehicleClient, daemonInstanceIdentity } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
-import { type RegisteredPiVehicle, registerVehicleToolsWhenReady, type VehicleReadyEvent } from "@danypops/vehicle-client-pi";
+import {
+	createMetricsAwareToolName,
+	type RegisteredPiVehicle,
+	registerVehicleToolsWhenReady,
+	type VehicleReadyEvent,
+} from "@danypops/vehicle-client-pi";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discussLiveFollowUp } from "../discuss/discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "../service-client.ts";
@@ -128,6 +133,13 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 		},
 	);
 	return registerVehicleToolsWhenReady(pi, () => Promise.resolve(currentVehicleClientTarget() ? client : undefined), {
+		// registerVehicleMetricsOperations(..., "papyrus") in @danypops/papyrus's own daemon.ts uses
+		// the default "metrics" prefix -- without this, its metrics.query/metrics.recordClientEvent
+		// operations would project to the exact same bare "metrics_query"/"metrics_record_client_event"
+		// Pi tool names as any other Vehicle that adopts the same shared module with its own default
+		// (a real, live incident: tickets did too, and Pi's own tool registry refused the second
+		// registration outright, aborting that Vehicle's entire tool surface for the session).
+		toolName: createMetricsAwareToolName("papyrus"),
 		log: (event) => {
 			// Correlates against onInvoked's own timestamps below -- the /reload investigation's
 			// leading theory is a race between this fire-and-forget registration actually

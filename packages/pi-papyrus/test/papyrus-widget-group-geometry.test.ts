@@ -146,4 +146,42 @@ describe("PapyrusWidgetGroup grid geometry (golden, real ANSI theme)", () => {
 		expect(new Set(naiveColumns).size).toBeGreaterThan(1);
 		expect(new Set(realColumns).size).toBe(1);
 	});
+
+	it("golden: a single open Notes-only section renders as a plain owner line + one real child branch, never a connector on the owner itself", async () => {
+		// The exact reported shape: Tasks empty (hidden), only Notes open. Before this fix,
+		// renderWidgetSectionGroup's stacked path treated the owner as a TreeView node of its own,
+		// producing "└── Papyrus" / "    └── Notes 7" -- implying Papyrus was itself some outer root's
+		// own lone child, which it never is (matches Rich's own tree docs: a root never carries a
+		// connector, only its real children do).
+		setPapyrusClientConnectorForTests(async () => {
+			return {
+				async call(op: string) {
+					if (op === "tasks.graph") return { nodes: [], rootIds: [] };
+					if (op === "notes.list") return Array.from({ length: 7 }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, extra: { projectRoot: "/proj" } }));
+					return undefined;
+				},
+			} as any;
+		});
+
+		const ui = fakeUi();
+		const group = new PapyrusWidgetGroup();
+		group.setUI(ui as unknown as ExtensionUIContext);
+		const taskOverlay = new TaskOverlay();
+		const noteOverlay = new NoteOverlay();
+		taskOverlay.setWidgetGroup(group);
+		noteOverlay.setWidgetGroup(group);
+		taskOverlay.setProjectRoot("/proj");
+		noteOverlay.setProjectRoot("/proj");
+		group.setOverlays(taskOverlay, noteOverlay);
+
+		await taskOverlay.refresh();
+		await noteOverlay.refresh();
+
+		// Narrow enough that even a two-section case would stack -- with only one section open here,
+		// it's always the stacked tree regardless of width.
+		const lines = renderRegisteredWidget(ui, realTheme, 80).map((line) => line.replace(ANSI_SGR_PATTERN, ""));
+		expect(lines).toEqual(["Papyrus", "└── Notes 7"]);
+
+		resetPapyrusClientForTests();
+	});
 });

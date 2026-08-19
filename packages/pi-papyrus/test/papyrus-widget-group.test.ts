@@ -97,9 +97,10 @@ describe("PapyrusWidgetGroup", () => {
 		expect(wideLines[1]).toContain("Notes 1");
 		expect(wideLines.join("\n")).toContain("Ship the widget group");
 
-		// A narrow viewport falls back to the stacked tree instead.
+		// A narrow viewport falls back to the stacked tree instead -- the owner is a plain,
+		// unconnected label (matching Rich's own root convention), sections are its real children.
 		const narrowLines = renderRegisteredWidget(ui, 40);
-		expect(narrowLines[0]).toBe("└── Papyrus");
+		expect(narrowLines[0]).toBe("Papyrus");
 		const narrowJoined = narrowLines.join("\n");
 		expect(narrowJoined).toContain("Tasks");
 		expect(narrowJoined).toContain("Notes 1");

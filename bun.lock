@@ -33,7 +33,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.55.9",
+      "version": "0.56.1",
       "dependencies": {
         "@danypops/jittor": "^0.19.2",
         "@danypops/papyrus": "^0.59.0",
@@ -41,7 +41,7 @@
         "@danypops/vehicle-core": "^0.17.1",
         "@danypops/vehicle-server": "^0.25.2",
         "beautiful-mermaid": "1.1.3",
-        "malevich-tui-components": "^0.31.0",
+        "malevich-tui-components": "^0.31.1",
       },
       "devDependencies": {
         "@danypops/pi-tui-harness": "^0.0.2",
@@ -503,7 +503,7 @@
 
     "lru-cache": ["lru-cache@11.5.2", "", {}, "sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g=="],
 
-    "malevich-tui-components": ["malevich-tui-components@0.31.0", "", {}, "sha512-6TUJm51s89qym/CNuJMEeDp+kQU3k2kfgGtgpuSYvgNE8wSJRldCfvbTosUB6rsHAw/QBtn9h3LeDIcW7X62Qg=="],
+    "malevich-tui-components": ["malevich-tui-components@0.31.1", "", {}, "sha512-aOtg/Q00t5w5jJnOpUI7KQtmmD5VwmuwPzBDCrJM/WKy/uoVlzUJzJyK9yMvr9f5VrVSqyB7Eelig/MOI0eZ+A=="],
 
     "marked": ["marked@18.0.5", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w=="],
 

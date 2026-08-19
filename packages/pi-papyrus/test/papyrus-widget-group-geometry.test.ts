@@ -1,15 +1,8 @@
 /**
- * Golden geometry test for PapyrusWidgetGroup's two-column grid layout -- a real, live incident:
- * renderWidgetSectionGroup was wired with NO `measure` option, silently defaulting to malevich's
- * own asciiTextMeasure (documented as having "no ANSI-escape awareness"). Every task row is real
- * ANSI-colored content (theme.fg() for focus/status glyphs), so the naive measure mismeasured its
- * true visible width -- the SplitPane border landed at the wrong visible column on the task row's
- * own line, one column per rendered row instead of a single consistent column for the whole grid.
- *
- * Exercises the REAL registered widget (not renderWidgetSectionGroup called standalone) with a
- * REAL ANSI-emitting Theme (a bracket-marker fake theme is not equivalent for measuring physical/
- * visible line width) and a realistic long task title -- exactly the shape that broke in
- * production -- asserting every line's border character sits at the SAME visible column.
+ * Golden geometry test for PapyrusWidgetGroup's CardRow-based grid layout (bordered per-tool
+ * cards, auto-fit tiled) -- exercises the REAL registered widget (not renderCardRow called
+ * standalone) with a REAL ANSI-emitting Theme and realistic data, since a bracket-marker fake
+ * theme is not equivalent for measuring physical/visible line width.
  */
 import { describe, expect, it } from "bun:test";
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -31,23 +24,18 @@ function renderRegisteredWidget(ui: { calls: unknown[][] }, theme: Theme, width:
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI SGR escapes are real control characters -- stripping them is the whole point here.
 const ANSI_SGR_PATTERN = /\x1b\[[0-9;]*m/g;
 
-/** The border char's own visible COLUMN index within `line`, or undefined if this line carries none
- * (e.g. a stacked-tree line, or a grid row with nothing on the right side that line). Strips ANSI
- * SGR escapes first -- a naive raw-character indexOf would count invisible escape bytes as columns. */
-function borderColumn(line: string): number | undefined {
-	const stripped = line.replace(ANSI_SGR_PATTERN, "");
-	const index = stripped.indexOf("│");
-	return index === -1 ? undefined : index;
+function strip(line: string): string {
+	return line.replace(ANSI_SGR_PATTERN, "");
 }
 
-const REALISTIC_TASK_GRAPH = {
-	nodes: [
-		{
+function taskGraph(titles: string[]) {
+	return {
+		nodes: titles.map((title, i) => ({
 			task: {
-				id: "t1",
-				alias: "t1",
+				id: `t${i}`,
+				alias: `t${i}`,
 				kind: "task",
-				title: "Grant: a budget-gated, steer-resumable long-running Vehicle operation pattern (turns/tool-calls/tokens/wallclock)",
+				title,
 				status: "todo",
 				subtype: "",
 				body: "",
@@ -60,53 +48,58 @@ const REALISTIC_TASK_GRAPH = {
 			parentIds: [],
 			childIds: [],
 			dependencyIds: [],
-		},
-	],
-	rootIds: ["t1"],
-};
+		})),
+		rootIds: titles.map((_, i) => `t${i}`),
+	};
+}
 
-describe("PapyrusWidgetGroup grid geometry (golden, real ANSI theme)", () => {
-	it("keeps the SplitPane border at the same visible column on every line, including a real ANSI-colored, over-length task row", async () => {
-		setPapyrusClientConnectorForTests(async () => {
-			return {
-				async call(op: string) {
-					if (op === "tasks.graph") return REALISTIC_TASK_GRAPH;
-					if (op === "notes.list") return Array.from({ length: 7 }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, extra: { projectRoot: "/proj" } }));
-					return undefined;
-				},
-			} as any;
-		});
+async function buildWidget(
+	tasks: string[],
+	notes: number,
+): Promise<{ ui: { calls: unknown[][] }; group: PapyrusWidgetGroup }> {
+	setPapyrusClientConnectorForTests(async () => {
+		return {
+			async call(op: string) {
+				if (op === "tasks.graph") return taskGraph(tasks);
+				if (op === "notes.list") return Array.from({ length: notes }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, extra: { projectRoot: "/proj" } }));
+				return undefined;
+			},
+		} as any;
+	});
+	const ui = fakeUi();
+	const group = new PapyrusWidgetGroup();
+	group.setUI(ui as unknown as ExtensionUIContext);
+	const taskOverlay = new TaskOverlay();
+	const noteOverlay = new NoteOverlay();
+	taskOverlay.setWidgetGroup(group);
+	noteOverlay.setWidgetGroup(group);
+	taskOverlay.setProjectRoot("/proj");
+	noteOverlay.setProjectRoot("/proj");
+	group.setOverlays(taskOverlay, noteOverlay);
+	await taskOverlay.refresh();
+	await noteOverlay.refresh();
+	return { ui, group };
+}
 
-		const ui = fakeUi();
-		const group = new PapyrusWidgetGroup();
-		group.setUI(ui as unknown as ExtensionUIContext);
-		const taskOverlay = new TaskOverlay();
-		const noteOverlay = new NoteOverlay();
-		taskOverlay.setWidgetGroup(group);
-		noteOverlay.setWidgetGroup(group);
-		taskOverlay.setProjectRoot("/proj");
-		noteOverlay.setProjectRoot("/proj");
-		group.setOverlays(taskOverlay, noteOverlay);
+const LONG_TITLE =
+	"Grant: a budget-gated, steer-resumable long-running Vehicle operation pattern (turns/tool-calls/tokens/wallclock)";
 
-		await taskOverlay.refresh();
-		await noteOverlay.refresh();
-
+describe("PapyrusWidgetGroup CardRow grid geometry (golden, real ANSI theme)", () => {
+	it("Tasks + Notes tile side by side as two bordered cards on a wide terminal -- borders align, real ANSI-colored over-length content stays in budget", async () => {
+		const { ui } = await buildWidget([LONG_TITLE], 7);
 		const width = 150;
 		const lines = renderRegisteredWidget(ui, realTheme, width);
 
-		// Confirms the grid path (not the narrow stacked-tree fallback) actually fired -- the grid's
-		// own bare owner header line, no tree connector (real theme colors it, so strip ANSI first).
-		expect(lines[0]!.replace(ANSI_SGR_PATTERN, "")).toBe("Papyrus");
+		// Two separate cards, each with its own full "Papyrus · <label>" title -- no shared owner
+		// header line the way the old tree/split layout had.
+		const headerLine = strip(lines[0]!);
+		expect(headerLine).toContain("Papyrus · Tasks");
+		expect(headerLine).toContain("Papyrus · Notes 7");
 
-		const borderColumns = lines.map(borderColumn).filter((column): column is number => column !== undefined);
-		expect(borderColumns.length).toBeGreaterThan(0);
-		const firstColumn = borderColumns[0]!;
-		for (const column of borderColumns) expect(column).toBe(firstColumn);
-
-		// The divider itself is never glued directly onto either column's own text -- a real, live
-		// incident: "Tasks · vehicle...│Notes 2" read as jammed/cramped with zero breathing room.
-		const headerLine = lines.find((line) => line.replace(ANSI_SGR_PATTERN, "").includes("│"));
-		expect(headerLine?.replace(ANSI_SGR_PATTERN, "")).toContain(" │ ");
+		// Every card's own bottom-border corner lands on the SAME physical line (pad-before-framing).
+		const bottomLine = lines[lines.length - 1]!;
+		expect((bottomLine.match(/╰/g) ?? []).length).toBe(2);
+		expect((bottomLine.match(/╯/g) ?? []).length).toBe(2);
 
 		// Every physical line, including the long ANSI-colored task row, stays within budget.
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
@@ -114,78 +107,62 @@ describe("PapyrusWidgetGroup grid geometry (golden, real ANSI theme)", () => {
 		resetPapyrusClientForTests();
 	});
 
-	it("regression guard: the naive ASCII measure alone (no ANSI awareness) really does misplace the border on this exact shape -- proving the fix's own measure wiring is load-bearing, not cosmetic", async () => {
-		const { renderWidgetSectionGroup } = await import("malevich-tui-components");
+	it("regression guard: the naive ASCII measure alone (no ANSI awareness) really does misplace card widths on this exact shape -- proving the fix's own measure wiring is load-bearing, not cosmetic", async () => {
+		const { renderCardRow } = await import("malevich-tui-components");
 		const { buildTaskWidgetSection } = await import("../extension/src/index.ts");
+		const { AutoRotatingWindow } = await import("malevich-tui-components");
 		const { measure: realMeasure } = await import("../extension/src/tool-rendering/artifact-card.ts");
 		const projection = {
-			rows: [
-				{
-					task: REALISTIC_TASK_GRAPH.nodes[0]!.task,
-					depth: 0,
-					hasOpenChildren: false,
-					active: false,
-					parentCount: 1,
-				},
-			],
+			rows: [{ task: taskGraph([LONG_TITLE]).nodes[0]!.task, depth: 0, hasOpenChildren: false, active: false, parentCount: 1 }],
 			openTotal: 1,
 			total: 1,
 			scopeLabel: "vehicle",
 		} as Parameters<typeof buildTaskWidgetSection>[1];
-		const taskSection = buildTaskWidgetSection(realTheme, projection)!;
-		const noteSection = { label: "Notes 7", render: () => [] };
+		const taskSection = buildTaskWidgetSection(realTheme, projection, new AutoRotatingWindow({ totalRows: 1, pageSize: 3, intervalMs: 6000 }))!;
+		const noteSection = { label: "Notes 7", render: () => ["· a note"] };
 
-		const withoutRealMeasure = renderWidgetSectionGroup({ owner: "Papyrus", sections: [taskSection, noteSection], minColumnWidth: 30 }).render(150);
-		const withRealMeasure = renderWidgetSectionGroup({
-			owner: "Papyrus",
-			sections: [taskSection, noteSection],
-			minColumnWidth: 30,
-			measure: realMeasure,
-		}).render(150);
+		const withoutRealMeasure = renderCardRow([taskSection, noteSection], 150, { minCardWidth: 30 });
+		const withRealMeasure = renderCardRow([taskSection, noteSection], 150, { minCardWidth: 30, measure: realMeasure });
 
-		const naiveColumns = withoutRealMeasure.map(borderColumn).filter((c): c is number => c !== undefined);
-		const realColumns = withRealMeasure.map(borderColumn).filter((c): c is number => c !== undefined);
-
-		// The naive measure's own border columns are NOT all equal (the exact geometry bug) --
-		// while the real-measure render is internally consistent.
-		expect(new Set(naiveColumns).size).toBeGreaterThan(1);
-		expect(new Set(realColumns).size).toBe(1);
+		// Both stay within the requested width either way (renderBox truncates defensively) -- the
+		// REAL bug is the naive measure counting the task row's own ANSI escape bytes as visible
+		// width, believing the string is longer than it actually is and truncating strictly more
+		// real title text than necessary.
+		const naiveBody = strip(withoutRealMeasure[1]!);
+		const realBody = strip(withRealMeasure[1]!);
+		// How much of the real title survived before the truncation ellipsis -- the naive measure,
+		// mistaking escape bytes for visible width, keeps strictly LESS of the real title.
+		expect(realBody.indexOf("…")).toBeGreaterThan(naiveBody.indexOf("…"));
+		for (const line of withRealMeasure) expect(visibleWidth(line)).toBeLessThanOrEqual(150);
 	});
 
-	it("golden: a single open Notes-only section renders as a plain owner line + one real child branch, never a connector on the owner itself", async () => {
-		// The exact reported shape: Tasks empty (hidden), only Notes open. Before this fix,
-		// renderWidgetSectionGroup's stacked path treated the owner as a TreeView node of its own,
-		// producing "└── Papyrus" / "    └── Notes 7" -- implying Papyrus was itself some outer root's
-		// own lone child, which it never is (matches Rich's own tree docs: a root never carries a
-		// connector, only its real children do).
-		setPapyrusClientConnectorForTests(async () => {
-			return {
-				async call(op: string) {
-					if (op === "tasks.graph") return { nodes: [], rootIds: [] };
-					if (op === "notes.list") return Array.from({ length: 7 }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, extra: { projectRoot: "/proj" } }));
-					return undefined;
-				},
-			} as any;
-		});
+	it("golden: a single open Notes-only card renders as ONE full-width bordered card with the real note titles as body lines, not just a count", async () => {
+		const { ui } = await buildWidget([], 2);
+		const lines = renderRegisteredWidget(ui, realTheme, 80).map(strip);
 
-		const ui = fakeUi();
-		const group = new PapyrusWidgetGroup();
-		group.setUI(ui as unknown as ExtensionUIContext);
-		const taskOverlay = new TaskOverlay();
-		const noteOverlay = new NoteOverlay();
-		taskOverlay.setWidgetGroup(group);
-		noteOverlay.setWidgetGroup(group);
-		taskOverlay.setProjectRoot("/proj");
-		noteOverlay.setProjectRoot("/proj");
-		group.setOverlays(taskOverlay, noteOverlay);
+		expect(lines[0]).toContain("Papyrus · Notes 2");
+		expect(lines.some((line) => line.includes("· Note 0"))).toBe(true);
+		expect(lines.some((line) => line.includes("· Note 1"))).toBe(true);
+		// A lone card still fills the full given width.
+		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+		expect(visibleWidth(lines[0]!)).toBe(80);
 
-		await taskOverlay.refresh();
-		await noteOverlay.refresh();
+		resetPapyrusClientForTests();
+	});
 
-		// Narrow enough that even a two-section case would stack -- with only one section open here,
-		// it's always the stacked tree regardless of width.
-		const lines = renderRegisteredWidget(ui, realTheme, 80).map((line) => line.replace(ANSI_SGR_PATTERN, ""));
-		expect(lines).toEqual(["Papyrus", "└── Notes 7"]);
+	it("golden: once a card's own rows genuinely outgrow its visible-row budget, its title shows a page/total rotation hint -- never for a card that already fits", async () => {
+		// TASK_WIDGET_VISIBLE_ROWS is 3 -- 5 open tasks genuinely need 2 pages.
+		const { ui } = await buildWidget(
+			["Task A", "Task B", "Task C", "Task D", "Task E"],
+			2, // 2 notes fit in one page (NOTE_WIDGET_VISIBLE_ROWS is 3) -- no hint expected here
+		);
+		const lines = renderRegisteredWidget(ui, realTheme, 150);
+		const headerLine = strip(lines[0]!);
+
+		expect(headerLine).toContain("Papyrus · Tasks");
+		expect(headerLine).toMatch(/Tasks.*1\/2 ⟳/);
+		expect(headerLine).toContain("Papyrus · Notes 2");
+		expect(headerLine).not.toMatch(/Notes 2 · \d\/\d ⟳/);
 
 		resetPapyrusClientForTests();
 	});

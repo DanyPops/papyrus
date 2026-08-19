@@ -1,8 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { AutoRotatingWindow } from "malevich-tui-components";
 import { buildTaskWidgetSection, renderTaskSectionBodyLines, taskSectionLabel } from "../extension/src/index.ts";
 import type { TaskWidgetProjection } from "../extension/src/task/task-widget.ts";
+
+function rotation(totalRows: number): AutoRotatingWindow {
+	return new AutoRotatingWindow({ totalRows, pageSize: 3, intervalMs: 6000 });
+}
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -69,11 +74,11 @@ describe("task widget rendering", () => {
 
 describe("buildTaskWidgetSection", () => {
 	it("returns undefined (hide the section entirely) when no actionable work remains", () => {
-		expect(buildTaskWidgetSection(theme, { ...projection, rows: [], openTotal: 0 })).toBeUndefined();
+		expect(buildTaskWidgetSection(theme, { ...projection, rows: [], openTotal: 0 }, rotation(0))).toBeUndefined();
 	});
 
 	it("returns a real section, labeled and bodied, when there is open work", () => {
-		const section = buildTaskWidgetSection(theme, projection);
+		const section = buildTaskWidgetSection(theme, projection, rotation(projection.rows.length));
 		expect(section?.label).toBe("Tasks · papyrus · Release epic");
 		expect(section?.render(80)).toEqual(renderTaskSectionBodyLines(theme, projection, 80));
 	});

@@ -13,20 +13,24 @@ import {
 	type Artifact,
 	type GateResult,
 	NOTE_LIST_MAX_LIMIT,
+	NOTE_WIDGET_OPEN_LIMIT,
 	NOTE_WIDGET_POLL_INTERVAL_MS,
+	NOTE_WIDGET_VISIBLE_ROWS,
 	PAPYRUS_CONTEXT_INJECTION_CHANNEL,
 	PAPYRUS_VEHICLE_NAME,
 	TASK_DRIVER_MAX_TURNS,
 	TASK_DRIVER_MAX_UNCHANGED_TURNS,
 	TASK_WIDGET_POLL_INTERVAL_MS,
+	TASK_WIDGET_VISIBLE_ROWS,
 	type TaskGraph,
 	type TaskStatus,
+	WIDGET_CARD_ROTATION_INTERVAL_MS,
 } from "@danypops/papyrus";
 import type { PushChannelClient } from "@danypops/vehicle-client/daemon-client";
 import { vehicleWidgetOwner } from "@danypops/vehicle-client-pi/widget-header";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { renderWidgetSectionGroup, type WidgetSection } from "malevich-tui-components";
+import { AutoRotatingWindow, renderCardRow, type WidgetSection } from "malevich-tui-components";
 import { Type } from "typebox";
 import { formatMetadata } from "./artifact/artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
@@ -35,7 +39,7 @@ import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./cont
 import { buildContextInjection } from "./context/context-injection-telemetry.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss/discuss-ask-view.ts";
 import { resolveNameFields } from "./domain-tools.ts";
-import { buildNoteWidgetSection } from "./note/note-widget.ts";
+import { buildNoteWidgetSection, type NoteWidgetRow } from "./note/note-widget.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook/playbook-bridge.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
@@ -93,15 +97,22 @@ async function artifactNamesById(ids: readonly string[]): Promise<Map<string, st
 }
 
 // ---------------------------------------------------------------------------
-// Task + Notes widget (one shared aboveEditor tree -- PapyrusWidgetGroup below
-// composes both overlays' own sections via renderWidgetSectionGroup, instead of
-// each registering its own separate "Papyrus · <Label>" flat header)
+// Task + Notes widget (one shared aboveEditor CardRow grid -- PapyrusWidgetGroup below
+// tiles both overlays' own sections as bordered cards, instead of each registering
+// its own separate "Papyrus · <Label>" flat header)
 // ---------------------------------------------------------------------------
 
-/** The rows only -- no header line; PapyrusWidgetGroup's own owner header covers that now. */
-export function renderTaskSectionBodyLines(theme: Theme, projection: TaskWidgetProjection, width: number): string[] {
+/** Renders the page bounded by `rotation`'s own currentPageBounds() -- tree-connector glyphs
+ * are computed against the FULL row list at each row's own absolute index. */
+export function renderTaskSectionBodyLines(
+	theme: Theme,
+	projection: TaskWidgetProjection,
+	width: number,
+	rotation?: AutoRotatingWindow,
+): string[] {
+	const { start, end } = rotation?.currentPageBounds() ?? { start: 0, end: projection.rows.length };
 	const lines: string[] = [];
-	for (let index = 0; index < projection.rows.length; index++) {
+	for (let index = start; index < end; index++) {
 		const row = projection.rows[index]!;
 		const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
 		const hierarchy = taskTreeConnector({ depth: row.depth, hasChildren: row.hasOpenChildren, hasLaterSibling: laterSibling });
@@ -118,14 +129,16 @@ export function renderTaskSectionBodyLines(theme: Theme, projection: TaskWidgetP
 	return lines;
 }
 
-/** "Tasks" or "Tasks · <scope>" -- no more "Papyrus ·" prefix; the group's own owner header covers that. */
-export function taskSectionLabel(projection: TaskWidgetProjection): string {
-	return projection.scopeLabel ? `Tasks · ${projection.scopeLabel}` : "Tasks";
+/** "Tasks" or "Tasks · <scope>", plus a "page/total ⟳" suffix once genuinely paging. */
+export function taskSectionLabel(projection: TaskWidgetProjection, rotation?: AutoRotatingWindow): string {
+	const base = projection.scopeLabel ? `Tasks · ${projection.scopeLabel}` : "Tasks";
+	return rotation?.isPaging ? `${base} · ${rotation.pageIndex + 1}/${rotation.pageCount} ⟳` : base;
 }
 
-export function buildTaskWidgetSection(theme: Theme, projection: TaskWidgetProjection): WidgetSection | undefined {
+export function buildTaskWidgetSection(theme: Theme, projection: TaskWidgetProjection, rotation: AutoRotatingWindow): WidgetSection | undefined {
 	if (projection.openTotal === 0) return undefined;
-	return { label: taskSectionLabel(projection), render: (width) => renderTaskSectionBodyLines(theme, projection, width) };
+	rotation.setTotalRows(projection.rows.length);
+	return { label: taskSectionLabel(projection, rotation), render: (width) => renderTaskSectionBodyLines(theme, projection, width, rotation) };
 }
 
 export class TaskOverlay {
@@ -135,6 +148,11 @@ export class TaskOverlay {
 	private sessionId: string | undefined;
 	private readonly poll = new BoundedPoll();
 	private pushChannel: PushChannelClient | undefined;
+	private readonly rotation = new AutoRotatingWindow({
+		totalRows: 0,
+		pageSize: TASK_WIDGET_VISIBLE_ROWS,
+		intervalMs: WIDGET_CARD_ROTATION_INTERVAL_MS,
+	});
 
 	setWidgetGroup(group: PapyrusWidgetGroup): void {
 		this.widgetGroup = group;
@@ -196,7 +214,7 @@ export class TaskOverlay {
 
 	/** undefined when there is no open work to show -- PapyrusWidgetGroup's own signal to omit this section entirely. */
 	buildSection(theme: Theme): WidgetSection | undefined {
-		return buildTaskWidgetSection(theme, buildTaskWidgetProjection(this.snapshot));
+		return buildTaskWidgetSection(theme, buildTaskWidgetProjection(this.snapshot), this.rotation);
 	}
 
 	/**
@@ -224,16 +242,21 @@ export class TaskOverlay {
 }
 
 /**
- * Deliberately simple, unlike TaskOverlay's tree: just an open-note count for this session's own
- * CWD -- notes.list already scopes to project_root exactly (a note's projectRoot is fixed at
- * capture time), so passing this overlay's projectRoot is what makes the count CWD-aware by
- * default.
+ * notes.list already scopes to project_root exactly (a note's projectRoot is fixed at capture
+ * time), so passing this overlay's projectRoot is what makes it CWD-aware by default. Keeps a
+ * bounded set of actual note titles (NOTE_WIDGET_OPEN_LIMIT), not just a count.
  */
 export class NoteOverlay {
 	private widgetGroup: PapyrusWidgetGroup | undefined;
-	private openCount = 0;
+	private notes: NoteWidgetRow[] = [];
+	private totalOpenCount = 0;
 	private projectRoot: string | undefined;
 	private readonly poll = new BoundedPoll();
+	private readonly rotation = new AutoRotatingWindow({
+		totalRows: 0,
+		pageSize: NOTE_WIDGET_VISIBLE_ROWS,
+		intervalMs: WIDGET_CARD_ROTATION_INTERVAL_MS,
+	});
 
 	setWidgetGroup(group: PapyrusWidgetGroup): void {
 		this.widgetGroup = group;
@@ -250,9 +273,11 @@ export class NoteOverlay {
 				project_root: this.projectRoot,
 				limit: NOTE_LIST_MAX_LIMIT,
 			});
-			this.openCount = rows.length;
+			this.totalOpenCount = rows.length;
+			this.notes = rows.slice(0, NOTE_WIDGET_OPEN_LIMIT).map((row) => ({ id: row.id, title: row.title }));
 		} catch {
-			this.openCount = 0;
+			this.totalOpenCount = 0;
+			this.notes = [];
 		}
 		try {
 			this.widgetGroup?.requestUpdate();
@@ -263,12 +288,12 @@ export class NoteOverlay {
 
 	/** Theme-free existence check -- see TaskOverlay's own hasOpenWork() for why this needs to stay theme-free. */
 	hasOpenNotes(): boolean {
-		return this.openCount > 0;
+		return this.totalOpenCount > 0;
 	}
 
 	/** undefined when there are no open notes -- PapyrusWidgetGroup's own signal to omit this section entirely. */
 	buildSection(): WidgetSection | undefined {
-		return buildNoteWidgetSection(this.openCount);
+		return buildNoteWidgetSection(this.notes, this.totalOpenCount, this.rotation);
 	}
 
 	startPolling(intervalMs: number = NOTE_WIDGET_POLL_INTERVAL_MS): void {
@@ -291,12 +316,11 @@ export class NoteOverlay {
 const PAPYRUS_WIDGET_KEY = "pi-papyrus";
 
 /**
- * Owns the ONE real aboveEditor widget registration for both TaskOverlay and NoteOverlay, composing
- * their own current sections via renderWidgetSectionGroup -- "Papyrus" once, with "Tasks"/"Notes"
- * as its own indented children (or side-by-side columns once the terminal is wide enough), instead
- * of each overlay registering its own separate "Papyrus · <Label>" flat-header widget. Hidden
- * entirely (fully unregistered, not just empty lines) only once NEITHER overlay has anything to
- * show -- either overlay alone still renders its own section normally.
+ * Owns the ONE real aboveEditor widget registration for both TaskOverlay and NoteOverlay, tiling
+ * their own current sections as bordered CardRow cards, instead of each overlay registering its
+ * own separate "Papyrus · <Label>" flat-header widget. Hidden entirely (fully unregistered, not
+ * just empty lines) only once NEITHER overlay has anything to show -- either overlay alone still
+ * renders its own section normally.
  */
 export class PapyrusWidgetGroup {
 	private uiCtx: ExtensionUIContext | undefined;
@@ -304,6 +328,10 @@ export class PapyrusWidgetGroup {
 	private tui: any | undefined;
 	private taskOverlay: TaskOverlay | undefined;
 	private noteOverlay: NoteOverlay | undefined;
+	/** Repaint-only ticker (no data refetch) so a card's own auto-rotating overflow page visibly
+	 * advances even when nothing else has changed -- pageIndex is time-based, so a plain repaint is
+	 * all a page transition needs. */
+	private readonly rotationPoll = new BoundedPoll();
 
 	setUI(ctx: ExtensionUIContext): void {
 		if (ctx !== this.uiCtx) {
@@ -331,6 +359,7 @@ export class PapyrusWidgetGroup {
 				this.uiCtx.setWidget(PAPYRUS_WIDGET_KEY, undefined);
 				this.registered = false;
 				this.tui = undefined;
+				this.rotationPoll.stop();
 			}
 			return;
 		}
@@ -352,6 +381,7 @@ export class PapyrusWidgetGroup {
 				{ placement: "aboveEditor" },
 			);
 			this.registered = true;
+			this.rotationPoll.start(WIDGET_CARD_ROTATION_INTERVAL_MS, () => this.tui?.requestRender?.());
 		} else {
 			this.tui?.requestRender?.();
 		}
@@ -368,22 +398,24 @@ export class PapyrusWidgetGroup {
 				this.uiCtx.setWidget(PAPYRUS_WIDGET_KEY, undefined);
 				this.registered = false;
 				this.tui = undefined;
+				this.rotationPoll.stop();
 			}
 			return [];
 		}
-		return renderWidgetSectionGroup({
-			owner: vehicleWidgetOwner(PAPYRUS_VEHICLE_NAME),
-			sections,
-			ownerStyle: (s) => theme.fg("muted", s),
-			// Without this, renderWidgetSectionGroup falls back to malevich's own asciiTextMeasure,
-			// which is documented as having no ANSI-escape awareness -- every task row here is real
-			// ANSI-colored content (theme.fg() for focus/status glyphs), so the naive measure
-			// mismeasures its true visible width, breaking the two-column grid's own alignment (a
-			// real, live incident: the SplitPane border landed mid-line instead of after the actual
-			// column boundary). See tool-rendering/artifact-card.ts's own identical measure -- same
-			// fix, reused rather than re-derived.
+		// Each card carries its own full "Papyrus · <label>" title -- there's no separate shared
+		// owner header in a card grid the way there was in the old tree/split layout.
+		const owner = vehicleWidgetOwner(PAPYRUS_VEHICLE_NAME);
+		const cards: WidgetSection[] = sections.map((section) => ({
+			label: `${owner} · ${section.label}`,
+			render: section.render,
+			style: (s: string) => theme.fg("muted", s),
+		}));
+		return renderCardRow(cards, width, {
+			// ANSI-aware measure: every task row is real ANSI-colored content (theme.fg() for
+			// focus/status glyphs). See tool-rendering/artifact-card.ts's own identical measure.
 			measure: artifactCardMeasure,
-		}).render(width);
+			frameStyle: (s) => theme.fg("borderMuted", s),
+		});
 	}
 
 	dispose(): void {
@@ -393,6 +425,7 @@ export class PapyrusWidgetGroup {
 		this.uiCtx = undefined;
 		this.taskOverlay = undefined;
 		this.noteOverlay = undefined;
+		this.rotationPoll.stop();
 	}
 }
 

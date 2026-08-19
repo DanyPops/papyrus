@@ -24,7 +24,7 @@
     "@danypops/vehicle-core": "^0.17.1",
     "@danypops/vehicle-server": "^0.25.2",
     "beautiful-mermaid": "1.1.3",
-    "malevich-tui-components": "^0.31.2"
+    "malevich-tui-components": "^0.32.1"
   },
   "devDependencies": {
     "@danypops/pi-tui-harness": "^0.0.2",

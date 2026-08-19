@@ -1,8 +1,7 @@
 /**
  * PapyrusWidgetGroup owns the ONE real aboveEditor widget registration for both TaskOverlay and
- * NoteOverlay, composing their own current sections into a shared tree ("Papyrus" once, with
- * "Tasks"/"Notes" as its own indented children) instead of each registering its own separate
- * flat-header widget.
+ * NoteOverlay, composing their own current sections into a CardRow -- one bordered card per
+ * section, tiled side by side -- instead of each registering its own separate flat-header widget.
  */
 import { describe, expect, it } from "bun:test";
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -88,22 +87,18 @@ describe("PapyrusWidgetGroup", () => {
 		await taskOverlay.refresh();
 		await noteOverlay.refresh();
 
-		// A wide viewport (>= renderWidgetSectionGroup's own default 2*minColumnWidth+1) lays Tasks
-		// and Notes out side by side, not as separate stacked tree branches -- the grid path's own
-		// bare "Papyrus" header line (no tree connector), with both column headers on the SAME line.
+		// A wide viewport tiles Tasks and Notes as two bordered cards side by side, each carrying
+		// its own full "Papyrus · <label>" title -- both headers land on the SAME first line.
 		const wideLines = renderRegisteredWidget(ui, 200);
-		expect(wideLines[0]).toBe("Papyrus");
-		expect(wideLines[1]).toContain("Tasks");
-		expect(wideLines[1]).toContain("Notes 1");
+		expect(wideLines[0]).toContain("Papyrus · Tasks");
+		expect(wideLines[0]).toContain("Papyrus · Notes 1");
 		expect(wideLines.join("\n")).toContain("Ship the widget group");
 
-		// A narrow viewport falls back to the stacked tree instead -- the owner is a plain,
-		// unconnected label (matching Rich's own root convention), sections are its real children.
+		// A narrow viewport wraps the two cards into separate rows instead, each still full-width.
 		const narrowLines = renderRegisteredWidget(ui, 40);
-		expect(narrowLines[0]).toBe("Papyrus");
 		const narrowJoined = narrowLines.join("\n");
-		expect(narrowJoined).toContain("Tasks");
-		expect(narrowJoined).toContain("Notes 1");
+		expect(narrowJoined).toContain("Papyrus · Tasks");
+		expect(narrowJoined).toContain("Papyrus · Notes 1");
 		resetPapyrusClientForTests();
 	});
 

@@ -93,7 +93,7 @@ export const RULE_TEXT_HARD_LIMIT_CHARACTERS = 4000;
 /** Compact task-context limits keep recurring prompt injection bounded. */
 export const TASK_CONTEXT_CURRENT_LIMIT = 3;
 export const TASK_CONTEXT_REJECTED_LIMIT = 3;
-export const TASK_WIDGET_OPEN_LIMIT = 3;
+export const TASK_WIDGET_OPEN_LIMIT = 9;
 export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
 /**
  * Event-triggered refresh (tool_execution_end, session_compact/tree) can't see a Task
@@ -103,6 +103,14 @@ export const TASK_DETAIL_MIN_VISIBLE_LINES = 8;
 export const TASK_WIDGET_POLL_INTERVAL_MS = 20_000;
 /** Same fallback purpose as TASK_WIDGET_POLL_INTERVAL_MS, for the Notes widget's own count. */
 export const NOTE_WIDGET_POLL_INTERVAL_MS = 20_000;
+/** Max note titles kept for the Notes widget card. */
+export const NOTE_WIDGET_OPEN_LIMIT = 8;
+/** Visible rows per page in the Notes card. */
+export const NOTE_WIDGET_VISIBLE_ROWS = 3;
+/** Visible rows per page in the Tasks card. */
+export const TASK_WIDGET_VISIBLE_ROWS = 3;
+/** How often a paging widget card advances to its next page. */
+export const WIDGET_CARD_ROTATION_INTERVAL_MS = 6_000;
 export const TASK_DETAIL_MAX_VISIBLE_LINES = 24;
 export const TASK_DETAIL_RESERVED_ROWS = 8;
 export const TASK_DETAIL_HORIZONTAL_PAN_COLUMNS = 4;

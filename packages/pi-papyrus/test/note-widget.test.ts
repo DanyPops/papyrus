@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { AutoRotatingWindow } from "malevich-tui-components";
 import { NoteOverlay, PapyrusWidgetGroup } from "../extension/src/index.ts";
-import { buildNoteWidgetSection } from "../extension/src/note/note-widget.ts";
+import { buildNoteWidgetSection, type NoteWidgetRow } from "../extension/src/note/note-widget.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
 
 function note(id: string, title: string, projectRoot: string): Artifact {
@@ -20,19 +22,65 @@ function note(id: string, title: string, projectRoot: string): Artifact {
 	};
 }
 
+function rows(count: number): NoteWidgetRow[] {
+	return Array.from({ length: count }, (_, i) => ({ id: `n${i}`, title: `Note ${i}` }));
+}
+
+function rotation(pageSize: number, totalRows: number, now: () => number = () => 0): AutoRotatingWindow {
+	const window = new AutoRotatingWindow({ totalRows, pageSize, intervalMs: 1000, now });
+	return window;
+}
+
 describe("buildNoteWidgetSection", () => {
 	it("hides (returns undefined) when there are no open notes", () => {
-		expect(buildNoteWidgetSection(0)).toBeUndefined();
+		expect(buildNoteWidgetSection([], 0, rotation(3, 0))).toBeUndefined();
 	});
 
-	it("shows a label with the open count, and no body lines of its own, when there are open notes", () => {
-		const section = buildNoteWidgetSection(3);
-		expect(section?.label).toBe("Notes 3");
-		expect(section?.render(40)).toEqual([]);
+	it("shows a label with the TRUE open count and renders the actual note titles as real body lines, not just a count", () => {
+		const section = buildNoteWidgetSection(rows(2), 2, rotation(3, 2));
+		expect(section?.label).toBe("Notes 2");
+		expect(section?.render(40)).toEqual(["· Note 0", "· Note 1"]);
+	});
+
+	it("the label's own open count reflects the TRUE total even when fewer titles are actually kept/shown (bounded)", () => {
+		const section = buildNoteWidgetSection(rows(3), 23, rotation(3, 3));
+		expect(section?.label).toBe("Notes 23");
+	});
+
+	it("appends a page/total rotation hint to the label once the notes genuinely outgrow one page, never when they already fit", () => {
+		const fits = buildNoteWidgetSection(rows(2), 2, rotation(3, 2));
+		expect(fits?.label).toBe("Notes 2");
+
+		let now = 0;
+		const paging = rotation(3, 7, () => now);
+		const overflow = buildNoteWidgetSection(rows(7), 7, paging);
+		expect(overflow?.label).toBe("Notes 7 · 1/3 ⟳");
+		now = 1000;
+		expect(buildNoteWidgetSection(rows(7), 7, paging)?.label).toBe("Notes 7 · 2/3 ⟳");
+	});
+
+	it("renders only the current page's own titles, advancing as the injected clock advances", () => {
+		let now = 0;
+		const paging = rotation(2, 5, () => now);
+		expect(buildNoteWidgetSection(rows(5), 5, paging)?.render(40)).toEqual(["· Note 0", "· Note 1"]);
+		now = 1000;
+		expect(buildNoteWidgetSection(rows(5), 5, paging)?.render(40)).toEqual(["· Note 2", "· Note 3"]);
+		now = 2000;
+		expect(buildNoteWidgetSection(rows(5), 5, paging)?.render(40)).toEqual(["· Note 4"]);
+		now = 3000; // wraps back to page 0
+		expect(buildNoteWidgetSection(rows(5), 5, paging)?.render(40)).toEqual(["· Note 0", "· Note 1"]);
+	});
+
+	it("truncates an overlong note title to the given width", () => {
+		const section = buildNoteWidgetSection([{ id: "n1", title: "x".repeat(200) }], 1, rotation(3, 1));
+		const lines = section?.render(20) ?? [];
+		// visibleWidth, not raw .length -- truncateToWidth may embed zero-width ANSI reset codes
+		// around the ellipsis even for otherwise plain text.
+		expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(20);
 	});
 });
 
-describe("NoteOverlay: counts only open notes for this session's own CWD, by default", () => {
+describe("NoteOverlay: fetches and bounds real note titles for this session's own CWD, by default", () => {
 	afterEach(resetPapyrusClientForTests);
 
 	it("refresh() passes the overlay's project root through to notes.list, scoping the count to the CWD it was set to", async () => {
@@ -53,6 +101,26 @@ describe("NoteOverlay: counts only open notes for this session's own CWD, by def
 		await overlay.refresh();
 
 		expect(seenInput).toMatchObject({ project_root: "/workspace/one" });
+	});
+
+	it("exposes the actual note titles (bounded), not just a count", async () => {
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						return [note("a", "Follow up on X", "/workspace/one"), note("b", "Follow up on Y", "/workspace/one")];
+					},
+				}) as any,
+		);
+		const overlay = new NoteOverlay();
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
+		overlay.setProjectRoot("/workspace/one");
+
+		await overlay.refresh();
+
+		const section = overlay.buildSection();
+		expect(section?.label).toBe("Notes 2");
+		expect(section?.render(40)).toEqual(["· Follow up on X", "· Follow up on Y"]);
 	});
 
 	it("never throws, even when the daemon is unreachable or rendering itself fails", async () => {

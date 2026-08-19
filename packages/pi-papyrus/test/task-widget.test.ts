@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { TaskOverlay } from "../extension/src/index.ts";
+import { PapyrusWidgetGroup, TaskOverlay } from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,
 	resetPushChannelTargetResolverForTests,
@@ -133,11 +132,12 @@ describe("TaskOverlay.refresh(): never throws, even if rendering itself fails", 
 				}) as any,
 		);
 		const overlay = new TaskOverlay();
-		overlay.setUI({} as ExtensionUIContext);
+		overlay.setWidgetGroup({
+			requestUpdate: () => {
+				throw new Error("boom");
+			},
+		} as unknown as PapyrusWidgetGroup);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
-		(overlay as unknown as { render: () => void }).render = () => {
-			throw new Error("boom");
-		};
 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
@@ -152,11 +152,12 @@ describe("TaskOverlay.refresh(): never throws, even if rendering itself fails", 
 				}) as any,
 		);
 		const overlay = new TaskOverlay();
-		overlay.setUI({} as ExtensionUIContext);
+		overlay.setWidgetGroup({
+			requestUpdate: () => {
+				throw new Error("boom");
+			},
+		} as unknown as PapyrusWidgetGroup);
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
-		(overlay as unknown as { render: () => void }).render = () => {
-			throw new Error("boom");
-		};
 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
@@ -183,7 +184,7 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 				}) as any,
 		);
 		const overlay = new TaskOverlay();
-		overlay.setUI({} as ExtensionUIContext);
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
 
 		overlay.startPolling(10);
@@ -205,7 +206,7 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 				}) as any,
 		);
 		const overlay = new TaskOverlay();
-		overlay.setUI({} as ExtensionUIContext);
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
 
 		overlay.startPolling(10);
@@ -230,7 +231,7 @@ describe("TaskOverlay polling: catches a Task mutation no event announces", () =
 				}) as any,
 		);
 		const overlay = new TaskOverlay();
-		overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
 
 		overlay.startPolling(10);
@@ -279,7 +280,7 @@ describe("TaskOverlay push channel: refreshes immediately on a server-published 
 			);
 
 			const overlay = new TaskOverlay();
-			overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+			overlay.setWidgetGroup(new PapyrusWidgetGroup());
 			overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
 
 			// Establishes the push subscription as a side effect (ensurePushChannel()).

@@ -23,9 +23,10 @@ import {
 	type TaskStatus,
 } from "@danypops/papyrus";
 import type { PushChannelClient } from "@danypops/vehicle-client/daemon-client";
-import { vehicleWidgetTitle } from "@danypops/vehicle-client-pi/widget-header";
+import { vehicleWidgetOwner } from "@danypops/vehicle-client-pi/widget-header";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { renderWidgetSectionGroup, type WidgetSection } from "malevich-tui-components";
 import { Type } from "typebox";
 import { formatMetadata } from "./artifact/artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
@@ -34,7 +35,7 @@ import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./cont
 import { buildContextInjection } from "./context/context-injection-telemetry.ts";
 import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss/discuss-ask-view.ts";
 import { resolveNameFields } from "./domain-tools.ts";
-import { renderNoteWidgetLines } from "./note/note-widget.ts";
+import { buildNoteWidgetSection } from "./note/note-widget.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook/playbook-bridge.ts";
 import { callService, subscribeTaskPushChannel } from "./service-client.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
@@ -91,15 +92,14 @@ async function artifactNamesById(ids: readonly string[]): Promise<Map<string, st
 }
 
 // ---------------------------------------------------------------------------
-// Task widget (TodoOverlay pattern from rpiv-todo: factory form, requestRender)
+// Task + Notes widget (one shared aboveEditor tree -- PapyrusWidgetGroup below
+// composes both overlays' own sections via renderWidgetSectionGroup, instead of
+// each registering its own separate "Papyrus · <Label>" flat header)
 // ---------------------------------------------------------------------------
 
-const WIDGET_KEY = "pi-papyrus";
-
-export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjection, width: number): string[] {
-	if (projection.openTotal === 0) return [];
-	const header = truncateToWidth(theme.fg("muted", vehicleWidgetTitle(PAPYRUS_VEHICLE_NAME, "Tasks", projection.scopeLabel)), width, "…");
-	const lines: string[] = [header];
+/** The rows only -- no header line; PapyrusWidgetGroup's own owner header covers that now. */
+export function renderTaskSectionBodyLines(theme: Theme, projection: TaskWidgetProjection, width: number): string[] {
+	const lines: string[] = [];
 	for (let index = 0; index < projection.rows.length; index++) {
 		const row = projection.rows[index]!;
 		const laterSibling = projection.rows.slice(index + 1).some((candidate) => candidate.depth === row.depth);
@@ -117,22 +117,26 @@ export function renderTaskWidgetLines(theme: Theme, projection: TaskWidgetProjec
 	return lines;
 }
 
+/** "Tasks" or "Tasks · <scope>" -- no more "Papyrus ·" prefix; the group's own owner header covers that. */
+export function taskSectionLabel(projection: TaskWidgetProjection): string {
+	return projection.scopeLabel ? `Tasks · ${projection.scopeLabel}` : "Tasks";
+}
+
+export function buildTaskWidgetSection(theme: Theme, projection: TaskWidgetProjection): WidgetSection | undefined {
+	if (projection.openTotal === 0) return undefined;
+	return { label: taskSectionLabel(projection), render: (width) => renderTaskSectionBodyLines(theme, projection, width) };
+}
+
 export class TaskOverlay {
-	private uiCtx: ExtensionUIContext | undefined;
-	private registered = false;
-	private tui: any | undefined;
+	private widgetGroup: PapyrusWidgetGroup | undefined;
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 	private projectRoot: string | undefined;
 	private sessionId: string | undefined;
 	private readonly poll = new BoundedPoll();
 	private pushChannel: PushChannelClient | undefined;
 
-	setUI(ctx: ExtensionUIContext): void {
-		if (ctx !== this.uiCtx) {
-			this.uiCtx = ctx;
-			this.registered = false;
-			this.tui = undefined;
-		}
+	setWidgetGroup(group: PapyrusWidgetGroup): void {
+		this.widgetGroup = group;
 	}
 
 	setProjectRoot(projectRoot: string): void {
@@ -162,7 +166,7 @@ export class TaskOverlay {
 			this.snapshot = { nodes: [], rootIds: [] };
 		}
 		try {
-			this.render();
+			this.widgetGroup?.requestUpdate();
 		} catch {
 			// A rendering bug must not crash the extension host over a best-effort status widget.
 		}
@@ -183,43 +187,15 @@ export class TaskOverlay {
 		});
 	}
 
-	private render(): void {
-		if (!this.uiCtx) return;
-
-		// Hide widget when no tasks
-		if (this.snapshot.nodes.length === 0) {
-			if (this.registered) {
-				this.uiCtx.setWidget(WIDGET_KEY, undefined);
-				this.registered = false;
-				this.tui = undefined;
-			}
-			return;
-		}
-
-		if (!this.registered) {
-			this.uiCtx.setWidget(
-				WIDGET_KEY,
-				(tui: any, theme: Theme) => {
-					this.tui = tui;
-					return {
-						render: (width: number) => this.renderLines(theme, width),
-						invalidate: () => {
-							// Theme changed — force re-registration
-							this.registered = false;
-							this.tui = undefined;
-						},
-					};
-				},
-				{ placement: "aboveEditor" },
-			);
-			this.registered = true;
-		} else {
-			this.tui?.requestRender?.();
-		}
+	/** Theme-free existence check -- PapyrusWidgetGroup's own eager (pre-paint) hide decision needs
+	 * this without needing a theme, which is only ever available inside the widget's own render(width). */
+	hasOpenWork(): boolean {
+		return buildTaskWidgetProjection(this.snapshot).openTotal > 0;
 	}
 
-	private renderLines(theme: Theme, width: number): string[] {
-		return renderTaskWidgetLines(theme, buildTaskWidgetProjection(this.snapshot), width);
+	/** undefined when there is no open work to show -- PapyrusWidgetGroup's own signal to omit this section entirely. */
+	buildSection(theme: Theme): WidgetSection | undefined {
+		return buildTaskWidgetSection(theme, buildTaskWidgetProjection(this.snapshot));
 	}
 
 	/**
@@ -240,16 +216,11 @@ export class TaskOverlay {
 		this.stopPolling();
 		this.pushChannel?.close();
 		this.pushChannel = undefined;
-		this.uiCtx?.setWidget(WIDGET_KEY, undefined);
-		this.registered = false;
-		this.tui = undefined;
-		this.uiCtx = undefined;
+		this.widgetGroup = undefined;
 		this.projectRoot = undefined;
 		this.sessionId = undefined;
 	}
 }
-
-const NOTE_WIDGET_KEY = "pi-papyrus-notes";
 
 /**
  * Deliberately simple, unlike TaskOverlay's tree: just an open-note count for this session's own
@@ -258,19 +229,13 @@ const NOTE_WIDGET_KEY = "pi-papyrus-notes";
  * default.
  */
 export class NoteOverlay {
-	private uiCtx: ExtensionUIContext | undefined;
-	private registered = false;
-	private tui: any | undefined;
+	private widgetGroup: PapyrusWidgetGroup | undefined;
 	private openCount = 0;
 	private projectRoot: string | undefined;
 	private readonly poll = new BoundedPoll();
 
-	setUI(ctx: ExtensionUIContext): void {
-		if (ctx !== this.uiCtx) {
-			this.uiCtx = ctx;
-			this.registered = false;
-			this.tui = undefined;
-		}
+	setWidgetGroup(group: PapyrusWidgetGroup): void {
+		this.widgetGroup = group;
 	}
 
 	setProjectRoot(projectRoot: string): void {
@@ -289,43 +254,20 @@ export class NoteOverlay {
 			this.openCount = 0;
 		}
 		try {
-			this.render();
+			this.widgetGroup?.requestUpdate();
 		} catch {
 			// A rendering bug must not crash the extension host over a best-effort status widget.
 		}
 	}
 
-	private render(): void {
-		if (!this.uiCtx) return;
+	/** Theme-free existence check -- see TaskOverlay's own hasOpenWork() for why this needs to stay theme-free. */
+	hasOpenNotes(): boolean {
+		return this.openCount > 0;
+	}
 
-		if (this.openCount === 0) {
-			if (this.registered) {
-				this.uiCtx.setWidget(NOTE_WIDGET_KEY, undefined);
-				this.registered = false;
-				this.tui = undefined;
-			}
-			return;
-		}
-
-		if (!this.registered) {
-			this.uiCtx.setWidget(
-				NOTE_WIDGET_KEY,
-				(tui: any, theme: Theme) => {
-					this.tui = tui;
-					return {
-						render: (width: number) => renderNoteWidgetLines(theme, this.openCount, width),
-						invalidate: () => {
-							this.registered = false;
-							this.tui = undefined;
-						},
-					};
-				},
-				{ placement: "aboveEditor" },
-			);
-			this.registered = true;
-		} else {
-			this.tui?.requestRender?.();
-		}
+	/** undefined when there are no open notes -- PapyrusWidgetGroup's own signal to omit this section entirely. */
+	buildSection(): WidgetSection | undefined {
+		return buildNoteWidgetSection(this.openCount);
 	}
 
 	startPolling(intervalMs: number = NOTE_WIDGET_POLL_INTERVAL_MS): void {
@@ -340,11 +282,108 @@ export class NoteOverlay {
 
 	dispose(): void {
 		this.stopPolling();
-		this.uiCtx?.setWidget(NOTE_WIDGET_KEY, undefined);
+		this.widgetGroup = undefined;
+		this.projectRoot = undefined;
+	}
+}
+
+const PAPYRUS_WIDGET_KEY = "pi-papyrus";
+
+/**
+ * Owns the ONE real aboveEditor widget registration for both TaskOverlay and NoteOverlay, composing
+ * their own current sections via renderWidgetSectionGroup -- "Papyrus" once, with "Tasks"/"Notes"
+ * as its own indented children (or side-by-side columns once the terminal is wide enough), instead
+ * of each overlay registering its own separate "Papyrus · <Label>" flat-header widget. Hidden
+ * entirely (fully unregistered, not just empty lines) only once NEITHER overlay has anything to
+ * show -- either overlay alone still renders its own section normally.
+ */
+export class PapyrusWidgetGroup {
+	private uiCtx: ExtensionUIContext | undefined;
+	private registered = false;
+	private tui: any | undefined;
+	private taskOverlay: TaskOverlay | undefined;
+	private noteOverlay: NoteOverlay | undefined;
+
+	setUI(ctx: ExtensionUIContext): void {
+		if (ctx !== this.uiCtx) {
+			this.uiCtx = ctx;
+			this.registered = false;
+			this.tui = undefined;
+		}
+	}
+
+	setOverlays(taskOverlay: TaskOverlay, noteOverlay: NoteOverlay): void {
+		this.taskOverlay = taskOverlay;
+		this.noteOverlay = noteOverlay;
+	}
+
+	/** Called by either overlay after its own refresh() -- re-renders (or registers/unregisters) the shared widget. */
+	requestUpdate(): void {
+		if (!this.uiCtx) return;
+
+		// Eager (pre-paint) hide check, theme-free -- matches both overlays' own prior convention of
+		// deciding this immediately after a data refresh, not waiting for Pi's own next repaint to
+		// notice via renderLines()'s own (still-present, defense-in-depth) empty check below.
+		const hasContent = (this.taskOverlay?.hasOpenWork() ?? false) || (this.noteOverlay?.hasOpenNotes() ?? false);
+		if (!hasContent) {
+			if (this.registered) {
+				this.uiCtx.setWidget(PAPYRUS_WIDGET_KEY, undefined);
+				this.registered = false;
+				this.tui = undefined;
+			}
+			return;
+		}
+
+		if (!this.registered) {
+			this.uiCtx.setWidget(
+				PAPYRUS_WIDGET_KEY,
+				(tui: any, theme: Theme) => {
+					this.tui = tui;
+					return {
+						render: (width: number) => this.renderLines(theme, width),
+						invalidate: () => {
+							// Theme changed — force re-registration
+							this.registered = false;
+							this.tui = undefined;
+						},
+					};
+				},
+				{ placement: "aboveEditor" },
+			);
+			this.registered = true;
+		} else {
+			this.tui?.requestRender?.();
+		}
+	}
+
+	private renderLines(theme: Theme, width: number): string[] {
+		const sections = [this.taskOverlay?.buildSection(theme), this.noteOverlay?.buildSection()].filter(
+			(section): section is WidgetSection => section !== undefined,
+		);
+		if (sections.length === 0) {
+			// Hide entirely (unregister), not just an empty-but-registered widget -- matches both
+			// overlays' own prior "nothing open" convention.
+			if (this.uiCtx && this.registered) {
+				this.uiCtx.setWidget(PAPYRUS_WIDGET_KEY, undefined);
+				this.registered = false;
+				this.tui = undefined;
+			}
+			return [];
+		}
+		return renderWidgetSectionGroup({
+			owner: vehicleWidgetOwner(PAPYRUS_VEHICLE_NAME),
+			sections,
+			ownerStyle: (s) => theme.fg("muted", s),
+		}).render(width);
+	}
+
+	dispose(): void {
+		this.uiCtx?.setWidget(PAPYRUS_WIDGET_KEY, undefined);
 		this.registered = false;
 		this.tui = undefined;
 		this.uiCtx = undefined;
-		this.projectRoot = undefined;
+		this.taskOverlay = undefined;
+		this.noteOverlay = undefined;
 	}
 }
 
@@ -639,6 +678,7 @@ export default async function (pi: ExtensionAPI) {
 	]);
 	let overlay: TaskOverlay | undefined;
 	let noteOverlay: NoteOverlay | undefined;
+	let widgetGroup: PapyrusWidgetGroup | undefined;
 
 	pi.registerCommand("tasks", {
 		description: "Browse and manage Papyrus tasks (interactive)",
@@ -728,16 +768,22 @@ export default async function (pi: ExtensionAPI) {
 		// keystrokes from the moment that tool call happens to begin, missing typing already in
 		// progress when it started (the exact case Discuss's typing-courtesy wait protects against).
 		ensureTypingCourtesyTracking(ctx.ui);
+		widgetGroup ??= new PapyrusWidgetGroup();
+		widgetGroup.setUI(ctx.ui);
+
 		overlay ??= new TaskOverlay();
-		overlay.setUI(ctx.ui);
+		overlay.setWidgetGroup(widgetGroup);
 		overlay.setProjectRoot(ctx.cwd);
 		overlay.setSessionId(ctx.sessionManager.getSessionId());
-		await overlay.refresh();
-		overlay.startPolling(TASK_WIDGET_POLL_INTERVAL_MS);
 
 		noteOverlay ??= new NoteOverlay();
-		noteOverlay.setUI(ctx.ui);
+		noteOverlay.setWidgetGroup(widgetGroup);
 		noteOverlay.setProjectRoot(ctx.cwd);
+
+		widgetGroup.setOverlays(overlay, noteOverlay);
+
+		await overlay.refresh();
+		overlay.startPolling(TASK_WIDGET_POLL_INTERVAL_MS);
 		await noteOverlay.refresh();
 		noteOverlay.startPolling(NOTE_WIDGET_POLL_INTERVAL_MS);
 	});
@@ -756,6 +802,8 @@ export default async function (pi: ExtensionAPI) {
 		overlay = undefined;
 		noteOverlay?.dispose();
 		noteOverlay = undefined;
+		widgetGroup?.dispose();
+		widgetGroup = undefined;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
 			await callService("session.release", { session_id: sessionId, ...sessionSecretField(sessionId) });

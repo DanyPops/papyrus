@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
-import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import { NoteOverlay } from "../extension/src/index.ts";
-import { renderNoteWidgetLines } from "../extension/src/note/note-widget.ts";
+import { NoteOverlay, PapyrusWidgetGroup } from "../extension/src/index.ts";
+import { buildNoteWidgetSection } from "../extension/src/note/note-widget.ts";
 import { resetPapyrusClientForTests, setPapyrusClientConnectorForTests } from "../extension/src/service-client.ts";
-
-const theme = { fg: (_color: string, text: string) => text } as Theme;
 
 function note(id: string, title: string, projectRoot: string): Artifact {
 	return {
@@ -23,13 +20,15 @@ function note(id: string, title: string, projectRoot: string): Artifact {
 	};
 }
 
-describe("renderNoteWidgetLines", () => {
-	it("hides when there are no open notes", () => {
-		expect(renderNoteWidgetLines(theme, 0, 40)).toEqual([]);
+describe("buildNoteWidgetSection", () => {
+	it("hides (returns undefined) when there are no open notes", () => {
+		expect(buildNoteWidgetSection(0)).toBeUndefined();
 	});
 
-	it("shows a simple label and count when there are open notes", () => {
-		expect(renderNoteWidgetLines(theme, 3, 40)).toEqual(["Papyrus · Notes 3"]);
+	it("shows a label with the open count, and no body lines of its own, when there are open notes", () => {
+		const section = buildNoteWidgetSection(3);
+		expect(section?.label).toBe("Notes 3");
+		expect(section?.render(40)).toEqual([]);
 	});
 });
 
@@ -48,7 +47,7 @@ describe("NoteOverlay: counts only open notes for this session's own CWD, by def
 				}) as any,
 		);
 		const overlay = new NoteOverlay();
-		overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
 		overlay.setProjectRoot("/workspace/one");
 
 		await overlay.refresh();
@@ -66,11 +65,12 @@ describe("NoteOverlay: counts only open notes for this session's own CWD, by def
 				}) as any,
 		);
 		const overlay = new NoteOverlay();
-		overlay.setUI({} as ExtensionUIContext);
+		overlay.setWidgetGroup({
+			requestUpdate: () => {
+				throw new Error("boom");
+			},
+		} as unknown as PapyrusWidgetGroup);
 		overlay.setProjectRoot("/workspace/one");
-		(overlay as unknown as { render: () => void }).render = () => {
-			throw new Error("boom");
-		};
 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
 	});
@@ -87,7 +87,7 @@ describe("NoteOverlay: counts only open notes for this session's own CWD, by def
 				}) as any,
 		);
 		const overlay = new NoteOverlay();
-		overlay.setUI({ setWidget: () => {} } as unknown as ExtensionUIContext);
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
 		overlay.setProjectRoot("/workspace/one");
 
 		overlay.startPolling(10);

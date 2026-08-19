@@ -34,6 +34,6 @@ describe("task scope frontends", () => {
 		expect(browser).toContain('"All projects"');
 		expect(extension).toContain("project_root: this.projectRoot");
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: asserting literal source text, not building a template string
-		expect(extension).toContain('vehicleWidgetTitle(PAPYRUS_VEHICLE_NAME, "Tasks", projection.scopeLabel)');
+		expect(extension).toContain("`Tasks · ${projection.scopeLabel}`");
 	});
 });

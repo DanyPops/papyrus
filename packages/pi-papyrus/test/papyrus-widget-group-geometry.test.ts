@@ -103,6 +103,11 @@ describe("PapyrusWidgetGroup grid geometry (golden, real ANSI theme)", () => {
 		const firstColumn = borderColumns[0]!;
 		for (const column of borderColumns) expect(column).toBe(firstColumn);
 
+		// The divider itself is never glued directly onto either column's own text -- a real, live
+		// incident: "Tasks · vehicle...│Notes 2" read as jammed/cramped with zero breathing room.
+		const headerLine = lines.find((line) => line.replace(ANSI_SGR_PATTERN, "").includes("│"));
+		expect(headerLine?.replace(ANSI_SGR_PATTERN, "")).toContain(" │ ");
+
 		// Every physical line, including the long ANSI-colored task row, stays within budget.
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 

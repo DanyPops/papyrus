@@ -48,6 +48,7 @@ import {
 import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task/task-focus-events.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task/task-presentation.ts";
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task/task-widget.ts";
+import { measure as artifactCardMeasure } from "./tool-rendering/artifact-card.ts";
 import { renderPapyrusToolCall, renderPapyrusToolResult } from "./tool-rendering/index.ts";
 import {
 	createArtifactDetails,
@@ -374,6 +375,14 @@ export class PapyrusWidgetGroup {
 			owner: vehicleWidgetOwner(PAPYRUS_VEHICLE_NAME),
 			sections,
 			ownerStyle: (s) => theme.fg("muted", s),
+			// Without this, renderWidgetSectionGroup falls back to malevich's own asciiTextMeasure,
+			// which is documented as having no ANSI-escape awareness -- every task row here is real
+			// ANSI-colored content (theme.fg() for focus/status glyphs), so the naive measure
+			// mismeasures its true visible width, breaking the two-column grid's own alignment (a
+			// real, live incident: the SplitPane border landed mid-line instead of after the actual
+			// column boundary). See tool-rendering/artifact-card.ts's own identical measure -- same
+			// fix, reused rather than re-derived.
+			measure: artifactCardMeasure,
 		}).render(width);
 	}
 

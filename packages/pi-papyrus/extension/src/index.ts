@@ -135,10 +135,17 @@ export function taskSectionLabel(projection: TaskWidgetProjection, rotation?: Au
 	return rotation?.isPaging ? `${base} · ${rotation.pageIndex + 1}/${rotation.pageCount} ⟳` : base;
 }
 
-export function buildTaskWidgetSection(theme: Theme, projection: TaskWidgetProjection, rotation: AutoRotatingWindow): WidgetSection | undefined {
+export function buildTaskWidgetSection(
+	theme: Theme,
+	projection: TaskWidgetProjection,
+	rotation: AutoRotatingWindow,
+): WidgetSection | undefined {
 	if (projection.openTotal === 0) return undefined;
 	rotation.setTotalRows(projection.rows.length);
-	return { label: taskSectionLabel(projection, rotation), render: (width) => renderTaskSectionBodyLines(theme, projection, width, rotation) };
+	return {
+		label: taskSectionLabel(projection, rotation),
+		render: (width) => renderTaskSectionBodyLines(theme, projection, width, rotation),
+	};
 }
 
 export class TaskOverlay {

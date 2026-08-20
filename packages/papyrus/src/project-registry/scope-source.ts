@@ -1,4 +1,4 @@
-import { basename, isAbsolute, normalize } from "node:path";
+import { isAbsolute, normalize } from "node:path";
 import { TASK_PROJECT_ROOT_MAX_LENGTH } from "../constants.ts";
 
 /** How a project root got attached to a scoped artifact -- shared across Tasks/Docs/Rules/Playbooks, same category as Project in project-registry.ts. */

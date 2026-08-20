@@ -1,5 +1,5 @@
-import type { AutoRotatingWindow, WidgetSection } from "malevich-tui-components";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import type { AutoRotatingWindow, WidgetSection } from "malevich-tui-components";
 
 export interface NoteWidgetRow {
 	id: string;

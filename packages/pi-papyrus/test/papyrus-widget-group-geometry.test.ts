@@ -53,15 +53,13 @@ function taskGraph(titles: string[]) {
 	};
 }
 
-async function buildWidget(
-	tasks: string[],
-	notes: number,
-): Promise<{ ui: { calls: unknown[][] }; group: PapyrusWidgetGroup }> {
+async function buildWidget(tasks: string[], notes: number): Promise<{ ui: { calls: unknown[][] }; group: PapyrusWidgetGroup }> {
 	setPapyrusClientConnectorForTests(async () => {
 		return {
 			async call(op: string) {
 				if (op === "tasks.graph") return taskGraph(tasks);
-				if (op === "notes.list") return Array.from({ length: notes }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, extra: { projectRoot: "/proj" } }));
+				if (op === "notes.list")
+					return Array.from({ length: notes }, (_, i) => ({ id: `n${i}`, title: `Note ${i}`, extra: { projectRoot: "/proj" } }));
 				return undefined;
 			},
 		} as any;
@@ -81,8 +79,7 @@ async function buildWidget(
 	return { ui, group };
 }
 
-const LONG_TITLE =
-	"Grant: a budget-gated, steer-resumable long-running Vehicle operation pattern (turns/tool-calls/tokens/wallclock)";
+const LONG_TITLE = "Grant: a budget-gated, steer-resumable long-running Vehicle operation pattern (turns/tool-calls/tokens/wallclock)";
 
 describe("PapyrusWidgetGroup CardRow grid geometry (golden, real ANSI theme)", () => {
 	it("Tasks + Notes tile side by side as two bordered cards on a wide terminal -- borders align, real ANSI-colored over-length content stays in budget", async () => {
@@ -118,7 +115,11 @@ describe("PapyrusWidgetGroup CardRow grid geometry (golden, real ANSI theme)", (
 			total: 1,
 			scopeLabel: "vehicle",
 		} as Parameters<typeof buildTaskWidgetSection>[1];
-		const taskSection = buildTaskWidgetSection(realTheme, projection, new AutoRotatingWindow({ totalRows: 1, pageSize: 3, intervalMs: 6000 }))!;
+		const taskSection = buildTaskWidgetSection(
+			realTheme,
+			projection,
+			new AutoRotatingWindow({ totalRows: 1, pageSize: 3, intervalMs: 6000 }),
+		)!;
 		const noteSection = { label: "Notes 7", render: () => ["· a note"] };
 
 		const withoutRealMeasure = renderCardRow([taskSection, noteSection], 150, { minCardWidth: 30 });

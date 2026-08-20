@@ -11,7 +11,7 @@ describe("slugify", () => {
 	});
 
 	it("truncates to a bounded length without leaving a trailing hyphen", () => {
-		const slug = slugify("a".repeat(40) + " " + "b".repeat(40));
+		const slug = slugify(`${"a".repeat(40)} ${"b".repeat(40)}`);
 		expect(slug.length).toBeLessThanOrEqual(50);
 		expect(slug.endsWith("-")).toBe(false);
 	});

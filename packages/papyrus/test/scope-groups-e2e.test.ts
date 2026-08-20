@@ -45,12 +45,14 @@ describe("scope groups end to end: none/all/explicit tri-state scope with nested
 			{ project_root: "/tmp/scope-e2e-c", name: "Scope E2E C" },
 			TASKS_PERMS,
 		)) as { id: string };
-		const unrelatedProject = (await registry.invoke(
+		// Registered but never captured -- only the side effect (a project that belongs to no scope
+		// group) matters here, proving scope-group filtering doesn't leak it into later assertions.
+		await registry.invoke(
 			"tasks.register_project",
 			1,
 			{ project_root: "/tmp/scope-e2e-unrelated", name: "Scope E2E Unrelated" },
 			TASKS_PERMS,
-		)) as { id: string };
+		);
 
 		// Two-level nesting: outerGroup contains projectA directly and innerGroup as a nested member;
 		// innerGroup contains projectB and projectC.

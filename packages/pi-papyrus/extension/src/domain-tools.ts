@@ -1,5 +1,4 @@
 import type { Artifact, OperationName } from "@danypops/papyrus";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { callService } from "./service-client.ts";
 
 /**

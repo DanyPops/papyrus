@@ -13,6 +13,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	runArtifactCli,
 	runBatchCli,
+	runBindersCli,
 	runDiscussCli,
 	runDocsCli,
 	runGatesCli,
@@ -41,9 +42,17 @@ class FakeClient {
 
 const artifact = { id: "a1", title: "Title", status: "todo" };
 const artifactList = [artifact];
-const artifactScope = { artifactId: "a1", mode: "global", projectIds: [] as string[], source: "unscoped" };
+const artifactScope = { artifactId: "a1", mode: "global", projectIds: [] as string[], members: [] as unknown[], source: "unscoped" };
 const project = { id: "p1", name: "Project One", aliases: [] as string[], projectRoot: "/workspace/papyrus" };
 const scopeGroup = { id: "g1", name: "Ecosystem", aliases: [] as string[] };
+const binderNode = {
+	binder: artifact,
+	path: "/Title",
+	inheritedLabels: [] as string[],
+	effectiveLabels: [] as string[],
+	childIds: [] as string[],
+};
+const binderTree = { nodes: [binderNode], rootIds: ["a1"], artifacts: [] as unknown[] };
 
 interface Fixture {
 	operation: OperationName;
@@ -112,6 +121,40 @@ const CLI_FIXTURES: Fixture[] = [
 		invoke: (c) => runGraphProjectionCli(["checkpoint", "--producer-id", "p1", "--json"], c),
 	},
 	{ operation: "rules.injectable", result: artifactList, invoke: (c) => runRulesCli(["injectable", "--json"], c) },
+	{ operation: "binders.create", result: artifact, invoke: (c) => runBindersCli(["create", "--title", "T", "--json"], c) },
+	{ operation: "binders.list", result: artifactList, invoke: (c) => runBindersCli(["list", "--json"], c) },
+	{ operation: "binders.tree", result: binderTree, invoke: (c) => runBindersCli(["tree", "--json"], c) },
+	{ operation: "binders.show", result: binderNode, invoke: (c) => runBindersCli(["show", "a1", "--json"], c) },
+	{ operation: "binders.update", result: artifact, invoke: (c) => runBindersCli(["update", "a1", "--title", "T2", "--json"], c) },
+	{ operation: "binders.move", result: binderNode, invoke: (c) => runBindersCli(["move", "a1", "--json"], c) },
+	{
+		operation: "binders.file",
+		result: { artifactId: "a1", binderId: "b1", effectiveLabels: [] },
+		invoke: (c) => runBindersCli(["file", "a1", "b1", "--json"], c),
+	},
+	{
+		operation: "binders.unfile",
+		result: { artifactId: "a1", effectiveLabels: [] },
+		invoke: (c) => runBindersCli(["unfile", "a1", "--json"], c),
+	},
+	{ operation: "binders.remove", result: { artifactId: "b1" }, invoke: (c) => runBindersCli(["remove", "b1", "--json"], c) },
+	{ operation: "binders.scope", result: artifactScope, invoke: (c) => runBindersCli(["scope", "b1", "--json"], c) },
+	{ operation: "binders.set_global", result: artifactScope, invoke: (c) => runBindersCli(["set-global", "b1", "--json"], c) },
+	{ operation: "binders.set_none", result: artifactScope, invoke: (c) => runBindersCli(["set-none", "b1", "--json"], c) },
+	{ operation: "binders.add_project", result: artifactScope, invoke: (c) => runBindersCli(["add-project", "b1", "p1", "--json"], c) },
+	{ operation: "binders.remove_project", result: artifactScope, invoke: (c) => runBindersCli(["remove-project", "b1", "p1", "--json"], c) },
+	{
+		operation: "binders.replace_projects",
+		result: artifactScope,
+		invoke: (c) => runBindersCli(["replace-projects", "b1", "--projects-json", '["p1"]', "--json"], c),
+	},
+	{ operation: "binders.add_group", result: artifactScope, invoke: (c) => runBindersCli(["add-group", "b1", "g1", "--json"], c) },
+	{ operation: "binders.remove_group", result: artifactScope, invoke: (c) => runBindersCli(["remove-group", "b1", "g1", "--json"], c) },
+	{
+		operation: "binders.replace_groups",
+		result: artifactScope,
+		invoke: (c) => runBindersCli(["replace-groups", "b1", "--groups-json", '["g1"]', "--json"], c),
+	},
 	{ operation: "tasks.create", result: artifact, invoke: (c) => runTaskCli(["create", "--title", "T", "--json"], c) },
 	{ operation: "tasks.update", result: artifact, invoke: (c) => runTaskCli(["update", "a1", "--title", "T2", "--json"], c) },
 	{ operation: "tasks.list", result: artifactList, invoke: (c) => runTaskCli(["list", "--json"], c) },

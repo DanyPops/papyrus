@@ -31,6 +31,7 @@ describe("rule-draft-status migration", () => {
 				"artifact-multi-project-scope",
 				"artifact-scope-tri-state-and-scope-groups",
 				"discuss-quiz",
+				"binder-hierarchy-and-label-inheritance",
 			],
 		});
 		expect(

@@ -32,6 +32,7 @@ describe("task-projects-and-create-idempotency migration", () => {
 				"artifact-multi-project-scope",
 				"artifact-scope-tri-state-and-scope-groups",
 				"discuss-quiz",
+				"binder-hierarchy-and-label-inheritance",
 			],
 		});
 		expect(db.prepare("SELECT name, aliases_json, project_root FROM task_projects").all()).toEqual([

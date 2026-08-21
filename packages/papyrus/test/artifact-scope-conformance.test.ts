@@ -12,6 +12,15 @@ import type { ArtifactScope } from "../src/artifact/artifact-scope-store.ts";
 import { SQLiteArtifactScopeStore } from "../src/artifact/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "../src/artifact/sqlite-artifact-store.ts";
 import { AuthorityRegistry } from "../src/authority-registry.ts";
+import {
+	addBinderProject,
+	binderScope,
+	createBinder,
+	listBinders,
+	removeBinderProject,
+	replaceBinderProjects,
+	setBinderGlobal,
+} from "../src/binder/binder-service.ts";
 import { openDb } from "../src/db.ts";
 import {
 	addDocProject,
@@ -69,6 +78,31 @@ function fixture() {
 	const authority = new AuthorityRegistry();
 
 	const adapters: Record<string, ScopeConformanceAdapter> = {
+		binder: {
+			kind: "binder",
+			create: (title, opts) =>
+				createBinder(
+					artifacts,
+					scopes,
+					{
+						title,
+						projectRoot: opts?.projectRoot,
+						projectReferences: opts?.projectReferences,
+					},
+					undefined,
+					registry,
+				),
+			scope: (id) => binderScope(artifacts, scopes, id),
+			setGlobal: (id) => setBinderGlobal(artifacts, scopes, id),
+			addProject: (id, reference) => addBinderProject(artifacts, scopes, registry, id, reference),
+			removeProject: (id, reference) => removeBinderProject(artifacts, scopes, registry, id, reference),
+			replaceProjects: (id, references) => replaceBinderProjects(artifacts, scopes, registry, id, references),
+			listExact: (projectRoot) => listBinders(artifacts, scopes, { projectRoot }),
+			listApplicable: (projectRoot) => listBinders(artifacts, scopes, { applicableToProjectRoot: projectRoot }),
+			listAll: () => listBinders(artifacts, scopes, {}),
+			registerProject: (projectRoot, name) => registry.registerProject({ projectRoot, name }),
+			renameProject: (projectRoot, newName) => registry.registerProject({ projectRoot, name: newName }),
+		},
 		doc: {
 			kind: "doc",
 			create: (title, opts) =>
@@ -138,7 +172,7 @@ function fixture() {
 	return { db, adapters };
 }
 
-function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void {
+function runScopeConformanceSuite(adapterKey: "binder" | "doc" | "rule" | "playbook"): void {
 	describe(`artifact scope conformance: ${adapterKey}`, () => {
 		it("creates global by default, and with 1 or N registered projects via projectReferences", () => {
 			const { db, adapters } = fixture();
@@ -266,6 +300,7 @@ function runScopeConformanceSuite(adapterKey: "doc" | "rule" | "playbook"): void
 	});
 }
 
+runScopeConformanceSuite("binder");
 runScopeConformanceSuite("doc");
 runScopeConformanceSuite("rule");
 runScopeConformanceSuite("playbook");

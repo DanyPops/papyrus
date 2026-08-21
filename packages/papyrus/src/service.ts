@@ -12,6 +12,7 @@ import type { ArtifactTrashStore } from "./artifact/artifact-trash-store.ts";
 import { SQLiteArtifactScopeStore } from "./artifact/sqlite-artifact-scope-store.ts";
 import { SQLiteArtifactStore } from "./artifact/sqlite-artifact-store.ts";
 import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "./authority-registry.ts";
+import { BINDER_FILED_IN_RELATION, BINDER_KIND, BINDER_ORGANIZES_RELATION } from "./binder/binder.ts";
 import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { Discussions } from "./discussion/discussion-service.ts";
@@ -25,6 +26,7 @@ import { logEvent } from "./log/log.ts";
 import { Logs } from "./log/log-service.ts";
 import { SQLiteLogStore } from "./log/sqlite-log-store.ts";
 import { OperationRegistry } from "./module-registry.ts";
+import { BINDERS_OPERATION_NAMES, bindersOperations } from "./modules/binders.ts";
 import { DISCUSS_OPERATION_NAMES, discussOperations } from "./modules/discuss.ts";
 import { DOCS_OPERATION_NAMES, docsOperations } from "./modules/docs.ts";
 import { GRAPH_PROJECTION_OPERATION_NAMES, graphProjectionOperations } from "./modules/graph-projection.ts";
@@ -99,6 +101,7 @@ const COMPOSITION_ROOT_OPERATION_NAMES = [
 export const EXPECTED_OPERATION_NAMES = [
 	...COMPOSITION_ROOT_OPERATION_NAMES,
 	...TASKS_OPERATION_NAMES,
+	...BINDERS_OPERATION_NAMES,
 	...DOCS_OPERATION_NAMES,
 	...NOTES_OPERATION_NAMES,
 	...RULES_OPERATION_NAMES,
@@ -163,6 +166,13 @@ const tasksAuthorityClaim: AuthorityClaim = {
 	denyMessage: () => "task lifecycle changes require a tasks.* operation so history and review invariants are preserved",
 };
 
+const bindersAuthorityClaim: AuthorityClaim = {
+	owner: "binders",
+	matchesArtifact: (kind) => kind === BINDER_KIND,
+	matchesRelation: (relation) => relation === BINDER_ORGANIZES_RELATION || relation === BINDER_FILED_IN_RELATION,
+	denyMessage: () => "Binder creation, hierarchy, and filing require a binders.* operation so path and cycle invariants are preserved",
+};
+
 /**
  * The same status-bypass protection Tasks and Notes already have, extended to every other kind
  * with its own validated transition set (Doc's draft/active/archived, Rule/Playbook's
@@ -183,6 +193,7 @@ export function createAuthorityRegistry(): AuthorityRegistry {
 	authority.claimAll([
 		notesAuthorityClaim,
 		tasksAuthorityClaim,
+		bindersAuthorityClaim,
 		lifecycleAuthorityClaim("docs", "doc"),
 		lifecycleAuthorityClaim("rules", "rule"),
 		lifecycleAuthorityClaim("playbooks", "playbook"),
@@ -320,10 +331,20 @@ function handlers(
 				depth: optionalNumber(input, "depth"),
 				maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 			}),
-		"artifact.remove": (input) =>
-			artifacts.trash(string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
-		"artifact.remove_subtree": (input) =>
-			removeArtifactSubtree(artifacts, string(input, "id"), { reason: optionalString(input, "reason"), context: eventContext(input) }),
+		"artifact.remove": (input) => {
+			const id = string(input, "id");
+			if (artifacts.get(id)?.kind === BINDER_KIND) {
+				throw new Error("Binder removal requires binders.remove so a non-empty directory cannot be orphaned");
+			}
+			return artifacts.trash(id, { reason: optionalString(input, "reason"), context: eventContext(input) });
+		},
+		"artifact.remove_subtree": (input) => {
+			const id = string(input, "id");
+			if (artifacts.get(id)?.kind === BINDER_KIND) {
+				throw new Error("Binder removal requires binders.remove so a non-empty directory cannot be orphaned");
+			}
+			return removeArtifactSubtree(artifacts, id, { reason: optionalString(input, "reason"), context: eventContext(input) });
+		},
 		"artifact.restore": (input) => artifacts.restore(string(input, "id"), eventContext(input)),
 		"artifact.trash_status": (input) => artifacts.trashStatus(string(input, "id")),
 		"artifact.trash_list": () => artifacts.listTrash(),
@@ -428,6 +449,24 @@ function handlers(
 		"tasks.reap_stale_leases": forwardToModule("tasks.reap_stale_leases"),
 		"tasks.event_feed": forwardToModule("tasks.event_feed"),
 		"tasks.reap_stale_focus": forwardToModule("tasks.reap_stale_focus"),
+		"binders.create": forwardToModule("binders.create"),
+		"binders.list": forwardToModule("binders.list"),
+		"binders.tree": forwardToModule("binders.tree"),
+		"binders.show": forwardToModule("binders.show"),
+		"binders.update": forwardToModule("binders.update"),
+		"binders.move": forwardToModule("binders.move"),
+		"binders.file": forwardToModule("binders.file"),
+		"binders.unfile": forwardToModule("binders.unfile"),
+		"binders.remove": forwardToModule("binders.remove"),
+		"binders.scope": forwardToModule("binders.scope"),
+		"binders.set_global": forwardToModule("binders.set_global"),
+		"binders.set_none": forwardToModule("binders.set_none"),
+		"binders.add_project": forwardToModule("binders.add_project"),
+		"binders.remove_project": forwardToModule("binders.remove_project"),
+		"binders.replace_projects": forwardToModule("binders.replace_projects"),
+		"binders.add_group": forwardToModule("binders.add_group"),
+		"binders.remove_group": forwardToModule("binders.remove_group"),
+		"binders.replace_groups": forwardToModule("binders.replace_groups"),
 		"docs.create": forwardToModule("docs.create"),
 		"docs.list": forwardToModule("docs.list"),
 		"docs.show": forwardToModule("docs.show"),
@@ -563,6 +602,7 @@ export function createPapyrusService(path: string): PapyrusService {
 	moduleRegistry.registerAll(sessionIdentityOperations(sessionIdentity));
 	moduleRegistry.registerAll(discussOperations(discussions));
 	moduleRegistry.registerAll(tasksOperations(tasks, artifacts, sessionIdentity));
+	moduleRegistry.registerAll(bindersOperations(artifacts, artifactScopes, projectRegistry, scopeGroups));
 	moduleRegistry.registerAll(docsOperations(artifacts, artifactScopes, authority, projectRegistry, scopeGroups));
 	moduleRegistry.registerAll(rulesOperations(artifacts, artifactScopes, projectRegistry, scopeGroups));
 	moduleRegistry.registerAll(

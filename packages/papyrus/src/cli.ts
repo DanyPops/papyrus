@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
 import { runArtifactCli } from "./cli/artifact-command.ts";
 import { runBatchCli } from "./cli/batch-command.ts";
+import { runBindersCli } from "./cli/binders-command.ts";
 import { runDaemonCli } from "./cli/daemon-command.ts";
 import { runDiscussCli } from "./cli/discuss-command.ts";
 import { runDocsCli } from "./cli/docs-command.ts";
@@ -114,6 +115,13 @@ const USAGE = `Usage:
   papyrus artifact restore <id> [--json]
   papyrus artifact trash-status <id> [--json]
   papyrus artifact trash-list [--json]
+  papyrus binders create --title <name> [--labels-json <json>] [--parent-id <id>] [--project-root <path>] [--json]
+  papyrus binders list|tree [--project-root <path>] [--json]
+  papyrus binders show|remove <id> [--project-root <path>] [--json]
+  papyrus binders update <id> [--title <name>] [--labels-json <json>] [--project-root <path>] [--json]
+  papyrus binders move <id> [parent-id] [--project-root <path>] [--json]
+  papyrus binders file <artifact-id> <binder-id> [--project-root <path>] [--json]
+  papyrus binders unfile <artifact-id> [--project-root <path>] [--json]
   papyrus docs create --title <title> [--body <body>] [--subtype <subtype>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--project-root <path>] [--json]
   papyrus docs list [--status <status>] [--text <query>] [--limit <count>] [--project-root <path>] [--json]
   papyrus docs show <id> [--json]
@@ -355,6 +363,7 @@ export function runIdMigrationCli(args: string[]): string {
 export {
 	runArtifactCli,
 	runBatchCli,
+	runBindersCli,
 	runDiscussCli,
 	runDocsCli,
 	runGatesCli,
@@ -379,6 +388,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "tasks") {
 		const client = await connectPapyrusClient();
 		console.log(await runTaskCli(args.slice(1), client));
+		return;
+	}
+	if (command === "binders") {
+		const client = await connectPapyrusClient();
+		console.log(await runBindersCli(args.slice(1), client));
 		return;
 	}
 	if (command === "playbooks") {

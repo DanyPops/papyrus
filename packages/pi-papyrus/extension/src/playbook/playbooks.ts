@@ -3,6 +3,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
 import { PLAYBOOK_STATUS_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
+import { parseLabelInput } from "../artifact/binder-navigation.ts";
 import { matchArtifactByName } from "../domain-tools.ts";
 import { callService } from "../service-client.ts";
 
@@ -70,8 +71,8 @@ function strings(value: unknown): string[] {
 }
 
 export function playbookRowMeta(playbook: Artifact): string {
-	const trigger = typeof playbook.extra.trigger === "string" ? `when ${playbook.extra.trigger}` : "manual invocation";
-	const tools = strings(playbook.extra.tools);
+	const trigger = typeof playbook.extra?.trigger === "string" ? `when ${playbook.extra.trigger}` : "manual invocation";
+	const tools = strings(playbook.extra?.tools);
 	return [trigger, tools.join(", ")].filter(Boolean).join(" \u00b7 ");
 }
 
@@ -82,6 +83,7 @@ export async function showPlaybooks(ctx: ExtensionCommandContext): Promise<void>
 		listOperation: "playbooks.list",
 		statusOrder: ["active", "deprecated"],
 		presentation: PLAYBOOK_STATUS_PRESENTATION,
+		hierarchical: true,
 		rowMeta: playbookRowMeta,
 		actions: (playbook) => ["Show details", "Edit", "Invoke", "Link artifact", playbook.status === "active" ? "Disable" : "Enable"],
 		handleAction: async (choice, playbook, commandCtx) => {
@@ -90,11 +92,19 @@ export async function showPlaybooks(ctx: ExtensionCommandContext): Promise<void>
 				return;
 			}
 			if (choice === "Edit") {
-				const title = await commandCtx.ui.input("Title:", playbook.title);
+				const current = await callService<Record<string, unknown>, Artifact>("playbooks.show", { id: playbook.id });
+				const title = await commandCtx.ui.input("Title:", current.title);
 				if (title === undefined) return; // canceled
-				const body = await commandCtx.ui.input("Body:", playbook.body);
+				const body = await commandCtx.ui.input("Body:", current.body);
 				if (body === undefined) return; // canceled
-				const updated = await callService<Record<string, unknown>, Artifact>("playbooks.update", { id: playbook.id, title, body });
+				const labels = await commandCtx.ui.input("Direct labels (comma-separated):", current.labels.join(", "));
+				if (labels === undefined) return; // canceled
+				const updated = await callService<Record<string, unknown>, Artifact>("playbooks.update", {
+					id: playbook.id,
+					title,
+					body,
+					labels: parseLabelInput(labels),
+				});
 				commandCtx.ui.notify(`Updated "${updated.title}"`, "info");
 				return;
 			}

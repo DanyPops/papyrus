@@ -9,6 +9,14 @@ export type { Artifact, ArtifactEdge } from "./artifact/artifact.ts";
 export { projectArtifactRelationships } from "./artifact/artifact-relationship-view.ts";
 export type { ArtifactStore } from "./artifact/artifact-store.ts";
 export {
+	BINDER_FILED_IN_RELATION,
+	BINDER_KIND,
+	BINDER_ORGANIZES_RELATION,
+	type BinderArtifactPlacement,
+	type BinderNode,
+	type BinderTree,
+} from "./binder/binder.ts";
+export {
 	connectPapyrusClient,
 	type PapyrusClient,
 	type PushChannelTarget,

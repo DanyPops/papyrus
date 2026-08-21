@@ -22,6 +22,7 @@ describe("task-lifecycle-mutation-receipts migration", () => {
 				"artifact-multi-project-scope",
 				"artifact-scope-tri-state-and-scope-groups",
 				"discuss-quiz",
+				"binder-hierarchy-and-label-inheritance",
 			],
 		});
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_mutation_requests'").get()).not.toBeNull();

@@ -21,6 +21,7 @@ import type { TaskScopeStore } from "../task/scope/task-scope-store.ts";
 import type { Tasks } from "../task/task-service.ts";
 import { registerArtifactTrashOperations } from "./artifact-trash.ts";
 import { registerBatchVehicleOperation } from "./batch.ts";
+import { registerBindersVehicleOperations } from "./binders.ts";
 import { registerDiscussVehicleOperations } from "./discuss.ts";
 import { registerDocsVehicleOperations } from "./docs.ts";
 import { registerNotesVehicleOperations } from "./notes.ts";
@@ -56,6 +57,7 @@ export function createPapyrusVehicleRegistry(deps: PapyrusVehicleDeps): VehicleR
 	// session_id, a correlation id, not a secret -- see session-identity-service.ts).
 	registry.setExposeHandlerFailureDetails(true);
 	registerNotesVehicleOperations(registry, deps.notes, deps.artifacts);
+	registerBindersVehicleOperations(registry, deps.artifacts, deps.scopes, deps.projectRegistry, deps.scopeGroups);
 	registerRulesVehicleOperations(registry, deps.artifacts, deps.scopes, deps.projectRegistry, deps.scopeGroups);
 	registerDocsVehicleOperations(registry, deps.artifacts, deps.scopes, deps.authority, deps.projectRegistry, deps.scopeGroups);
 	registerPlaybooksVehicleOperations(registry, {

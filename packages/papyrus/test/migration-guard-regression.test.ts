@@ -60,6 +60,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
 			"discuss-quiz",
+			"binder-hierarchy-and-label-inheritance",
 		]);
 		expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'log_sources'").get()).not.toBeNull();
 		db.close();
@@ -92,6 +93,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
 			"discuss-quiz",
+			"binder-hierarchy-and-label-inheritance",
 		]);
 		db.close();
 	});
@@ -124,6 +126,7 @@ describe("migrateDb guard regression: schema versions 8, 9, 10 must have a real 
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
 			"discuss-quiz",
+			"binder-hierarchy-and-label-inheritance",
 		]);
 		db.close();
 	});

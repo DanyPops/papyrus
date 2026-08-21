@@ -41,6 +41,7 @@ describe("artifact-aliases migration: every existing row is backfilled with a re
 			"artifact-multi-project-scope",
 			"artifact-scope-tri-state-and-scope-groups",
 			"discuss-quiz",
+			"binder-hierarchy-and-label-inheritance",
 		]);
 
 		const a = getArtifact(db, "task-a")!;

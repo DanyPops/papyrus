@@ -52,6 +52,17 @@ describe("task hierarchy projection", () => {
 		expect(hierarchy[1]?.dependencies).toEqual(["telemetry"]);
 	});
 
+	it("treats a task whose semantic parent is filed in another Binder as a directory-local root", () => {
+		const graph: TaskGraph = {
+			nodes: [node("parent", "Parent", { childIds: ["child"] }), node("child", "Child", { parentIds: ["parent"] })],
+			rootIds: ["parent"],
+		};
+
+		const hierarchy = buildTaskHierarchy(graph, new Set(["child"]));
+
+		expect(hierarchy.map(({ task, depth }) => [task.id, depth])).toEqual([["child", 0]]);
+	});
+
 	it("visits every task once when malformed containment contains a cycle", () => {
 		const graph: TaskGraph = {
 			nodes: [node("a", "A", { parentIds: ["b"], childIds: ["b"] }), node("b", "B", { parentIds: ["a"], childIds: ["a"] })],

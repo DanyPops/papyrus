@@ -149,7 +149,7 @@ describe("session-scoped Task Focus — explicit migration", () => {
 
 		expect(migrateDb(db)).toEqual({
 			from: 7,
-			to: 30,
+			to: 31,
 			applied: [
 				"task-focus-session-scope",
 				"graph-projection-protocol",
@@ -174,6 +174,7 @@ describe("session-scoped Task Focus — explicit migration", () => {
 				"artifact-multi-project-scope",
 				"artifact-scope-tri-state-and-scope-groups",
 				"discuss-quiz",
+				"binder-hierarchy-and-label-inheritance",
 			],
 		});
 

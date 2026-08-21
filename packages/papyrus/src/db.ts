@@ -361,6 +361,7 @@ INSERT OR IGNORE INTO kinds VALUES ('doc','Knowledge — what we know (specs, de
 INSERT OR IGNORE INTO kinds VALUES ('task','Work — what we are doing (objectives, steps, checklists)');
 INSERT OR IGNORE INTO kinds VALUES ('rule','Governance — when doing X, follow Y');
 INSERT OR IGNORE INTO kinds VALUES ('playbook','Reusable procedure — a trigger and an ordered list of steps an agent reads and follows, not a mechanically instantiated blueprint');
+INSERT OR IGNORE INTO kinds VALUES ('binder','Organizational directory — a stable path segment for browsing artifacts without changing their identity');
 INSERT OR IGNORE INTO statuses VALUES ('draft','doc');
 INSERT OR IGNORE INTO statuses VALUES ('active','doc');
 INSERT OR IGNORE INTO statuses VALUES ('archived','doc');
@@ -375,6 +376,7 @@ INSERT OR IGNORE INTO statuses VALUES ('active','rule');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','rule');
 INSERT OR IGNORE INTO statuses VALUES ('active','playbook');
 INSERT OR IGNORE INTO statuses VALUES ('deprecated','playbook');
+INSERT OR IGNORE INTO statuses VALUES ('active','binder');
 INSERT OR IGNORE INTO relation_names VALUES ('references','Source material (doc→doc, doc→task, doc→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('implements','This work satisfies that (task→doc, task→rule)');
 INSERT OR IGNORE INTO relation_names VALUES ('follows','This work obeys that (task→rule, task→playbook)');
@@ -387,6 +389,8 @@ INSERT OR IGNORE INTO relation_names VALUES ('gates','This rule gates that task 
 INSERT OR IGNORE INTO relation_names VALUES ('triggers','This playbook run applies to that work (playbook→task)');
 INSERT OR IGNORE INTO relation_names VALUES ('contains','Parent contains a nested artifact (any→any)');
 INSERT OR IGNORE INTO relation_names VALUES ('part_of','Artifact belongs to a parent artifact (any→any)');
+INSERT OR IGNORE INTO relation_names VALUES ('organizes','Binder provides an organizational location for an artifact without execution semantics');
+INSERT OR IGNORE INTO relation_names VALUES ('filed_in','Artifact is filed in a Binder; reverse of organizes');
 CREATE INDEX IF NOT EXISTS edges_to_id_idx ON edges(to_id);
 `;
 
@@ -436,6 +440,11 @@ const CORE_LEDGER_VERSIONS: ReadonlyArray<{ version: number; name: string; check
 	{ version: 6, name: "artifact-trash", checksum: "4a75dbec2892deb54bcc1afdf0d51d81f03a8d10861787d083784a29e5c7e8f9" },
 	{ version: 7, name: "discuss-native", checksum: "ab7bdd04824bd93681917807b817d6e08b9825af90161e3ccd6d6663021dc6a0" },
 	{ version: 8, name: "discuss-options", checksum: "ba1fc5ab7cfe9166d71cc1842f13bc32a0905d08696006cec202196a70c832e8" },
+	{
+		version: 9,
+		name: "binder-hierarchy-and-label-inheritance",
+		checksum: "fbd0c8059363ab4acea78a151262da73ef87766755fe799586cb63a6405d9e3c",
+	},
 ];
 
 export function migrationLedger(db: Db): ModuleMigrationRow[] {
@@ -1045,6 +1054,20 @@ const FUTURE_MIGRATIONS: ReadonlyArray<PapyrusMigration> = [
 			for (const [column, type] of columns) {
 				if (!existing.has(column)) db.exec(`ALTER TABLE discussion_rounds ADD COLUMN ${column} ${type}`);
 			}
+		},
+	},
+	{
+		version: 31,
+		name: "binder-hierarchy-and-label-inheritance",
+		// Binders reuse the existing artifacts/edges/scope stores. Only the kind/status vocabulary
+		// and organizational relation pair are new; paths and inherited labels stay computed views.
+		up: (db) => {
+			db.exec(`
+				INSERT OR IGNORE INTO kinds VALUES ('binder','Organizational directory — a stable path segment for browsing artifacts without changing their identity');
+				INSERT OR IGNORE INTO statuses VALUES ('active','binder');
+				INSERT OR IGNORE INTO relation_names VALUES ('organizes','Binder provides an organizational location for an artifact without execution semantics');
+				INSERT OR IGNORE INTO relation_names VALUES ('filed_in','Artifact is filed in a Binder; reverse of organizes');
+			`);
 		},
 	},
 ];

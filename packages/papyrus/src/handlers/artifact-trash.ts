@@ -8,6 +8,7 @@ import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { removeArtifactSubtree } from "../artifact/artifact-subtree.ts";
 import type { ArtifactTrashStore } from "../artifact/artifact-trash-store.ts";
+import { BINDER_KIND } from "../binder/binder.ts";
 import { looseObjectSchema, numberProp, passthroughOutput, stringProp, validationError } from "./shared.ts";
 
 const OWNER = "artifact";
@@ -27,6 +28,14 @@ function eventContext(input: Record<string, unknown>): { actor?: string; source?
 function requireId(input: Record<string, unknown>): string {
 	const id = input.id;
 	if (typeof id !== "string" || id.length === 0) throw validationError("id is required");
+	return id;
+}
+
+function requireGenericTrashId(artifacts: ArtifactStore, input: Record<string, unknown>): string {
+	const id = requireId(input);
+	if (artifacts.get(id)?.kind === BINDER_KIND) {
+		throw validationError("Binder removal requires binders.remove so a non-empty directory cannot be orphaned");
+	}
 	return id;
 }
 
@@ -72,12 +81,12 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 
 	define(
 		"remove",
-		"Moves any artifact to a time-gated trash, excluded from list/query but still directly showable, restorable via artifact.restore until the purge deadline.",
+		"Moves a non-Binder artifact to a time-gated trash, excluded from list/query but still directly showable, restorable via artifact.restore until the purge deadline. Binders require binders.remove so non-empty directories are protected.",
 		"local-write",
 		{ id: stringProp, reason: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		["id"],
 		(input) =>
-			artifacts.trash(requireId(input), {
+			artifacts.trash(requireGenericTrashId(artifacts, input), {
 				reason: typeof input.reason === "string" ? input.reason : undefined,
 				context: eventContext(input),
 			}),
@@ -90,7 +99,7 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 		{ id: stringProp, reason: stringProp, actor: stringProp, source: stringProp, session_id: stringProp },
 		["id"],
 		(input) =>
-			removeArtifactSubtree(artifacts, requireId(input), {
+			removeArtifactSubtree(artifacts, requireGenericTrashId(artifacts, input), {
 				reason: typeof input.reason === "string" ? input.reason : undefined,
 				context: eventContext(input),
 			}),

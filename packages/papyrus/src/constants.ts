@@ -17,7 +17,7 @@ export const DAEMON_PROBE_TIMEOUT_MS = 800;
 export const DAEMON_UNIT_NAME = "papyrus.service";
 export const DAEMON_DIR_ENV = "PAPYRUS_DAEMON_DIR";
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
-export const SQLITE_SCHEMA_VERSION = 30;
+export const SQLITE_SCHEMA_VERSION = 31;
 export const SERVICE_MAX_BODY_BYTES = 1_048_576;
 
 export const WAL_CHECKPOINT_INTERVAL_MS = 60_000;
@@ -163,6 +163,11 @@ export const PLAYBOOK_INVOCATION_MAX_CREATED_TASKS = 200;
 export const TASK_CANCEL_SUBTREE_MAX_NODES = 500;
 /** artifact.remove_subtree walks `contains` transitively across any artifact kind (a task tree, or a playbook's own nested-playbook children) -- same bound rationale as TASK_CANCEL_SUBTREE_MAX_NODES, kept separate since the two traversals serve different operations. */
 export const ARTIFACT_REMOVE_SUBTREE_MAX_NODES = 500;
+/** Filesystem-style Binder projection bounds. A tree is one project-context view, never an unbounded graph export. */
+export const BINDER_TREE_MAX_ARTIFACTS = 1_000;
+export const BINDER_TREE_MAX_RELATIONSHIPS = 10_000;
+export const BINDER_TREE_MAX_DEPTH = 32;
+export const BINDER_EFFECTIVE_LABEL_MAX_COUNT = 256;
 
 /**
  * At the core, a workflow Skill creates Tasks and begins a pipeline -- an Ansible playbook or

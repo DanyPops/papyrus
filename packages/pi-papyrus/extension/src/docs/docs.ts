@@ -2,6 +2,7 @@ import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
 import { DOC_STATUS_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
+import { parseLabelInput } from "../artifact/binder-navigation.ts";
 import { callService } from "../service-client.ts";
 
 const DOC_ACTIONS: Record<string, string[]> = {
@@ -23,6 +24,7 @@ export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
 		listOperation: "docs.list",
 		statusOrder: ["draft", "active", "archived"],
 		presentation: DOC_STATUS_PRESENTATION,
+		hierarchical: true,
 		rowMeta: documentRowMeta,
 		actions: (document) => ["Show details", "Edit", "Link artifact", ...(DOC_ACTIONS[document.status] ?? [])],
 		handleAction: async (choice, document, commandCtx) => {
@@ -31,11 +33,19 @@ export async function showDocs(ctx: ExtensionCommandContext): Promise<void> {
 				return;
 			}
 			if (choice === "Edit") {
-				const title = await commandCtx.ui.input("Title:", document.title);
+				const current = await callService<Record<string, unknown>, Artifact>("docs.show", { id: document.id });
+				const title = await commandCtx.ui.input("Title:", current.title);
 				if (title === undefined) return; // canceled
-				const body = await commandCtx.ui.input("Body:", document.body);
+				const body = await commandCtx.ui.input("Body:", current.body);
 				if (body === undefined) return; // canceled
-				const updated = await callService<Record<string, unknown>, Artifact>("docs.update", { id: document.id, title, body });
+				const labels = await commandCtx.ui.input("Direct labels (comma-separated):", current.labels.join(", "));
+				if (labels === undefined) return; // canceled
+				const updated = await callService<Record<string, unknown>, Artifact>("docs.update", {
+					id: document.id,
+					title,
+					body,
+					labels: parseLabelInput(labels),
+				});
 				commandCtx.ui.notify(`Updated "${updated.title}"`, "info");
 				return;
 			}

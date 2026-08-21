@@ -2,12 +2,13 @@ import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
 import { RULE_STATUS_PRESENTATION, severityColor } from "../artifact/artifact-status-presentation.ts";
+import { parseLabelInput } from "../artifact/binder-navigation.ts";
 import { callService } from "../service-client.ts";
 
 export function ruleRowMeta(rule: Artifact, theme: Theme): string {
-	const severity = typeof rule.extra.severity === "string" ? rule.extra.severity : "info";
+	const severity = typeof rule.extra?.severity === "string" ? rule.extra.severity : "info";
 	const severityText = theme.fg(severityColor(severity), severity.toUpperCase());
-	const condition = typeof rule.extra.condition === "string" ? `when ${rule.extra.condition}` : "always";
+	const condition = typeof rule.extra?.condition === "string" ? `when ${rule.extra.condition}` : "always";
 	return `${severityText} · ${condition}`;
 }
 
@@ -24,16 +25,25 @@ export async function showRules(ctx: ExtensionCommandContext): Promise<void> {
 		listOperation: "rules.list",
 		statusOrder: ["active", "deprecated"],
 		presentation: RULE_STATUS_PRESENTATION,
+		hierarchical: true,
 		rowMeta: ruleRowMeta,
 		actions: (rule) => ["Show details", "Edit", "Preview injection", "Link gated task", rule.status === "active" ? "Disable" : "Enable"],
 		handleAction: async (choice, rule, commandCtx) => {
 			if (choice === "Show details") await showArtifactDetails(commandCtx, rule.id, "rules.show");
 			else if (choice === "Edit") {
-				const title = await commandCtx.ui.input("Title:", rule.title);
+				const current = await callService<Record<string, unknown>, Artifact>("rules.show", { id: rule.id });
+				const title = await commandCtx.ui.input("Title:", current.title);
 				if (title === undefined) return; // canceled
-				const body = await commandCtx.ui.input("Body:", rule.body);
+				const body = await commandCtx.ui.input("Body:", current.body);
 				if (body === undefined) return; // canceled
-				const updated = await callService<Record<string, unknown>, Artifact>("rules.update", { id: rule.id, title, body });
+				const labels = await commandCtx.ui.input("Direct labels (comma-separated):", current.labels.join(", "));
+				if (labels === undefined) return; // canceled
+				const updated = await callService<Record<string, unknown>, Artifact>("rules.update", {
+					id: rule.id,
+					title,
+					body,
+					labels: parseLabelInput(labels),
+				});
 				commandCtx.ui.notify(`Updated "${updated.title}"`, "info");
 			} else if (choice === "Preview injection") {
 				const result = await callService<Record<string, unknown>, { preview: string; combinedLength: number; warning?: string }>(

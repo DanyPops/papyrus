@@ -20,6 +20,12 @@ function parseStringArray(value: string): string[] {
 	return parsed as string[];
 }
 
+function parseBoolean(value: string): boolean {
+	if (value === "true") return true;
+	if (value === "false") return false;
+	throw new Error("value must be true or false");
+}
+
 function parseObject(value: string): Record<string, unknown> {
 	const parsed = JSON.parse(value) as unknown;
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("value must be a JSON object");
@@ -42,6 +48,7 @@ const createCommand = buildCommand({
 			labelsJson?: string[];
 			extraJson?: Record<string, unknown>;
 			activationJson?: Record<string, unknown>;
+			activationEnabled?: boolean;
 			projectRoot?: string;
 		},
 	) {
@@ -54,6 +61,7 @@ const createCommand = buildCommand({
 			labels: flags.labelsJson,
 			extra: flags.extraJson,
 			activation: flags.activationJson,
+			activation_enabled: flags.activationEnabled,
 			project_root: flags.projectRoot,
 		});
 		render.call(this, artifact, `Created rule: ${artifactLabel(artifact)}`);
@@ -68,10 +76,17 @@ const createCommand = buildCommand({
 			labelsJson: { brief: "JSON string array of labels", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
 			extraJson: { brief: "JSON object of extra fields", kind: "parsed", parse: parseObject, placeholder: "json", optional: true },
 			activationJson: {
-				brief: "Typed activation config as JSON: {predicate?,priority?,injection?}",
+				brief: "Typed activation config as JSON: {enabled?,predicate?,labels?,priority?,injection?}",
 				kind: "parsed",
 				parse: parseObject,
 				placeholder: "json",
+				optional: true,
+			},
+			activationEnabled: {
+				brief: "Persisted manual activation flag (true|false)",
+				kind: "parsed",
+				parse: parseBoolean,
+				placeholder: "boolean",
 				optional: true,
 			},
 			projectRoot: { brief: "Project scope", kind: "parsed", parse: String, placeholder: "path", optional: true },
@@ -352,17 +367,30 @@ const injectableCommand = buildCommand({
 const updateCommand = buildCommand({
 	func: async function (
 		this: RulesContext,
-		flags: { title?: string; body?: string; labelsJson?: string[]; activationJson?: Record<string, unknown> },
+		flags: {
+			title?: string;
+			body?: string;
+			labelsJson?: string[];
+			activationJson?: Record<string, unknown>;
+			activationEnabled?: boolean;
+		},
 		id: string,
 	) {
-		if (flags.title === undefined && flags.body === undefined && flags.labelsJson === undefined && flags.activationJson === undefined)
-			throw new Error("rules update requires --title, --body, --labels-json, or --activation-json");
+		if (
+			flags.title === undefined &&
+			flags.body === undefined &&
+			flags.labelsJson === undefined &&
+			flags.activationJson === undefined &&
+			flags.activationEnabled === undefined
+		)
+			throw new Error("rules update requires --title, --body, --labels-json, --activation-json, or --activation-enabled");
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("rules.update", {
 			id,
 			title: flags.title,
 			body: flags.body,
 			labels: flags.labelsJson,
 			activation: flags.activationJson,
+			activation_enabled: flags.activationEnabled,
 		});
 		render.call(this, artifact, artifactLabel(artifact));
 	},
@@ -376,6 +404,13 @@ const updateCommand = buildCommand({
 				kind: "parsed",
 				parse: parseObject,
 				placeholder: "json",
+				optional: true,
+			},
+			activationEnabled: {
+				brief: "Persisted manual activation flag (true|false)",
+				kind: "parsed",
+				parse: parseBoolean,
+				placeholder: "boolean",
 				optional: true,
 			},
 		},

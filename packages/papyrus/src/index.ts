@@ -9,6 +9,7 @@ export type { Artifact, ArtifactEdge } from "./artifact/artifact.ts";
 export {
 	type ActivationConfig,
 	type ActivationContext,
+	type ActivationLabelMatch,
 	type ActivationPredicate,
 	activationConfig,
 	type InjectionProfile,

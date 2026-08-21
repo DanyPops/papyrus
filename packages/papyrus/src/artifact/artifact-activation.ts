@@ -18,6 +18,7 @@ export type ActivationField = (typeof ACTIVATION_FIELDS)[number];
 export const ACTIVATION_OPERATORS = ["eq", "in", "contains_any", "contains_all", "exists"] as const;
 export type ActivationOperator = (typeof ACTIVATION_OPERATORS)[number];
 export type InjectionProfile = "full" | "catalog" | "on-demand";
+export type ActivationLabelMatch = "any" | "all";
 
 export type ActivationPredicate =
 	| { field: ActivationField; operator: ActivationOperator; value: string | string[] | boolean }
@@ -26,7 +27,11 @@ export type ActivationPredicate =
 	| { not: ActivationPredicate };
 
 export interface ActivationConfig {
+	/** Persisted manual switch, independent of lifecycle and project scope. Missing values default true. */
+	enabled: boolean;
 	predicate?: ActivationPredicate;
+	/** Opt-in bridge to the artifact label system: compare this artifact's direct labels with the active Task's labels. */
+	labels?: ActivationLabelMatch;
 	priority: number;
 	injection: InjectionProfile;
 	invalid?: true;
@@ -144,8 +149,18 @@ function validatePredicate(value: unknown, state: ValidationState, depth: number
 
 export function validateActivationConfig(value: unknown, defaultInjection: InjectionProfile = "full"): ActivationConfig {
 	const input = record(value, "activation");
-	if (!Object.keys(input).every((key) => key === "predicate" || key === "priority" || key === "injection")) {
-		throw new Error("activation supports only predicate, priority, and injection");
+	if (
+		!Object.keys(input).every(
+			(key) => key === "enabled" || key === "predicate" || key === "labels" || key === "priority" || key === "injection",
+		)
+	) {
+		throw new Error("activation supports only enabled, predicate, labels, priority, and injection");
+	}
+	const enabled = input.enabled === undefined ? true : input.enabled;
+	if (typeof enabled !== "boolean") throw new Error("activation enabled must be a boolean");
+	const labels = input.labels;
+	if (labels !== undefined && labels !== "any" && labels !== "all") {
+		throw new Error("activation labels must be any or all");
 	}
 	const priority = input.priority === undefined ? 0 : input.priority;
 	if (!Number.isInteger(priority) || (priority as number) < -1000 || (priority as number) > 1000) {
@@ -156,19 +171,42 @@ export function validateActivationConfig(value: unknown, defaultInjection: Injec
 		throw new Error("activation injection must be full, catalog, or on-demand");
 	}
 	return {
+		enabled,
 		...(input.predicate === undefined ? {} : { predicate: validatePredicate(input.predicate, { nodes: 0 }, 1) }),
+		...(labels === undefined ? {} : { labels: labels as ActivationLabelMatch }),
 		priority: priority as number,
 		injection,
 	};
 }
 
 export function activationConfig(extra: Record<string, unknown>, defaultInjection: InjectionProfile = "full"): ActivationConfig {
-	if (extra.activation === undefined) return { priority: 0, injection: defaultInjection };
+	if (extra.activation === undefined) return { enabled: true, priority: 0, injection: defaultInjection };
 	try {
 		return validateActivationConfig(extra.activation, defaultInjection);
 	} catch {
-		return { priority: 0, injection: defaultInjection, invalid: true };
+		return { enabled: false, priority: 0, injection: defaultInjection, invalid: true };
 	}
+}
+
+/** Validates a replacement config while allowing the ergonomic standalone flag to override its enabled field. */
+export function validateActivationInput(
+	value: unknown,
+	enabled: boolean | undefined,
+	defaultInjection: InjectionProfile,
+): ActivationConfig | undefined {
+	if (value === undefined && enabled === undefined) return undefined;
+	const input = value === undefined ? {} : record(value, "activation");
+	return validateActivationConfig(enabled === undefined ? input : { ...input, enabled }, defaultInjection);
+}
+
+/** Applies the ergonomic standalone activation flag while retaining predicate/profile/priority settings. */
+export function activationConfigWithEnabled(
+	extra: Record<string, unknown>,
+	enabled: boolean,
+	defaultInjection: InjectionProfile,
+): ActivationConfig {
+	const current = extra.activation === undefined ? {} : record(extra.activation, "activation");
+	return validateActivationConfig({ ...current, enabled }, defaultInjection);
 }
 
 function contextValue(field: ActivationField, context: ActivationContext): string | string[] | undefined {
@@ -233,7 +271,24 @@ function evaluatePredicate(predicate: ActivationPredicate, context: ActivationCo
 		: { enabled: false, reason: `activation ${predicate.field} did not match ${predicate.operator}` };
 }
 
-export function evaluateActivation(config: ActivationConfig, context: ActivationContext): ActivationDecision {
+function normalizeLabel(value: string): string {
+	return value.trim().toLowerCase();
+}
+
+export function evaluateActivation(
+	config: ActivationConfig,
+	context: ActivationContext,
+	artifactLabels: readonly string[] = [],
+): ActivationDecision {
 	if (config.invalid) return { enabled: false, reason: "invalid activation configuration" };
+	if (!config.enabled) return { enabled: false, reason: "activation flag is disabled" };
+	if (config.labels !== undefined) {
+		const expected = [...new Set(artifactLabels.map(normalizeLabel).filter(Boolean))];
+		if (expected.length === 0) return { enabled: false, reason: "activation label matching has no artifact labels" };
+		const actual = new Set((context.taskLabels ?? []).map(normalizeLabel).filter(Boolean));
+		if (actual.size === 0) return { enabled: false, reason: "activation context field task.labels is unavailable" };
+		const matches = config.labels === "all" ? expected.every((label) => actual.has(label)) : expected.some((label) => actual.has(label));
+		if (!matches) return { enabled: false, reason: `activation artifact labels did not match ${config.labels}` };
+	}
 	return config.predicate === undefined ? { enabled: true, reason: "enabled" } : evaluatePredicate(config.predicate, context);
 }

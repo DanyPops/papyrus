@@ -38,6 +38,7 @@ describe("artifact activation predicates", () => {
 		});
 
 		expect(evaluateActivation(activation, context)).toEqual({ enabled: true, reason: "enabled" });
+		expect(activation.enabled).toBe(true);
 		expect(activation.priority).toBe(25);
 		expect(activation.injection).toBe("catalog");
 	});
@@ -79,8 +80,31 @@ describe("artifact activation predicates", () => {
 
 	test("defaults legacy artifacts to enabled, full injection, and neutral priority", () => {
 		const config = activationConfig({});
-		expect(config).toEqual({ priority: 0, injection: "full" });
+		expect(config).toEqual({ enabled: true, priority: 0, injection: "full" });
 		expect(evaluateActivation(config, {})).toEqual({ enabled: true, reason: "enabled" });
+	});
+
+	test("persists a manual activation flag independently of lifecycle and predicates", () => {
+		const config = validateActivationConfig({
+			enabled: false,
+			predicate: { field: "languages", operator: "contains_any", value: ["typescript"] },
+		});
+		expect(evaluateActivation(config, context)).toEqual({ enabled: false, reason: "activation flag is disabled" });
+		expect(() => validateActivationConfig({ enabled: "false" })).toThrow(/enabled must be a boolean/);
+	});
+
+	test("optionally matches normalized artifact labels against active Task labels", () => {
+		const any = validateActivationConfig({ labels: "any" });
+		expect(evaluateActivation(any, context, [" TypeScript ", "security"])).toEqual({ enabled: true, reason: "enabled" });
+		const all = validateActivationConfig({ labels: "all" });
+		expect(evaluateActivation(all, context, ["TYPESCRIPT", "security"])).toEqual({
+			enabled: false,
+			reason: "activation artifact labels did not match all",
+		});
+		expect(evaluateActivation(any, {}, ["typescript"])).toEqual({
+			enabled: false,
+			reason: "activation context field task.labels is unavailable",
+		});
 	});
 
 	test("keeps on-demand artifacts activatable while leaving injection policy to the context selector", () => {

@@ -77,9 +77,13 @@ export function registerRulesVehicleOperations(
 			subtype: stringProp,
 			labels: { type: "array" } as unknown as { type: string },
 			extra: { type: "object" } as unknown as { type: string },
-			activation: { type: "object", description: "Typed activation config: {predicate?,priority?,injection?}." } as unknown as {
+			activation: {
+				type: "object",
+				description: "Typed activation config: {enabled?,predicate?,labels?,priority?,injection?}.",
+			} as unknown as {
 				type: string;
 			},
+			activation_enabled: { ...booleanProp, description: "Persisted manual activation flag; defaults true." },
 			template_id: stringProp,
 			project_root: stringProp,
 			projects: { type: "array" } as unknown as { type: string },
@@ -318,6 +322,7 @@ export function registerRulesVehicleOperations(
 			body: stringProp,
 			labels: { type: "array" } as unknown as { type: string },
 			activation: { type: "object", description: "Replacement typed activation config." } as unknown as { type: string },
+			activation_enabled: { ...booleanProp, description: "Persisted manual activation flag; retains other activation settings." },
 			project_root: stringProp,
 			actor: stringProp,
 			source: stringProp,

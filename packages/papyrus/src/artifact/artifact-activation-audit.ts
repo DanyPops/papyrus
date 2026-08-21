@@ -13,6 +13,8 @@ export interface ActivationAuditEntry {
 	scopeMode: ArtifactScopeMode;
 	enabled: boolean;
 	reason: string;
+	activationEnabled: boolean;
+	labelMatch?: "any" | "all";
 	priority: number;
 	injection: InjectionProfile;
 	estimatedTokens: number;
@@ -63,7 +65,7 @@ export function auditArtifactActivation(
 				decision = { enabled: false, reason: "rule is an artifact template" };
 			} else if (artifact.kind === "rule" && !passesRuleRunScope(artifact, activeTaskId)) {
 				decision = { enabled: false, reason: "run ownership does not apply" };
-			} else decision = evaluateActivation(config, { ...context, projectRoot });
+			} else decision = evaluateActivation(config, { ...context, projectRoot }, artifact.labels);
 			return {
 				id: artifact.id,
 				kind: artifact.kind as "rule" | "playbook",
@@ -71,6 +73,8 @@ export function auditArtifactActivation(
 				status: artifact.status,
 				scopeMode: scope.mode,
 				...decision,
+				activationEnabled: config.enabled,
+				...(config.labels === undefined ? {} : { labelMatch: config.labels }),
 				priority: config.priority,
 				injection: config.injection,
 				estimatedTokens: estimatedTokens(artifacts, artifact),

@@ -117,6 +117,12 @@ describe("runPlaybooksCli (Stricli-backed)", () => {
 		await expect(runPlaybooksCli(["update", "p1"], client)).rejects.toThrow();
 	});
 
+	it("update: persists an explicit activation flag", async () => {
+		const client = new FakeClient(artifact);
+		await runPlaybooksCli(["update", "p1", "--activation-enabled", "false"], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.update", input: { id: "p1", activation_enabled: false } }]);
+	});
+
 	it("update: threads trigger/steps-json, the exact gap this closes -- no more create-new+supersedes+disable workaround", async () => {
 		const client = new FakeClient(artifact);
 		await runPlaybooksCli(["update", "p1", "--trigger", "new, generic trigger", "--steps-json", '["new, generic step"]'], client);

@@ -92,6 +92,40 @@ describe("conditional artifact activation", () => {
 		service.close();
 	});
 
+	test("remembers the manual flag and bridges normalized artifact labels to the active Task", async () => {
+		const { service } = fixture();
+		const rule = (await service.execute("rules.create", {
+			title: "Security review",
+			rule_action: "Review security-sensitive work",
+			labels: [" Security "],
+			activation: { labels: "any", priority: 10 },
+		})) as { id: string };
+		const task = (await service.execute("tasks.create", {
+			title: "Audit authentication",
+			labels: ["security"],
+			project_root: PROJECT,
+		})) as { id: string };
+		await service.execute("tasks.focus", { id: task.id });
+
+		expect(
+			((await service.execute("rules.injectable", { project_root: PROJECT })) as Array<{ id: string }>).map((entry) => entry.id),
+		).toEqual([rule.id]);
+		const paused = (await service.execute("rules.update", { id: rule.id, activation_enabled: false })) as {
+			extra: { activation: { enabled: boolean; labels: string; priority: number } };
+		};
+		expect(paused.extra.activation).toMatchObject({ enabled: false, labels: "any", priority: 10 });
+		expect(await service.execute("rules.injectable", { project_root: PROJECT })).toEqual([]);
+		const audit = (await service.execute("activation.audit", { project_root: PROJECT })) as {
+			entries: Array<{ id: string; reason: string }>;
+		};
+		expect(audit.entries.find((entry) => entry.id === rule.id)?.reason).toBe("activation flag is disabled");
+		await service.execute("rules.update", { id: rule.id, activation_enabled: true });
+		expect(
+			((await service.execute("rules.injectable", { project_root: PROJECT })) as Array<{ id: string }>).map((entry) => entry.id),
+		).toEqual([rule.id]);
+		service.close();
+	});
+
 	test("create and update reject malformed predicates before writing", async () => {
 		const { service } = fixture();
 		await expect(

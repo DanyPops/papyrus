@@ -1,7 +1,7 @@
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
-import { showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
+import { artifactActivationEnabled, showArtifactBrowser, showArtifactDetails } from "../artifact/artifact-browser.ts";
 import { PLAYBOOK_STATUS_PRESENTATION } from "../artifact/artifact-status-presentation.ts";
 import { parseLabelInput } from "../artifact/binder-navigation.ts";
 import { matchArtifactByName } from "../domain-tools.ts";
@@ -85,7 +85,14 @@ export async function showPlaybooks(ctx: ExtensionCommandContext): Promise<void>
 		presentation: PLAYBOOK_STATUS_PRESENTATION,
 		hierarchical: true,
 		rowMeta: playbookRowMeta,
-		actions: (playbook) => ["Show details", "Edit", "Invoke", "Link artifact", playbook.status === "active" ? "Disable" : "Enable"],
+		actions: (playbook) => [
+			"Show details",
+			"Edit",
+			"Invoke",
+			"Toggle activation flag",
+			"Link artifact",
+			playbook.status === "active" ? "Disable" : "Enable",
+		],
 		handleAction: async (choice, playbook, commandCtx) => {
 			if (choice === "Show details") {
 				await showArtifactDetails(commandCtx, playbook.id, "playbooks.show");
@@ -110,6 +117,13 @@ export async function showPlaybooks(ctx: ExtensionCommandContext): Promise<void>
 			}
 			if (choice === "Invoke") {
 				await invokeAndReport(playbook.id, playbook.title, commandCtx);
+				return;
+			}
+			if (choice === "Toggle activation flag") {
+				const current = await callService<Record<string, unknown>, Artifact>("playbooks.show", { id: playbook.id });
+				const enabled = artifactActivationEnabled(current);
+				await callService("playbooks.update", { id: playbook.id, activation_enabled: !enabled });
+				commandCtx.ui.notify(`${current.title} activation ${enabled ? "paused" : "resumed"}`, "info");
 				return;
 			}
 			if (choice === "Link artifact") {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Artifact } from "@danypops/papyrus";
-import { filterArtifactRows } from "../extension/src/artifact/artifact-browser.ts";
+import { artifactActivationEnabled, filterArtifactRows } from "../extension/src/artifact/artifact-browser.ts";
 
 /**
  * Regression coverage for a real crash: list operations (docs.list, rules.list,
@@ -53,5 +53,11 @@ describe("filterArtifactRows", () => {
 	it("returns all rows for a blank query", () => {
 		const rows = [summaryRow(), summaryRow({ id: "doc-2" })];
 		expect(filterArtifactRows(rows, "   ")).toHaveLength(2);
+	});
+
+	it("reads the persisted activation flag while keeping legacy artifacts enabled", () => {
+		expect(artifactActivationEnabled(summaryRow({ extra: {} }))).toBe(true);
+		expect(artifactActivationEnabled(summaryRow({ extra: { activation: { enabled: true } } }))).toBe(true);
+		expect(artifactActivationEnabled(summaryRow({ extra: { activation: { enabled: false } } }))).toBe(false);
 	});
 });

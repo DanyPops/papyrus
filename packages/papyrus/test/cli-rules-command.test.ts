@@ -135,6 +135,12 @@ describe("runRulesCli (Stricli-backed)", () => {
 		expect(client.calls).toEqual([{ operation: "rules.update", input: { id: "r1", title: "T2", body: undefined, labels: undefined } }]);
 	});
 
+	it("update: persists an explicit activation flag", async () => {
+		const client = new FakeClient(artifact);
+		await runRulesCli(["update", "r1", "--activation-enabled", "false"], client, "/caller");
+		expect(client.calls).toEqual([{ operation: "rules.update", input: { id: "r1", activation_enabled: false } }]);
+	});
+
 	it("rejects an unknown action", async () => {
 		const client = new FakeClient({});
 		await expect(runRulesCli(["bogus"], client, "/caller")).rejects.toThrow();

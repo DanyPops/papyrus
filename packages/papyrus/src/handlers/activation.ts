@@ -26,7 +26,7 @@ export function registerActivationVehicleOperations(
 	});
 	define(
 		"audit",
-		"Audits every Rule and Playbook against lifecycle, project/scope-group applicability, run ownership, and typed activation predicates. Returns enabled/disabled decisions, exclusion reasons, priority, injection profile, scope counts, and estimated enabled tokens.",
+		"Audits every Rule and Playbook against lifecycle, project/scope-group applicability, run ownership, the persisted activation flag, artifact-label matching, and typed predicates. Returns enabled/disabled decisions, exclusion reasons, activation settings, priority, injection profile, scope counts, and estimated enabled tokens.",
 		"read",
 		{
 			project_root: stringProp,

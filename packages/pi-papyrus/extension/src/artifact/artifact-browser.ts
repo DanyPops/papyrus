@@ -42,6 +42,16 @@ export interface ArtifactBrowserConfig {
 	handleAction(choice: string, row: Artifact, ctx: ExtensionCommandContext): Promise<void>;
 }
 
+export function artifactActivationEnabled(artifact: Pick<Artifact, "extra">): boolean {
+	const activation = artifact.extra.activation;
+	return !(
+		typeof activation === "object" &&
+		activation !== null &&
+		!Array.isArray(activation) &&
+		(activation as Record<string, unknown>).enabled === false
+	);
+}
+
 export function filterArtifactRows(rows: Artifact[], query: string): Artifact[] {
 	const needle = query.trim().toLowerCase();
 	if (!needle) return [...rows];

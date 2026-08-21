@@ -27,9 +27,10 @@ import { requireLocallyOwnedContent } from "../artifact/artifact.ts";
 import {
 	type ActivationContext,
 	activationConfig,
+	activationConfigWithEnabled,
 	evaluateActivation,
 	type InjectionProfile,
-	validateActivationConfig,
+	validateActivationInput,
 } from "../artifact/artifact-activation.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
@@ -234,6 +235,7 @@ export interface CreatePlaybookInput {
 	labels?: string[];
 	extra?: Record<string, unknown>;
 	activation?: unknown;
+	activationEnabled?: boolean;
 	templateId?: string;
 	projectRoot?: string;
 	/** Bounded exact registered project references (id/name/alias/root) -- fail-closed unlike projectRoot's auto-register-by-root legacy form. Takes precedence over projectRoot when both are given. */
@@ -255,6 +257,7 @@ export interface UpdatePlaybookInput extends UpdateContentInput {
 	trigger?: string;
 	steps?: unknown;
 	activation?: unknown;
+	activationEnabled?: boolean;
 }
 
 const PLAYBOOK_TRANSITIONS: TransitionTable<PlaybookTransition, string> = {
@@ -275,7 +278,7 @@ export function createPlaybook(
 	const projectRoot = input.projectRoot === undefined ? undefined : normalizeProjectRoot(input.projectRoot);
 	const declaredArguments = validatePlaybookArguments(input.arguments);
 	const declaredSteps = validatePlaybookSteps(input.steps);
-	const activation = input.activation === undefined ? undefined : validateActivationConfig(input.activation, "catalog");
+	const activation = validateActivationInput(input.activation, input.activationEnabled, "catalog");
 	const playbook = artifacts.create(
 		{
 			kind: "playbook",
@@ -315,7 +318,7 @@ export function listActivatedPlaybooks(
 	context: ActivationContext,
 ): Artifact[] {
 	return listPlaybooks(artifacts, scopes, filter).filter(
-		(playbook) => evaluateActivation(activationConfig(playbook.extra, "catalog"), context).enabled,
+		(playbook) => evaluateActivation(activationConfig(playbook.extra, "catalog"), context, playbook.labels).enabled,
 	);
 }
 
@@ -324,7 +327,7 @@ export function playbookActivationDecision(
 	context: ActivationContext,
 ): { enabled: boolean; reason: string; priority: number; injection: InjectionProfile } {
 	const config = activationConfig(playbook.extra, "catalog");
-	return { ...evaluateActivation(config, context), priority: config.priority, injection: config.injection };
+	return { ...evaluateActivation(config, context, playbook.labels), priority: config.priority, injection: config.injection };
 }
 
 export function assignPlaybookProject(
@@ -440,9 +443,10 @@ export function updatePlaybook(artifacts: ArtifactStore, id: string, input: Upda
 		input.labels === undefined &&
 		input.trigger === undefined &&
 		input.steps === undefined &&
-		input.activation === undefined
+		input.activation === undefined &&
+		input.activationEnabled === undefined
 	) {
-		throw new Error("update requires title, body, labels, trigger, steps, or activation");
+		throw new Error("update requires title, body, labels, trigger, steps, activation, or activationEnabled");
 	}
 	assertTitleBounds(input.title);
 	assertBodyBounds(input.body);
@@ -454,8 +458,12 @@ export function updatePlaybook(artifacts: ArtifactStore, id: string, input: Upda
 	const hasContentFields = input.title !== undefined || input.body !== undefined || input.labels !== undefined;
 	const updated = hasContentFields ? artifacts.updateContent(playbook.id, input, context) : playbook;
 	if (!updated) throw new Error(`playbook "${id}" not found`);
-	if (declaredSteps === undefined && input.trigger === undefined && input.activation === undefined) return updated;
-	const activation = input.activation === undefined ? undefined : validateActivationConfig(input.activation, "catalog");
+	if (declaredSteps === undefined && input.trigger === undefined && input.activation === undefined && input.activationEnabled === undefined)
+		return updated;
+	const activation =
+		input.activation === undefined && input.activationEnabled !== undefined
+			? activationConfigWithEnabled(updated.extra, input.activationEnabled, "catalog")
+			: validateActivationInput(input.activation, input.activationEnabled, "catalog");
 	const withExtra = artifacts.setExtra(
 		updated.id,
 		{

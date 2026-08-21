@@ -18,6 +18,12 @@ function parseStringArray(value: string): string[] {
 	return parsed as string[];
 }
 
+function parseBoolean(value: string): boolean {
+	if (value === "true") return true;
+	if (value === "false") return false;
+	throw new Error("value must be true or false");
+}
+
 function parseObject(value: string): Record<string, unknown> {
 	const parsed = JSON.parse(value) as unknown;
 	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("value must be a JSON object");
@@ -52,6 +58,7 @@ const createCommand = buildCommand({
 			labelsJson?: string[];
 			extraJson?: Record<string, unknown>;
 			activationJson?: Record<string, unknown>;
+			activationEnabled?: boolean;
 			argumentsJson?: unknown[] | Record<string, unknown>;
 			projectRoot?: string;
 			projectsJson?: string[];
@@ -66,6 +73,7 @@ const createCommand = buildCommand({
 			labels: flags.labelsJson,
 			extra: flags.extraJson,
 			activation: flags.activationJson,
+			activation_enabled: flags.activationEnabled,
 			arguments: flags.argumentsJson,
 			project_root: flags.projectRoot,
 			projects: flags.projectsJson,
@@ -88,10 +96,17 @@ const createCommand = buildCommand({
 			labelsJson: { brief: "JSON string array of labels", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
 			extraJson: { brief: "JSON object of extra fields", kind: "parsed", parse: parseObject, placeholder: "json", optional: true },
 			activationJson: {
-				brief: "Typed activation config as JSON: {predicate?,priority?,injection?}",
+				brief: "Typed activation config as JSON: {enabled?,predicate?,labels?,priority?,injection?}",
 				kind: "parsed",
 				parse: parseObject,
 				placeholder: "json",
+				optional: true,
+			},
+			activationEnabled: {
+				brief: "Persisted manual activation flag (true|false)",
+				kind: "parsed",
+				parse: parseBoolean,
+				placeholder: "boolean",
 				optional: true,
 			},
 			argumentsJson: {
@@ -422,6 +437,7 @@ const updateCommand = buildCommand({
 			trigger?: string;
 			stepsJson?: unknown[] | Record<string, unknown>;
 			activationJson?: Record<string, unknown>;
+			activationEnabled?: boolean;
 		},
 		id: string,
 	) {
@@ -431,9 +447,12 @@ const updateCommand = buildCommand({
 			flags.labelsJson === undefined &&
 			flags.trigger === undefined &&
 			flags.stepsJson === undefined &&
-			flags.activationJson === undefined
+			flags.activationJson === undefined &&
+			flags.activationEnabled === undefined
 		)
-			throw new Error("playbooks update requires --title, --body, --labels-json, --trigger, --steps-json, or --activation-json");
+			throw new Error(
+				"playbooks update requires --title, --body, --labels-json, --trigger, --steps-json, --activation-json, or --activation-enabled",
+			);
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("playbooks.update", {
 			id,
 			title: flags.title,
@@ -442,6 +461,7 @@ const updateCommand = buildCommand({
 			trigger: flags.trigger,
 			steps: flags.stepsJson,
 			activation: flags.activationJson,
+			activation_enabled: flags.activationEnabled,
 		});
 		render.call(this, artifact, artifactLabel(artifact));
 	},
@@ -463,6 +483,13 @@ const updateCommand = buildCommand({
 				kind: "parsed",
 				parse: parseObject,
 				placeholder: "json",
+				optional: true,
+			},
+			activationEnabled: {
+				brief: "Persisted manual activation flag (true|false)",
+				kind: "parsed",
+				parse: parseBoolean,
+				placeholder: "boolean",
 				optional: true,
 			},
 		},

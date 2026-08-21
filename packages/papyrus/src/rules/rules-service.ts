@@ -10,9 +10,10 @@ import { requireLocallyOwnedContent } from "../artifact/artifact.ts";
 import {
 	type ActivationContext,
 	activationConfig,
+	activationConfigWithEnabled,
 	evaluateActivation,
 	type InjectionProfile,
-	validateActivationConfig,
+	validateActivationInput,
 } from "../artifact/artifact-activation.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
@@ -50,6 +51,7 @@ export interface CreateRuleInput {
 	labels?: string[];
 	extra?: Record<string, unknown>;
 	activation?: unknown;
+	activationEnabled?: boolean;
 	templateId?: string;
 	projectRoot?: string;
 	/** Bounded exact registered project references (id/name/alias/root) -- fail-closed unlike projectRoot's auto-register-by-root legacy form. Takes precedence over projectRoot when both are given. */
@@ -142,7 +144,7 @@ export function createRule(
 	registry?: ProjectRegistryStore,
 ): Artifact {
 	assertRuleTextWithinBounds(input.condition, input.action, input.body);
-	const activation = input.activation === undefined ? undefined : validateActivationConfig(input.activation, "full");
+	const activation = validateActivationInput(input.activation, input.activationEnabled, "full");
 	if (input.projectReferences !== undefined && input.projectReferences.length > 0 && registry === undefined) {
 		throw new Error("projectReferences requires a project registry");
 	}
@@ -308,7 +310,7 @@ export function listInjectableRules(
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
 		if (rule.subtype === "artifact-template") return false;
 		if (!passesRuleRunScope(rule, activeTaskId) || !scopes.appliesToProjectRoot(rule.id, projectRoot)) return false;
-		return evaluateActivation(activationConfig(rule.extra, "full"), { ...context, projectRoot }).enabled;
+		return evaluateActivation(activationConfig(rule.extra, "full"), { ...context, projectRoot }, rule.labels).enabled;
 	});
 }
 
@@ -317,7 +319,7 @@ export function ruleActivationDecision(
 	context: ActivationContext,
 ): { enabled: boolean; reason: string; priority: number; injection: InjectionProfile } {
 	const config = activationConfig(rule.extra, "full");
-	return { ...evaluateActivation(config, context), priority: config.priority, injection: config.injection };
+	return { ...evaluateActivation(config, context, rule.labels), priority: config.priority, injection: config.injection };
 }
 
 export function showRule(artifacts: ArtifactStore, id: string): Artifact {
@@ -340,12 +342,19 @@ export function transitionRule(artifacts: ArtifactStore, id: string, action: Rul
 
 export interface UpdateRuleInput extends UpdateContentInput {
 	activation?: unknown;
+	activationEnabled?: boolean;
 }
 
 /** A Rule's body update stays under the same combined condition+action+body ceiling as creation -- a permanent per-turn injection cost doesn't get looser just because it's an edit, not a create. */
 export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRuleInput, context?: ArtifactEventContext): Artifact {
-	if (input.title === undefined && input.body === undefined && input.labels === undefined && input.activation === undefined) {
-		throw new Error("update requires title, body, labels, or activation");
+	if (
+		input.title === undefined &&
+		input.body === undefined &&
+		input.labels === undefined &&
+		input.activation === undefined &&
+		input.activationEnabled === undefined
+	) {
+		throw new Error("update requires title, body, labels, activation, or activationEnabled");
 	}
 	assertTitleBounds(input.title);
 	assertLabelsBounds(input.labels);
@@ -358,8 +367,11 @@ export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRu
 	const hasContent = input.title !== undefined || input.body !== undefined || input.labels !== undefined;
 	const updated = hasContent ? artifacts.updateContent(id, input, context) : rule;
 	if (!updated) throw new Error(`rule "${id}" not found`);
-	if (input.activation === undefined) return updated;
-	const activation = validateActivationConfig(input.activation, "full");
+	if (input.activation === undefined && input.activationEnabled === undefined) return updated;
+	const activation =
+		input.activation === undefined
+			? activationConfigWithEnabled(updated.extra, input.activationEnabled!, "full")
+			: validateActivationInput(input.activation, input.activationEnabled, "full")!;
 	const withActivation = artifacts.setExtra(updated.id, { ...updated.extra, activation }, context);
 	if (!withActivation) throw new Error(`rule "${id}" not found`);
 	return withActivation;

@@ -308,6 +308,9 @@ export const SESSION_IDENTITY_MAX_ROWS = 2_000;
 export const ARTIFACT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /** Persisted project and focused-graph Task view bounds. */
 export const TASK_SCOPE_MAX_TASKS = 1_000;
+/** Cursor-paged Task inventory bounds; pages stay comfortably below Vehicle response limits. */
+export const TASK_LIST_PAGE_DEFAULT_LIMIT = 100;
+export const TASK_LIST_PAGE_MAX_LIMIT = 200;
 /** Docs/Rules/Skills project scope listing bound, mirroring TASK_SCOPE_MAX_TASKS. */
 export const ARTIFACT_SCOPE_MAX_ARTIFACTS = 1_000;
 /** How many distinct registered projects a single Doc/Rule/Playbook may belong to at once, in "projects" scope mode. Kept alongside ARTIFACT_SCOPE_MAX_MEMBERS_PER_ARTIFACT (identical value) for the pure-project call sites/tests that predate mixed project+group membership. */

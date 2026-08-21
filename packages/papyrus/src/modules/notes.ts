@@ -24,6 +24,7 @@ const MODULE_ID = "notes";
 export const NOTES_OPERATION_NAMES = [
 	"notes.capture",
 	"notes.list",
+	"notes.list_page",
 	"notes.show",
 	"notes.history",
 	"notes.consume",
@@ -55,6 +56,15 @@ export function notesOperations(notes: Notes): OperationDefinition[] {
 				status: optionalString(input, "status") as "draft" | "active" | "archived" | undefined,
 				text: optionalString(input, "text"),
 				limit: optionalNumber(input, "limit"),
+			}),
+		),
+		define("notes.list_page", (input: OperationInput) =>
+			notes.listPage({
+				projectRoot: optionalString(input, "project_root"),
+				status: optionalString(input, "status") as "draft" | "active" | "archived" | undefined,
+				text: optionalString(input, "text"),
+				limit: optionalNumber(input, "limit"),
+				cursor: optionalString(input, "cursor"),
 			}),
 		),
 		define("notes.show", (input: OperationInput) => notes.show(string(input, "id"), string(input, "project_root"))),

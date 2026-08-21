@@ -29,6 +29,7 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 			"notes.consume",
 			"notes.history",
 			"notes.list",
+			"notes.list_page",
 			"notes.promote",
 			"notes.show",
 		]);
@@ -46,6 +47,7 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 		const { registry, service } = harness();
 		const effectOf = (name: string) => registry.manifest().operations.find((op) => op.name === name)?.effect;
 		expect(effectOf("notes.list")).toBe("read");
+		expect(effectOf("notes.list_page")).toBe("read");
 		expect(effectOf("notes.show")).toBe("read");
 		expect(effectOf("notes.history")).toBe("read");
 		expect(effectOf("notes.capture")).toBe("local-write");
@@ -71,6 +73,32 @@ describe("createNotesVehicleRegistry (wired through createPapyrusService)", () =
 
 		const rows = (await registry.invoke("notes.list", 1, { project_root: PROJECT }, PERMS)) as Array<{ id: string }>;
 		expect(rows.map((row) => row.id)).toContain(captured.id);
+		service.close();
+	});
+
+	it("list_page enumerates Notes across projects with a bounded cursor", async () => {
+		const { registry, service } = harness();
+		const expected = new Set<string>();
+		for (let index = 0; index < 5; index++) {
+			const note = (await registry.invoke(
+				"notes.capture",
+				1,
+				{ body: `note ${index}`, project_root: index % 2 === 0 ? PROJECT : "/tmp/other-project" },
+				PERMS,
+			)) as { id: string };
+			expected.add(note.id);
+		}
+		const seen = new Set<string>();
+		let cursor: string | undefined;
+		do {
+			const page = (await registry.invoke("notes.list_page", 1, { limit: 2, ...(cursor ? { cursor } : {}) }, PERMS)) as {
+				items: Array<{ id: string }>;
+				nextCursor?: string;
+			};
+			for (const note of page.items) seen.add(note.id);
+			cursor = page.nextCursor;
+		} while (cursor);
+		expect(seen).toEqual(expected);
 		service.close();
 	});
 

@@ -40,6 +40,13 @@ describe("runNoteCli (Stricli-backed)", () => {
 		expect(await runNoteCli(["list"], client, "/proj")).toBe("No open notes.");
 	});
 
+	it("page: can inventory across projects and carries nextCursor", async () => {
+		const client = new FakeClient({ items: [artifact], nextCursor: "next-1" });
+		const output = await runNoteCli(["page", "--all-projects", "--limit", "5", "--cursor", "previous"], client, "/proj");
+		expect(client.calls).toEqual([{ operation: "notes.list_page", input: { limit: 5, cursor: "previous" } }]);
+		expect(output).toBe("[draft] n1-alias T\nNext cursor: next-1");
+	});
+
 	it("show: sends id and project_root, renders label plus body", async () => {
 		const client = new FakeClient(artifact);
 		const output = await runNoteCli(["show", "n1"], client, "/proj");

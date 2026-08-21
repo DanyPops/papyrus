@@ -456,6 +456,56 @@ const listCommand = buildCommand({
 	docs: { brief: "List Tasks" },
 });
 
+const listPageCommand = buildCommand({
+	func: async function (
+		this: TaskContext,
+		flags: {
+			status?: string;
+			text?: string;
+			limit?: number;
+			labelsJson?: string[];
+			scope?: "project" | "graph" | "all";
+			rootTaskId?: string;
+			sessionId?: string;
+			cursor?: string;
+		},
+	) {
+		const page = await this.client.call<Record<string, unknown>, { items: CliArtifact[]; nextCursor?: string }>("tasks.list_page", {
+			status: flags.status,
+			text: flags.text,
+			limit: flags.limit,
+			labels: flags.labelsJson,
+			project_root: this.projectRoot,
+			scope: flags.scope,
+			root_task_id: flags.rootTaskId,
+			session_id: flags.sessionId,
+			cursor: flags.cursor,
+		});
+		const rows = page.items.map((row) => artifactLabel(row));
+		if (page.nextCursor) rows.push(`Next cursor: ${page.nextCursor}`);
+		render.call(this, page, rows.length === 0 ? "No tasks found." : rows.join("\n"));
+	},
+	parameters: {
+		flags: {
+			status: { brief: "Filter by status", kind: "parsed", parse: String, placeholder: "status", optional: true },
+			text: { brief: "Substring match against title/body", kind: "parsed", parse: String, placeholder: "text", optional: true },
+			limit: { brief: "Page size", kind: "parsed", parse: numberParser, optional: true },
+			labelsJson: {
+				brief: "JSON string array of labels to filter by",
+				kind: "parsed",
+				parse: parseStringArray,
+				placeholder: "json",
+				optional: true,
+			},
+			scope: { brief: "project|graph|all", kind: "enum", values: ["project", "graph", "all"], optional: true },
+			rootTaskId: { brief: "Root task id, required with graph scope", kind: "parsed", parse: String, placeholder: "id", optional: true },
+			sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true },
+			cursor: { brief: "Opaque nextCursor from the preceding page", kind: "parsed", parse: String, placeholder: "cursor", optional: true },
+		},
+	},
+	docs: { brief: "Cursor-paginate a stable Task inventory" },
+});
+
 const showCommand = buildCommand({
 	func: async function (this: TaskContext, _flags: Record<string, never>, id: string) {
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("tasks.show", { id });
@@ -963,6 +1013,7 @@ const app = buildApplication(
 			"mutation-status": mutationStatusCommand,
 			create: createCommand,
 			list: listCommand,
+			page: listPageCommand,
 			show: showCommand,
 			"run-gates": runGatesCommand,
 			"set-checklist": setChecklistCommand,

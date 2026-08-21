@@ -11,6 +11,8 @@ import {
 	TASK_EXECUTION_MAX_NODES,
 	TASK_LABEL_MAX_COUNT,
 	TASK_LABEL_MAX_LENGTH,
+	TASK_LIST_PAGE_DEFAULT_LIMIT,
+	TASK_LIST_PAGE_MAX_LIMIT,
 	TASK_SCOPE_MAX_TASKS,
 	TASK_TITLE_MAX_LENGTH,
 } from "../constants.ts";
@@ -96,6 +98,15 @@ export interface TaskFilter {
 	sessionId?: string;
 	/** AND semantics: a task must carry every requested label, matching ArtifactStore.query's own labels filter. */
 	labels?: string[];
+}
+
+export interface TaskPageFilter extends TaskFilter {
+	cursor?: string;
+}
+
+export interface TaskPage {
+	items: Artifact[];
+	nextCursor?: string;
 }
 
 export type TaskStatus = TaskLifecycleStatus;
@@ -205,6 +216,45 @@ function canonicalJson(value: unknown): string {
 			.join(",")}}`;
 	}
 	return JSON.stringify(value) ?? "null";
+}
+
+interface TaskPageCursor {
+	v: 1;
+	createdAt: string;
+	id: string;
+	filterHash: string;
+}
+
+function taskPageFilterHash(filter: TaskFilter, selection: TaskViewSelection): string {
+	return createHash("sha256")
+		.update(
+			canonicalJson({
+				status: filter.status,
+				text: filter.text,
+				labels: [...(filter.labels ?? [])].sort(),
+				mode: selection.mode,
+				projectRoot: selection.projectRoot,
+				rootTaskId: selection.rootTaskId,
+			}),
+		)
+		.digest("base64url");
+}
+
+function encodeTaskPageCursor(task: Artifact, filterHash: string): string {
+	return Buffer.from(JSON.stringify({ v: 1, createdAt: task.created_at, id: task.id, filterHash } satisfies TaskPageCursor)).toString(
+		"base64url",
+	);
+}
+
+function decodeTaskPageCursor(cursor: string | undefined, filterHash: string): TaskPageCursor | undefined {
+	if (cursor === undefined) return undefined;
+	try {
+		const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Partial<TaskPageCursor>;
+		if (parsed.v !== 1 || !parsed.createdAt || !parsed.id || parsed.filterHash !== filterHash) throw new Error("invalid cursor");
+		return parsed as TaskPageCursor;
+	} catch {
+		throw new Error("task page cursor is invalid or does not match the requested filters");
+	}
 }
 
 export class Tasks {
@@ -426,6 +476,52 @@ export class Tasks {
 			.filter((task) => labels.every((label) => task.labels.includes(label)))
 			.sort((left, right) => right.updated_at.localeCompare(left.updated_at) || left.id.localeCompare(right.id))
 			.slice(0, limit);
+	}
+
+	/** Stable, cursor-paged Task inventory. Creation order is immutable, so content updates cannot move an item between pages. */
+	listPage(filter: TaskPageFilter = {}): TaskPage {
+		const selection = this.projectScope.scopeSelection(filter.projectRoot, filter.scope, filter.rootTaskId);
+		const limit = filter.limit ?? TASK_LIST_PAGE_DEFAULT_LIMIT;
+		if (!Number.isInteger(limit) || limit < 1 || limit > TASK_LIST_PAGE_MAX_LIMIT) {
+			throw new Error(`task page limit must be between 1 and ${TASK_LIST_PAGE_MAX_LIMIT}`);
+		}
+		const filterHash = taskPageFilterHash(filter, selection);
+		const cursor = decodeTaskPageCursor(filter.cursor, filterHash);
+		let candidates: Artifact[];
+		if (selection.mode === "all") {
+			candidates = this.artifacts.query({
+				kind: "task",
+				excludeSubtype: DISCUSSION_SUBTYPE,
+				status: filter.status,
+				text: filter.text,
+				labels: filter.labels,
+				order: "created_desc",
+				...(cursor ? { after: { createdAt: cursor.createdAt, id: cursor.id } } : {}),
+				limit: limit + 1,
+			});
+		} else {
+			const ids = this.scopes.taskIds(selection.projectRoot, TASK_SCOPE_MAX_TASKS + 1);
+			if (ids.length > TASK_SCOPE_MAX_TASKS) throw new Error(`task project scope exceeds ${TASK_SCOPE_MAX_TASKS} tasks`);
+			const selectedIds = selection.mode === "graph" ? this.descendantIds(selection.rootTaskId!, ids) : new Set(ids);
+			const text = filter.text?.toLowerCase();
+			const labels = filter.labels ?? [];
+			candidates = this.artifacts
+				.query({ kind: "task", excludeSubtype: DISCUSSION_SUBTYPE, ids: [...selectedIds] })
+				.filter((task) => filter.status === undefined || task.status === filter.status)
+				.filter((task) => text === undefined || task.title.toLowerCase().includes(text) || task.body.toLowerCase().includes(text))
+				.filter((task) => labels.every((label) => task.labels.includes(label)))
+				.sort((left, right) => right.created_at.localeCompare(left.created_at) || left.id.localeCompare(right.id))
+				.filter(
+					(task) =>
+						cursor === undefined || task.created_at < cursor.createdAt || (task.created_at === cursor.createdAt && task.id > cursor.id),
+				)
+				.slice(0, limit + 1);
+		}
+		const items = candidates.slice(0, limit);
+		return {
+			items,
+			...(candidates.length > limit && items.length > 0 ? { nextCursor: encodeTaskPageCursor(items.at(-1)!, filterHash) } : {}),
+		};
 	}
 
 	scopeSelection(projectRoot?: string, mode?: TaskViewMode, rootTaskId?: string): TaskViewSelection {

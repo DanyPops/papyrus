@@ -61,6 +61,21 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 	);
 
 	define(
+		"list_page",
+		"Cursor-paginates a stable Note inventory. Omit project_root only for an intentional cross-project audit; use nextCursor until absent.",
+		"read",
+		{
+			project_root: stringProp,
+			status: { type: "string", enum: ["draft", "active", "archived"] },
+			text: stringProp,
+			limit: numberProp,
+			cursor: stringProp,
+		},
+		[],
+		(input) => input,
+	);
+
+	define(
 		"show",
 		"Shows one note by id or title.",
 		"read",

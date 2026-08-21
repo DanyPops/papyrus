@@ -54,6 +54,7 @@ const taskFilter = (input: OperationInput) => ({
 	rootTaskId: optionalString(input, "root_task_id"),
 	sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId"),
 	labels: optionalStringArray(input, "labels"),
+	cursor: optionalString(input, "cursor"),
 });
 
 /**
@@ -69,6 +70,7 @@ export const TASKS_OPERATION_NAMES = [
 	"tasks.create",
 	"tasks.update",
 	"tasks.list",
+	"tasks.list_page",
 	"tasks.graph",
 	"tasks.plan",
 	"tasks.show",
@@ -163,6 +165,13 @@ export function tasksOperations(tasks: Tasks, artifacts: ArtifactStore, sessionI
 		define("tasks.list", (input: OperationInput) => {
 			const rows = tasks.list(taskFilter(input));
 			return optionalBoolean(input, "full") === true ? rows : rows.map(summarizeArtifact);
+		}),
+		define("tasks.list_page", (input: OperationInput) => {
+			const page = tasks.listPage(taskFilter(input));
+			return {
+				...page,
+				items: optionalBoolean(input, "full") === true ? page.items : page.items.map(summarizeArtifact),
+			};
 		}),
 		define("tasks.graph", (input: OperationInput) => tasks.graph(taskFilter(input))),
 		define("tasks.plan", (input: OperationInput) => projectTaskExecution(tasks.graph(taskFilter(input)))),

@@ -45,6 +45,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 			"tasks.history",
 			"tasks.lease",
 			"tasks.list",
+			"tasks.list_page",
 			"tasks.mutation_status",
 			"tasks.pause",
 			"tasks.plan",
@@ -231,6 +232,49 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		expect(row.status).toBeDefined();
 		expect(row.body).toBeUndefined();
 		expect(row.extra).toBeUndefined();
+		service.close();
+	});
+
+	it("list_page cursor-enumerates every Task without overlap and ignores intervening content updates", async () => {
+		const { registry, service } = harness();
+		const createdIds: string[] = [];
+		for (let index = 0; index < 5; index++) {
+			const created = (await registry.invoke(
+				"tasks.create",
+				1,
+				{ title: `Paged ${index}`, body: "full body", project_root: PROJECT },
+				PERMS,
+			)) as { id: string };
+			createdIds.push(created.id);
+		}
+
+		const first = (await registry.invoke("tasks.list_page", 1, { project_root: PROJECT, scope: "all", limit: 2 }, PERMS)) as {
+			items: Array<Record<string, unknown>>;
+			nextCursor?: string;
+		};
+		expect(first.items).toHaveLength(2);
+		expect(first.items[0]!.body).toBeUndefined();
+		expect(first.nextCursor).toBeString();
+		await registry.invoke("tasks.update", 1, { id: first.items[0]!.id, title: "Updated after page one" }, PERMS);
+
+		const seen = [...first.items.map((item) => item.id as string)];
+		let cursor = first.nextCursor;
+		while (cursor) {
+			const page = (await registry.invoke("tasks.list_page", 1, { project_root: PROJECT, scope: "all", limit: 2, cursor }, PERMS)) as {
+				items: Array<{ id: string }>;
+				nextCursor?: string;
+			};
+			seen.push(...page.items.map((item) => item.id));
+			cursor = page.nextCursor;
+		}
+		expect(new Set(seen).size).toBe(seen.length);
+		expect(new Set(seen)).toEqual(new Set(createdIds));
+
+		const mismatch = await registry
+			.invoke("tasks.list_page", 1, { project_root: PROJECT, scope: "all", status: "todo", cursor: first.nextCursor }, PERMS)
+			.catch((error: unknown) => error);
+		expect(mismatch).toBeInstanceOf(Error);
+		expect((mismatch as Error).message).toContain("does not match");
 		service.close();
 	});
 

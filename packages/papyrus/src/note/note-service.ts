@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Artifact } from "../artifact/artifact.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { requireAtomicArtifactStore } from "../artifact/atomic-artifact-store.ts";
@@ -37,6 +38,27 @@ export interface ListNotesInput {
 	limit?: number;
 }
 
+export interface ListNotesPageInput {
+	/** Omit only for an explicit cross-project inventory. */
+	projectRoot?: string;
+	status?: "draft" | "active" | "archived";
+	text?: string;
+	limit?: number;
+	cursor?: string;
+}
+
+export interface NotesPage {
+	items: Artifact[];
+	nextCursor?: string;
+}
+
+interface NotesPageCursor {
+	v: 1;
+	createdAt: string;
+	id: string;
+	filterHash: string;
+}
+
 export interface ArchiveNoteInput extends NoteProvenance {
 	projectRoot: string;
 	disposition: NoteDisposition;
@@ -52,6 +74,29 @@ function requiredBounded(value: string, field: string, maximum: number): string 
 function optionalBounded(value: string | undefined, field: string, maximum: number): string | undefined {
 	if (value === undefined) return undefined;
 	return requiredBounded(value, field, maximum);
+}
+
+function notesPageFilterHash(input: ListNotesPageInput, projectRoot: string | undefined): string {
+	return createHash("sha256")
+		.update(JSON.stringify({ projectRoot, status: input.status, text: input.text }))
+		.digest("base64url");
+}
+
+function decodeNotesPageCursor(cursor: string | undefined, filterHash: string): NotesPageCursor | undefined {
+	if (cursor === undefined) return undefined;
+	try {
+		const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Partial<NotesPageCursor>;
+		if (parsed.v !== 1 || !parsed.createdAt || !parsed.id || parsed.filterHash !== filterHash) throw new Error("invalid cursor");
+		return parsed as NotesPageCursor;
+	} catch {
+		throw new Error("notes page cursor is invalid or does not match the requested filters");
+	}
+}
+
+function encodeNotesPageCursor(note: Artifact, filterHash: string): string {
+	return Buffer.from(JSON.stringify({ v: 1, createdAt: note.created_at, id: note.id, filterHash } satisfies NotesPageCursor)).toString(
+		"base64url",
+	);
 }
 
 function noteTitle(body: string, requested?: string): string {
@@ -108,6 +153,33 @@ export class Notes {
 			extraEquals: { projectRoot },
 			limit,
 		});
+	}
+
+	/** Cursor-paged inventory; omitting projectRoot intentionally enumerates notes across projects. */
+	listPage(input: ListNotesPageInput): NotesPage {
+		const projectRoot =
+			input.projectRoot === undefined ? undefined : requiredBounded(input.projectRoot, "project_root", TASK_PROJECT_ROOT_MAX_LENGTH);
+		const limit = input.limit ?? NOTE_LIST_DEFAULT_LIMIT;
+		if (!Number.isInteger(limit) || limit < 1 || limit > NOTE_LIST_MAX_LIMIT) {
+			throw new Error(`note limit must be an integer from 1 to ${NOTE_LIST_MAX_LIMIT}`);
+		}
+		const filterHash = notesPageFilterHash(input, projectRoot);
+		const cursor = decodeNotesPageCursor(input.cursor, filterHash);
+		const candidates = this.artifacts.query({
+			kind: "doc",
+			subtype: NOTE_SUBTYPE,
+			...(input.status ? { status: input.status } : { statuses: ["draft", "active"] }),
+			...(input.text ? { text: input.text } : {}),
+			...(projectRoot ? { extraEquals: { projectRoot } } : {}),
+			order: "created_desc",
+			...(cursor ? { after: { createdAt: cursor.createdAt, id: cursor.id } } : {}),
+			limit: limit + 1,
+		});
+		const items = candidates.slice(0, limit);
+		return {
+			items,
+			...(candidates.length > limit && items.length > 0 ? { nextCursor: encodeNotesPageCursor(items.at(-1)!, filterHash) } : {}),
+		};
 	}
 
 	show(id: string, projectRoot: string): Artifact {

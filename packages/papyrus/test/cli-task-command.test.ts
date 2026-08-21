@@ -183,6 +183,27 @@ describe("runTaskCli (Stricli-backed)", () => {
 		]);
 	});
 
+	it("page: threads the cursor and renders nextCursor", async () => {
+		const client = new FakeClient({ items: [artifact], nextCursor: "next-1" });
+		const output = await runTaskCli(["page", "--scope", "all", "--limit", "25", "--cursor", "previous"], client, "/proj");
+		expect(client.calls).toEqual([
+			{
+				operation: "tasks.list_page",
+				input: {
+					status: undefined,
+					text: undefined,
+					limit: 25,
+					labels: undefined,
+					project_root: "/proj",
+					scope: "all",
+					root_task_id: undefined,
+					cursor: "previous",
+				},
+			},
+		]);
+		expect(output).toBe("t1-alias T\nNext cursor: next-1");
+	});
+
 	it("list: rejects an invalid --scope value", async () => {
 		const client = new FakeClient([]);
 		await expect(runTaskCli(["list", "--scope", "bogus"], client, "/proj")).rejects.toThrow();

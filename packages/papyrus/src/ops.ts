@@ -367,8 +367,14 @@ export function queryArtifacts(db: Db, filter: ArtifactQuery): Artifact[] {
 		conditions.push("json_extract(extra, ?) = ?");
 		params.push(`$.${key}`, value);
 	}
+	if (filter.after) {
+		if (filter.order !== "created_desc") throw new Error("artifact query cursor requires created_desc ordering");
+		if (!filter.after.createdAt || !filter.after.id) throw new Error("artifact query cursor is invalid");
+		conditions.push("(created_at < ? OR (created_at = ? AND id > ?))");
+		params.push(filter.after.createdAt, filter.after.createdAt, filter.after.id);
+	}
 	if (conditions.length) sql += ` WHERE ${conditions.join(" AND ")}`;
-	sql += " ORDER BY updated_at DESC";
+	sql += filter.order === "created_desc" ? " ORDER BY created_at DESC, id ASC" : " ORDER BY updated_at DESC, id ASC";
 	if (filter.limit !== undefined) {
 		if (!Number.isInteger(filter.limit) || filter.limit < 1) throw new Error("artifact query limit must be a positive integer");
 		sql += " LIMIT ?";

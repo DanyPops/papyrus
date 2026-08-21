@@ -55,6 +55,12 @@ describe("modules/tasks — the second Papyrus-native registered module", () => 
 
 		const listed = (await registry.get("tasks.list")!.execute({ project_root: PROJECT_ROOT })) as Array<{ id: string }>;
 		expect(listed.map((t) => t.id)).toContain(created.id);
+		expect(Array.isArray(listed)).toBe(true);
+
+		const page = (await registry.get("tasks.list_page")!.execute({ project_root: PROJECT_ROOT, limit: 1 })) as {
+			items: Array<{ id: string }>;
+		};
+		expect(page.items.map((task) => task.id)).toContain(created.id);
 
 		const shown = (await registry.get("tasks.show")!.execute({ id: created.id })) as { id: string };
 		expect(shown.id).toBe(created.id);

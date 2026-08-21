@@ -246,6 +246,7 @@ const readSchemaProps = {
 
 /** list-only: opts into full Artifact bodies instead of the lean summarizeArtifact() default (modules/tasks.ts). */
 const listSchemaProps = { ...readSchemaProps, full: booleanProp };
+const listPageSchemaProps = { ...listSchemaProps, cursor: stringProp };
 
 /** Same gate/checklist narrative lines the removed tool built client-side. */
 function completionContentText(labels: Map<string, string>, result: TaskCompletion): string {
@@ -440,6 +441,18 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"Lists Tasks matching an optional status/text/labels filter, scoped to project_root. project_root is required (no ambient cwd server-side). Returns a lean summary (no body/extra) unless full: true is passed.",
 		"read",
 		listSchemaProps,
+		["project_root"],
+		(input) => {
+			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);
+			return { ...input, ...(rootTaskId ? { root_task_id: rootTaskId } : {}) };
+		},
+	);
+
+	define(
+		"list_page",
+		"Cursor-paginates a stable creation-ordered Task inventory. Use nextCursor until it is absent. Existing tasks.list remains the lean array convenience API.",
+		"read",
+		listPageSchemaProps,
 		["project_root"],
 		(input) => {
 			const rootTaskId = resolveRootTaskId(artifacts, tasks, input.project_root as string, input.root_task_id, input.root_task_name);

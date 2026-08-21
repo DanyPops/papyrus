@@ -59,6 +59,34 @@ const listCommand = buildCommand({
 	docs: { brief: "List open (draft/active) notes, or a specific status" },
 });
 
+const listPageCommand = buildCommand({
+	func: async function (
+		this: NoteContext,
+		flags: { status?: string; text?: string; limit?: number; cursor?: string; allProjects?: boolean },
+	) {
+		const page = (await this.client.call("notes.list_page", {
+			...(flags.allProjects ? {} : { project_root: this.projectRoot }),
+			...(flags.status ? { status: flags.status } : {}),
+			...(flags.text ? { text: flags.text } : {}),
+			...(flags.limit === undefined ? {} : { limit: flags.limit }),
+			...(flags.cursor ? { cursor: flags.cursor } : {}),
+		})) as { items: CliArtifact[]; nextCursor?: string };
+		const lines = page.items.map((note) => `[${note.status}] ${artifactLabel(note)}`);
+		if (page.nextCursor) lines.push(`Next cursor: ${page.nextCursor}`);
+		renderResult.call(this, page, lines.length > 0 ? lines.join("\n") : "No open notes.");
+	},
+	parameters: {
+		flags: {
+			status: { brief: "Filter by status (draft|active|archived)", kind: "parsed", parse: String, placeholder: "status", optional: true },
+			text: { brief: "Substring match against title/body", kind: "parsed", parse: String, placeholder: "text", optional: true },
+			limit: { brief: "Page size", kind: "parsed", parse: numberParser, optional: true },
+			cursor: { brief: "Opaque nextCursor from the preceding page", kind: "parsed", parse: String, placeholder: "cursor", optional: true },
+			allProjects: { brief: "Inventory Notes across every project", kind: "boolean", optional: true },
+		},
+	},
+	docs: { brief: "Cursor-paginate a stable Note inventory" },
+});
+
 const showCommand = buildCommand({
 	func: async function (this: NoteContext, _flags: Record<string, never>, id: string) {
 		const result = (await this.client.call("notes.show", { id, project_root: this.projectRoot })) as CliArtifact;
@@ -168,6 +196,7 @@ const app = buildApplication(
 		routes: {
 			capture: captureCommand,
 			list: listCommand,
+			page: listPageCommand,
 			show: showCommand,
 			history: historyCommand,
 			consume: consumeCommand,

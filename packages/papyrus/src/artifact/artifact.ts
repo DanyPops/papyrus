@@ -64,6 +64,11 @@ export interface UpdateArtifactInput {
 	alias?: string;
 }
 
+export interface ArtifactQueryCursor {
+	createdAt: string;
+	id: string;
+}
+
 export interface ArtifactQuery {
 	kind?: string;
 	status?: string;
@@ -74,6 +79,10 @@ export interface ArtifactQuery {
 	labels?: string[];
 	extraEquals?: Record<string, string | number | boolean>;
 	limit?: number;
+	/** Stable inventory ordering, independent of content updates. Defaults to updated_at descending. */
+	order?: "updated_desc" | "created_desc";
+	/** Exclusive keyset cursor for created_desc ordering. */
+	after?: ArtifactQueryCursor;
 	/** Trashed artifacts (see artifact-trash.ts) are excluded from every query by default; set true to include them, e.g. for a trash-listing view. */
 	includeTrashed?: boolean;
 	/**

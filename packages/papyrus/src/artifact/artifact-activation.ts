@@ -235,6 +235,5 @@ function evaluatePredicate(predicate: ActivationPredicate, context: ActivationCo
 
 export function evaluateActivation(config: ActivationConfig, context: ActivationContext): ActivationDecision {
 	if (config.invalid) return { enabled: false, reason: "invalid activation configuration" };
-	if (config.injection === "on-demand") return { enabled: false, reason: "activation injection profile is on-demand" };
 	return config.predicate === undefined ? { enabled: true, reason: "enabled" } : evaluatePredicate(config.predicate, context);
 }

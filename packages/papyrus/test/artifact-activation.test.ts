@@ -83,6 +83,11 @@ describe("artifact activation predicates", () => {
 		expect(evaluateActivation(config, {})).toEqual({ enabled: true, reason: "enabled" });
 	});
 
+	test("keeps on-demand artifacts activatable while leaving injection policy to the context selector", () => {
+		const config = validateActivationConfig({ injection: "on-demand" });
+		expect(evaluateActivation(config, {})).toEqual({ enabled: true, reason: "enabled" });
+	});
+
 	test("malformed persisted activation fails closed instead of breaking injection", () => {
 		const config = activationConfig({ activation: { predicate: { field: "unknown", operator: "eq", value: "x" } } });
 		expect(evaluateActivation(config, context)).toEqual({ enabled: false, reason: "invalid activation configuration" });

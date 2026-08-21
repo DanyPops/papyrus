@@ -19,7 +19,12 @@
  *
  * remove/remove_subtree/restore are not duplicated here -- see ./artifact-trash-vehicle.ts.
  */
-import { VehicleError, type VehicleLimits, type VehicleOperationContext } from "@danypops/vehicle-core";
+import {
+	VEHICLE_SCHEMA_PRESENTATION_EXTENSION,
+	VehicleError,
+	type VehicleLimits,
+	type VehicleOperationContext,
+} from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { GATE_TIMEOUT_MAX_MS, TASK_CREATE_IDEMPOTENCY_KEY_MAX_LENGTH, TASK_MUTATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "../constants.ts";
@@ -83,6 +88,7 @@ const GATE_OPERATION_LIMITS: VehicleLimits = {
 const objectProp = { type: "object" } as const;
 const arrayProp = { type: "array" } as const;
 const _boolProp = { type: "boolean" } as const;
+const streamingStringProp = { ...stringProp, [VEHICLE_SCHEMA_PRESENTATION_EXTENSION]: "stream" } as const;
 const mutationIdempotencyProp = {
 	type: "string",
 	minLength: 1,
@@ -368,7 +374,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 		"local-write",
 		{
 			title: stringProp,
-			body: stringProp,
+			body: streamingStringProp,
 			status: stringProp,
 			labels: arrayProp,
 			extra: objectProp,
@@ -418,7 +424,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 			id: stringProp,
 			name: stringProp,
 			title: stringProp,
-			body: stringProp,
+			body: streamingStringProp,
 			labels: arrayProp,
 			status: stringProp,
 			reason: stringProp,

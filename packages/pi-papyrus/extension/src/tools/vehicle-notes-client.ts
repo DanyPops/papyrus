@@ -39,7 +39,7 @@ import { emitTaskFocusEvent } from "../task/task-focus-events.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
 import { papyrusVehiclePresentations, papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
-const REGISTERED_PERMISSIONS = [
+export const PAPYRUS_VEHICLE_PERMISSIONS = [
 	"notes:read",
 	"notes:write",
 	"rules:read",
@@ -54,7 +54,9 @@ const REGISTERED_PERMISSIONS = [
 	"discuss:write",
 	"artifact:read",
 	"artifact:write",
-];
+	"binders:read",
+	"binders:write",
+] as const;
 
 /** Task Focus's own internal write needs a real, per-session secret -- see below. Every other tasks.* operation reads session_id purely for read-scoping and needs no secret. */
 const FOCUS_MUTATION_OPERATIONS = new Set(["tasks.focus", "tasks.pause", "tasks.unpause", "tasks.clear_focus"]);
@@ -148,7 +150,7 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 			recordRenderDiagnostic({ event: "vehicle-ready", kind: event.kind, ...("attempt" in event ? { attempt: event.attempt } : {}) });
 			notifyReadyEvent(event);
 		},
-		permissions: REGISTERED_PERMISSIONS,
+		permissions: PAPYRUS_VEHICLE_PERMISSIONS,
 		principal: { id: "pi-papyrus" },
 		renderers: papyrusVehicleRenderers,
 		// papyrusVehiclePresentations projects a bounded, versioned PapyrusToolDetails DTO

@@ -24,6 +24,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
+import { PAPYRUS_VEHICLE_PERMISSIONS } from "../extension/src/tools/vehicle-notes-client.ts";
 import { waitFor } from "./support/wait-for.ts";
 
 function fakeSessionRegisterClient(): PapyrusClient {
@@ -103,6 +104,11 @@ function manifestServer(
 }
 
 describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
+	it("grants the Binder permissions required by native Binder tools", () => {
+		expect(PAPYRUS_VEHICLE_PERMISSIONS).toContain("binders:read");
+		expect(PAPYRUS_VEHICLE_PERMISSIONS).toContain("binders:write");
+	});
+
 	// registerVehicleTools()'s shared Vehicle Shell handle and in-process vehicle registry are both
 	// process-wide globalThis singletons -- bun test runs this whole package's test files in one
 	// process, so an earlier test's own registration would otherwise silently "win" the shared

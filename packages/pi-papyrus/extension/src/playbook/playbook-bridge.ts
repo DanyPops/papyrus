@@ -37,6 +37,7 @@ function slugify(title: string): string {
 async function activePlaybooks(projectRoot?: string, capabilities: readonly string[] = []): Promise<Artifact[]> {
 	return callService<Record<string, unknown>, Artifact[]>("playbooks.list", {
 		status: "active",
+		full: true,
 		limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
 		...(projectRoot === undefined
 			? {}

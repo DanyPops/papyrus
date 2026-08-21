@@ -930,6 +930,7 @@ export default async function (pi: ExtensionAPI) {
 					project_root: ctx.cwd,
 					applicable: true,
 					activated: true,
+					full: true,
 					activation_context: activationContext,
 					session_id: sessionId,
 					limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,

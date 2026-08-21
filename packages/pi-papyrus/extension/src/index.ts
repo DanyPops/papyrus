@@ -34,6 +34,7 @@ import { AutoRotatingWindow, renderCardRow, type WidgetSection } from "malevich-
 import { Type } from "typebox";
 import { formatMetadata } from "./artifact/artifact-format.ts";
 import { BoundedPoll } from "./bounded-poll.ts";
+import { buildActivationContext } from "./context/activation-context.ts";
 import { buildTaskItemTree, computeContextBudget } from "./context/context-budget.ts";
 import { PAPYRUS_CONTEXT_HUB_PRODUCER_NAME, papyrusContextSegment } from "./context/context-hub-contribution.ts";
 import { buildContextInjection } from "./context/context-injection-telemetry.ts";
@@ -917,15 +918,20 @@ export default async function (pi: ExtensionAPI) {
 		let result: { systemPrompt: string } | undefined;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
+			const activationContext = buildActivationContext(ctx.cwd, event.prompt, event.systemPromptOptions.selectedTools);
 			const [rules, playbooks, summary, taskGraph] = await Promise.all([
 				callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", {
 					project_root: ctx.cwd,
 					session_id: sessionId,
+					activation_context: activationContext,
 				}),
 				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", {
 					status: "active",
 					project_root: ctx.cwd,
 					applicable: true,
+					activated: true,
+					activation_context: activationContext,
+					session_id: sessionId,
 					limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
 				}),
 				callService<Record<string, unknown>, string | null>("tasks.context", {
@@ -951,13 +957,13 @@ export default async function (pi: ExtensionAPI) {
 			// Context Hub contribution is best-effort observability for /context -- its own failure
 			// must never block this turn's actual rules/tasks injection above.
 			try {
-				const { rules: ruleBudget, skills } = computeContextBudget(rules, ctx.cwd);
+				const { rules: ruleBudget, playbooks: playbookBudget, skills } = computeContextBudget(rules, ctx.cwd, undefined, playbooks);
 				pi.events.emit(CONTEXT_HUB_CONTRIBUTION_CHANNEL, {
 					schema: CONTEXT_HUB_CONTRIBUTION_SCHEMA,
 					observedAt: Date.now(),
 					sequence: ++contextHubContributionSequence,
 					producerName: PAPYRUS_CONTEXT_HUB_PRODUCER_NAME,
-					segment: papyrusContextSegment(ruleBudget, buildTaskItemTree(taskGraph), skills),
+					segment: papyrusContextSegment(ruleBudget, buildTaskItemTree(taskGraph), skills, playbookBudget),
 				});
 			} catch {
 				// Malformed/unreachable daemon data for this turn's contribution -- drop it silently.

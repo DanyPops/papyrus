@@ -72,6 +72,8 @@ export const CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN = 4;
  * this long cannot also risk a real JavaScript call-stack overflow independent of this bound.
  */
 export const CONTEXT_TREE_MAX_NODES = 50_000;
+/** Hard aggregate ceiling for Papyrus's recurring Rules + Playbooks + Task system-prompt injection. */
+export const PAPYRUS_CONTEXT_INJECTION_MAX_TOKENS = 8192;
 
 /**
  * A Papyrus Rule's condition+action+body is injected into EVERY relevant turn's system

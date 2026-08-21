@@ -17,6 +17,7 @@ export function papyrusContextSegment(
 	ruleBudget: ContextBudget["rules"],
 	taskItems: ContextSegmentItem[],
 	skills: SkillCatalogFootprint,
+	playbookBudget?: ContextBudget["playbooks"],
 ): ContextSegment {
 	const items: ContextSegmentItem[] = [];
 	if (ruleBudget.entries.length > 0) {
@@ -24,6 +25,13 @@ export function papyrusContextSegment(
 			label: "Active Rules",
 			estimatedTokens: ruleBudget.totalEstimatedTokens,
 			children: ruleBudget.entries.map((entry) => ({ label: entry.title, estimatedTokens: entry.estimatedTokens })),
+		});
+	}
+	if ((playbookBudget?.entries.length ?? 0) > 0) {
+		items.push({
+			label: "Available Playbooks",
+			estimatedTokens: playbookBudget!.totalEstimatedTokens,
+			children: playbookBudget!.entries.map((entry) => ({ label: entry.title, estimatedTokens: entry.estimatedTokens })),
 		});
 	}
 	if (taskItems.length > 0) {
@@ -38,7 +46,7 @@ export function papyrusContextSegment(
 	}
 	return {
 		key: "papyrus",
-		label: "Papyrus (Rules, Tasks, Skills)",
+		label: "Papyrus (Rules, Playbooks, Tasks, Skills)",
 		estimatedTokens: items.reduce((sum, item) => sum + item.estimatedTokens, 0),
 		confidence: "exact-cooperative",
 		...(items.length > 0 ? { items } : {}),

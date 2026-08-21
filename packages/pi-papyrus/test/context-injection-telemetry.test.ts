@@ -40,6 +40,26 @@ describe("Papyrus context injection telemetry", () => {
 		expect(JSON.stringify(result.observation)).not.toContain("Ship telemetry");
 	});
 
+	it("enforces the aggregate budget by priority with deterministic omission counts", () => {
+		const result = buildContextInjection({
+			basePrompt: "Base",
+			rules: [
+				{ title: "Low", body: "x".repeat(100), extra: { activation: { priority: 0 } } },
+				{ title: "High", body: "y".repeat(100), extra: { activation: { priority: 100 } } },
+			],
+			playbooks: [],
+			taskSummary: null,
+			observedAt: 1,
+			sequence: 1,
+			producerId: "123e4567-e89b-42d3-a456-426614174000",
+			maxEstimatedTokens: 40,
+		});
+		expect(result.prompt).toContain("High");
+		expect(result.prompt).not.toContain("Low");
+		expect(result.observation.rules).toMatchObject({ count: 1, omitted: 1 });
+		expect(result.observation.estimatedTokens).toBeLessThanOrEqual(40);
+	});
+
 	it("reports zero injection and stable unchanged fingerprints", () => {
 		const first = buildContextInjection({
 			basePrompt: "Base",

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { ContextSegmentItem } from "@danypops/jittor";
 import { type Artifact, CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN, CONTEXT_TREE_MAX_NODES, type TaskGraph } from "@danypops/papyrus";
+import { playbookInjectionPreview } from "../playbook/playbook-bridge.ts";
 import { ruleInjectionPreview } from "../rules/rules.ts";
 import { discoverSkillDirectories, type SkillCatalogFootprint, scanSkillCatalogFootprint } from "./skill-catalog-footprint.ts";
 
@@ -25,6 +26,10 @@ export interface ContextBudget {
 	rules: {
 		entries: RuleBudgetEntry[]; // sorted descending by characters
 		totalCharacters: number;
+		totalEstimatedTokens: number;
+	};
+	playbooks: {
+		entries: Array<{ title: string; estimatedTokens: number }>;
 		totalEstimatedTokens: number;
 	};
 	skills: SkillCatalogFootprint;
@@ -61,12 +66,26 @@ export function computeContextBudget(
 	rules: ReadonlyArray<Pick<Artifact, "id" | "title" | "body" | "extra">>,
 	cwd: string,
 	homeDirectory: string = homedir(),
+	playbooks: ReadonlyArray<Pick<Artifact, "title" | "extra">> = [],
 ): ContextBudget {
 	const settingsSkills = readSettingsSkillPaths(`${homeDirectory}/.pi/agent/settings.json`);
 	const directories = discoverSkillDirectories(homeDirectory, cwd, settingsSkills);
 	const skills = scanSkillCatalogFootprint(directories);
 	const ruleBudget = computeRuleBudget(rules);
-	return { rules: ruleBudget, skills, totalEstimatedTokens: ruleBudget.totalEstimatedTokens + skills.totalEstimatedTokens };
+	const playbookEntries = playbooks.map((playbook) => ({
+		title: playbook.title,
+		estimatedTokens: Math.ceil(playbookInjectionPreview(playbook).length / CONTEXT_ESTIMATE_CHARACTERS_PER_TOKEN),
+	}));
+	const playbookBudget = {
+		entries: playbookEntries,
+		totalEstimatedTokens: playbookEntries.reduce((sum, entry) => sum + entry.estimatedTokens, 0),
+	};
+	return {
+		rules: ruleBudget,
+		playbooks: playbookBudget,
+		skills,
+		totalEstimatedTokens: ruleBudget.totalEstimatedTokens + playbookBudget.totalEstimatedTokens + skills.totalEstimatedTokens,
+	};
 }
 
 /** Sums a possibly-nested item tree's tokens recursively -- every node's own contribution, not just top-level items. */

@@ -6,6 +6,13 @@
  */
 
 export type { Artifact, ArtifactEdge } from "./artifact/artifact.ts";
+export {
+	type ActivationConfig,
+	type ActivationContext,
+	type ActivationPredicate,
+	activationConfig,
+	type InjectionProfile,
+} from "./artifact/artifact-activation.ts";
 export { projectArtifactRelationships } from "./artifact/artifact-relationship-view.ts";
 export type { ArtifactStore } from "./artifact/artifact-store.ts";
 export {

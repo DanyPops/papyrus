@@ -20,6 +20,7 @@
 
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { buildActivationContext } from "../context/activation-context.ts";
 import { callService } from "../service-client.ts";
 
 export const PLAYBOOK_BRIDGE_MAX_PLAYBOOKS = 100;
@@ -33,8 +34,19 @@ function slugify(title: string): string {
 	return slug.length > 0 ? slug : "playbook";
 }
 
-async function activePlaybooks(): Promise<Artifact[]> {
-	return callService<Record<string, unknown>, Artifact[]>("playbooks.list", { status: "active", limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS });
+async function activePlaybooks(projectRoot?: string, capabilities: readonly string[] = []): Promise<Artifact[]> {
+	return callService<Record<string, unknown>, Artifact[]>("playbooks.list", {
+		status: "active",
+		limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
+		...(projectRoot === undefined
+			? {}
+			: {
+					project_root: projectRoot,
+					applicable: true,
+					activated: true,
+					activation_context: buildActivationContext(projectRoot, "", capabilities),
+				}),
+	});
 }
 
 /** Exported for direct testing without a real ExtensionAPI. */
@@ -54,8 +66,11 @@ export function playbookInjectionPreview(playbook: Pick<Artifact, "title" | "ext
 }
 
 /** Exported for direct testing without a real ExtensionAPI: what would be registered right now. */
-export async function planPlaybookCommandRegistrations(): Promise<Array<{ name: string; id: string; title: string; trigger: string }>> {
-	const playbooks = await activePlaybooks();
+export async function planPlaybookCommandRegistrations(
+	projectRoot?: string,
+	capabilities: readonly string[] = [],
+): Promise<Array<{ name: string; id: string; title: string; trigger: string }>> {
+	const playbooks = await activePlaybooks(projectRoot, capabilities);
 	const usedNames = new Set<string>();
 	return playbooks.map((playbook) => {
 		let name = playbookCommandName(playbook.title);
@@ -67,14 +82,21 @@ export async function planPlaybookCommandRegistrations(): Promise<Array<{ name: 
 }
 
 export function registerPlaybookBridge(pi: ExtensionAPI): void {
-	const refresh = async () => {
+	const refresh = async (projectRoot?: string) => {
 		try {
-			const registrations = await planPlaybookCommandRegistrations();
+			const registrations = await planPlaybookCommandRegistrations(projectRoot, pi.getActiveTools?.() ?? []);
 			for (const { name, id, title, trigger } of registrations) {
 				pi.registerCommand(name, {
 					description: trigger,
 					handler: async (_args, ctx) => {
 						try {
+							if (ctx.cwd) {
+								const currentlyActive = await activePlaybooks(ctx.cwd, pi.getActiveTools?.() ?? []);
+								if (!currentlyActive.some((playbook) => playbook.id === id)) {
+									ctx.ui.notify(`"${title}" is not enabled for this project context`, "error");
+									return;
+								}
+							}
 							// Re-fetched live, not captured at registration time: a lingering stale
 							// command (renamed or disabled since, since registerCommand can't be
 							// unregistered) must fail cleanly, never run deleted/stale content.
@@ -103,8 +125,8 @@ export function registerPlaybookBridge(pi: ExtensionAPI): void {
 			// "no new/updated playbook commands this cycle", not a broken session start.
 		}
 	};
-	pi.on("resources_discover", async () => {
-		await refresh();
+	pi.on("resources_discover", async (event) => {
+		await refresh(event?.cwd);
 		return {};
 	});
 }

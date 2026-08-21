@@ -7,6 +7,13 @@
 
 import type { Artifact } from "../artifact/artifact.ts";
 import { requireLocallyOwnedContent } from "../artifact/artifact.ts";
+import {
+	type ActivationContext,
+	activationConfig,
+	evaluateActivation,
+	type InjectionProfile,
+	validateActivationConfig,
+} from "../artifact/artifact-activation.ts";
 import type { ArtifactEventContext } from "../artifact/artifact-event.ts";
 import type { ArtifactScope, ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
@@ -23,7 +30,6 @@ import {
 	removeArtifactScopeProject,
 	replaceArtifactScopeGroups,
 	replaceArtifactScopeProjects,
-	requireContentUpdateFields,
 	requireKind,
 	runTransition,
 	setArtifactScopeNone,
@@ -43,6 +49,7 @@ export interface CreateRuleInput {
 	subtype?: string;
 	labels?: string[];
 	extra?: Record<string, unknown>;
+	activation?: unknown;
 	templateId?: string;
 	projectRoot?: string;
 	/** Bounded exact registered project references (id/name/alias/root) -- fail-closed unlike projectRoot's auto-register-by-root legacy form. Takes precedence over projectRoot when both are given. */
@@ -135,6 +142,7 @@ export function createRule(
 	registry?: ProjectRegistryStore,
 ): Artifact {
 	assertRuleTextWithinBounds(input.condition, input.action, input.body);
+	const activation = input.activation === undefined ? undefined : validateActivationConfig(input.activation, "full");
 	if (input.projectReferences !== undefined && input.projectReferences.length > 0 && registry === undefined) {
 		throw new Error("projectReferences requires a project registry");
 	}
@@ -149,6 +157,7 @@ export function createRule(
 			labels: input.labels,
 			extra: {
 				...(input.extra ?? {}),
+				...(activation === undefined ? {} : { activation }),
 				...(input.condition ? { condition: input.condition } : {}),
 				...(input.action ? { action: input.action } : {}),
 				severity: input.severity ?? "info",
@@ -271,7 +280,7 @@ export function removeRuleGroup(
 }
 
 /** The extra.scope run-gating check alone -- a Rule with no extra.scope always passes this; one with a skill-run/playbook-run scope passes only while its run owns activeTaskId. Both a workflow-definition target's own run scope ("skill-run", written by workflow-execution.ts's runWorkflowSteps for that target kind) and a Playbook's own run scope ("playbook-run", same call for a Playbook target) are recognized -- confirmed live that only "skill-run" was ever checked here, silently breaking Playbook-run-scoped rule injection since Playbook gained its own doc/rule structured steps. */
-function passesRunScope(rule: Artifact, activeTaskId: string | undefined): boolean {
+export function passesRuleRunScope(rule: Artifact, activeTaskId: string | undefined): boolean {
 	const scope = rule.extra.scope;
 	if (scope === undefined) return true;
 	if (typeof scope !== "object" || scope === null || Array.isArray(scope)) return false;
@@ -294,11 +303,21 @@ export function listInjectableRules(
 	scopes: ArtifactScopeStore,
 	projectRoot: string | undefined,
 	activeTaskId?: string,
+	context: ActivationContext = {},
 ): Artifact[] {
 	return artifacts.query({ kind: "rule", status: "active" }).filter((rule) => {
 		if (rule.subtype === "artifact-template") return false;
-		return passesRunScope(rule, activeTaskId) && scopes.appliesToProjectRoot(rule.id, projectRoot);
+		if (!passesRuleRunScope(rule, activeTaskId) || !scopes.appliesToProjectRoot(rule.id, projectRoot)) return false;
+		return evaluateActivation(activationConfig(rule.extra, "full"), { ...context, projectRoot }).enabled;
 	});
+}
+
+export function ruleActivationDecision(
+	rule: Artifact,
+	context: ActivationContext,
+): { enabled: boolean; reason: string; priority: number; injection: InjectionProfile } {
+	const config = activationConfig(rule.extra, "full");
+	return { ...evaluateActivation(config, context), priority: config.priority, injection: config.injection };
 }
 
 export function showRule(artifacts: ArtifactStore, id: string): Artifact {
@@ -319,11 +338,15 @@ export function transitionRule(artifacts: ArtifactStore, id: string, action: Rul
 	return runTransition(artifacts, rule, "rule", action, RULE_TRANSITIONS, context);
 }
 
-export type UpdateRuleInput = UpdateContentInput;
+export interface UpdateRuleInput extends UpdateContentInput {
+	activation?: unknown;
+}
 
 /** A Rule's body update stays under the same combined condition+action+body ceiling as creation -- a permanent per-turn injection cost doesn't get looser just because it's an edit, not a create. */
 export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRuleInput, context?: ArtifactEventContext): Artifact {
-	requireContentUpdateFields(input);
+	if (input.title === undefined && input.body === undefined && input.labels === undefined && input.activation === undefined) {
+		throw new Error("update requires title, body, labels, or activation");
+	}
 	assertTitleBounds(input.title);
 	assertLabelsBounds(input.labels);
 	const rule = requireLocallyOwnedContent(requireKind(artifacts, id, "rule"));
@@ -332,9 +355,14 @@ export function updateRule(artifacts: ArtifactStore, id: string, input: UpdateRu
 		const action = typeof rule.extra.action === "string" ? rule.extra.action : undefined;
 		assertRuleTextWithinBounds(condition, action, input.body);
 	}
-	const updated = artifacts.updateContent(id, input, context);
+	const hasContent = input.title !== undefined || input.body !== undefined || input.labels !== undefined;
+	const updated = hasContent ? artifacts.updateContent(id, input, context) : rule;
 	if (!updated) throw new Error(`rule "${id}" not found`);
-	return updated;
+	if (input.activation === undefined) return updated;
+	const activation = validateActivationConfig(input.activation, "full");
+	const withActivation = artifacts.setExtra(updated.id, { ...updated.extra, activation }, context);
+	if (!withActivation) throw new Error(`rule "${id}" not found`);
+	return withActivation;
 }
 
 export function gateTaskWithRule(artifacts: ArtifactStore, ruleId: string, taskId: string, context?: ArtifactEventContext): Artifact {

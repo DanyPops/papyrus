@@ -77,6 +77,9 @@ export function registerRulesVehicleOperations(
 			subtype: stringProp,
 			labels: { type: "array" } as unknown as { type: string },
 			extra: { type: "object" } as unknown as { type: string },
+			activation: { type: "object", description: "Typed activation config: {predicate?,priority?,injection?}." } as unknown as {
+				type: string;
+			},
 			template_id: stringProp,
 			project_root: stringProp,
 			projects: { type: "array" } as unknown as { type: string },
@@ -314,6 +317,7 @@ export function registerRulesVehicleOperations(
 			title: stringProp,
 			body: stringProp,
 			labels: { type: "array" } as unknown as { type: string },
+			activation: { type: "object", description: "Replacement typed activation config." } as unknown as { type: string },
 			project_root: stringProp,
 			actor: stringProp,
 			source: stringProp,

@@ -516,7 +516,7 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 
 		const updated = updatePlaybook(artifacts, playbook.id, { title: "Renamed playbook" });
 		expect(updated.title).toBe("Renamed playbook");
-		expect(() => updatePlaybook(artifacts, playbook.id, {})).toThrow("update requires title, body, labels, trigger, or steps");
+		expect(() => updatePlaybook(artifacts, playbook.id, {})).toThrow("update requires title, body, labels, trigger, steps, or activation");
 
 		const projected = createPlaybook(artifacts, scopes, { title: "Imported playbook", labels: ["source:some-external-system"] });
 		expect(() => updatePlaybook(artifacts, projected.id, { title: "Edited locally" })).toThrow(

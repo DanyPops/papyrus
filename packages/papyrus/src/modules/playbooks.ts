@@ -11,6 +11,7 @@
  */
 
 import { summarizeArtifact } from "../artifact/artifact.ts";
+import { activationContextFromInput } from "../artifact/artifact-activation.ts";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import type { OperationDefinition } from "../module-registry.ts";
@@ -22,6 +23,7 @@ import {
 	containPlaybook,
 	createPlaybook,
 	dependPlaybook,
+	listActivatedPlaybooks,
 	listPlaybooks,
 	playbookInvocation,
 	playbookScope,
@@ -147,6 +149,7 @@ export function playbooksOperations({
 					subtype: optionalString(input, "subtype"),
 					labels: input.labels as string[] | undefined,
 					extra: input.extra as Record<string, unknown> | undefined,
+					activation: input.activation,
 					templateId: optionalString(input, "template_id") ?? optionalString(input, "templateId"),
 					projectRoot: optionalString(input, "project_root"),
 					projectReferences: input.projects as string[] | undefined,
@@ -156,7 +159,21 @@ export function playbooksOperations({
 			),
 		),
 		define("playbooks.list", (input: OperationInput) => {
-			const playbooks = listPlaybooks(artifacts, artifactScopes, artifactFilter(input));
+			const filter = artifactFilter(input);
+			const projectRoot = optionalString(input, "project_root");
+			const activeTask =
+				optionalBoolean(input, "activated") === true
+					? tasks.active({ projectRoot, sessionId: optionalString(input, "session_id") ?? optionalString(input, "sessionId") })
+					: undefined;
+			const playbooks =
+				optionalBoolean(input, "activated") === true
+					? listActivatedPlaybooks(artifacts, artifactScopes, filter, {
+							...activationContextFromInput(input.activation_context),
+							projectRoot,
+							taskStatus: activeTask?.status,
+							taskLabels: activeTask?.labels,
+						})
+					: listPlaybooks(artifacts, artifactScopes, filter);
 			return optionalBoolean(input, "full") === true ? playbooks : playbooks.map(summarizeArtifact);
 		}),
 		define("playbooks.show", (input: OperationInput) => showPlaybook(artifacts, string(input, "id"))),
@@ -225,6 +242,7 @@ export function playbooksOperations({
 					labels: input.labels as string[] | undefined,
 					trigger: optionalString(input, "trigger"),
 					steps: input.steps,
+					activation: input.activation,
 				},
 				eventContext(input),
 			),

@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import {
+	runActivationCli,
 	runArtifactCli,
 	runBatchCli,
 	runBindersCli,
@@ -87,6 +88,14 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "artifact.restore", result: { restored: true }, invoke: (c) => runArtifactCli(["restore", "a1", "--json"], c) },
 	{ operation: "artifact.trash_status", result: null, invoke: (c) => runArtifactCli(["trash-status", "a1", "--json"], c) },
 	{ operation: "artifact.trash_list", result: [], invoke: (c) => runArtifactCli(["trash-list", "--json"], c) },
+	{
+		operation: "activation.audit",
+		result: {
+			summary: { total: 0, enabled: 0, disabled: 0, global: 0, explicit: 0, hidden: 0, estimatedEnabledTokens: 0 },
+			entries: [],
+		},
+		invoke: (c) => runActivationCli(["audit", "--json"], c, "/workspace/papyrus"),
+	},
 	{ operation: "graph.link", result: { ok: true }, invoke: (c) => runGraphCli(["link", "a1", "relates_to", "a2", "--json"], c) },
 	{ operation: "graph.unlink", result: { removed: true }, invoke: (c) => runGraphCli(["unlink", "a1", "relates_to", "a2", "--json"], c) },
 	{ operation: "graph.tree", result: artifact, invoke: (c) => runGraphCli(["tree", "a1", "--json"], c) },

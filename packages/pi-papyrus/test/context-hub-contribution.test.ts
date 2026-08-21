@@ -35,6 +35,15 @@ describe("papyrusContextSegment", () => {
 		expect(segment.items?.map((item) => item.label)).toEqual(["Active Rules", "Open Tasks", "Pi Skills catalog"]);
 	});
 
+	it("accounts for injected Playbook catalog entries", () => {
+		const segment = papyrusContextSegment(ruleBudget(), [], skills(), {
+			entries: [{ title: "Release", estimatedTokens: 12 }],
+			totalEstimatedTokens: 12,
+		});
+		expect(segment.estimatedTokens).toBe(12);
+		expect(segment.items?.map((item) => item.label)).toEqual(["Available Playbooks"]);
+	});
+
 	it("omits an empty category rather than showing a zero-token placeholder item", () => {
 		const segment = papyrusContextSegment(ruleBudget([{ id: "r1", title: "R", characters: 40, estimatedTokens: 10 }]), [], skills());
 		expect(segment.items?.map((item) => item.label)).toEqual(["Active Rules"]);

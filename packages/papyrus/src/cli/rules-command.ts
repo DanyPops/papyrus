@@ -41,6 +41,7 @@ const createCommand = buildCommand({
 			severity?: string;
 			labelsJson?: string[];
 			extraJson?: Record<string, unknown>;
+			activationJson?: Record<string, unknown>;
 			projectRoot?: string;
 		},
 	) {
@@ -52,6 +53,7 @@ const createCommand = buildCommand({
 			severity: flags.severity,
 			labels: flags.labelsJson,
 			extra: flags.extraJson,
+			activation: flags.activationJson,
 			project_root: flags.projectRoot,
 		});
 		render.call(this, artifact, `Created rule: ${artifactLabel(artifact)}`);
@@ -65,6 +67,13 @@ const createCommand = buildCommand({
 			severity: { brief: "block|warn|info", kind: "parsed", parse: String, placeholder: "severity", optional: true },
 			labelsJson: { brief: "JSON string array of labels", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
 			extraJson: { brief: "JSON object of extra fields", kind: "parsed", parse: parseObject, placeholder: "json", optional: true },
+			activationJson: {
+				brief: "Typed activation config as JSON: {predicate?,priority?,injection?}",
+				kind: "parsed",
+				parse: parseObject,
+				placeholder: "json",
+				optional: true,
+			},
 			projectRoot: { brief: "Project scope", kind: "parsed", parse: String, placeholder: "path", optional: true },
 		},
 	},
@@ -319,25 +328,41 @@ const gateCommand = buildCommand({
 });
 
 const injectableCommand = buildCommand({
-	func: async function (this: RulesContext) {
+	func: async function (this: RulesContext, flags: { activationContextJson?: Record<string, unknown> }) {
 		const rows = await this.client.call<Record<string, unknown>, CliArtifact[]>("rules.injectable", {
 			project_root: this.callerProjectRoot,
+			activation_context: flags.activationContextJson,
 		});
 		render.call(this, rows, rows.length === 0 ? "No injectable rules." : rows.map((row) => row.title).join("\n"));
 	},
-	parameters: { flags: {} },
+	parameters: {
+		flags: {
+			activationContextJson: {
+				brief: "Trusted activation context as JSON",
+				kind: "parsed",
+				parse: parseObject,
+				placeholder: "json",
+				optional: true,
+			},
+		},
+	},
 	docs: { brief: "List Rules currently injectable into the agent system prompt for this project" },
 });
 
 const updateCommand = buildCommand({
-	func: async function (this: RulesContext, flags: { title?: string; body?: string; labelsJson?: string[] }, id: string) {
-		if (flags.title === undefined && flags.body === undefined && flags.labelsJson === undefined)
-			throw new Error("rules update requires --title, --body, or --labels-json");
+	func: async function (
+		this: RulesContext,
+		flags: { title?: string; body?: string; labelsJson?: string[]; activationJson?: Record<string, unknown> },
+		id: string,
+	) {
+		if (flags.title === undefined && flags.body === undefined && flags.labelsJson === undefined && flags.activationJson === undefined)
+			throw new Error("rules update requires --title, --body, --labels-json, or --activation-json");
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("rules.update", {
 			id,
 			title: flags.title,
 			body: flags.body,
 			labels: flags.labelsJson,
+			activation: flags.activationJson,
 		});
 		render.call(this, artifact, artifactLabel(artifact));
 	},
@@ -346,6 +371,13 @@ const updateCommand = buildCommand({
 			title: { brief: "New title", kind: "parsed", parse: String, placeholder: "text", optional: true },
 			body: { brief: "New body", kind: "parsed", parse: String, placeholder: "text", optional: true },
 			labelsJson: { brief: "JSON string array of labels", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
+			activationJson: {
+				brief: "Replacement typed activation config as JSON",
+				kind: "parsed",
+				parse: parseObject,
+				placeholder: "json",
+				optional: true,
+			},
 		},
 		positional: { kind: "tuple", parameters: [{ brief: "Rule id", parse: String, placeholder: "id" }] },
 	},

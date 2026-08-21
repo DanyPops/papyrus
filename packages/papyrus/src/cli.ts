@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createNodeServiceInstallDeps, generateSystemdUnit, installUserService, type ServiceSpec } from "@danypops/vehicle-server/service";
+import { runActivationCli } from "./cli/activation-command.ts";
 import { runArtifactCli } from "./cli/artifact-command.ts";
 import { runBatchCli } from "./cli/batch-command.ts";
 import { runBindersCli } from "./cli/binders-command.ts";
@@ -107,6 +108,7 @@ const USAGE = `Usage:
   papyrus gates run <id> [--json]
   papyrus graph-projection apply --batch-json <json> [--json]
   papyrus graph-projection checkpoint --producer-id <id> [--json]
+  papyrus activation audit [--project-root <path>] [--activation-context-json <json>] [--session-id <id>] [--json]
   papyrus artifact create --kind <kind> [--title <title>] [--status <status>] [--subtype <subtype>] [--body <body>] [--labels-json <json>] [--extra-json <json>] [--template-id <id>] [--json]
   papyrus artifact query [--kind <kind>] [--status <status>] [--text <query>] [--limit <count>] [--json]
   papyrus artifact show <id> [--depth <n>] [--max-nodes <n>] [--json]
@@ -363,6 +365,7 @@ export function runIdMigrationCli(args: string[]): string {
 }
 
 export {
+	runActivationCli,
 	runArtifactCli,
 	runBatchCli,
 	runBindersCli,
@@ -464,6 +467,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
 	if (command === "rules") {
 		const client = await connectPapyrusClient();
 		console.log(await runRulesCli(args.slice(1), client));
+		return;
+	}
+	if (command === "activation") {
+		const client = await connectPapyrusClient();
+		console.log(await runActivationCli(args.slice(1), client));
 		return;
 	}
 	if (command === "artifact") {

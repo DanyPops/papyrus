@@ -51,6 +51,7 @@ const createCommand = buildCommand({
 			toolsJson?: string[];
 			labelsJson?: string[];
 			extraJson?: Record<string, unknown>;
+			activationJson?: Record<string, unknown>;
 			argumentsJson?: unknown[] | Record<string, unknown>;
 			projectRoot?: string;
 			projectsJson?: string[];
@@ -64,6 +65,7 @@ const createCommand = buildCommand({
 			tools: flags.toolsJson,
 			labels: flags.labelsJson,
 			extra: flags.extraJson,
+			activation: flags.activationJson,
 			arguments: flags.argumentsJson,
 			project_root: flags.projectRoot,
 			projects: flags.projectsJson,
@@ -85,6 +87,13 @@ const createCommand = buildCommand({
 			toolsJson: { brief: "JSON string array of tool names", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
 			labelsJson: { brief: "JSON string array of labels", kind: "parsed", parse: parseStringArray, placeholder: "json", optional: true },
 			extraJson: { brief: "JSON object of extra fields", kind: "parsed", parse: parseObject, placeholder: "json", optional: true },
+			activationJson: {
+				brief: "Typed activation config as JSON: {predicate?,priority?,injection?}",
+				kind: "parsed",
+				parse: parseObject,
+				placeholder: "json",
+				optional: true,
+			},
 			argumentsJson: {
 				brief: "JSON array of declared argument definitions",
 				kind: "parsed",
@@ -108,7 +117,15 @@ const createCommand = buildCommand({
 const listCommand = buildCommand({
 	func: async function (
 		this: PlaybooksContext,
-		flags: { status?: string; text?: string; limit?: number; projectRoot?: string; applicable?: boolean },
+		flags: {
+			status?: string;
+			text?: string;
+			limit?: number;
+			projectRoot?: string;
+			applicable?: boolean;
+			activated?: boolean;
+			activationContextJson?: Record<string, unknown>;
+		},
 	) {
 		const rows = await this.client.call<Record<string, unknown>, CliArtifact[]>("playbooks.list", {
 			status: flags.status,
@@ -116,6 +133,8 @@ const listCommand = buildCommand({
 			limit: flags.limit,
 			project_root: flags.projectRoot,
 			applicable: flags.applicable,
+			activated: flags.activated,
+			activation_context: flags.activationContextJson,
 		});
 		render.call(this, rows, rows.length === 0 ? "No playbooks found." : rows.map((row) => artifactLabel(row)).join("\n"));
 	},
@@ -128,6 +147,14 @@ const listCommand = buildCommand({
 			applicable: {
 				brief: "With --project-root: list global Playbooks plus Playbooks applicable to it, instead of exact membership",
 				kind: "boolean",
+				optional: true,
+			},
+			activated: { brief: "Evaluate typed activation predicates", kind: "boolean", optional: true },
+			activationContextJson: {
+				brief: "Trusted activation context as JSON",
+				kind: "parsed",
+				parse: parseObject,
+				placeholder: "json",
 				optional: true,
 			},
 		},
@@ -388,7 +415,14 @@ const replaceGroupsCommand = buildCommand({
 const updateCommand = buildCommand({
 	func: async function (
 		this: PlaybooksContext,
-		flags: { title?: string; body?: string; labelsJson?: string[]; trigger?: string; stepsJson?: unknown[] | Record<string, unknown> },
+		flags: {
+			title?: string;
+			body?: string;
+			labelsJson?: string[];
+			trigger?: string;
+			stepsJson?: unknown[] | Record<string, unknown>;
+			activationJson?: Record<string, unknown>;
+		},
 		id: string,
 	) {
 		if (
@@ -396,9 +430,10 @@ const updateCommand = buildCommand({
 			flags.body === undefined &&
 			flags.labelsJson === undefined &&
 			flags.trigger === undefined &&
-			flags.stepsJson === undefined
+			flags.stepsJson === undefined &&
+			flags.activationJson === undefined
 		)
-			throw new Error("playbooks update requires --title, --body, --labels-json, --trigger, or --steps-json");
+			throw new Error("playbooks update requires --title, --body, --labels-json, --trigger, --steps-json, or --activation-json");
 		const artifact = await this.client.call<Record<string, unknown>, CliArtifact>("playbooks.update", {
 			id,
 			title: flags.title,
@@ -406,6 +441,7 @@ const updateCommand = buildCommand({
 			labels: flags.labelsJson,
 			trigger: flags.trigger,
 			steps: flags.stepsJson,
+			activation: flags.activationJson,
 		});
 		render.call(this, artifact, artifactLabel(artifact));
 	},
@@ -419,6 +455,13 @@ const updateCommand = buildCommand({
 				brief: "JSON array of steps -- REPLACES the entire existing step list, same shape as create's --steps-json",
 				kind: "parsed",
 				parse: parseAny,
+				placeholder: "json",
+				optional: true,
+			},
+			activationJson: {
+				brief: "Replacement typed activation config as JSON",
+				kind: "parsed",
+				parse: parseObject,
 				placeholder: "json",
 				optional: true,
 			},

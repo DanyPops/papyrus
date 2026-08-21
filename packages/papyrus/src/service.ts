@@ -4,6 +4,8 @@ import type { DaemonDiagnosis } from "@danypops/vehicle-server/daemon-lifecycle"
 import { createVehicleHttpApp } from "@danypops/vehicle-server/http";
 import type { Logger } from "@danypops/vehicle-server/logging";
 import type { CreateArtifactInput } from "./artifact/artifact.ts";
+import { activationContextFromInput } from "./artifact/artifact-activation.ts";
+import { auditArtifactActivation } from "./artifact/artifact-activation-audit.ts";
 import type { ArtifactEventReader } from "./artifact/artifact-event-reader.ts";
 import type { ArtifactScopeStore } from "./artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "./artifact/artifact-store.ts";
@@ -80,6 +82,7 @@ const COMPOSITION_ROOT_OPERATION_NAMES = [
 	"artifact.restore",
 	"artifact.trash_status",
 	"artifact.trash_list",
+	"activation.audit",
 	"graph.link",
 	"graph.unlink",
 	"graph.tree",
@@ -400,11 +403,26 @@ function handlers(
 			const id = string(input, "id");
 			return artifacts.get(id)?.kind === "task" ? tasks.runGates(id, eventContextFor(input, "gates-api")) : gates.runAsync(id);
 		},
+		"activation.audit": (input) => {
+			const filter = taskFilter(input);
+			if (!filter.projectRoot) throw new Error("project_root is required");
+			const activeTask = tasks.active(filter);
+			return auditArtifactActivation(artifacts, artifactScopes, filter.projectRoot, activeTask?.id, {
+				...activationContextFromInput(input.activation_context),
+				projectRoot: filter.projectRoot,
+				taskStatus: activeTask?.status,
+				taskLabels: activeTask?.labels,
+			});
+		},
 		"rules.injectable": (input) => {
 			const filter = taskFilter(input);
-			return listInjectableRules(artifacts, artifactScopes, filter.projectRoot, tasks.active(filter)?.id).map(
-				({ id, title, body, extra }) => ({ id, title, body, extra }),
-			);
+			const activeTask = tasks.active(filter);
+			return listInjectableRules(artifacts, artifactScopes, filter.projectRoot, activeTask?.id, {
+				...activationContextFromInput(input.activation_context),
+				projectRoot: filter.projectRoot,
+				taskStatus: activeTask?.status,
+				taskLabels: activeTask?.labels,
+			}).map(({ id, title, body, extra }) => ({ id, title, body, extra }));
 		},
 		"tasks.create": forwardToModule("tasks.create"),
 		"tasks.update": forwardToModule("tasks.update"),

@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { createApp, createPapyrusService } from "../src/service.ts";
+import { createTaskMutationPushMiddleware } from "../src/daemon/task-mutation-push.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
@@ -31,6 +32,7 @@ function startFixtureDaemon(token: string) {
 	const dir = tempDir("papyrus-push-daemon-");
 	const service = createPapyrusService(join(dir, "papyrus.db"));
 	const pushChannel = new PushChannel({ token });
+	service.vehicle.useExecutionMiddleware(createTaskMutationPushMiddleware((operation) => pushChannel.publish("tasks", { operation })));
 	const app = createApp({
 		service,
 		token,
@@ -80,6 +82,20 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 	});
 }
 
+async function callVehicle(port: number, token: string, name: string, input: Record<string, unknown>): Promise<unknown> {
+	const manifest = await (await fetch(`http://127.0.0.1:${port}/vehicle/manifest`, { headers: { authorization: `Bearer ${token}` } })).json() as { operations: Array<{ name: string; version: number; permissions: string[] }> };
+	const operation = manifest.operations.find((candidate) => candidate.name === name);
+	if (!operation) throw new Error(`missing operation ${name}`);
+	const response = await fetch(`http://127.0.0.1:${port}/vehicle/invoke`, {
+		method: "POST",
+		headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+		body: JSON.stringify({ name, version: operation.version, input, permissions: operation.permissions }),
+	});
+	const body = await response.json() as { output?: unknown; error?: { message?: string } };
+	if (!response.ok) throw new Error(body.error?.message ?? `HTTP ${response.status}`);
+	return body.output;
+}
+
 async function call(port: number, token: string, op: string, input: Record<string, unknown>): Promise<unknown> {
 	const response = await fetch(`http://127.0.0.1:${port}/api/v1/ops`, {
 		method: "POST",
@@ -114,6 +130,29 @@ describe("daemon PushChannel wiring, end to end", () => {
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			expect(sawSecondMessage).toBe(false);
 
+			ws.close();
+		} finally {
+			service.close();
+			await server.stop(true);
+		}
+	});
+
+	it("a real Vehicle tasks mutation publishes exactly once while a Vehicle read publishes nothing", async () => {
+		const token = "push-vehicle-token";
+		const { server, service, port } = startFixtureDaemon(token);
+		try {
+			const ws = new WebSocket(`ws://127.0.0.1:${port}/push?token=${token}`);
+			await waitForOpen(ws);
+			ws.send(JSON.stringify({ op: "subscribe", topic: "tasks" }));
+			const pushed = waitForMessage(ws);
+			const created = await callVehicle(port, token, "tasks.create", { title: "Vehicle push", project_root: PROJECT_ROOT }) as { id: string };
+			expect(await pushed).toEqual({ topic: "tasks", payload: { operation: "tasks.create" } });
+
+			let extraMessages = 0;
+			ws.addEventListener("message", () => { extraMessages++; });
+			await callVehicle(port, token, "tasks.show", { id: created.id });
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(extraMessages).toBe(0);
 			ws.close();
 		} finally {
 			service.close();

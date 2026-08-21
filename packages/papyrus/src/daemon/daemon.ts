@@ -11,6 +11,7 @@ import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, metricsPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
 import { logEvent, logger } from "../log/log.ts";
 import { createApp, createPapyrusService } from "../service.ts";
+import { createTaskMutationPushMiddleware } from "./task-mutation-push.ts";
 import {
 	clearDaemonPort,
 	clearSharedVehicleHandle,
@@ -81,6 +82,7 @@ export async function serveMain(): Promise<void> {
 	service.vehicle.useExecutionMiddleware(createVehicleMetricsMiddleware(vehicleMetrics, "papyrus"));
 	registerVehicleMetricsOperations(service.vehicle, vehicleMetrics, "papyrus");
 	const pushChannel = new PushChannel({ token });
+	service.vehicle.useExecutionMiddleware(createTaskMutationPushMiddleware((operation) => pushChannel.publish("tasks", { operation })));
 	const app = createApp({
 		service,
 		token,

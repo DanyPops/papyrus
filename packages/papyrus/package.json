@@ -2,6 +2,8 @@
   "name": "@danypops/papyrus",
   "version": "0.60.7",
   "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
+  "license": "MIT",
+  "keywords": ["task-management", "knowledge-graph", "daemon", "cli"],
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

@@ -2,8 +2,9 @@
   "name": "@danypops/pi-papyrus",
   "version": "0.57.9",
   "description": "Pi host extension for Papyrus: native tools, TUI panels, and context injection over the daemon-backed graph store",
+  "license": "MIT",
   "type": "module",
-  "keywords": ["pi-package"],
+  "keywords": ["pi-package", "task-management", "knowledge-graph"],
   "pi": {
     "extensions": ["extension/src/index.ts"]
   },

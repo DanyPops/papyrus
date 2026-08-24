@@ -50,7 +50,7 @@ import {
 	automaticPauseReason,
 	shouldResumeFocusOnHumanInput,
 } from "./task/active-task-continuation.ts";
-import { emitTaskFocusEvent, setTaskFocusEventBus } from "./task/task-focus-events.ts";
+import { emitTaskFocusEvent, extractDeclaredEffort, setTaskFocusEventBus } from "./task/task-focus-events.ts";
 import { TASK_STATUS_PRESENTATION, taskTreeConnector } from "./task/task-presentation.ts";
 import { buildTaskWidgetProjection, type TaskWidgetProjection } from "./task/task-widget.ts";
 import { measure as artifactCardMeasure } from "./tool-rendering/artifact-card.ts";
@@ -492,7 +492,7 @@ export default async function (pi: ExtensionAPI) {
 					session_id: sessionId,
 					...sessionSecretField(sessionId),
 				});
-				emitTaskFocusEvent({ taskId: paused.artifact.id, sessionId, status: "paused" });
+				emitTaskFocusEvent({ taskId: paused.artifact.id, sessionId, status: "paused", effort: extractDeclaredEffort(paused.artifact.extra) });
 				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
 			}
 		} catch {
@@ -896,7 +896,12 @@ export default async function (pi: ExtensionAPI) {
 					session_id: sessionId,
 					...sessionSecretField(sessionId),
 				});
-				emitTaskFocusEvent({ taskId: focus.artifact.id, sessionId, status: "unpaused" });
+				emitTaskFocusEvent({
+					taskId: focus.artifact.id,
+					sessionId,
+					status: "unpaused",
+					effort: extractDeclaredEffort(focus.artifact.extra),
+				});
 			}
 		} catch {
 			// The daemon may be unavailable during startup, reload, or shutdown.

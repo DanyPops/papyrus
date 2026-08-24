@@ -35,7 +35,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discussLiveFollowUp } from "../discuss/discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "../service-client.ts";
 import { sessionSecretField } from "../session-identity.ts";
-import { emitTaskFocusEvent } from "../task/task-focus-events.ts";
+import { emitTaskFocusEvent, extractDeclaredEffort } from "../task/task-focus-events.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "./render-diagnostics.ts";
 import { papyrusVehiclePresentations, papyrusVehicleRenderers } from "./vehicle-artifact-renderers.ts";
 
@@ -210,14 +210,18 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 			// timestamp against when registration actually completed.
 			recordRenderDiagnostic({ event: "invoked", operation: descriptor.name, output: shapeFingerprint(output) });
 			if (descriptor.name === "tasks.focus") {
-				const artifact = output as { id: string } | undefined;
-				if (artifact?.id) emitTaskFocusEvent({ taskId: artifact.id, status: "focused" });
+				const artifact = output as { id: string; extra?: Record<string, unknown> } | undefined;
+				if (artifact?.id) emitTaskFocusEvent({ taskId: artifact.id, status: "focused", effort: extractDeclaredEffort(artifact.extra) });
 				return;
 			}
 			if (descriptor.name === "tasks.pause" || descriptor.name === "tasks.unpause") {
-				const focus = output as { artifact: { id: string } } | undefined;
+				const focus = output as { artifact: { id: string; extra?: Record<string, unknown> } } | undefined;
 				if (focus?.artifact?.id)
-					emitTaskFocusEvent({ taskId: focus.artifact.id, status: descriptor.name === "tasks.pause" ? "paused" : "unpaused" });
+					emitTaskFocusEvent({
+						taskId: focus.artifact.id,
+						status: descriptor.name === "tasks.pause" ? "paused" : "unpaused",
+						effort: extractDeclaredEffort(focus.artifact.extra),
+					});
 				return;
 			}
 			if (descriptor.name === "tasks.clear_focus") {

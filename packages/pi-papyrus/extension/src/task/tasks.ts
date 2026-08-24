@@ -25,7 +25,7 @@ import {
 import { callService } from "../service-client.ts";
 import { sessionSecretField } from "../session-identity.ts";
 import { showTaskDetails } from "./task-detail-view.ts";
-import { emitTaskFocusEvent } from "./task-focus-events.ts";
+import { emitTaskFocusEvent, extractDeclaredEffort } from "./task-focus-events.ts";
 import { showTaskGraph } from "./task-graph.ts";
 
 export { taskDetailsText } from "./task-detail-format.ts";
@@ -313,7 +313,7 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 					session_id: sessionId,
 					...sessionSecretField(sessionId),
 				});
-				emitTaskFocusEvent({ taskId: focused.id, sessionId, status: "focused" });
+				emitTaskFocusEvent({ taskId: focused.id, sessionId, status: "focused", effort: extractDeclaredEffort(focused.extra) });
 				ctx.ui.notify(`Active: ${action.row.title}`, "info");
 			} catch (error) {
 				ctx.ui.notify(`Focus failed: ${error instanceof Error ? error.message : error}`, "error");
@@ -336,7 +336,12 @@ export async function showTasks(ctx: ExtensionCommandContext): Promise<void> {
 						session_id: sessionId,
 						...sessionSecretField(sessionId),
 					});
-					emitTaskFocusEvent({ taskId: result.artifact.id, sessionId, status: choice === "Pause focus" ? "paused" : "unpaused" });
+					emitTaskFocusEvent({
+						taskId: result.artifact.id,
+						sessionId,
+						status: choice === "Pause focus" ? "paused" : "unpaused",
+						effort: extractDeclaredEffort(result.artifact.extra),
+					});
 				}
 				ctx.ui.notify(choice === "Clear focus" ? "Task focus cleared" : choice, "info");
 			} catch (error) {

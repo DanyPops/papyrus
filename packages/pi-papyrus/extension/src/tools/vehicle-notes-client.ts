@@ -23,6 +23,7 @@
  * had died.
  */
 
+import { createAgentNotifier } from "@danypops/vehicle-client-pi/agent-poll-ticker";
 import { createReconnectingVehicleClient, daemonInstanceIdentity } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
@@ -31,6 +32,7 @@ import {
 	registerVehicleToolsWhenReady,
 	type VehicleReadyEvent,
 } from "@danypops/vehicle-client-pi";
+import { VehicleApprovalOutcomePoll } from "@danypops/vehicle-client-pi/vehicle-approval-outcome-poll";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discussLiveFollowUp } from "../discuss/discuss-live-follow-up.ts";
 import { currentVehicleClientTarget } from "../service-client.ts";
@@ -60,6 +62,13 @@ export const PAPYRUS_VEHICLE_PERMISSIONS = [
 
 /** Task Focus's own internal write needs a real, per-session secret -- see below. Every other tasks.* operation reads session_id purely for read-scoping and needs no secret. */
 const FOCUS_MUTATION_OPERATIONS = new Set(["tasks.focus", "tasks.pause", "tasks.unpause", "tasks.clear_focus"]);
+
+/** Matches pi-tickets' own watch-events poll cadence -- no established Papyrus-specific reason
+ * to differ, and this Vehicle doesn't call configureApprovals() on anything today, so nothing yet
+ * actually exercises this path; it exists so a future gated operation (e.g. a genuinely
+ * destructive artifact mutation) gets outcome-visibility for free rather than needing this same
+ * wiring added later. */
+const APPROVAL_OUTCOME_POLL_INTERVAL_MS = 30_000;
 
 /**
  * Vehicle Shell's core set (see @danypops/vehicle-client-pi's registerVehicleTools `shell`
@@ -134,6 +143,22 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 			connectRetry: true,
 		},
 	);
+	// Push half of the Approval Gate's outcome-visibility story -- see
+	// @danypops/vehicle-client-pi's own vehicle-approval-outcome-poll.ts doc comment (the Papyrus
+	// Discussion parallel this mirrors) and pi-tickets' identical wiring in vehicle-client.ts.
+	const approvalOutcomePoll = new VehicleApprovalOutcomePoll(client, createAgentNotifier(pi));
+	let approvalOutcomePollTimer: ReturnType<typeof setInterval> | undefined;
+	pi.on("session_start", (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		if (approvalOutcomePollTimer) return;
+		approvalOutcomePollTimer = setInterval(() => void approvalOutcomePoll.poll(), APPROVAL_OUTCOME_POLL_INTERVAL_MS);
+		void approvalOutcomePoll.poll(); // an outcome may already be resolved before this session ever started polling
+	});
+	pi.on("session_shutdown", () => {
+		if (!approvalOutcomePollTimer) return;
+		clearInterval(approvalOutcomePollTimer);
+		approvalOutcomePollTimer = undefined;
+	});
 	return registerVehicleToolsWhenReady(pi, () => Promise.resolve(currentVehicleClientTarget() ? client : undefined), {
 		// registerVehicleMetricsOperations(..., "papyrus") in @danypops/papyrus's own daemon.ts uses
 		// the default "metrics" prefix -- without this, its metrics.query/metrics.recordClientEvent
@@ -205,6 +230,7 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 		// couldn't batch a live ask alongside other tool calls in the same turn and
 		// let those run before the human sees the prompt -- same reasoning here.
 		executionMode: (descriptor) => (descriptor.name === "discuss.open" || descriptor.name === "discuss.reply" ? "sequential" : undefined),
+		onApprovalPending: (requestId, descriptor) => approvalOutcomePoll.record(requestId, descriptor.name),
 		onInvoked: ({ descriptor }, output) => {
 			// See vehicle-notes-client.ts's log wiring above -- correlates a real invocation's
 			// timestamp against when registration actually completed.

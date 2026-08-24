@@ -1,6 +1,6 @@
 {
   "name": "@danypops/papyrus",
-  "version": "0.60.8",
+  "version": "0.60.9",
   "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
   "license": "MIT",
   "keywords": ["task-management", "knowledge-graph", "daemon", "cli"],
@@ -30,6 +30,11 @@
     "cli": "bun src/cli.ts",
     "serve": "bun src/cli.ts serve",
     "service:install": "bun src/cli.ts service install"
+  },
+  "zodiac": {
+    "integrations": [
+      { "kind": "vehicle-surface", "vehicleName": "papyrus", "title": "Papyrus", "invalidationTopics": ["tasks"] }
+    ]
   },
   "packed": {
     "daemonService": {

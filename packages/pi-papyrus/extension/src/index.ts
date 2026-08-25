@@ -187,13 +187,12 @@ export class TaskOverlay {
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
 		const generation = this.generation;
-		const projectRoot = this.projectRoot;
 		const sessionId = this.sessionId;
 		let snapshot: TaskGraph;
 		try {
 			snapshot = await callServicePassive<Record<string, unknown>, TaskGraph>("tasks.graph", {
 				limit: 500,
-				project_root: projectRoot,
+				project_root: this.projectRoot,
 				session_id: sessionId,
 			});
 		} catch {

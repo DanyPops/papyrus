@@ -1,9 +1,9 @@
 /**
  * Real spawned-subprocess coverage for connectPapyrusClient's stale-daemon
- * detection: a version mismatch against a real running daemon must kill it
- * and reconnect to a fresh, healthy one; a match must leave it alone.
- * connectWithVersionCheck's own kill/respawn mechanics are already covered
- * by @danypops/vehicle-client's own suite -- this only proves the wiring.
+ * detection: managed clients leave replacement to Armada, explicitly standalone
+ * clients may replace their daemon, and a version match leaves it alone.
+ * connectWithVersionCheck's mechanics are covered by @danypops/vehicle-client;
+ * this suite proves Papyrus's ownership-policy wiring.
  *
  * A real daemon always truthfully reports its own real version over
  * /health, so `expectedVersion` (test-only) forces the mismatch instead of
@@ -45,7 +45,32 @@ async function waitUntil(predicate: () => boolean, timeoutMs: number, pollInterv
 }
 
 describe("connectPapyrusClient -- real stale-daemon detection and self-heal", () => {
-	it("kills a version-mismatched real daemon and reconnects to a freshly spawned, healthy one", async () => {
+	it("leaves a managed stale daemon running for Armada to restart", async () => {
+		const root = tempDir("papyrus-managed-version-mismatch-");
+		const dir = `${root}/daemon-dir`;
+		const env = isolatedEnv(root);
+
+		const first = await connectPapyrusClient(dir, { env, autoStart: true });
+		const originalHandle = readDaemonHandle(dir);
+		expect(originalHandle?.pid).toBeGreaterThan(0);
+
+		try {
+			await expect(connectPapyrusClient(dir, { env, expectedVersion: "999.999.999" })).rejects.toThrow(/restart the daemon manually/);
+			expect(isProcessAlive(originalHandle!.pid)).toBe(true);
+			expect(readDaemonHandle(dir)).toEqual(originalHandle);
+			await expect(first.health()).resolves.toMatchObject({ ok: true });
+		} finally {
+			if (originalHandle?.pid) {
+				try {
+					process.kill(originalHandle.pid, "SIGTERM");
+				} catch {
+					/* already gone */
+				}
+			}
+		}
+	}, 15_000);
+
+	it("replaces a standalone stale daemon when auto-start is explicitly enabled", async () => {
 		const root = tempDir("papyrus-version-mismatch-");
 		const dir = `${root}/daemon-dir`;
 		const env = isolatedEnv(root);

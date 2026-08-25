@@ -1,17 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createNodeAtomicJsonFsAdapter } from "@danypops/vehicle-server/atomic-json";
-import { readLaunchProvenance } from "@danypops/vehicle-server/daemon";
+import { type LaunchProvenance, readLaunchProvenance } from "@danypops/vehicle-server/daemon";
 import { diagnoseDaemon, openDaemonLifecycleLog } from "@danypops/vehicle-server/daemon-lifecycle";
 import { openVehicleMetricsStore } from "@danypops/vehicle-server/metrics";
 import { createVehicleMetricsMiddleware } from "@danypops/vehicle-server/metrics-middleware";
 import { registerVehicleMetricsOperations } from "@danypops/vehicle-server/metrics-operations";
-import { acquireDaemonLock, releaseDaemonLock } from "@danypops/vehicle-server/paths";
+import {
+	type AcquireLockResult,
+	acquireDaemonLock,
+	acquireDaemonLockAsService,
+	type ReclaimDeps,
+	releaseDaemonLock,
+} from "@danypops/vehicle-server/paths";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
 import { DAEMON_HOST, DB_OPTIMIZE_INTERVAL_MS, dbPath, metricsPath, WAL_CHECKPOINT_INTERVAL_MS } from "../constants.ts";
 import { logEvent, logger } from "../log/log.ts";
 import { createApp, createPapyrusService } from "../service.ts";
-import { createTaskMutationPushMiddleware } from "./task-mutation-push.ts";
 import {
 	clearDaemonPort,
 	clearSharedVehicleHandle,
@@ -24,6 +29,7 @@ import {
 	writeSharedVehicleHandle,
 	writeVehicleHandle,
 } from "./daemon-state.ts";
+import { createTaskMutationPushMiddleware } from "./task-mutation-push.ts";
 
 /**
  * Operations that never change what a Task-graph reader (the pi-papyrus widget's
@@ -50,6 +56,17 @@ const TASK_READ_ONLY_OPERATIONS = new Set([
  * own fetch handler for why Papyrus needs the identical fix applied directly, not inherited. */
 const VEHICLE_INVOKE_IDLE_TIMEOUT_S = 3_600;
 
+/** Gives a supervised launch authority to replace an unmanaged lock holder. */
+export async function acquirePapyrusDaemonLock(
+	lockPath: string,
+	provenance: LaunchProvenance,
+	reclaim: ReclaimDeps = {},
+): Promise<AcquireLockResult> {
+	return provenance === "service"
+		? acquireDaemonLockAsService(lockPath, reclaim)
+		: acquireDaemonLock(lockPath, reclaim.isPidAlive, provenance);
+}
+
 /** Start the supervised, long-running Papyrus service. */
 export async function serveMain(): Promise<void> {
 	const stateDir = daemonStateDir();
@@ -64,7 +81,15 @@ export async function serveMain(): Promise<void> {
 			logEvent("error", "lifecycle_log_record_failed", { message: error instanceof Error ? error.message : String(error) });
 		}
 	};
-	const lock = acquireDaemonLock(lockPath);
+	const lock = await acquirePapyrusDaemonLock(lockPath, provenance, {
+		log: (event) =>
+			logEvent(event.outcome === "reaped" ? "warn" : "info", `daemon_lock_${event.outcome}`, {
+				holderPid: event.holderPid,
+				holderProvenance: event.holderProvenance,
+				method: event.method,
+				reason: event.reason,
+			}),
+	});
 	if (!lock.acquired) {
 		logEvent("info", "already_running", { holderPid: lock.holderPid });
 		await recordLifecycle("already_running", lock.holderPid === null ? undefined : `holder pid ${lock.holderPid}`);

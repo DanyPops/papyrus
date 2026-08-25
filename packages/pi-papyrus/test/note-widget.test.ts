@@ -123,6 +123,49 @@ describe("NoteOverlay: fetches and bounds real note titles for this session's ow
 		expect(section?.render(40)).toEqual(["· Follow up on X", "· Follow up on Y"]);
 	});
 
+	it("retains note titles and marks them stale after a refresh failure", async () => {
+		let calls = 0;
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						calls += 1;
+						if (calls > 1) throw new Error("daemon unavailable");
+						return [note("a", "Follow up on X", "/workspace/one")];
+					},
+				}) as any,
+		);
+		const overlay = new NoteOverlay();
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
+		overlay.setProjectRoot("/workspace/one");
+
+		await overlay.refresh();
+		await overlay.refresh();
+
+		expect(overlay.hasOpenNotes()).toBe(true);
+		expect(overlay.buildSection()?.label).toContain("stale");
+		expect(overlay.buildSection()?.render(40)).toContain("· Follow up on X");
+	});
+
+	it("shows an unavailable section when the first refresh fails", async () => {
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						throw new Error("daemon unavailable");
+					},
+				}) as any,
+		);
+		const overlay = new NoteOverlay();
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
+		overlay.setProjectRoot("/workspace/one");
+
+		await overlay.refresh();
+
+		expect(overlay.hasOpenNotes()).toBe(true);
+		expect(overlay.buildSection()?.label).toContain("unavailable");
+	});
+
 	it("never throws, even when the daemon is unreachable or rendering itself fails", async () => {
 		setPapyrusClientConnectorForTests(
 			async () =>

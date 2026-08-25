@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { Artifact, TaskGraph, TaskNode } from "@danypops/papyrus";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { PapyrusWidgetGroup, TaskOverlay } from "../extension/src/index.ts";
 import {
 	resetPapyrusClientForTests,
@@ -17,6 +18,8 @@ import { buildTaskWidgetProjection } from "../extension/src/task/task-widget.ts"
 // exercise push-channel behavior override this themselves.
 beforeEach(() => setPushChannelTargetResolverForTests(() => undefined));
 afterEach(resetPushChannelTargetResolverForTests);
+
+const theme = { fg: (_name: string, value: string) => value } as Theme;
 
 function task(id: string, title: string, status: string): Artifact {
 	return {
@@ -140,6 +143,48 @@ describe("TaskOverlay.refresh(): never throws, even if rendering itself fails", 
 		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
 
 		await expect(overlay.refresh()).resolves.toBeUndefined();
+	});
+
+	it("retains the last graph and marks it stale after a refresh failure", async () => {
+		let calls = 0;
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						calls += 1;
+						if (calls > 1) throw new Error("daemon unavailable");
+						return graph;
+					},
+				}) as any,
+		);
+		const overlay = new TaskOverlay();
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+
+		await overlay.refresh();
+		await overlay.refresh();
+
+		expect(overlay.hasOpenWork()).toBe(true);
+		expect(overlay.buildSection(theme)?.label).toContain("stale");
+	});
+
+	it("shows an unavailable section when the first snapshot fetch fails", async () => {
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					async call() {
+						throw new Error("daemon unavailable");
+					},
+				}) as any,
+		);
+		const overlay = new TaskOverlay();
+		overlay.setWidgetGroup(new PapyrusWidgetGroup());
+		overlay.setProjectRoot("/home/dpopsuev/Projects/papyrus");
+
+		await overlay.refresh();
+
+		expect(overlay.hasOpenWork()).toBe(true);
+		expect(overlay.buildSection(theme)?.label).toContain("unavailable");
 	});
 
 	it("swallows a render() failure even when the snapshot fetch itself failed", async () => {

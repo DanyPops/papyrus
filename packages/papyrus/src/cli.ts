@@ -40,14 +40,11 @@ export interface SystemdUnitOptions {
  * own named export with the same options shape since this package's own tests (and any external
  * caller) call it directly.
  *
- * Papyrus's own daemon.ts does not (yet) use vehicle-server's startDaemon/runDaemonProcess -- it's
- * a bespoke Bun.serve() with its own state-file layout (daemon-state.ts) and maintenance-timer
- * scheduling, predating that shared substrate. handlePath points at the real {host,port,pid} file
- * daemon.ts writes on startup (writeVehicleHandle), so Armada's readiness probe works once Papyrus
- * is service-installed. DAEMON_KIT_LAUNCH_PROVENANCE=service is emitted (generateSystemdUnit always
- * adds it) but is currently inert -- Papyrus's daemon never reads it, since it has no idle-shutdown
- * concept of its own. Migrating daemon.ts's own substrate onto vehicle-server's shared daemon
- * runtime entirely is tracked separately.
+ * Papyrus's own daemon.ts still uses a bespoke Bun.serve() with its own state files and maintenance
+ * timers, predating vehicle-server's shared runtime. It does consume service launch provenance so
+ * Armada can reclaim an unmanaged lock holder. handlePath points at the real {host,port,pid} file
+ * daemon.ts writes, allowing Armada's readiness probe to verify startup. Migrating the remaining
+ * lifecycle onto vehicle-server's shared daemon runtime is tracked separately.
  */
 export function papyrusServiceSpec(options: SystemdUnitOptions): ServiceSpec {
 	return {

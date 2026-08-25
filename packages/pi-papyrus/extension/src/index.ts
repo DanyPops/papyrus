@@ -152,6 +152,7 @@ export function buildTaskWidgetSection(
 export class TaskOverlay {
 	private widgetGroup: PapyrusWidgetGroup | undefined;
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
+	private degraded = false;
 	private projectRoot: string | undefined;
 	private sessionId: string | undefined;
 	private generation = 0;
@@ -188,7 +189,8 @@ export class TaskOverlay {
 		if (!this.projectRoot) return;
 		const generation = this.generation;
 		const sessionId = this.sessionId;
-		let snapshot: TaskGraph;
+		let snapshot = this.snapshot;
+		let degraded = false;
 		try {
 			snapshot = await callServicePassive<Record<string, unknown>, TaskGraph>("tasks.graph", {
 				limit: 500,
@@ -196,10 +198,11 @@ export class TaskOverlay {
 				session_id: sessionId,
 			});
 		} catch {
-			snapshot = { nodes: [], rootIds: [] };
+			degraded = true;
 		}
 		if (generation !== this.generation) return;
 		this.snapshot = snapshot;
+		this.degraded = degraded;
 		try {
 			this.widgetGroup?.requestUpdate();
 		} catch {
@@ -225,12 +228,15 @@ export class TaskOverlay {
 	/** Theme-free existence check -- PapyrusWidgetGroup's own eager (pre-paint) hide decision needs
 	 * this without needing a theme, which is only ever available inside the widget's own render(width). */
 	hasOpenWork(): boolean {
-		return buildTaskWidgetProjection(this.snapshot).openTotal > 0;
+		return this.degraded || buildTaskWidgetProjection(this.snapshot).openTotal > 0;
 	}
 
-	/** undefined when there is no open work to show -- PapyrusWidgetGroup's own signal to omit this section entirely. */
+	/** Returns current tasks, retaining stale rows or an unavailable status while the service recovers. */
 	buildSection(theme: Theme): WidgetSection | undefined {
-		return buildTaskWidgetSection(theme, buildTaskWidgetProjection(this.snapshot), this.rotation);
+		const section = buildTaskWidgetSection(theme, buildTaskWidgetProjection(this.snapshot), this.rotation);
+		if (section) return this.degraded ? { ...section, label: `${section.label} · stale` } : section;
+		if (this.degraded) return { label: "Tasks · unavailable", render: () => ["Papyrus service unavailable; retrying."] };
+		return undefined;
 	}
 
 	/**
@@ -267,6 +273,7 @@ export class NoteOverlay {
 	private widgetGroup: PapyrusWidgetGroup | undefined;
 	private notes: NoteWidgetRow[] = [];
 	private totalOpenCount = 0;
+	private degraded = false;
 	private projectRoot: string | undefined;
 	private generation = 0;
 	private readonly poll = new BoundedPoll();
@@ -289,8 +296,9 @@ export class NoteOverlay {
 		if (!this.projectRoot) return;
 		const generation = this.generation;
 		const projectRoot = this.projectRoot;
-		let notes: NoteWidgetRow[] = [];
-		let totalOpenCount = 0;
+		let notes = this.notes;
+		let totalOpenCount = this.totalOpenCount;
+		let degraded = false;
 		try {
 			const rows = await callServicePassive<Record<string, unknown>, Artifact[]>("notes.list", {
 				project_root: projectRoot,
@@ -299,11 +307,12 @@ export class NoteOverlay {
 			totalOpenCount = rows.length;
 			notes = rows.slice(0, NOTE_WIDGET_OPEN_LIMIT).map((row) => ({ id: row.id, title: row.title }));
 		} catch {
-			// A missing daemon is the normal passive-startup case.
+			degraded = true;
 		}
 		if (generation !== this.generation) return;
 		this.totalOpenCount = totalOpenCount;
 		this.notes = notes;
+		this.degraded = degraded;
 		try {
 			this.widgetGroup?.requestUpdate();
 		} catch {
@@ -313,12 +322,15 @@ export class NoteOverlay {
 
 	/** Theme-free existence check -- see TaskOverlay's own hasOpenWork() for why this needs to stay theme-free. */
 	hasOpenNotes(): boolean {
-		return this.totalOpenCount > 0;
+		return this.degraded || this.totalOpenCount > 0;
 	}
 
-	/** undefined when there are no open notes -- PapyrusWidgetGroup's own signal to omit this section entirely. */
+	/** Returns current notes, retaining stale rows or an unavailable status while the service recovers. */
 	buildSection(): WidgetSection | undefined {
-		return buildNoteWidgetSection(this.notes, this.totalOpenCount, this.rotation);
+		const section = buildNoteWidgetSection(this.notes, this.totalOpenCount, this.rotation);
+		if (section) return this.degraded ? { ...section, label: `${section.label} · stale` } : section;
+		if (this.degraded) return { label: "Notes · unavailable", render: () => ["Papyrus service unavailable; retrying."] };
+		return undefined;
 	}
 
 	startPolling(intervalMs: number = NOTE_WIDGET_POLL_INTERVAL_MS): void {

@@ -127,11 +127,9 @@ export interface ConnectPapyrusClientOptions {
 	/** Overrides the version connectWithVersionCheck compares against. Defaults to PAPYRUS_VERSION; test-only -- lets a test force a mismatch against a real daemon without a second build. */
 	expectedVersion?: ExpectedVersion;
 	/**
-	 * Overrides the default fail-closed behavior (see connectPapyrusClient's own doc comment for
-	 * why that default changed). Test-only -- covers the auto-spawn mechanism itself
-	 * (connect-client-auto-spawn.test.ts) and lets other real-daemon integration tests keep using
-	 * it as convenient bootstrap. A real, non-Armada-supervised standalone deployment could also
-	 * set this explicitly, but that is not this option's primary purpose.
+	 * Enables both cold-start and stale-version replacement for a standalone deployment.
+	 * Managed clients omit this so only Armada can replace the daemon. Tests use the opt-in
+	 * with isolated state directories to exercise the standalone lifecycle.
 	 */
 	autoStart?: boolean;
 }
@@ -148,9 +146,9 @@ export interface ConnectPapyrusClientOptions {
  * (Restart=on-failure) is the one and only thing responsible for keeping Papyrus running, a
  * client that finds nothing reachable should say so plainly, not compete to fix it.
  *
- * Stale-VERSION self-healing (an already-running daemon reporting an older version than this
- * client expects) is unrelated to autoStart and still works: connectWithVersionCheck's own kill-
- * and-replace path only requires `spawn` to be defined, independent of the autoStart flag above.
+ * Stale-version replacement follows the same ownership boundary: standalone callers that set
+ * autoStart may replace their own daemon, while managed callers receive restart guidance and
+ * leave the Armada-owned process untouched.
  */
 export async function connectPapyrusClient(
 	dir: string = daemonStateDir(),
@@ -161,14 +159,18 @@ export async function connectPapyrusClient(
 			readHandle: () => readDaemonHandle(dir) ?? null,
 			buildClient: probedPapyrusClient,
 			autoStart: options.autoStart ?? false,
-			spawn: () => {
-				spawnDetachedDaemon({
-					binPath: papyrusCliPath(),
-					args: ["serve"],
-					env: { ...(options.env ?? process.env), [DAEMON_DIR_ENV]: dir },
-					spawn: spawnPapyrusDaemonProcess,
-				});
-			},
+			...(options.autoStart
+				? {
+						spawn: () => {
+							spawnDetachedDaemon({
+								binPath: papyrusCliPath(),
+								args: ["serve"],
+								env: { ...(options.env ?? process.env), [DAEMON_DIR_ENV]: dir },
+								spawn: spawnPapyrusDaemonProcess,
+							});
+						},
+					}
+				: {}),
 			fallbackMessage:
 				"Papyrus daemon is not running; Armada should be supervising it -- run `armada status`/`armada reconcile`, or `papyrus serve` directly if this is a standalone (non-Armada) setup.",
 		},

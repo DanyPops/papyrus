@@ -28,6 +28,7 @@
     "malevich-tui-components": "^0.32.1"
   },
   "devDependencies": {
+    "@danypops/pi-extension-harness": "^0.8.3",
     "@danypops/pi-tui-harness": "^0.0.2",
     "@danypops/vehicle-client-pi": "^0.46.0",
     "@danypops/vehicle-conformance": "^0.3.0",

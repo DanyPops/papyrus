@@ -25,6 +25,13 @@ const client: RetryingClient<PapyrusClient> = createRetryingClient<PapyrusClient
 	connectRetry: true,
 });
 
+// Passive lifecycle work must fail fast when the daemon is absent. The regular
+// client keeps its restart-surviving retry budget for explicit user/tool calls.
+const passiveClient: RetryingClient<PapyrusClient> = createRetryingClient<PapyrusClient>(() => connector(), {
+	label: "Papyrus passive",
+	connectRetry: false,
+});
+
 export async function papyrusClient(): Promise<PapyrusClient> {
 	return client.call(async (resolved) => resolved);
 }
@@ -33,14 +40,24 @@ export async function callService<Input extends Record<string, unknown>, Output>
 	return client.call((resolved) => resolved.call<Input, Output>(operation, input));
 }
 
+/** Fail-fast daemon call for widgets, discovery, and lifecycle bookkeeping. */
+export async function callServicePassive<Input extends Record<string, unknown>, Output>(
+	operation: OperationName,
+	input: Input,
+): Promise<Output> {
+	return passiveClient.call((resolved) => resolved.call<Input, Output>(operation, input));
+}
+
 export function setPapyrusClientConnectorForTests(value: ClientConnector): void {
 	connector = value;
 	client.reset();
+	passiveClient.reset();
 }
 
 export function resetPapyrusClientForTests(): void {
 	connector = () => connectPapyrusClient();
 	client.reset();
+	passiveClient.reset();
 }
 
 let pushChannelTargetResolver: typeof resolvePushChannelTarget = resolvePushChannelTarget;

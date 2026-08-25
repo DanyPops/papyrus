@@ -21,7 +21,7 @@
 import type { Artifact } from "@danypops/papyrus";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildActivationContext } from "../context/activation-context.ts";
-import { callService } from "../service-client.ts";
+import { callService, callServicePassive } from "../service-client.ts";
 
 export const PLAYBOOK_BRIDGE_MAX_PLAYBOOKS = 100;
 
@@ -34,8 +34,14 @@ function slugify(title: string): string {
 	return slug.length > 0 ? slug : "playbook";
 }
 
-async function activePlaybooks(projectRoot?: string, capabilities: readonly string[] = []): Promise<Artifact[]> {
-	return callService<Record<string, unknown>, Artifact[]>("playbooks.list", {
+type ServiceCall = <Input extends Record<string, unknown>, Output>(operation: "playbooks.list", input: Input) => Promise<Output>;
+
+async function activePlaybooks(
+	projectRoot?: string,
+	capabilities: readonly string[] = [],
+	serviceCall: ServiceCall = callService,
+): Promise<Artifact[]> {
+	return serviceCall<Record<string, unknown>, Artifact[]>("playbooks.list", {
 		status: "active",
 		full: true,
 		limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
@@ -70,8 +76,9 @@ export function playbookInjectionPreview(playbook: Pick<Artifact, "title" | "ext
 export async function planPlaybookCommandRegistrations(
 	projectRoot?: string,
 	capabilities: readonly string[] = [],
+	serviceCall: ServiceCall = callService,
 ): Promise<Array<{ name: string; id: string; title: string; trigger: string }>> {
-	const playbooks = await activePlaybooks(projectRoot, capabilities);
+	const playbooks = await activePlaybooks(projectRoot, capabilities, serviceCall);
 	const usedNames = new Set<string>();
 	return playbooks.map((playbook) => {
 		let name = playbookCommandName(playbook.title);
@@ -82,10 +89,18 @@ export async function planPlaybookCommandRegistrations(
 	});
 }
 
-export function registerPlaybookBridge(pi: ExtensionAPI): void {
-	const refresh = async (projectRoot?: string) => {
+export interface PlaybookBridgeHandle {
+	/** Explicit test/shutdown boundary for the most recently scheduled discovery refresh. */
+	waitForRefresh(): Promise<void>;
+}
+
+export function registerPlaybookBridge(pi: ExtensionAPI): PlaybookBridgeHandle {
+	let generation = 0;
+	let latestRefresh = Promise.resolve();
+	const refresh = async (projectRoot: string | undefined, scheduledGeneration: number) => {
 		try {
-			const registrations = await planPlaybookCommandRegistrations(projectRoot, pi.getActiveTools?.() ?? []);
+			const registrations = await planPlaybookCommandRegistrations(projectRoot, pi.getActiveTools?.() ?? [], callServicePassive);
+			if (scheduledGeneration !== generation) return;
 			for (const { name, id, title, trigger } of registrations) {
 				pi.registerCommand(name, {
 					description: trigger,
@@ -126,8 +141,13 @@ export function registerPlaybookBridge(pi: ExtensionAPI): void {
 			// "no new/updated playbook commands this cycle", not a broken session start.
 		}
 	};
-	pi.on("resources_discover", async (event) => {
-		await refresh(event?.cwd);
+	pi.on("resources_discover", (event) => {
+		const scheduledGeneration = ++generation;
+		latestRefresh = refresh(event?.cwd, scheduledGeneration);
 		return {};
 	});
+	pi.on("session_shutdown", () => {
+		generation++;
+	});
+	return { waitForRefresh: () => latestRefresh };
 }

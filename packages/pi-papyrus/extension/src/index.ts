@@ -42,7 +42,7 @@ import { ensureTypingCourtesyTracking, isLiveAskPending } from "./discuss/discus
 import { resolveNameFields } from "./domain-tools.ts";
 import { buildNoteWidgetSection, type NoteWidgetRow } from "./note/note-widget.ts";
 import { PLAYBOOK_BRIDGE_MAX_PLAYBOOKS, registerPlaybookBridge } from "./playbook/playbook-bridge.ts";
-import { callService, subscribeTaskPushChannel } from "./service-client.ts";
+import { callService, callServicePassive, subscribeTaskPushChannel } from "./service-client.ts";
 import { cacheSessionSecret, forgetSessionSecret, sessionSecretField } from "./session-identity.ts";
 import {
 	ActiveTaskContinuation,
@@ -154,6 +154,7 @@ export class TaskOverlay {
 	private snapshot: TaskGraph = { nodes: [], rootIds: [] };
 	private projectRoot: string | undefined;
 	private sessionId: string | undefined;
+	private generation = 0;
 	private readonly poll = new BoundedPoll();
 	private pushChannel: PushChannelClient | undefined;
 	private readonly rotation = new AutoRotatingWindow({
@@ -167,11 +168,13 @@ export class TaskOverlay {
 	}
 
 	setProjectRoot(projectRoot: string): void {
+		if (projectRoot !== this.projectRoot) this.generation++;
 		this.projectRoot = projectRoot;
 	}
 	// Scopes the widget's "active" glyph to this Pi session's own Focus, so a second
 	// concurrent agent's focused task never shows as active in this session's widget.
 	setSessionId(sessionId: string): void {
+		if (sessionId !== this.sessionId) this.generation++;
 		this.sessionId = sessionId;
 	}
 
@@ -183,15 +186,21 @@ export class TaskOverlay {
 	 */
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
+		const generation = this.generation;
+		const projectRoot = this.projectRoot;
+		const sessionId = this.sessionId;
+		let snapshot: TaskGraph;
 		try {
-			this.snapshot = await callService<Record<string, unknown>, TaskGraph>("tasks.graph", {
+			snapshot = await callServicePassive<Record<string, unknown>, TaskGraph>("tasks.graph", {
 				limit: 500,
-				project_root: this.projectRoot,
-				session_id: this.sessionId,
+				project_root: projectRoot,
+				session_id: sessionId,
 			});
 		} catch {
-			this.snapshot = { nodes: [], rootIds: [] };
+			snapshot = { nodes: [], rootIds: [] };
 		}
+		if (generation !== this.generation) return;
+		this.snapshot = snapshot;
 		try {
 			this.widgetGroup?.requestUpdate();
 		} catch {
@@ -240,6 +249,7 @@ export class TaskOverlay {
 	}
 
 	dispose(): void {
+		this.generation++;
 		this.stopPolling();
 		this.pushChannel?.close();
 		this.pushChannel = undefined;
@@ -259,6 +269,7 @@ export class NoteOverlay {
 	private notes: NoteWidgetRow[] = [];
 	private totalOpenCount = 0;
 	private projectRoot: string | undefined;
+	private generation = 0;
 	private readonly poll = new BoundedPoll();
 	private readonly rotation = new AutoRotatingWindow({
 		totalRows: 0,
@@ -271,22 +282,29 @@ export class NoteOverlay {
 	}
 
 	setProjectRoot(projectRoot: string): void {
+		if (projectRoot !== this.projectRoot) this.generation++;
 		this.projectRoot = projectRoot;
 	}
 
 	async refresh(): Promise<void> {
 		if (!this.projectRoot) return;
+		const generation = this.generation;
+		const projectRoot = this.projectRoot;
+		let notes: NoteWidgetRow[] = [];
+		let totalOpenCount = 0;
 		try {
-			const rows = await callService<Record<string, unknown>, Artifact[]>("notes.list", {
-				project_root: this.projectRoot,
+			const rows = await callServicePassive<Record<string, unknown>, Artifact[]>("notes.list", {
+				project_root: projectRoot,
 				limit: NOTE_LIST_MAX_LIMIT,
 			});
-			this.totalOpenCount = rows.length;
-			this.notes = rows.slice(0, NOTE_WIDGET_OPEN_LIMIT).map((row) => ({ id: row.id, title: row.title }));
+			totalOpenCount = rows.length;
+			notes = rows.slice(0, NOTE_WIDGET_OPEN_LIMIT).map((row) => ({ id: row.id, title: row.title }));
 		} catch {
-			this.totalOpenCount = 0;
-			this.notes = [];
+			// A missing daemon is the normal passive-startup case.
 		}
+		if (generation !== this.generation) return;
+		this.totalOpenCount = totalOpenCount;
+		this.notes = notes;
 		try {
 			this.widgetGroup?.requestUpdate();
 		} catch {
@@ -315,6 +333,7 @@ export class NoteOverlay {
 	}
 
 	dispose(): void {
+		this.generation++;
 		this.stopPolling();
 		this.widgetGroup = undefined;
 		this.projectRoot = undefined;
@@ -441,7 +460,7 @@ export class PapyrusWidgetGroup {
 // Entry point
 // ---------------------------------------------------------------------------
 
-export default async function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
 	setTaskFocusEventBus(pi);
 	registerPlaybookBridge(pi);
 	let contextInjectionSequence = 0;
@@ -492,7 +511,12 @@ export default async function (pi: ExtensionAPI) {
 					session_id: sessionId,
 					...sessionSecretField(sessionId),
 				});
-				emitTaskFocusEvent({ taskId: paused.artifact.id, sessionId, status: "paused", effort: extractDeclaredEffort(paused.artifact.extra) });
+				emitTaskFocusEvent({
+					taskId: paused.artifact.id,
+					sessionId,
+					status: "paused",
+					effort: extractDeclaredEffort(paused.artifact.extra),
+				});
 				if (ctx.hasUI) ctx.ui.notify(`Papyrus task driving paused: ${decision.reason}. Human input resumes it automatically.`, "warning");
 			}
 		} catch {
@@ -717,15 +741,25 @@ export default async function (pi: ExtensionAPI) {
 
 	// ── Interactive artifact browsers ──────────────────────────────────
 
-	// Lazy imports keep TUI components out of non-interactive startup paths.
-	const [tasksModule, docsModule, notesModule, rulesModule, playbooksModule, discussModule] = await Promise.all([
-		import("./task/tasks.ts"),
-		import("./docs/docs.ts"),
-		import("./note/notes.ts"),
-		import("./rules/rules.ts"),
-		import("./playbook/playbooks.ts"),
-		import("./discuss/discuss.ts"),
-	]);
+	// Command modules are loaded on first use. Registration itself stays synchronous,
+	// so interactive-only TUI code cannot delay extension startup.
+	const loadTasks = () => import("./task/tasks.ts");
+	const loadDocs = () => import("./docs/docs.ts");
+	const loadNotes = () => import("./note/notes.ts");
+	const loadRules = () => import("./rules/rules.ts");
+	let loadedPlaybooks: Awaited<ReturnType<typeof importPlaybooks>> | undefined;
+	let playbooksPromise: ReturnType<typeof importPlaybooks> | undefined;
+	function importPlaybooks() {
+		return import("./playbook/playbooks.ts");
+	}
+	function loadPlaybooks() {
+		playbooksPromise ??= importPlaybooks().then((module) => {
+			loadedPlaybooks = module;
+			return module;
+		});
+		return playbooksPromise;
+	}
+	const loadDiscuss = () => import("./discuss/discuss.ts");
 	let overlay: TaskOverlay | undefined;
 	let noteOverlay: NoteOverlay | undefined;
 	let widgetGroup: PapyrusWidgetGroup | undefined;
@@ -735,20 +769,20 @@ export default async function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			overlay?.setProjectRoot(ctx.cwd);
 			overlay?.setSessionId(ctx.sessionManager.getSessionId());
-			await tasksModule.showTasks(ctx);
+			await (await loadTasks()).showTasks(ctx);
 			await overlay?.refresh();
 		},
 	});
 	pi.registerCommand("docs", {
 		description: "Browse and manage Papyrus documents (interactive)",
 		handler: async (_args, ctx) => {
-			await docsModule.showDocs(ctx);
+			await (await loadDocs()).showDocs(ctx);
 		},
 	});
 	pi.registerCommand("note", {
 		description: "Capture a deferred request directly in Papyrus",
 		handler: async (args, ctx) => {
-			await notesModule.captureNote(args, ctx);
+			await (await loadNotes()).captureNote(args, ctx);
 			await noteOverlay?.refresh();
 		},
 	});
@@ -756,34 +790,38 @@ export default async function (pi: ExtensionAPI) {
 		description: "Browse and triage the project Notes inbox",
 		handler: async (_args, ctx) => {
 			noteOverlay?.setProjectRoot(ctx.cwd);
-			await notesModule.showNotes(ctx);
+			await (await loadNotes()).showNotes(ctx);
 			await noteOverlay?.refresh();
 		},
 	});
 	pi.registerCommand("rules", {
 		description: "Browse, preview, and toggle Papyrus rules (interactive)",
 		handler: async (_args, ctx) => {
-			await rulesModule.showRules(ctx);
+			await (await loadRules()).showRules(ctx);
 		},
 	});
 	pi.registerCommand("playbooks", {
 		description: "Browse, edit, and invoke Papyrus playbooks -- trigger/steps guidance an agent reads and follows (interactive)",
 		handler: async (_args, ctx) => {
-			await playbooksModule.showPlaybooks(ctx);
+			await (await loadPlaybooks()).showPlaybooks(ctx);
 		},
 	});
 	pi.registerCommand("playbook", {
 		description:
 			"Open one Papyrus playbook directly by name (tab-completes active playbook titles) and place its invocation in the editor; no argument opens the full /playbooks browser instead",
-		getArgumentCompletions: (argumentPrefix) => playbooksModule.playbookArgumentCompletions(argumentPrefix),
+		getArgumentCompletions: (argumentPrefix) => {
+			if (loadedPlaybooks) return loadedPlaybooks.playbookArgumentCompletions(argumentPrefix);
+			void loadPlaybooks();
+			return [];
+		},
 		handler: async (args, ctx) => {
-			await playbooksModule.openPlaybookByName(args, ctx);
+			await (await loadPlaybooks()).openPlaybookByName(args, ctx);
 		},
 	});
 	pi.registerCommand("discuss", {
 		description: "Browse Papyrus Discussions and reply, defer, resume, settle, or block/unblock a task (interactive)",
 		handler: async (_args, ctx) => {
-			await discussModule.showDiscussions(ctx);
+			await (await loadDiscuss()).showDiscussions(ctx);
 		},
 	});
 
@@ -797,22 +835,19 @@ export default async function (pi: ExtensionAPI) {
 
 	// ── Task widget (TodoOverlay pattern: factory form, requestRender) ──
 
-	pi.on("session_start", async (_event, ctx) => {
-		// Registers this session's identity with the daemon as early as possible -- before any
-		// Focus-mutating call could plausibly happen -- shrinking (not eliminating; see
-		// domain/session-identity.ts) the first-touch race window. Best-effort: the daemon may be
-		// unavailable during startup, and every other Focus-mutating call already tolerates an
-		// unregistered/never-armored session_id (opt-in armor), so a missed registration here is
-		// not worth surfacing to the user.
-		try {
-			const sessionId = ctx.sessionManager.getSessionId();
-			const { secret } = await callService<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", {
-				session_id: sessionId,
-			});
-			cacheSessionSecret(sessionId, secret);
-		} catch {
-			// intentionally silent -- see comment above
-		}
+	let sessionGeneration = 0;
+	pi.on("session_start", (_event, ctx) => {
+		const generation = ++sessionGeneration;
+		const sessionId = ctx.sessionManager.getSessionId();
+		// Identity registration is best-effort lifecycle bookkeeping. It starts now but
+		// cannot hold Pi's first paint behind a daemon connection or retry budget.
+		void callServicePassive<Record<string, unknown>, { sessionId: string; secret: string }>("session.register", {
+			session_id: sessionId,
+		})
+			.then(({ secret }) => {
+				if (generation === sessionGeneration) cacheSessionSecret(sessionId, secret);
+			})
+			.catch(() => {});
 		if (!ctx.hasUI) return;
 		// Attached from session start, not lazily on first ask -- a per-ask listener would only see
 		// keystrokes from the moment that tool call happens to begin, missing typing already in
@@ -824,7 +859,7 @@ export default async function (pi: ExtensionAPI) {
 		overlay ??= new TaskOverlay();
 		overlay.setWidgetGroup(widgetGroup);
 		overlay.setProjectRoot(ctx.cwd);
-		overlay.setSessionId(ctx.sessionManager.getSessionId());
+		overlay.setSessionId(sessionId);
 
 		noteOverlay ??= new NoteOverlay();
 		noteOverlay.setWidgetGroup(widgetGroup);
@@ -832,10 +867,11 @@ export default async function (pi: ExtensionAPI) {
 
 		widgetGroup.setOverlays(overlay, noteOverlay);
 
-		await overlay.refresh();
-		overlay.startPolling(TASK_WIDGET_POLL_INTERVAL_MS);
-		await noteOverlay.refresh();
-		noteOverlay.startPolling(NOTE_WIDGET_POLL_INTERVAL_MS);
+		void Promise.all([overlay.refresh(), noteOverlay.refresh()]).then(() => {
+			if (generation !== sessionGeneration) return;
+			overlay?.startPolling(TASK_WIDGET_POLL_INTERVAL_MS);
+			noteOverlay?.startPolling(NOTE_WIDGET_POLL_INTERVAL_MS);
+		});
 	});
 
 	pi.on("session_before_compact", () => {
@@ -847,20 +883,18 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("session_tree", async () => {
 		await Promise.all([overlay?.refresh(), noteOverlay?.refresh()]);
 	});
-	pi.on("session_shutdown", async (_event, ctx) => {
+	pi.on("session_shutdown", (_event, ctx) => {
+		sessionGeneration++;
 		overlay?.dispose();
 		overlay = undefined;
 		noteOverlay?.dispose();
 		noteOverlay = undefined;
 		widgetGroup?.dispose();
 		widgetGroup = undefined;
-		try {
-			const sessionId = ctx.sessionManager.getSessionId();
-			await callService("session.release", { session_id: sessionId, ...sessionSecretField(sessionId) });
-			forgetSessionSecret(sessionId);
-		} catch {
-			// intentionally silent -- see session_start's comment above
-		}
+		const sessionId = ctx.sessionManager.getSessionId();
+		const secret = sessionSecretField(sessionId);
+		forgetSessionSecret(sessionId);
+		void callServicePassive("session.release", { session_id: sessionId, ...secret }).catch(() => {});
 	});
 
 	// Update widgets after any papyrus tool call

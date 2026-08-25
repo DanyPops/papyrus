@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { PapyrusClient } from "@danypops/papyrus";
 import {
 	callService,
+	callServicePassive,
 	papyrusClient,
 	resetPapyrusClientForTests,
 	setPapyrusClientConnectorForTests,
@@ -48,6 +49,19 @@ describe("papyrusClient", () => {
 
 		expect(first).toBe(client);
 		expect(second).toBe(client);
+		expect(connectorCalls).toBe(1);
+	});
+});
+
+describe("callServicePassive", () => {
+	it("attempts a missing daemon connection once instead of spending the startup retry budget", async () => {
+		let connectorCalls = 0;
+		setPapyrusClientConnectorForTests(() => {
+			connectorCalls++;
+			return Promise.reject(new Error("daemon unavailable"));
+		});
+
+		await expect(callServicePassive("tasks.list", {})).rejects.toThrow("daemon unavailable");
 		expect(connectorCalls).toBe(1);
 	});
 });

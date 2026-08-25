@@ -44,6 +44,7 @@
         "malevich-tui-components": "^0.32.1",
       },
       "devDependencies": {
+        "@danypops/pi-extension-harness": "^0.8.3",
         "@danypops/pi-tui-harness": "^0.0.2",
         "@danypops/vehicle-client-pi": "^0.46.0",
         "@danypops/vehicle-conformance": "^0.3.0",
@@ -137,7 +138,7 @@
 
     "@danypops/papyrus": ["@danypops/papyrus@workspace:packages/papyrus"],
 
-    "@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.7.0", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-8kCj0IwzglQqsXKOkQqalp/4gNrIP9NsRizhnRtYi7H4LiX3ccQFxioUXG7aT93F/qn6873U0yifr82Rbft9ng=="],
+    "@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.8.3", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-ZZLELYOZQvOWDFUhEVfAFpllaInTWIcMOEhHYheJOp9kidfd1nYpRPAoEsg9/7zHcIBIRMNsoSwI13NZthoQlQ=="],
 
     "@danypops/pi-papyrus": ["@danypops/pi-papyrus@workspace:packages/pi-papyrus"],
 
@@ -645,7 +646,7 @@
 
     "@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.26.0", "", { "dependencies": { "@danypops/armada": "^0.5.0", "@danypops/vehicle-core": "^0.18.0", "better-result": "^3.0.1", "pino": "^10.3.1" } }, "sha512-cNV6I5j8bzDiBoepTZfGim6PWb0qC6mmqN4sK9OS9P7ioqLauc1mXj1J59ZG9H5qNdGevjj/2DnJlsujBU1nBQ=="],
 
-    "@danypops/vehicle-client-pi/@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.7", "", { "dependencies": { "@danypops/vehicle-core": "^0.19.0", "@danypops/vehicle-server": "^0.27.0" } }, "sha512-mRkpiJ/ag5I3yMf4Fx9U8E80TRQzuPZfmNz5hhIV3Wt5e8P+BazxJZ+BjJrtTZXCTMbkGP0D+h8iZUORQ/IT2A=="],
+    "@danypops/vehicle-client-pi/@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.7.0", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-8kCj0IwzglQqsXKOkQqalp/4gNrIP9NsRizhnRtYi7H4LiX3ccQFxioUXG7aT93F/qn6873U0yifr82Rbft9ng=="],
 
     "@danypops/vehicle-client-pi/@danypops/vehicle-core": ["@danypops/vehicle-core@0.19.0", "", {}, "sha512-FwG7wY3UzWgbhEUCqKJHUutTm2kxPf9f3YGmhnnPVV0PpRFpIIS7PTpwH+fNpd42AN230rGwcbbOePJMbkcEIw=="],
 

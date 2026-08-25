@@ -86,8 +86,9 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 	it("registers a real /playbook:<slug> command via pi.registerCommand on resources_discover (session start and /reload)", async () => {
 		mockPlaybooksList([PLAYBOOK]);
 		const { pi, commands } = fakePi();
-		registerPlaybookBridge(pi);
+		const bridge = registerPlaybookBridge(pi);
 		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
+		await bridge.waitForRefresh();
 		expect(commands.has("playbook:new-project")).toBe(true);
 		expect(commands.get("playbook:new-project")?.description).toBe("starting from scratch");
 	});
@@ -95,8 +96,9 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 	it("the command's handler re-fetches the live playbook by id at invocation time, invokes it (materializing real tasks), and reports the focused entry task", async () => {
 		mockPlaybooksList([PLAYBOOK], { entryTaskId: "t1", created: { tasks: ["t0", "t1"] } });
 		const { pi, commands } = fakePi();
-		registerPlaybookBridge(pi);
+		const bridge = registerPlaybookBridge(pi);
 		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
+		await bridge.waitForRefresh();
 		const notifications: Array<{ message: string; type?: string }> = [];
 		const setTexts: string[] = [];
 		const ctx = {
@@ -113,8 +115,9 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 	it("a lingering stale command (renamed/disabled since registration, since registerCommand can't be unregistered) fails cleanly instead of running deleted content", async () => {
 		const { pi, commands } = fakePi();
 		mockPlaybooksList([PLAYBOOK]);
-		registerPlaybookBridge(pi);
+		const bridge = registerPlaybookBridge(pi);
 		await (pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover();
+		await bridge.waitForRefresh();
 
 		// The playbook is gone by the time the (still-registered) command is actually invoked.
 		setPapyrusClientConnectorForTests(
@@ -142,9 +145,28 @@ describe("playbook-bridge: materializes active Playbooks as their own /playbook:
 				}) as any,
 		);
 		const { pi, commands } = fakePi();
-		registerPlaybookBridge(pi);
+		const bridge = registerPlaybookBridge(pi);
+		await expect((pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover()).resolves.toBeUndefined();
+		await bridge.waitForRefresh();
+		expect(commands.size).toBe(0);
+	});
+
+	it("returns from resources_discover before passive daemon discovery completes", async () => {
+		let release!: (value: unknown[]) => void;
+		setPapyrusClientConnectorForTests(
+			async () =>
+				({
+					call: () => new Promise<unknown[]>((resolve) => (release = resolve)),
+				}) as any,
+		);
+		const { pi, commands } = fakePi();
+		const bridge = registerPlaybookBridge(pi);
+
 		await expect((pi as unknown as { fireResourcesDiscover: () => Promise<void> }).fireResourcesDiscover()).resolves.toBeUndefined();
 		expect(commands.size).toBe(0);
+		release([PLAYBOOK]);
+		await bridge.waitForRefresh();
+		expect(commands.has("playbook:new-project")).toBe(true);
 	});
 
 	it("returns no registrations when there are no active playbooks", async () => {

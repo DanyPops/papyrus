@@ -1,6 +1,6 @@
 {
   "name": "@danypops/papyrus",
-  "version": "0.60.9",
+  "version": "0.60.10",
   "description": "Daemon-backed graph artifacts, evidence-bearing tasks, rules, skills, and native TUI workflows for Pi",
   "license": "MIT",
   "keywords": ["task-management", "knowledge-graph", "daemon", "cli"],
@@ -41,6 +41,7 @@
       "name": "papyrus",
       "displayName": "Papyrus graph artifact service",
       "binPath": "src/cli.ts",
+      "runtime": "bun",
       "args": ["serve"],
       "handleFilename": "vehicle-handle.json",
       "restartOnFailure": true,

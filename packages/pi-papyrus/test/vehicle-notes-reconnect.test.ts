@@ -68,7 +68,10 @@ function startServer(instanceLabel: string): { baseUrl: string; stop: () => void
 	const registry = new VehicleRegistry({ name: "test-vehicle", version: "1.0.0", description: "Test Vehicle" });
 	registry.register(
 		"test-owner",
-		bindVehicleOperation(Ping, () => async () => ({ answeredBy: instanceLabel })),
+		bindVehicleOperation(Ping, () => async () => ({
+			answeredBy: instanceLabel,
+			content: [{ type: "text", text: `answered by ${instanceLabel}` }],
+		})),
 	);
 	const app = createVehicleHttpApp({ registry, token: "test-token" });
 	const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: app.fetch });
@@ -123,21 +126,20 @@ describe("registerNotesVehicle survives a daemon restart without a Pi extension 
 		const tool = registeredTools.get("test_ping");
 		expect(tool).toBeDefined();
 
-		// test.ping isn't one of Papyrus's own recognized artifact-domain shapes, so
-		// papyrusVehiclePresentations' projector wraps it in the generic, bounded preview DTO --
-		// still real, versioned, and content-preserving, just no longer raw passthrough.
+		// The reconnect fixture follows the same explicit semantic-output contract as public
+		// Papyrus operations, so presentation projection remains part of this end-to-end path.
 		const execute = tool!.execute as unknown as (
 			toolCallId: string,
 			input: unknown,
 			signal: AbortSignal,
 			onUpdate: undefined,
 			context: unknown,
-		) => Promise<{ details?: { presentation?: { content?: string } } }>;
+		) => Promise<{ details?: { presentation?: { text?: string } } }>;
 		const toolContext = { sessionManager: { getSessionId: () => "session-a" } };
 
 		// First call succeeds against the original daemon.
 		const first = await execute("call-1", {}, new AbortController().signal, undefined, toolContext);
-		expect(first.details?.presentation?.content).toContain('"answeredBy": "first"');
+		expect(first.details?.presentation?.text).toBe("answered by first");
 
 		// Simulate a real restart: the old process is gone, a new one binds a new random port.
 		// The injected resolver stands in for the handle file being rewritten.
@@ -149,7 +151,7 @@ describe("registerNotesVehicle survives a daemon restart without a Pi extension 
 		// resolution sees the rewritten handle's new base URL, discards the old cached client,
 		// and the SAME tool object's first post-restart invocation reaches the new daemon.
 		const second = await execute("call-2", {}, new AbortController().signal, undefined, toolContext);
-		expect(second.details?.presentation?.content).toContain('"answeredBy": "second"');
+		expect(second.details?.presentation?.text).toBe("answered by second");
 
 		current.stop();
 	});

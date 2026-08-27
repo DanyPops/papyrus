@@ -72,6 +72,31 @@ export function renderNoFocusedTask(theme: Theme): Component {
 	return new Text(theme.fg("dim", "No focused task."), 0, 0);
 }
 
+export interface SemanticTextOutput {
+	content: Array<{ type: "text"; text: string }>;
+}
+
+/** Recognizes the server's explicit model-facing semantic channel without projecting sibling payload fields. */
+export function isSemanticTextOutput(value: unknown): value is SemanticTextOutput {
+	if (typeof value !== "object" || value === null) return false;
+	const content = (value as Record<string, unknown>).content;
+	return (
+		Array.isArray(content) &&
+		content.length > 0 &&
+		content.every(
+			(block) =>
+				typeof block === "object" &&
+				block !== null &&
+				(block as Record<string, unknown>).type === "text" &&
+				typeof (block as Record<string, unknown>).text === "string",
+		)
+	);
+}
+
+export function semanticText(output: SemanticTextOutput): string {
+	return output.content.map((block) => block.text).join("\n");
+}
+
 /** What renderDiscussionAndRounds/renderTaskCompletion actually read -- satisfied by both a raw
  * Artifact (the live duck-typed output path) and the leaner projected ToolArtifactSummary (the
  * typed-DTO path), with no cast needed at either call site. */

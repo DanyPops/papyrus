@@ -544,7 +544,6 @@ describe("papyrusVehiclePresentations", () => {
 			["tasks.list", [artifact({ title: "A" })], "artifact-list"],
 			["tasks.show", artifact({ title: "A" }), "artifact"],
 			["tasks.focused", null, "no-focus"],
-			["docs.show", null, "preview"], // an unrelated null falls through to the generic bounded fallback, not a focus state
 			["tasks.plan", { nodes: [], layers: [], cycleIds: [] }, "execution-plan"],
 			[
 				"playbooks.invoke",
@@ -578,7 +577,14 @@ describe("papyrusVehiclePresentations", () => {
 				},
 				"lease",
 			],
-			["some.unrecognized_operation", { anything: "goes", nested: { deeply: true } }, "preview"],
+			[
+				"tasks.context",
+				{
+					context: "Progress: 0/5 done",
+					content: [{ type: "text", text: "Progress: 0/5 done" }],
+				},
+				"semantic-text",
+			],
 		] as const;
 		for (const [name, output, expectedKind] of cases) {
 			const presentation = await project(name, output);
@@ -588,6 +594,20 @@ describe("papyrusVehiclePresentations", () => {
 			expect(parsed!.schemaVersion).toBe("papyrus.tool-details/v1");
 			expect(parsed!.operation).toBe(name);
 		}
+	});
+
+	it("renders tasks.context from its semantic channel instead of serializing the raw output", async () => {
+		const { presentation, text } = await renderProjected("tasks.context", {
+			context: "Progress: 0/5 done",
+			content: [{ type: "text", text: "Progress: 0/5 done" }],
+		});
+		expect(text.trimEnd()).toBe("Progress: 0/5 done");
+		expect(text).not.toContain('"context"');
+		expect(JSON.stringify(presentation)).not.toContain('"content":[{');
+	});
+
+	it("rejects an output that has no legal presentation variant", async () => {
+		expect(project("some.unrecognized_operation", { anything: "goes" })).rejects.toThrow("no legal presentation");
 	});
 
 	it("never persists a lease's raw token in the projected presentation", async () => {

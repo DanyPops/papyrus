@@ -17,6 +17,7 @@ import {
 	createInvocationDetails,
 	createModelContent,
 	createPreviewDetails,
+	createSemanticTextDetails,
 	createTransitionDetails,
 	parsePapyrusToolDetails,
 } from "../extension/src/tool-rendering/render-model.ts";
@@ -50,6 +51,7 @@ describe("Papyrus tool render contracts", () => {
 			]),
 			createInvocationDetails("playbooks.invoke", "run-1", { tasks: ["task-1"], docs: [], rules: [], roots: ["task-1"] }),
 			createPreviewDetails("rules.preview", "Rule preview", "Use the typed boundary."),
+			createSemanticTextDetails("tasks.context", "Progress: 0/5 done"),
 			createErrorDetails("tasks.show", "NOT_FOUND", "Task was not found."),
 		];
 
@@ -61,6 +63,7 @@ describe("Papyrus tool render contracts", () => {
 			"gate-run",
 			"invocation",
 			"preview",
+			"semantic-text",
 			"error",
 		]);
 		for (const outcome of outcomes) {

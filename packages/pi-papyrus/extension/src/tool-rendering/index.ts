@@ -53,6 +53,8 @@ function simpleDetailsText(details: Exclude<PapyrusToolDetails, { kind: "artifac
 			].join("\n");
 		case "preview":
 			return `${details.title}\n${details.content}${details.completeness.truncated ? `\n[truncated ${details.completeness.omitted} characters]` : ""}`;
+		case "semantic-text":
+			return details.text;
 		case "error":
 			return `${details.code}: ${details.message}`;
 		case "execution-plan":

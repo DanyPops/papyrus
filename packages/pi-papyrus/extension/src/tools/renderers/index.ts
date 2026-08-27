@@ -33,8 +33,9 @@ import {
 	createNoFocusDetails,
 	createPlaybookInvocationDetails,
 	createPlaybookMissingArgumentsDetails,
-	createPreviewDetails,
+	createSemanticTextDetails,
 	createTaskCompletionDetails,
+	type PapyrusToolDetails,
 	parsePapyrusToolDetails,
 } from "../../tool-rendering/render-model.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "../render-diagnostics.ts";
@@ -52,7 +53,16 @@ import {
 	renderPlaybookInvocationResult,
 	renderPlaybookMissingArguments,
 } from "./playbook.ts";
-import { boundedJsonPreview, focusAnnotation, isArtifact, isArtifactArray, isTaskFocus, renderNoFocusedTask } from "./shared.ts";
+import {
+	boundedJsonPreview,
+	focusAnnotation,
+	isArtifact,
+	isArtifactArray,
+	isSemanticTextOutput,
+	isTaskFocus,
+	renderNoFocusedTask,
+	semanticText,
+} from "./shared.ts";
 import { isTaskCompletion, renderTaskCompletion } from "./task-completion.ts";
 import { isTaskExecutionPlan, renderTaskExecutionPlan } from "./task-execution.ts";
 
@@ -133,17 +143,16 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
  * before Pi ever persists it -- the seam papyrusVehicleRenderers' own renderResult never had
  * (it only converts shape at render time, from whatever the legacy {vehicle, output} path
  * already persisted verbatim, lease tokens and all). Every branch here mirrors the same
- * shape-detection papyrusVehicleRenderers's own renderResult uses, so the two stay in lockstep;
- * anything genuinely unmatched still becomes a real, bounded PreviewToolDetails rather than an
- * unprojected raw passthrough -- the one requirement this whole seam exists to satisfy.
+ * shape-detection papyrusVehicleRenderers's own renderResult uses, plus the server's explicit
+ * semantic text channel. An output matching no legal discriminated-union variant fails closed
+ * instead of silently persisting and rendering raw JSON.
  */
-function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, output: unknown): JsonValue {
-	if (isArtifactArray(output)) return createArtifactListDetails(descriptor.name, output) as unknown as JsonValue;
-	if (isArtifact(output)) return createArtifactDetails(descriptor.name, output) as unknown as JsonValue;
-	if (isTaskFocus(output)) return createArtifactDetails(descriptor.name, output.artifact, focusAnnotation(output)) as unknown as JsonValue;
-	if (output === null && descriptor.name === "tasks.focused") return createNoFocusDetails(descriptor.name) as unknown as JsonValue;
-	if (isTaskExecutionPlan(output))
-		return createExecutionPlanDetails(descriptor.name, output.nodes, output.layers, output.cycleIds) as unknown as JsonValue;
+function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, output: unknown): PapyrusToolDetails {
+	if (isArtifactArray(output)) return createArtifactListDetails(descriptor.name, output);
+	if (isArtifact(output)) return createArtifactDetails(descriptor.name, output);
+	if (isTaskFocus(output)) return createArtifactDetails(descriptor.name, output.artifact, focusAnnotation(output));
+	if (output === null && descriptor.name === "tasks.focused") return createNoFocusDetails(descriptor.name);
+	if (isTaskExecutionPlan(output)) return createExecutionPlanDetails(descriptor.name, output.nodes, output.layers, output.cycleIds);
 	if (isPlaybookInvocationResult(output)) {
 		return createPlaybookInvocationDetails(descriptor.name, {
 			playbookId: output.playbookId,
@@ -152,18 +161,18 @@ function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, outp
 			rootTaskIds: output.rootTaskIds,
 			entryTaskId: output.entryTaskId,
 			execution: output.execution,
-		}) as unknown as JsonValue;
+		});
 	}
 	if (isPlaybookMissingArguments(output)) {
-		return createPlaybookMissingArgumentsDetails(descriptor.name, output.playbookId, output.missingArguments) as unknown as JsonValue;
+		return createPlaybookMissingArgumentsDetails(descriptor.name, output.playbookId, output.missingArguments);
 	}
-	if (isDiscussionAndRounds(output))
-		return createDiscussionDetails(descriptor.name, output.rounds, output.discussion) as unknown as JsonValue;
-	if (isDiscussionRoundsOnly(output)) return createDiscussionDetails(descriptor.name, output.rounds) as unknown as JsonValue;
-	if (isDiscussionListOutput(output)) return createArtifactListDetails(descriptor.name, output.discussions) as unknown as JsonValue;
-	if (isTaskCompletion(output)) return createTaskCompletionDetails(descriptor.name, output) as unknown as JsonValue;
-	if (isTaskLeaseView(output)) return createLeaseDetails(descriptor.name, output) as unknown as JsonValue;
-	return createPreviewDetails(descriptor.name, descriptor.name, boundedJsonPreview(output)) as unknown as JsonValue;
+	if (isDiscussionAndRounds(output)) return createDiscussionDetails(descriptor.name, output.rounds, output.discussion);
+	if (isDiscussionRoundsOnly(output)) return createDiscussionDetails(descriptor.name, output.rounds);
+	if (isDiscussionListOutput(output)) return createArtifactListDetails(descriptor.name, output.discussions);
+	if (isTaskCompletion(output)) return createTaskCompletionDetails(descriptor.name, output);
+	if (isTaskLeaseView(output)) return createLeaseDetails(descriptor.name, output);
+	if (isSemanticTextOutput(output)) return createSemanticTextDetails(descriptor.name, semanticText(output));
+	throw new Error(`${descriptor.name} produced no legal presentation variant`);
 }
 
 function renderFromPapyrusPresentation(
@@ -194,15 +203,19 @@ function renderFromPapyrusPresentation(
 			return renderLease(presentation, theme);
 		case "preview":
 			return new Text(theme.fg("toolOutput", presentation.content), 0, 0);
+		case "semantic-text":
+			return new Text(theme.fg("toolOutput", presentation.text), 0, 0);
 		case "transition":
 		case "graph":
 		case "gate-run":
 		case "invocation":
 		case "error":
-			// Reachable only if a future caller starts producing these kinds through this seam
-			// (today's Papyrus Vehicle outputs never do) -- a bounded JSON preview is still a
-			// real, safe rendering rather than a crash.
+			// These variants are produced by native tools and remain valid when replayed through this shared renderer.
 			return new Text(theme.fg("toolOutput", boundedJsonPreview(presentation)), 0, 0);
+		default: {
+			const exhaustive: never = presentation;
+			return exhaustive;
+		}
 	}
 }
 
@@ -218,7 +231,8 @@ export function papyrusVehiclePresentations(descriptor: VehicleOperationDescript
 	return {
 		projector: {
 			maxBytes: TOOL_DETAILS_MAX_SERIALIZED_CHARACTERS,
-			project: (output: unknown, _request: PiVehicleInvocationRequest) => projectPapyrusPresentation(descriptor, output),
+			project: (output: unknown, _request: PiVehicleInvocationRequest) =>
+				projectPapyrusPresentation(descriptor, output) as unknown as JsonValue,
 		},
 		renderResult(result, options, theme, context) {
 			if (!options.isPartial && !context.isError) {

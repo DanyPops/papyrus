@@ -18,6 +18,7 @@ import { type GraphToolDetails, isGraphEdge } from "./graph.ts";
 import type { LeaseToolDetails } from "./lease.ts";
 import type { ErrorToolDetails, NoFocusToolDetails, PreviewToolDetails } from "./misc.ts";
 import type { InvocationToolDetails, PlaybookInvocationToolDetails, PlaybookMissingArgumentsToolDetails } from "./playbook.ts";
+import type { SemanticTextToolDetails } from "./semantic-text.ts";
 import {
 	isArtifactSummary,
 	isBoundedArray,
@@ -51,7 +52,8 @@ export type PapyrusToolDetails =
 	| DiscussionToolDetails
 	| TaskCompletionToolDetails
 	| NoFocusToolDetails
-	| LeaseToolDetails;
+	| LeaseToolDetails
+	| SemanticTextToolDetails;
 
 /** Validate renderer details restored from session history before using them as typed presentation state. */
 export function parsePapyrusToolDetails(value: unknown): PapyrusToolDetails | undefined {
@@ -176,6 +178,10 @@ export function parsePapyrusToolDetails(value: unknown): PapyrusToolDetails | un
 				(value.note === undefined || isBoundedString(value.note))
 				? (value as unknown as LeaseToolDetails)
 				: undefined;
+		case "semantic-text":
+			return isBoundedString(value.text, TOOL_DETAILS_BODY_MAX_CHARACTERS) && isCompleteness(value.completeness)
+				? (value as unknown as SemanticTextToolDetails)
+				: undefined;
 		default:
 			return undefined;
 	}
@@ -212,6 +218,7 @@ export {
 	type PlaybookMissingArgumentsToolDetails,
 	type ToolInvocationCreated,
 } from "./playbook.ts";
+export { createSemanticTextDetails, type SemanticTextToolDetails } from "./semantic-text.ts";
 export {
 	type ArtifactFocusAnnotation,
 	createModelContent,

@@ -23,7 +23,6 @@
  * had died.
  */
 
-import { createAgentNotifier } from "@danypops/vehicle-client-pi/agent-poll-ticker";
 import { createReconnectingVehicleClient, daemonInstanceIdentity } from "@danypops/vehicle-client/daemon-client";
 import { RemoteVehicleClient } from "@danypops/vehicle-client/http";
 import {
@@ -32,6 +31,7 @@ import {
 	registerVehicleToolsWhenReady,
 	type VehicleReadyEvent,
 } from "@danypops/vehicle-client-pi";
+import { createAgentNotifier } from "@danypops/vehicle-client-pi/agent-poll-ticker";
 import { VehicleApprovalOutcomePoll } from "@danypops/vehicle-client-pi/vehicle-approval-outcome-poll";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discussLiveFollowUp } from "../discuss/discuss-live-follow-up.ts";

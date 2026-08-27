@@ -8,8 +8,8 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import { PushChannel } from "@danypops/vehicle-server/push-channel";
-import { createApp, createPapyrusService } from "../src/service.ts";
 import { createTaskMutationPushMiddleware } from "../src/daemon/task-mutation-push.ts";
+import { createApp, createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
 afterAll(cleanupTempDirs);
@@ -83,7 +83,9 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 }
 
 async function callVehicle(port: number, token: string, name: string, input: Record<string, unknown>): Promise<unknown> {
-	const manifest = await (await fetch(`http://127.0.0.1:${port}/vehicle/manifest`, { headers: { authorization: `Bearer ${token}` } })).json() as { operations: Array<{ name: string; version: number; permissions: string[] }> };
+	const manifest = (await (
+		await fetch(`http://127.0.0.1:${port}/vehicle/manifest`, { headers: { authorization: `Bearer ${token}` } })
+	).json()) as { operations: Array<{ name: string; version: number; permissions: string[] }> };
 	const operation = manifest.operations.find((candidate) => candidate.name === name);
 	if (!operation) throw new Error(`missing operation ${name}`);
 	const response = await fetch(`http://127.0.0.1:${port}/vehicle/invoke`, {
@@ -91,7 +93,7 @@ async function callVehicle(port: number, token: string, name: string, input: Rec
 		headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
 		body: JSON.stringify({ name, version: operation.version, input, permissions: operation.permissions }),
 	});
-	const body = await response.json() as { output?: unknown; error?: { message?: string } };
+	const body = (await response.json()) as { output?: unknown; error?: { message?: string } };
 	if (!response.ok) throw new Error(body.error?.message ?? `HTTP ${response.status}`);
 	return body.output;
 }
@@ -145,11 +147,15 @@ describe("daemon PushChannel wiring, end to end", () => {
 			await waitForOpen(ws);
 			ws.send(JSON.stringify({ op: "subscribe", topic: "tasks" }));
 			const pushed = waitForMessage(ws);
-			const created = await callVehicle(port, token, "tasks.create", { title: "Vehicle push", project_root: PROJECT_ROOT }) as { id: string };
+			const created = (await callVehicle(port, token, "tasks.create", { title: "Vehicle push", project_root: PROJECT_ROOT })) as {
+				id: string;
+			};
 			expect(await pushed).toEqual({ topic: "tasks", payload: { operation: "tasks.create" } });
 
 			let extraMessages = 0;
-			ws.addEventListener("message", () => { extraMessages++; });
+			ws.addEventListener("message", () => {
+				extraMessages++;
+			});
 			await callVehicle(port, token, "tasks.show", { id: created.id });
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			expect(extraMessages).toBe(0);

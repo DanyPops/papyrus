@@ -924,16 +924,17 @@ export default function (pi: ExtensionAPI) {
 	// agent_settled is intentionally later than agent_end: Pi guarantees that
 	// retry, compaction retry, and queued follow-up processing have finished.
 
-	pi.on("input", async (event, ctx) => {
+	pi.on("input", (event, ctx) => {
 		if (event.source === "extension") return;
 		taskContinuation.onHumanInput();
-		try {
-			const sessionId = ctx.sessionManager.getSessionId();
-			const focus = await callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>(
-				"tasks.focused",
-				{ session_id: sessionId },
-			);
-			if (focus && shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) {
+		const sessionId = ctx.sessionManager.getSessionId();
+		// Input handlers are on Pi's prompt-submission path. Resume bookkeeping is
+		// opportunistic and must never hold the user's message behind daemon I/O.
+		void callService<Record<string, unknown>, { artifact: Artifact; status: string; pauseReason?: string } | null>("tasks.focused", {
+			session_id: sessionId,
+		})
+			.then(async (focus) => {
+				if (!focus || !shouldResumeFocusOnHumanInput(focus.status, focus.pauseReason)) return;
 				await callService("tasks.unpause", {
 					actor: "system",
 					source: "task-continuation",
@@ -947,10 +948,10 @@ export default function (pi: ExtensionAPI) {
 					status: "unpaused",
 					effort: extractDeclaredEffort(focus.artifact.extra),
 				});
-			}
-		} catch {
-			// The daemon may be unavailable during startup, reload, or shutdown.
-		}
+			})
+			.catch(() => {
+				// The daemon may be unavailable during startup, reload, or shutdown.
+			});
 	});
 	pi.on("agent_start", () => {
 		taskContinuation.onAgentStart();

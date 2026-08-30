@@ -38,6 +38,21 @@ describe("pi-papyrus startup", () => {
 		await harness.shutdown();
 	});
 
+	it("does not hold prompt submission behind task-resume daemon work", async () => {
+		setVehicleClientTargetResolverForTests(() => undefined);
+		setPapyrusClientConnectorForTests(() => new Promise<PapyrusClient>(() => {}));
+		const harness = createExtensionHarness(registerPapyrus);
+		await harness.boot();
+
+		const outcome = await Promise.race([
+			harness.emit("input", { source: "interactive", text: "continue" }).then(() => "submitted" as const),
+			new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 50)),
+		]);
+
+		expect(outcome).toBe("submitted");
+		await harness.shutdown();
+	});
+
 	it("ignores a deferred widget result after the overlay is disposed", async () => {
 		let resolveRows!: (rows: unknown[]) => void;
 		const deferredRows = new Promise<unknown[]>((resolve) => {

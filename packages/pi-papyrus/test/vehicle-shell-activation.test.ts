@@ -92,15 +92,19 @@ function manifestServer(
 		description: "Papyrus.",
 		operations: realisticManifestOperations(),
 	},
-): { baseUrl: string; stop: () => void } {
+): { baseUrl: string; requestPaths: string[]; stop: () => void } {
+	const requestPaths: string[] = [];
 	const server = Bun.serve({
 		port: 0,
 		fetch(request) {
-			if (new URL(request.url).pathname === "/vehicle/manifest") return Response.json(manifest);
+			const pathname = new URL(request.url).pathname;
+			requestPaths.push(pathname);
+			if (pathname === "/vehicle/negotiate") return Response.json({ agreement: { version: 1, capabilities: [] } });
+			if (pathname === "/vehicle/manifest") return Response.json(manifest);
 			return new Response("not found", { status: 404 });
 		},
 	});
-	return { baseUrl: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+	return { baseUrl: `http://127.0.0.1:${server.port}`, requestPaths, stop: () => server.stop(true) };
 }
 
 describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
@@ -207,7 +211,7 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 	});
 
 	it("activates only the core operations plus tools_list/tools_man -- not all 29 registered operations", async () => {
-		const { baseUrl, stop } = manifestServer();
+		const { baseUrl, requestPaths, stop } = manifestServer();
 		try {
 			setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));
 			setPapyrusClientConnectorForTests(() => Promise.resolve(fakeSessionRegisterClient()));
@@ -239,6 +243,7 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 			// registerVehicleToolsWhenReady) -- poll for real registrations to land before asserting.
 			await waitFor(() => registeredTools.length >= 29 + 2);
 
+			expect(requestPaths.slice(0, 2)).toEqual(["/vehicle/negotiate", "/vehicle/manifest"]);
 			// Every operation is still registered (reachable via tools_man)...
 			expect(registeredTools.length).toBeGreaterThanOrEqual(29 + 2);
 			// ...but only a small subset is actually active from turn one.

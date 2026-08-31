@@ -48,17 +48,19 @@ function fakeSessionRegisterClient(): PapyrusClient {
 	} as unknown as PapyrusClient;
 }
 
-function emptyManifestServer(): { baseUrl: string; stop: () => void } {
+function emptyManifestServer(): { baseUrl: string; requestPaths: string[]; stop: () => void } {
+	const requestPaths: string[] = [];
 	const server = Bun.serve({
 		port: 0,
 		fetch(request) {
-			if (new URL(request.url).pathname === "/vehicle/manifest") {
-				return Response.json({ operations: [] });
-			}
+			const pathname = new URL(request.url).pathname;
+			requestPaths.push(pathname);
+			if (pathname === "/vehicle/negotiate") return Response.json({ agreement: { version: 1, capabilities: [] } });
+			if (pathname === "/vehicle/manifest") return Response.json({ operations: [] });
 			return new Response("not found", { status: 404 });
 		},
 	});
-	return { baseUrl: `http://127.0.0.1:${server.port}`, stop: () => server.stop(true) };
+	return { baseUrl: `http://127.0.0.1:${server.port}`, requestPaths, stop: () => server.stop(true) };
 }
 
 describe("registerNotesVehicle is deferred to session_start, not called from the top-level factory body", () => {
@@ -74,7 +76,7 @@ describe("registerNotesVehicle is deferred to session_start, not called from the
 	});
 
 	it("never touches pi.getAllTools/getActiveTools/setActiveTools until a session_start handler actually fires", async () => {
-		const { baseUrl, stop } = emptyManifestServer();
+		const { baseUrl, requestPaths, stop } = emptyManifestServer();
 		try {
 			setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));
 			setPapyrusClientConnectorForTests(() => Promise.resolve(fakeSessionRegisterClient()));
@@ -125,6 +127,7 @@ describe("registerNotesVehicle is deferred to session_start, not called from the
 			// assuming it lands synchronously.
 			await waitFor(() => actionMethodCalls > 0);
 			expect(actionMethodCalls).toBeGreaterThan(0);
+			expect(requestPaths.slice(0, 2)).toEqual(["/vehicle/negotiate", "/vehicle/manifest"]);
 		} finally {
 			stop();
 		}

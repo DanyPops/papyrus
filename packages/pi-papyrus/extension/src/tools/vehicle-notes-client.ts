@@ -129,7 +129,9 @@ export function registerNotesVehicle(pi: ExtensionAPI): Promise<RegisteredPiVehi
 	const client = createReconnectingVehicleClient(
 		async () => {
 			const resolved = resolveTarget();
-			return new RemoteVehicleClient({ baseUrl: resolved.baseUrl, token: resolved.token });
+			const remote = new RemoteVehicleClient({ baseUrl: resolved.baseUrl, token: resolved.token });
+			await remote.negotiate({ minimumVersion: 1, maximumVersion: 1, requiredCapabilities: [], optionalCapabilities: [] });
+			return remote;
 		},
 		{
 			// The random loopback port is process-instance identity for Papyrus: it changes on

@@ -716,8 +716,14 @@ export function createApp(deps: {
 	 */
 	diagnose?: () => Promise<DaemonDiagnosis>;
 }): { fetch(request: Request): Promise<Response> } {
-	// Same Bearer token, daemon, and port as the rest of this API -- see ./handlers/registry.ts.
-	const vehicleApp = createVehicleHttpApp({ registry: deps.service.vehicle, token: deps.token, logger: deps.logger });
+	// The daemon token authenticates its owner; grants are derived from the server's own registered operations rather than caller JSON.
+	const permissions = [...new Set(deps.service.vehicle.manifest().operations.flatMap((operation) => operation.permissions))];
+	const vehicleApp = createVehicleHttpApp({
+		registry: deps.service.vehicle,
+		token: deps.token,
+		logger: deps.logger,
+		invocationAuthority: { mode: "attested", resolve: () => ({ permissions, principal: { id: "papyrus-authenticated-client" } }) },
+	});
 	return {
 		async fetch(request: Request): Promise<Response> {
 			if (request.headers.get("authorization") !== `Bearer ${deps.token}`) {

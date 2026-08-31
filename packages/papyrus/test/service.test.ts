@@ -162,6 +162,22 @@ describe("Papyrus operation service", () => {
 		service.close();
 	});
 
+	it("derives Vehicle permissions from authenticated server state", async () => {
+		const { service, app } = fixture();
+		const response = await request(app, "/vehicle/invoke", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "tasks.list",
+				version: 1,
+				input: { project_root: PROJECT_ROOT },
+				permissions: [],
+				principal: { id: "forged-caller" },
+			}),
+		});
+		expect(response.status).toBe(200);
+		service.close();
+	});
+
 	it("metrics.query/metrics.recordClientEvent -- mirrors daemon.ts's own wiring -- observe a real /vehicle/invoke call", async () => {
 		const { service, app } = fixture();
 		const vehicleMetrics = openVehicleMetricsStore(":memory:");

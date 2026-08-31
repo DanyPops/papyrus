@@ -33,7 +33,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.59.4",
+      "version": "0.59.5",
       "dependencies": {
         "@danypops/jittor": "^0.19.2",
         "@danypops/papyrus": "^0.60.10",

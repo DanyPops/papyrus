@@ -16,7 +16,7 @@
     },
     "packages/papyrus": {
       "name": "@danypops/papyrus",
-      "version": "0.60.10",
+      "version": "0.60.11",
       "bin": {
         "papyrus": "src/cli.ts",
       },

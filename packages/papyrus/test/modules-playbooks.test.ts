@@ -267,7 +267,7 @@ describe("modules/playbooks — a Papyrus-native registered module, recycling th
 			],
 			arguments: [{ name: "environment", required: true, type: "string", enum: ["staging", "production"] }],
 		})) as { id: string };
-		const preview = (await registry.get("playbooks.preview")!.execute({ id: created.id })) as string;
+		const preview = (await registry.get("playbooks.preview")!.execute({ id: created.id, arguments: { environment: "staging" } })) as string;
 		expect(preview).toContain('[creates Doc] "A doc"');
 		expect(preview).toContain('[creates Rule] "A rule" -- when: always');
 		expect(preview).toContain('[calls playbook] "A call" -> some-other-id');

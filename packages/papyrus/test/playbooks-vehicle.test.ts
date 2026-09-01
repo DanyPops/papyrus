@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { VehicleManifestOperation } from "@danypops/vehicle-core";
+import { PLAYBOOK_PREVIEW_MAX_BYTES } from "../src/constants.ts";
 import { createPapyrusService } from "../src/service.ts";
 import { cleanupTempDirs, tempDir } from "./helpers/tmp-dir.ts";
 
@@ -145,6 +146,85 @@ describe("registerPlaybooksVehicleOperations (wired through createPapyrusService
 		expect(preview).toContain("1. Frame the problem");
 		const graph = (await service.execute("artifact.query", { kind: "task" })) as unknown[];
 		expect(graph).toHaveLength(0);
+		service.close();
+	});
+
+	it("preview resolves id/name and object/string arguments across a composed graph", async () => {
+		const { registry, service } = harness();
+		const child = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Review findings", steps: ["Summarize {{target_scope}}"] },
+			PERMS,
+		)) as { id: string };
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{
+				title: "Audit data design",
+				steps: ["Audit {{target_scope}} against {{baseline}}"],
+				arguments: [
+					{ name: "target_scope", required: true },
+					{ name: "baseline", default: "main" },
+				],
+			},
+			PERMS,
+		)) as { id: string };
+		await registry.invoke("playbooks.contain", 1, { parent_id: created.id, child_id: child.id }, PERMS);
+
+		const inputs = [
+			{ id: created.id, arguments: { target_scope: "server/world" } },
+			{ id: created.id, arguments: JSON.stringify({ target_scope: "server/world" }) },
+			{ name: "Audit data design", arguments: { target_scope: "server/world" } },
+			{ name: "Audit data design", arguments: JSON.stringify({ target_scope: "server/world" }) },
+		];
+		for (const input of inputs) {
+			const preview = (await registry.invoke("playbooks.preview", 1, input, PERMS)) as string;
+			expect(preview).toContain("Audit server/world against main");
+			expect(preview).toContain("Nested playbook (contains)");
+			expect(preview).toContain("Summarize server/world");
+			expect(preview).not.toContain("{{target_scope}}");
+		}
+		service.close();
+	});
+
+	it("bounds the raw preview before Vehicle response serialization", async () => {
+		const { registry, service } = harness();
+		const created = (await service.execute("playbooks.create", {
+			title: "Large preview",
+			steps: Array.from({ length: 3 }, (_, index) => `${index}: ${"x".repeat(90_000)}`),
+		})) as { id: string };
+
+		const preview = (await registry.invoke("playbooks.preview", 1, { id: created.id }, PERMS)) as string;
+		expect(new TextEncoder().encode(preview).byteLength).toBeLessThanOrEqual(PLAYBOOK_PREVIEW_MAX_BYTES);
+		expect(preview).toEndWith("[preview truncated at bounded output limit]");
+		service.close();
+	});
+
+	it("preview reports malformed, missing, and incomplete inputs with distinct typed errors", async () => {
+		const { registry, service } = harness();
+		const created = (await registry.invoke(
+			"playbooks.create",
+			1,
+			{ title: "Needs scope", steps: ["Audit {{target_scope}}"], arguments: [{ name: "target_scope", required: true }] },
+			PERMS,
+		)) as { id: string };
+
+		const malformed = await registry
+			.invoke("playbooks.preview", 1, { id: created.id, arguments: "{" }, PERMS)
+			.catch((error: unknown) => error);
+		expect((malformed as { code?: string }).code).toBe("validation-failed");
+		expect((malformed as Error).message).toContain("valid JSON");
+
+		const missingArgument = await registry.invoke("playbooks.preview", 1, { id: created.id }, PERMS).catch((error: unknown) => error);
+		expect((missingArgument as { code?: string }).code).toBe("playbook-arguments-invalid");
+		expect((missingArgument as Error).message).toContain("target_scope");
+
+		const missingPlaybook = await registry
+			.invoke("playbooks.preview", 1, { id: "missing-playbook" }, PERMS)
+			.catch((error: unknown) => error);
+		expect((missingPlaybook as { code?: string }).code).toBe("playbook-not-found");
+		expect((missingPlaybook as { category?: string }).category).toBe("not_found");
 		service.close();
 	});
 

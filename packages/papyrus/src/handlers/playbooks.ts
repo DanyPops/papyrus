@@ -18,12 +18,13 @@
  * WithVehicleContent) built from the same execution-DAG summary pi-papyrus's hand-rolled
  * tool used to build client-side.
  */
+import { VehicleError } from "@danypops/vehicle-core";
 import type { VehicleRegistry } from "@danypops/vehicle-server";
 import type { ArtifactScopeStore } from "../artifact/artifact-scope-store.ts";
 import type { ArtifactStore } from "../artifact/artifact-store.ts";
 import { playbooksOperations } from "../modules/playbooks.ts";
 import type { PlaybookInvocationResult, PlaybookMissingArguments } from "../playbook/playbook-execution.ts";
-import { listPlaybooks } from "../playbook/playbook-service.ts";
+import { listPlaybooks, PlaybookPreviewArgumentError } from "../playbook/playbook-service.ts";
 import type { ProjectRegistryStore } from "../project-registry/project-registry-store.ts";
 import type { ScopeGroupStore } from "../scope-group/scope-group-store.ts";
 import type { SessionIdentity } from "../session-identity/session-identity-service.ts";
@@ -64,9 +65,29 @@ export interface PlaybooksVehicleDeps {
 
 /** Unscoped resolution -- a Playbook is commonly cross-project (e.g. a lab-deploy playbook), matching the hand-rolled tool's own resolutionRequest choice. */
 function resolvePlaybookId(artifacts: ArtifactStore, scopes: ArtifactScopeStore, id: unknown, name: unknown): string {
-	if (typeof id === "string" && id.length > 0) return id;
-	if (typeof name !== "string" || name.length === 0) throw validationError("id or name is required");
-	return resolveArtifactIdWidened(artifacts, name, () => listPlaybooks(artifacts, scopes, { text: name }));
+	const reference = typeof id === "string" && id.length > 0 ? id : name;
+	if (typeof reference !== "string" || reference.length === 0) throw validationError("id or name is required");
+	const exact = artifacts.get(reference);
+	if (exact?.kind === "playbook") return exact.id;
+	try {
+		return resolveArtifactIdWidened(artifacts, reference, () => listPlaybooks(artifacts, scopes, { text: reference }));
+	} catch (error) {
+		if (error instanceof VehicleError && error.code === "artifact-not-found") {
+			throw new VehicleError("playbook-not-found", `no Playbook named or identified by "${reference}" was found`, {
+				category: "not_found",
+			});
+		}
+		throw error;
+	}
+}
+
+function normalizePreviewArguments(input: Record<string, unknown>): Record<string, unknown> {
+	normalizeJsonEncodedField(input, "arguments");
+	const arguments_ = input.arguments;
+	if (arguments_ !== undefined && (typeof arguments_ !== "object" || arguments_ === null || Array.isArray(arguments_))) {
+		throw validationError("arguments must be a JSON object");
+	}
+	return input;
 }
 
 export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, deps: PlaybooksVehicleDeps): void {
@@ -150,9 +171,19 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		"read",
 		{ id: stringProp, name: stringProp, arguments: jsonObjectProp },
 		[],
+		(input) => ({
+			...normalizePreviewArguments(input),
+			id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
+		}),
 		(input) => {
-			normalizeJsonEncodedField(input, "arguments");
-			return { ...input, id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name) };
+			try {
+				return call("playbooks.preview", input);
+			} catch (error) {
+				if (error instanceof PlaybookPreviewArgumentError) {
+					throw new VehicleError("playbook-arguments-invalid", error.message, { category: "validation" });
+				}
+				throw error;
+			}
 		},
 	);
 

@@ -160,6 +160,8 @@ export const PLAYBOOK_MAX_STEPS = 100;
  * SKILL_MAX_BLUEPRINTS already covers for workflow Skills.
  */
 export const PLAYBOOK_INVOCATION_MAX_CREATED_TASKS = 200;
+/** Keeps preview responses below the standard Vehicle response ceiling while presentation projection applies its tighter persisted-details bound. */
+export const PLAYBOOK_PREVIEW_MAX_BYTES = 200_000;
 
 /** Tasks.cancelSubtree walks `contains` edges transitively (a whole materialized playbook run can be torn down in one call instead of enumerating every task id by hand) -- bounded the same way PLAYBOOK_INVOCATION_MAX_CREATED_TASKS bounds the forward direction. */
 export const TASK_CANCEL_SUBTREE_MAX_NODES = 500;

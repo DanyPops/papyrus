@@ -17,9 +17,8 @@
  * Tasks, preview as embedded text. `depends_on` (dependPlaybook/undependPlaybook) chains one
  * playbook before another -- the prerequisite's steps run first, either as real Tasks the
  * dependent's first step depends_on (invoke) or as embedded text rendered first (preview).
- * Composition is bounded in both paths; preview degrades a cycle to a text marker at render
- * time, while invoke's compiler (playbook-definition.ts) treats a cycle as a hard error --
- * real Tasks would otherwise be created in an infinite loop, unlike text rendering.
+ * Composition is bounded in both paths; both compile the composition graph before rendering or
+ * materializing so cycles and excessive graph growth fail with the same classified domain error.
  */
 
 import type { Artifact } from "../artifact/artifact.ts";
@@ -43,6 +42,7 @@ import {
 	PLAYBOOK_INVOCATION_MAX_CALL_DEPTH,
 	PLAYBOOK_INVOCATION_MAX_LINKED_ARTIFACTS,
 	PLAYBOOK_MAX_STEPS,
+	PLAYBOOK_PREVIEW_MAX_BYTES,
 	SKILL_MAX_ENUM_VALUES,
 } from "../constants.ts";
 import {
@@ -71,8 +71,10 @@ import {
 	BLUEPRINT_INPUT_TYPES,
 	type BlueprintArgumentValue,
 	type BlueprintInputType,
+	resolveBlueprintArguments,
 	validateArgumentValue,
 } from "./blueprint-definition.ts";
+import { compilePlaybookDefinition } from "./playbook-definition.ts";
 
 export interface PlaybookArgument {
 	name: string;
@@ -524,13 +526,35 @@ export function undependPlaybook(artifacts: ArtifactStore, id: string, dependenc
 	return showPlaybook(artifacts, id);
 }
 
+const PREVIEW_PLACEHOLDER_PATTERN = /{{\s*([A-Za-z][A-Za-z0-9_-]{0,63})\s*}}/g;
+const PREVIEW_TRUNCATION_MARKER = "\n\n[preview truncated at bounded output limit]";
+
+/** Identifies invalid or incomplete argument values supplied for a Playbook preview. */
+export class PlaybookPreviewArgumentError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "PlaybookPreviewArgumentError";
+	}
+}
+
+function previewText(value: string, provided: Record<string, BlueprintArgumentValue>): string {
+	return value.replace(PREVIEW_PLACEHOLDER_PATTERN, (placeholder, name: string) =>
+		provided[name] === undefined ? placeholder : String(provided[name]),
+	);
+}
+
 /** Text rendering for one preview step, covering all four Blueprint kinds -- distinct from playbook-definition.ts's stepTitle (a compiled Task's title), since a preview is read by a human/agent deciding whether to invoke, not turned into a real artifact. */
-function stepText(step: PlaybookStep, index: number): string {
-	if (typeof step === "string") return `${index + 1}. ${step}`;
-	if (step.kind === "task") return `${index + 1}. ${step.title ? `${step.title} -- ` : ""}${step.body}`;
-	if (step.kind === "doc") return `${index + 1}. [creates Doc] "${step.title}"${step.subtype ? ` (${step.subtype})` : ""}`;
-	if (step.kind === "rule") return `${index + 1}. [creates Rule] "${step.title}"${step.condition ? ` -- when: ${step.condition}` : ""}`;
-	return `${index + 1}. [calls playbook] "${step.title}" -> ${step.playbookId}`;
+function stepText(step: PlaybookStep, index: number, provided: Record<string, BlueprintArgumentValue>): string {
+	if (typeof step === "string") return `${index + 1}. ${previewText(step, provided)}`;
+	if (step.kind === "task") {
+		return `${index + 1}. ${step.title ? `${previewText(step.title, provided)} -- ` : ""}${previewText(step.body, provided)}`;
+	}
+	if (step.kind === "doc")
+		return `${index + 1}. [creates Doc] "${previewText(step.title, provided)}"${step.subtype ? ` (${step.subtype})` : ""}`;
+	if (step.kind === "rule") {
+		return `${index + 1}. [creates Rule] "${previewText(step.title, provided)}"${step.condition ? ` -- when: ${previewText(step.condition, provided)}` : ""}`;
+	}
+	return `${index + 1}. [calls playbook] "${previewText(step.title, provided)}" -> ${step.playbookId}`;
 }
 
 function argumentQualifier(argument: PlaybookArgument): string {
@@ -541,30 +565,30 @@ function argumentQualifier(argument: PlaybookArgument): string {
 }
 
 /** Renders trigger/body/arguments/steps/tools into readable guidance -- the flat, non-recursive part of a Playbook's own invocation, shared by the top-level render and by a nested composed call. */
-function playbookInvocationBody(playbook: Artifact, provided: Record<string, unknown>): string {
-	const trigger = typeof playbook.extra.trigger === "string" ? playbook.extra.trigger : "manual invocation";
+function playbookInvocationBody(playbook: Artifact, provided: Record<string, BlueprintArgumentValue>): string {
+	const trigger = typeof playbook.extra.trigger === "string" ? previewText(playbook.extra.trigger, provided) : "manual invocation";
 	const steps = Array.isArray(playbook.extra.steps) ? (playbook.extra.steps as PlaybookStep[]) : [];
 	const tools = Array.isArray(playbook.extra.tools) ? playbook.extra.tools.filter((tool): tool is string => typeof tool === "string") : [];
 	const declaredArguments = Array.isArray(playbook.extra.arguments) ? (playbook.extra.arguments as PlaybookArgument[]) : [];
 	const argumentLines = declaredArguments.map((argument) => {
 		const value = provided[argument.name];
-		if (value !== undefined) return `- ${argument.name}: ${String(value)}`;
+		if (value !== undefined) return `- ${argument.name} (${argumentQualifier(argument)}): ${String(value)}`;
 		return `- ${argument.name} (${argumentQualifier(argument)}${argument.description ? `: ${argument.description}` : ""}) -- not yet provided`;
 	});
 	const missingRequired = declaredArguments.filter(
 		(argument) => argument.required && provided[argument.name] === undefined && argument.default === undefined,
 	);
 	return [
-		`Apply Papyrus playbook "${playbook.title}".`,
+		`Apply Papyrus playbook "${previewText(playbook.title, provided)}".`,
 		`Trigger: ${trigger}`,
-		...(playbook.body ? [`Context: ${playbook.body}`] : []),
+		...(playbook.body ? [`Context: ${previewText(playbook.body, provided)}`] : []),
 		...(argumentLines.length > 0 ? ["Arguments:", ...argumentLines] : []),
 		...(missingRequired.length > 0
 			? [
 					`Missing required argument(s): ${missingRequired.map((argument) => argument.name).join(", ")}. Ask the human for these directly -- the discuss tool with live:true asks synchronously and gets a real answer in this same turn -- before proceeding with the steps below. Do not guess or invent a value.`,
 				]
 			: []),
-		...(steps.length ? ["Steps:", ...steps.map((step, index) => stepText(step, index))] : []),
+		...(steps.length ? ["Steps:", ...steps.map((step, index) => stepText(step, index, provided))] : []),
 		...(tools.length ? [`Tools: ${tools.join(", ")}`] : []),
 	].join("\n");
 }
@@ -576,19 +600,16 @@ function playbookInvocationBody(playbook: Artifact, provided: Record<string, unk
  * "run as part of this one". `depends_on` chains a prerequisite -- its full steps render BEFORE
  * this playbook's own, as "complete this first". Every other relation (references, relates_to,
  * etc.) still gets the flat one-line "Linked context" pointer, unchanged. Bounded and
- * cycle-safe -- a composition cycle degrades to a marker instead of infinite-looping, the same
- * cycle-safety discipline task dependency graphs already established.
- * `provided` is the caller's already-known argument values (e.g. from the conversation so far);
- * any declared *required* argument missing from it is called out explicitly, directing the agent
- * to discuss (live:true) rather than guess or silently proceed. `visited` and `depth` are
- * recursion-internal; callers should not pass them.
+ * cycle-safe after the shared compiler validates the same composition before rendering.
+ * `provided` contains validated caller values plus declared defaults. `visited` and `depth` are
+ * recursion-internal.
  */
-export function playbookInvocation(
+function renderPlaybookInvocation(
 	artifacts: ArtifactStore,
 	id: string,
-	provided: Record<string, unknown> = {},
-	visited: Set<string> = new Set(),
-	depth = 0,
+	provided: Record<string, BlueprintArgumentValue>,
+	visited: Set<string>,
+	depth: number,
 ): string {
 	const playbook = requireKind(artifacts, id, "playbook");
 	visited.add(id);
@@ -619,7 +640,7 @@ export function playbookInvocation(
 				`Also linked via ${edge.relation} to ${role} playbook "${target.title}" -- call depth limit reached, invoke it separately.`,
 			);
 		} else {
-			const nested = playbookInvocation(artifacts, target.id, provided, visited, depth + 1);
+			const nested = renderPlaybookInvocation(artifacts, target.id, provided, visited, depth + 1);
 			bucket.push(
 				edge.relation === "contains"
 					? `Nested playbook (contains) "${target.title}" -- run as part of this one:\n${nested}`
@@ -633,4 +654,31 @@ export function playbookInvocation(
 		sections.push(["Linked context (query Papyrus for full detail before proceeding):", ...linkedArtifactLines].join("\n"));
 	}
 	return sections.join("\n\n");
+}
+
+function boundPreview(rendered: string): string {
+	const encoded = new TextEncoder().encode(rendered);
+	if (encoded.byteLength <= PLAYBOOK_PREVIEW_MAX_BYTES) return rendered;
+	const marker = new TextEncoder().encode(PREVIEW_TRUNCATION_MARKER);
+	let contentEnd = PLAYBOOK_PREVIEW_MAX_BYTES - marker.byteLength;
+	const decoder = new TextDecoder("utf-8", { fatal: true });
+	while (contentEnd > PLAYBOOK_PREVIEW_MAX_BYTES - marker.byteLength - 4) {
+		try {
+			return `${decoder.decode(encoded.slice(0, contentEnd))}${PREVIEW_TRUNCATION_MARKER}`;
+		} catch {
+			contentEnd -= 1;
+		}
+	}
+	throw new Error("could not truncate Playbook preview at a UTF-8 boundary");
+}
+
+export function playbookInvocation(artifacts: ArtifactStore, id: string, provided: Record<string, unknown> = {}): string {
+	const compiled = compilePlaybookDefinition(artifacts, id);
+	let resolved: Record<string, BlueprintArgumentValue>;
+	try {
+		resolved = resolveBlueprintArguments(compiled.definition, provided);
+	} catch (error) {
+		throw new PlaybookPreviewArgumentError(error instanceof Error ? error.message : String(error));
+	}
+	return boundPreview(renderPlaybookInvocation(artifacts, id, resolved, new Set(), 0));
 }

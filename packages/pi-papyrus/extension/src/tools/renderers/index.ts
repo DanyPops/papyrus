@@ -28,11 +28,13 @@ import {
 	createArtifactDetails,
 	createArtifactListDetails,
 	createDiscussionDetails,
+	createErrorDetails,
 	createExecutionPlanDetails,
 	createLeaseDetails,
 	createNoFocusDetails,
 	createPlaybookInvocationDetails,
 	createPlaybookMissingArgumentsDetails,
+	createPreviewDetails,
 	createSemanticTextDetails,
 	createTaskCompletionDetails,
 	type PapyrusToolDetails,
@@ -171,6 +173,11 @@ function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, outp
 	if (isDiscussionListOutput(output)) return createArtifactListDetails(descriptor.name, output.discussions);
 	if (isTaskCompletion(output)) return createTaskCompletionDetails(descriptor.name, output);
 	if (isTaskLeaseView(output)) return createLeaseDetails(descriptor.name, output);
+	if (descriptor.name === "playbooks.preview") {
+		return typeof output === "string"
+			? createPreviewDetails(descriptor.name, "Playbook preview", output)
+			: createErrorDetails(descriptor.name, "playbook-preview-unprojectable", "Playbook preview returned no rendered text.");
+	}
 	if (isSemanticTextOutput(output)) return createSemanticTextDetails(descriptor.name, semanticText(output));
 	throw new Error(`${descriptor.name} produced no legal presentation variant`);
 }

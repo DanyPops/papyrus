@@ -596,6 +596,29 @@ describe("papyrusVehiclePresentations", () => {
 		}
 	});
 
+	it("projects a Playbook preview string into bounded presentation details", async () => {
+		const preview = "Apply playbook.\n".repeat(2_000);
+		const presentation = await project("playbooks.preview", preview);
+		const parsed = parsePapyrusToolDetails(presentation);
+		expect(parsed).toMatchObject({
+			kind: "preview",
+			operation: "playbooks.preview",
+			title: "Playbook preview",
+			completeness: { truncated: true, omitted: preview.length - 20_000 },
+		});
+		expect(parsed?.kind === "preview" ? parsed.content.length : 0).toBeLessThan(preview.length);
+	});
+
+	it("projects an invalid Playbook preview result into an actionable bounded error", async () => {
+		const presentation = await project("playbooks.preview", { content: "unexpected shape" });
+		expect(parsePapyrusToolDetails(presentation)).toMatchObject({
+			kind: "error",
+			operation: "playbooks.preview",
+			code: "playbook-preview-unprojectable",
+			message: "Playbook preview returned no rendered text.",
+		});
+	});
+
 	it("renders tasks.context from its semantic channel instead of serializing the raw output", async () => {
 		const { presentation, text } = await renderProjected("tasks.context", {
 			context: "Progress: 0/5 done",

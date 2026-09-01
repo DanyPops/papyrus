@@ -85,6 +85,12 @@ describe("runPlaybooksCli (Stricli-backed)", () => {
 		expect(output).toBe("rendered text");
 	});
 
+	it("preview: accepts a Playbook name as the positional server-resolved reference", async () => {
+		const client = new FakeClient("rendered text");
+		await runPlaybooksCli(["preview", "Audit data design"], client);
+		expect(client.calls).toEqual([{ operation: "playbooks.preview", input: { id: "Audit data design", arguments: undefined } }]);
+	});
+
 	it("invoke: threads arguments-json/run-id/project-root, renders the entry task focused message", async () => {
 		const client = new FakeClient({ entryTaskId: "t1" });
 		const output = await runPlaybooksCli(["invoke", "p1", "--arguments-json", '{"env":"prod"}', "--run-id", "r1"], client);

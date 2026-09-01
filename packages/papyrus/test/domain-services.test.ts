@@ -449,24 +449,23 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 		db.close();
 	});
 
-	it("degrades a playbook composition cycle (contains or depends_on) to a marker instead of infinite-looping the invocation preview", () => {
+	it("rejects a cyclic Playbook preview composition", () => {
 		const { db, artifacts, scopes } = fixture();
 		const a = createPlaybook(artifacts, scopes, { title: "A", trigger: "x", steps: [] });
 		const b = createPlaybook(artifacts, scopes, { title: "B", trigger: "x", steps: [] });
 		containPlaybook(artifacts, a.id, b.id);
 		dependPlaybook(artifacts, b.id, a.id);
 
-		const invocation = playbookInvocation(artifacts, a.id); // must return, not hang or throw
-		expect(invocation).toContain("already invoked above in this chain, not repeated");
+		expect(() => playbookInvocation(artifacts, a.id)).toThrow("composition cycle");
 		db.close();
 	});
 
-	it("declares arguments; invoke lists provided values, flags missing required ones, and directs the agent to discuss live:true rather than guess", () => {
+	it("requires declared Preview arguments and renders validated values", () => {
 		const { db, artifacts, scopes } = fixture();
 		const playbook = createPlaybook(artifacts, scopes, {
 			title: "Deploy service",
 			trigger: "deploying a service",
-			steps: ["Build the image", "Push to the target environment"],
+			steps: ["Build {{service_name}} for {{environment}}"],
 			arguments: [
 				{ name: "service_name", description: "which service to deploy" },
 				{ name: "environment", description: "target environment", required: true },
@@ -474,20 +473,16 @@ describe("playbooks domain service -- a completely different beast from Skills, 
 			],
 		});
 
-		const noArgs = playbookInvocation(artifacts, playbook.id);
-		expect(noArgs).toContain("- service_name (required: which service to deploy) -- not yet provided");
-		expect(noArgs).toContain("- dry_run (optional: skip the real push) -- not yet provided");
-		expect(noArgs).toContain("Missing required argument(s): service_name, environment.");
-		expect(noArgs).toContain("discuss tool with live:true");
-
-		const partial = playbookInvocation(artifacts, playbook.id, { service_name: "payments-api" });
-		expect(partial).toContain("- service_name: payments-api");
-		expect(partial).toContain("Missing required argument(s): environment.");
-		expect(partial).not.toContain("service_name, environment"); // service_name is no longer missing
+		expect(() => playbookInvocation(artifacts, playbook.id)).toThrow('missing required argument "service_name"');
+		expect(() => playbookInvocation(artifacts, playbook.id, { service_name: "payments-api" })).toThrow(
+			'missing required argument "environment"',
+		);
 
 		const complete = playbookInvocation(artifacts, playbook.id, { service_name: "payments-api", environment: "staging" });
-		expect(complete).not.toContain("Missing required argument");
-		expect(complete).toContain("- environment: staging");
+		expect(complete).toContain("- service_name (required): payments-api");
+		expect(complete).toContain("- environment (required): staging");
+		expect(complete).toContain("- dry_run (optional: skip the real push) -- not yet provided");
+		expect(complete).toContain("Build payments-api for staging");
 		db.close();
 	});
 

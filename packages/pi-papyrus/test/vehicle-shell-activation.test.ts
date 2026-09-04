@@ -108,9 +108,26 @@ function manifestServer(
 }
 
 describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
-	it("grants the Binder permissions required by native Binder tools", () => {
-		expect(PAPYRUS_VEHICLE_PERMISSIONS).toContain("binders:read");
-		expect(PAPYRUS_VEHICLE_PERMISSIONS).toContain("binders:write");
+	it("grants project and scope-group permissions required by their native tools", () => {
+		expect(PAPYRUS_VEHICLE_PERMISSIONS).toEqual(
+			expect.arrayContaining(["projects:read", "projects:write", "scope_groups:read", "scope_groups:write"]),
+		);
+	});
+
+	it("covers every permission declared by the complete Papyrus manifest", () => {
+		const directory = mkdtempSync(join(tmpdir(), "papyrus-shell-permissions-"));
+		const service = createPapyrusService(join(directory, "papyrus.db"));
+		try {
+			const granted = new Set<string>(PAPYRUS_VEHICLE_PERMISSIONS);
+			const missing = service.vehicle
+				.manifest()
+				.operations.flatMap((operation) => operation.permissions.map((permission) => `${operation.name}:${permission}`))
+				.filter((entry) => !granted.has(entry.slice(entry.indexOf(":") + 1)));
+			expect(missing).toEqual([]);
+		} finally {
+			service.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	// registerVehicleTools()'s shared Vehicle Shell handle and in-process vehicle registry are both
@@ -126,6 +143,35 @@ describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
 	afterEach(() => {
 		resetVehicleClientTargetResolverForTests();
 		resetPapyrusClientForTests();
+	});
+
+	it("authorizes project and scope-group reads and mutations with the extension grant", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "papyrus-shell-domain-permissions-"));
+		const service = createPapyrusService(join(directory, "papyrus.db"));
+		const options = { permissions: [...PAPYRUS_VEHICLE_PERMISSIONS] };
+		try {
+			const project = (await service.vehicle.invoke(
+				"projects.register",
+				1,
+				{ project_root: directory, name: "Permission Project" },
+				options,
+			)) as { id: string };
+			const projects = (await service.vehicle.invoke("projects.list", 1, {}, options)) as { id: string }[];
+			expect(projects.map((candidate) => candidate.id)).toContain(project.id);
+
+			const group = (await service.vehicle.invoke("scope_groups.register", 1, { name: "Permission Group" }, options)) as { id: string };
+			await service.vehicle.invoke(
+				"scope_groups.add_member",
+				1,
+				{ group: group.id, member_type: "project", member_reference: project.id },
+				options,
+			);
+			const shown = (await service.vehicle.invoke("scope_groups.show", 1, { group: group.id }, options)) as { members: unknown[] };
+			expect(shown.members).toHaveLength(1);
+		} finally {
+			service.close();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("preserves real Task gate/checklist schemas from descriptor through tools_man and the callable tool", async () => {

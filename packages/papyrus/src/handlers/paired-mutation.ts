@@ -8,6 +8,11 @@ export type OperationSchemaProperties = Record<
 	{ type: string | readonly string[]; enum?: readonly string[]; description?: string; [key: string]: unknown }
 >;
 
+export interface OperationPermissionPolicy {
+	readonly read: readonly string[];
+	readonly write: readonly string[];
+}
+
 export type DefineOperation = (
 	action: string,
 	description: string,
@@ -39,9 +44,11 @@ export function createOperationDefiner(
 	registry: VehicleRegistry,
 	owner: string,
 	domain: string,
-	permissions: readonly [string, string],
+	permissions: readonly [string, string] | OperationPermissionPolicy,
 	defaultCall: (name: string, input: Record<string, unknown>) => unknown,
 ): DefineOperation {
+	const readPermissions = "read" in permissions ? permissions.read : [permissions[0]];
+	const writePermissions = "write" in permissions ? permissions.write : permissions;
 	return (action, description, effect, properties, required, resolve, execute, limits) => {
 		const operation = defineVehicleOperation({
 			name: `${domain}.${action}`,
@@ -49,7 +56,7 @@ export function createOperationDefiner(
 			description,
 			input: looseObjectSchema(properties, required),
 			output: passthroughOutput,
-			permissions: [...permissions],
+			permissions: [...(effect === "read" ? readPermissions : writePermissions)],
 			effect,
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
 			limits: limits ?? STANDARD_OPERATION_LIMITS,

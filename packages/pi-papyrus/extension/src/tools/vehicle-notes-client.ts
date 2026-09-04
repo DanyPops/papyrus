@@ -58,6 +58,10 @@ export const PAPYRUS_VEHICLE_PERMISSIONS = [
 	"artifact:write",
 	"binders:read",
 	"binders:write",
+	"projects:read",
+	"projects:write",
+	"scope_groups:read",
+	"scope_groups:write",
 ] as const;
 
 /** Task Focus's own internal write needs a real, per-session secret -- see below. Every other tasks.* operation reads session_id purely for read-scoping and needs no secret. */

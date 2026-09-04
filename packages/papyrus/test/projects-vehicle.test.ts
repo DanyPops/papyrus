@@ -26,6 +26,25 @@ describe("registerProjectsVehicleOperations (wired through createPapyrusService)
 		service.close();
 	});
 
+	it("assigns read-only permissions to reads and both domain permissions to mutations", () => {
+		const { registry, service } = harness();
+		const operations = registry.manifest().operations;
+		expect(operations.find((operation) => operation.name === "projects.list")?.permissions).toEqual(["projects:read"]);
+		expect(operations.find((operation) => operation.name === "projects.resolve")?.permissions).toEqual(["projects:read"]);
+		expect(operations.find((operation) => operation.name === "projects.register")?.permissions).toEqual([
+			"projects:read",
+			"projects:write",
+		]);
+		for (const operation of operations.filter((candidate) => candidate.effect === "read")) {
+			expect(
+				operation.permissions.filter((permission) => permission.endsWith(":write")),
+				operation.name,
+			).toEqual([]);
+		}
+		expect(operations.find((operation) => operation.name === "activation.audit")?.permissions).toEqual(["rules:read", "playbooks:read"]);
+		service.close();
+	});
+
 	it("register/list/resolve round trip through the shared catalog Tasks/Docs/Rules/Playbooks already use", async () => {
 		const { registry, service } = harness();
 		const registered = (await registry.invoke(

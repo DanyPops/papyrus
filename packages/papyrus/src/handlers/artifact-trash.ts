@@ -54,7 +54,7 @@ export function registerArtifactTrashOperations(registry: VehicleRegistry, artif
 			description,
 			input: looseObjectSchema(properties, required),
 			output: passthroughOutput,
-			permissions: ["artifact:read", "artifact:write"],
+			permissions: effect === "read" ? ["artifact:read"] : ["artifact:read", "artifact:write"],
 			effect,
 			idempotency: { mode: effect === "read" ? "safe" : "unsafe" },
 			limits: LIMITS,

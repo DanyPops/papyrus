@@ -64,6 +64,37 @@ import {
 } from "./tool-rendering/render-model.ts";
 import { registerNotesVehicle } from "./tools/vehicle-notes-client.ts";
 
+/**
+ * Context enrichment is useful, but it sits before provider dispatch and therefore gets a much
+ * smaller deadline than an explicit daemon-backed tool call. A failed daemon probe may continue
+ * settling in the background; this deadline only guarantees the user's prompt is released.
+ */
+export const PAPYRUS_CONTEXT_INJECTION_DEADLINE_MS = 500;
+
+function withContextInjectionDeadline<T>(work: Promise<T>): Promise<T> {
+	let timer: ReturnType<typeof setTimeout>;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`Papyrus context injection exceeded ${PAPYRUS_CONTEXT_INJECTION_DEADLINE_MS}ms`)),
+			PAPYRUS_CONTEXT_INJECTION_DEADLINE_MS,
+		);
+		timer.unref?.();
+	});
+	return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
+}
+
+type InjectableRule = Pick<Artifact, "id" | "title" | "body" | "extra">;
+type InjectablePlaybook = Pick<Artifact, "title" | "extra">;
+
+interface ContextInjectionSnapshot {
+	projectRoot: string;
+	sessionId: string;
+	rules: InjectableRule[];
+	playbooks: InjectablePlaybook[];
+	taskSummary: string | null;
+	taskGraph: TaskGraph;
+}
+
 function text(value: string, details: unknown = {}) {
 	const modelContent = createModelContent(value);
 	return { content: [{ type: "text" as const, text: modelContent.text }], details };
@@ -477,6 +508,9 @@ export default function (pi: ExtensionAPI) {
 	let contextInjectionSequence = 0;
 	const contextInjectionProducerId = randomUUID();
 	let previousContextInjectionFingerprint: string | undefined;
+	// A single project/session-scoped snapshot bounds memory while preserving the latest complete
+	// context across transient daemon restarts and client/daemon version skew.
+	let latestContextInjection: ContextInjectionSnapshot | undefined;
 	let logTurnSequence = 0;
 	// Papyrus's own Context Hub contribution (rules/tasks/Pi's own skill catalog, bundled into one segment --
 	// see context/context-hub-contribution.ts) re-emits every turn alongside the existing injection
@@ -969,40 +1003,64 @@ export default function (pi: ExtensionAPI) {
 		let result: { systemPrompt: string } | undefined;
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const activationContext = buildActivationContext(ctx.cwd, event.prompt, event.systemPromptOptions.selectedTools);
-			const [rules, playbooks, summary, taskGraph] = await Promise.all([
-				callService<Record<string, unknown>, Array<Pick<Artifact, "id" | "title" | "body" | "extra">>>("rules.injectable", {
-					project_root: ctx.cwd,
-					session_id: sessionId,
-					activation_context: activationContext,
-				}),
-				callService<Record<string, unknown>, Array<Pick<Artifact, "title" | "extra">>>("playbooks.list", {
-					status: "active",
-					project_root: ctx.cwd,
-					applicable: true,
-					activated: true,
-					full: true,
-					activation_context: activationContext,
-					session_id: sessionId,
-					limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
-				}),
-				callService<Record<string, unknown>, string | null>("tasks.context", {
-					project_root: ctx.cwd,
-					session_id: sessionId,
-					verbosity: "summary",
-				}),
-				callService<Record<string, unknown>, TaskGraph>("tasks.graph", { project_root: ctx.cwd, session_id: sessionId }),
-			]);
+			let snapshot =
+				latestContextInjection?.projectRoot === ctx.cwd && latestContextInjection.sessionId === sessionId
+					? latestContextInjection
+					: undefined;
+			try {
+				const activationContext = buildActivationContext(ctx.cwd, event.prompt, event.systemPromptOptions.selectedTools);
+				// Pi awaits before_agent_start before it can dispatch the provider request. These are
+				// opportunistic lifecycle reads, so use the no-retry client rather than spending the
+				// explicit-tool client's ~5s daemon-restart backoff on every incompatible/unavailable
+				// daemon. The outer deadline also bounds a connected daemon that stops responding.
+				const [rules, playbooks, taskSummary, taskGraph] = await withContextInjectionDeadline(
+					Promise.all([
+						callServicePassive<Record<string, unknown>, InjectableRule[]>("rules.injectable", {
+							project_root: ctx.cwd,
+							session_id: sessionId,
+							activation_context: activationContext,
+						}),
+						callServicePassive<Record<string, unknown>, InjectablePlaybook[]>("playbooks.list", {
+							status: "active",
+							project_root: ctx.cwd,
+							applicable: true,
+							activated: true,
+							full: true,
+							activation_context: activationContext,
+							session_id: sessionId,
+							limit: PLAYBOOK_BRIDGE_MAX_PLAYBOOKS,
+						}),
+						callServicePassive<Record<string, unknown>, string | null>("tasks.context", {
+							project_root: ctx.cwd,
+							session_id: sessionId,
+							verbosity: "summary",
+						}),
+						callServicePassive<Record<string, unknown>, TaskGraph>("tasks.graph", {
+							project_root: ctx.cwd,
+							session_id: sessionId,
+						}),
+					]),
+				);
+				snapshot = { projectRoot: ctx.cwd, sessionId, rules, playbooks, taskSummary, taskGraph };
+			} catch {
+				// Preserve the latest complete snapshot for this project/session. Cold-start failures
+				// still skip injection, but a transient restart cannot erase previously valid context.
+				if (!snapshot) return undefined;
+			}
+			const { rules, playbooks, taskSummary, taskGraph } = snapshot;
 			const injection = buildContextInjection({
 				basePrompt: event.systemPrompt ?? "",
 				rules,
 				playbooks,
-				taskSummary: summary,
+				taskSummary,
 				observedAt: Date.now(),
 				sequence: ++contextInjectionSequence,
 				producerId: contextInjectionProducerId,
 				previousFingerprint: previousContextInjectionFingerprint,
 			});
+			const taskItems = buildTaskItemTree(taskGraph);
+			// Cache only a complete snapshot that both prompt and graph projection accepted.
+			latestContextInjection = snapshot;
 			previousContextInjectionFingerprint = injection.observation.fingerprint;
 			pi.events.emit(PAPYRUS_CONTEXT_INJECTION_CHANNEL, injection.observation);
 			if (injection.prompt !== (event.systemPrompt ?? "")) result = { systemPrompt: injection.prompt };
@@ -1015,7 +1073,7 @@ export default function (pi: ExtensionAPI) {
 					observedAt: Date.now(),
 					sequence: ++contextHubContributionSequence,
 					producerName: PAPYRUS_CONTEXT_HUB_PRODUCER_NAME,
-					segment: papyrusContextSegment(ruleBudget, buildTaskItemTree(taskGraph), skills, playbookBudget),
+					segment: papyrusContextSegment(ruleBudget, taskItems, skills, playbookBudget),
 				});
 			} catch {
 				// Malformed/unreachable daemon data for this turn's contribution -- drop it silently.

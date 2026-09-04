@@ -5,7 +5,17 @@
  */
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, rawKeyHint } from "@earendil-works/pi-coding-agent";
-import { Container, Input, matchesKey, Spacer, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	Container,
+	type Focusable,
+	Input,
+	matchesKey,
+	Spacer,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
+import { ArtifactNavigationState } from "../artifact/artifact-navigation-state.ts";
 import {
 	artifactBinderPath,
 	artifactSearchText,
@@ -430,7 +440,7 @@ function renderPanel(
 	binders: BinderTree,
 	currentBinderId: string | undefined,
 ): Promise<PanelAction | undefined> {
-	return ctx.ui.custom<PanelAction | undefined>((tui, theme, _kb, done) => {
+	return ctx.ui.custom<PanelAction | undefined>((tui, theme, keybindings, done) => {
 		const rows = graph.nodes.map((node) => node.task);
 		const searchInput = new Input();
 		const allHierarchy = buildTaskHierarchy(graph);
@@ -442,13 +452,12 @@ function renderPanel(
 		];
 		const taskById = new Map(rows.map((task) => [task.id, task]));
 		const executionById = new Map(projectTaskExecution(graph).nodes.map((node) => [node.id, node]));
-		let searchActive = false;
 		let filtered = currentEntries();
-		let selectedIndex = 0;
-		const maxVisible = 20;
+		const navigation = new ArtifactNavigationState(filtered.length);
+		const compactVisible = 20;
 
 		function applyFilter(): void {
-			const query = searchInput.getValue().trim().toLowerCase();
+			const query = navigation.query.trim().toLowerCase();
 			filtered = query
 				? [
 						...binders.nodes
@@ -463,7 +472,8 @@ function renderPanel(
 						return leftPath.localeCompare(rightPath);
 					})
 				: currentEntries();
-			selectedIndex = 0;
+			navigation.setItemCount(filtered.length);
+			navigation.first();
 		}
 
 		function statusLine(): string {
@@ -483,20 +493,23 @@ function renderPanel(
 			invalidate() {},
 			render(width: number): string[] {
 				const title = theme.bold(`Tasks · ${graph.scope?.label ?? "scope unavailable"} · ${currentBinderPath(binders, currentBinderId)}`);
-				const hint = searchActive
-					? rawKeyHint("esc", "clear")
-					: [
-							rawKeyHint("↑/↓", "navigate"),
-							rawKeyHint("enter", "open/actions"),
-							rawKeyHint("a", "actions"),
-							rawKeyHint("←", "up"),
-							rawKeyHint("n", "new Binder"),
-							rawKeyHint("/", "filter"),
-							rawKeyHint("g", "graph"),
-							rawKeyHint("s", "scope"),
-							rawKeyHint("r", "refresh"),
-							rawKeyHint("esc", "close"),
-						].join(theme.fg("muted", " · "));
+				const hint =
+					navigation.mode === "filter"
+						? `${theme.fg("accent", "FILTER")} · ${rawKeyHint("enter", "keep")} · ${rawKeyHint("esc", "clear")}`
+						: [
+								theme.fg("accent", "NORMAL"),
+								rawKeyHint("j/k", "navigate"),
+								rawKeyHint("enter/l", "open/actions"),
+								rawKeyHint("a", "actions"),
+								rawKeyHint("h", "up"),
+								rawKeyHint("n", "new Binder"),
+								rawKeyHint("/", "filter"),
+								rawKeyHint("v", "graph"),
+								rawKeyHint("s", "scope"),
+								rawKeyHint("f", navigation.expanded ? "compact" : "expand"),
+								rawKeyHint("r", "refresh"),
+								rawKeyHint("q", "close"),
+							].join(theme.fg("muted", " · "));
 				const spacing = Math.max(1, width - visibleWidth(title) - visibleWidth(hint));
 				const line1 = truncateToWidth(`${title}${" ".repeat(spacing)}${hint}`, width, "");
 				const line2 = truncateToWidth(theme.fg("muted", statusLine()), width, "");
@@ -508,17 +521,18 @@ function renderPanel(
 			invalidate() {},
 			render(width: number): string[] {
 				const lines: string[] = [];
-				if (searchActive) lines.push(...searchInput.render(width));
+				if (navigation.mode === "filter") lines.push(...searchInput.render(width));
 				lines.push("");
 				if (filtered.length === 0) {
 					lines.push(theme.fg("muted", "  No tasks or Binders here"));
 					return lines;
 				}
-				const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), filtered.length - maxVisible));
-				const end = Math.min(start + maxVisible, filtered.length);
+				const visibleRows = navigation.expanded ? Math.max(compactVisible, tui.terminal.rows - 10) : compactVisible;
+				const start = Math.max(0, Math.min(navigation.selectedIndex - Math.floor(visibleRows / 2), filtered.length - visibleRows));
+				const end = Math.min(start + visibleRows, filtered.length);
 				for (let i = start; i < end; i++) {
 					const panelEntry = filtered[i]!;
-					const selected = i === selectedIndex;
+					const selected = i === navigation.selectedIndex;
 					const cursor = selected ? theme.fg("accent", "❯") : " ";
 					if (panelEntry.type === "binder") {
 						const title = selected ? theme.bold(panelEntry.node.binder.title) : panelEntry.node.binder.title;
@@ -527,7 +541,7 @@ function renderPanel(
 								? `${panelEntry.node.childIds.length} Binder${panelEntry.node.childIds.length === 1 ? "" : "s"}`
 								: "",
 							panelEntry.node.effectiveLabels.length > 0 ? panelEntry.node.effectiveLabels.join(", ") : "",
-							searchActive ? panelEntry.node.path : "",
+							navigation.mode === "filter" ? panelEntry.node.path : "",
 						].filter(Boolean);
 						lines.push(
 							truncateToWidth(
@@ -579,13 +593,13 @@ function renderPanel(
 					if (row.labels.length > 0) relationParts.push(row.labels.join(", "));
 					const inheritedLabels = inheritedLabelsFor(row.id, binders);
 					if (inheritedLabels.length > 0) relationParts.push(`inherits ${inheritedLabels.join(", ")}`);
-					if (searchActive) relationParts.push(artifactBinderPath(row, binders));
+					if (navigation.mode === "filter") relationParts.push(artifactBinderPath(row, binders));
 					const relationText = relationParts.length > 0 ? theme.fg("dim", ` · ${relationParts.join(" · ")}`) : "";
 					lines.push(truncateToWidth(`${cursor}${focus} ${node} ${glyphStyled} ${title}${relationText}`, width, ""));
 				}
 				const hasScroll = start > 0 || end < filtered.length;
 				lines.push(
-					theme.fg("muted", `  ${hasScroll ? `${selectedIndex + 1}/${filtered.length} · ` : ""}↑/↓ navigate · Enter open/actions`),
+					theme.fg("muted", `  ${hasScroll ? `${navigation.selectedIndex + 1}/${filtered.length} · ` : ""}j/k navigate · Enter/l open`),
 				);
 				return lines;
 			},
@@ -601,34 +615,72 @@ function renderPanel(
 		container.addChild(new Spacer(1));
 		container.addChild(new DynamicBorder());
 
+		let focused = false;
 		return {
+			get focused(): boolean {
+				return focused;
+			},
+			set focused(value: boolean) {
+				focused = value;
+				searchInput.focused = value && navigation.mode === "filter";
+			},
 			render: (width: number) => container.render(width),
 			invalidate: () => container.invalidate(),
 			handleInput(data: string) {
-				if (searchActive) {
+				if (navigation.mode === "filter") {
 					if (matchesKey(data, "escape")) {
-						searchActive = false;
+						navigation.leaveFilter(true);
+						searchInput.setValue(navigation.query);
+						searchInput.focused = false;
 						applyFilter();
 					} else if (matchesKey(data, "enter")) {
-						searchActive = false;
+						navigation.leaveFilter();
+						searchInput.focused = false;
 					} else {
 						searchInput.handleInput(data);
+						navigation.setQuery(searchInput.getValue());
 						applyFilter();
 					}
 					tui.requestRender();
 					return;
 				}
-				if (matchesKey(data, "up")) selectedIndex = (selectedIndex - 1 + filtered.length) % Math.max(filtered.length, 1);
-				else if (matchesKey(data, "down")) selectedIndex = (selectedIndex + 1) % Math.max(filtered.length, 1);
-				else if (data === "/") searchActive = true;
+				const selectedEntry = () => filtered[navigation.selectedIndex];
+				const openSelected = (): void => {
+					const entry = selectedEntry();
+					if (entry?.type === "binder") done({ type: "navigate", binderId: entry.node.binder.id });
+					else if (entry?.type === "task") done({ type: "action", row: entry.entry.task });
+				};
+				if (keybindings.matches?.(data, "tui.select.up") === true || matchesKey(data, "up") || data === "k") navigation.move(-1);
+				else if (keybindings.matches?.(data, "tui.select.down") === true || matchesKey(data, "down") || data === "j") navigation.move(1);
+				else if (keybindings.matches?.(data, "tui.select.pageUp") === true || matchesKey(data, "pageUp") || matchesKey(data, "ctrl+u"))
+					navigation.movePage(
+						-1,
+						Math.max(1, Math.floor((navigation.expanded ? Math.max(compactVisible, tui.terminal.rows - 10) : compactVisible) / 2)),
+					);
+				else if (keybindings.matches?.(data, "tui.select.pageDown") === true || matchesKey(data, "pageDown") || matchesKey(data, "ctrl+d"))
+					navigation.movePage(
+						1,
+						Math.max(1, Math.floor((navigation.expanded ? Math.max(compactVisible, tui.terminal.rows - 10) : compactVisible) / 2)),
+					);
+				else if (data === "g") navigation.first();
+				else if (data === "G") navigation.last();
+				else if (data === "/") {
+					navigation.enterFilter();
+					searchInput.focused = focused;
+				} else if (data === "f") navigation.toggleExpanded();
 				else if (data === "n") {
 					done({ type: "create-binder" });
 					return;
-				} else if (matchesKey(data, "left") || data === "\x7f") {
+				} else if (
+					keybindings.matches?.(data, "tui.editor.cursorLeft") === true ||
+					matchesKey(data, "left") ||
+					data === "h" ||
+					data === "\x7f"
+				) {
 					const parentId = currentBinderId ? binders.nodes.find((node) => node.binder.id === currentBinderId)?.parentId : undefined;
 					done({ type: "navigate", ...(parentId ? { binderId: parentId } : {}) });
 					return;
-				} else if (data === "g") {
+				} else if (data === "v") {
 					done({ type: "graph" });
 					return;
 				} else if (data === "s") {
@@ -638,21 +690,24 @@ function renderPanel(
 					done({ type: "refresh" });
 					return;
 				} else if (data === "a") {
-					const panelEntry = filtered[selectedIndex];
-					if (panelEntry?.type === "binder") done({ type: "binder-action", binder: panelEntry.node });
-					else if (panelEntry?.type === "task") done({ type: "action", row: panelEntry.entry.task });
+					const entry = selectedEntry();
+					if (entry?.type === "binder") done({ type: "binder-action", binder: entry.node });
+					else if (entry?.type === "task") done({ type: "action", row: entry.entry.task });
 					return;
-				} else if (matchesKey(data, "enter")) {
-					const panelEntry = filtered[selectedIndex];
-					if (panelEntry?.type === "binder") done({ type: "navigate", binderId: panelEntry.node.binder.id });
-					else if (panelEntry?.type === "task") done({ type: "action", row: panelEntry.entry.task });
+				} else if (keybindings.matches?.(data, "tui.select.confirm") === true || matchesKey(data, "enter") || data === "l") {
+					openSelected();
 					return;
-				} else if (matchesKey(data, "escape")) {
+				} else if (
+					keybindings.matches?.(data, "tui.select.cancel") === true ||
+					matchesKey(data, "escape") ||
+					matchesKey(data, "ctrl+c") ||
+					data === "q"
+				) {
 					done(undefined);
 					return;
 				} else return;
 				tui.requestRender();
 			},
-		};
+		} satisfies Component & Focusable;
 	});
 }

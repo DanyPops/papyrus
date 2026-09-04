@@ -45,10 +45,13 @@ export function discussionRoundCountOf(discussion: Artifact): number {
 }
 
 class DiscussionTranscriptViewport {
-	private offsetY = 0;
+	private compactOffsetY = 0;
+	private expandedOffsetY = 0;
+	private expandedOffsetInitialized = false;
 	private renderedWidth = 0;
 	private lines: TranscriptLine[] = [];
-	private readonly visibleLines: number;
+	private readonly compactVisibleLines: number;
+	private expanded = false;
 
 	constructor(
 		private readonly tui: TUI,
@@ -56,8 +59,9 @@ class DiscussionTranscriptViewport {
 		private readonly discussion: Artifact,
 		private readonly rounds: DiscussionRound[],
 		private readonly close: () => void,
+		private readonly matchesBinding: (data: string, binding: "up" | "down" | "pageUp" | "pageDown" | "cancel") => boolean,
 	) {
-		this.visibleLines = Math.max(
+		this.compactVisibleLines = Math.max(
 			ARTIFACT_DETAIL_MIN_VISIBLE_LINES,
 			Math.min(ARTIFACT_DETAIL_MAX_VISIBLE_LINES, tui.terminal.rows - ARTIFACT_DETAIL_RESERVED_ROWS),
 		);
@@ -70,35 +74,67 @@ class DiscussionTranscriptViewport {
 	render(width: number): string[] {
 		const contentWidth = Math.max(1, width - 2);
 		this.buildLines(contentWidth);
-		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
-		const end = Math.min(this.lines.length, this.offsetY + this.visibleLines);
+		const visibleLines = this.visibleLineCount();
+		const offsetY = Math.min(this.activeOffsetY(), Math.max(0, this.lines.length - visibleLines));
+		const end = Math.min(this.lines.length, offsetY + visibleLines);
 		const theme = this.activeTheme();
 		const border = theme.fg("borderMuted", "─".repeat(Math.max(1, width)));
-		const footer = [this.lines.length > this.visibleLines ? `↑/↓ scroll · ${this.offsetY + 1}-${end}/${this.lines.length}` : "", "Esc back"]
+		const footer = [
+			this.lines.length > visibleLines ? `j/k scroll · ${offsetY + 1}-${end}/${this.lines.length}` : "",
+			`f ${this.expanded ? "compact" : "expand"}`,
+			"q/Esc back",
+		]
 			.filter(Boolean)
 			.join(" · ");
 		return [
 			border,
 			truncateToWidth(theme.fg("accent", theme.bold("Discussion transcript")), width, ""),
 			border,
-			...this.lines.slice(this.offsetY, end).map((line) => truncateToWidth(` ${line.text}`, width, "")),
+			...this.lines.slice(offsetY, end).map((line) => truncateToWidth(` ${line.text}`, width, "")),
 			truncateToWidth(theme.fg("dim", footer), width, ""),
 			border,
 		];
 	}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+		if (this.matchesBinding(data, "cancel") || data === "q") {
 			this.close();
 			return;
 		}
-		if (matchesKey(data, "up")) this.offsetY = Math.max(0, this.offsetY - 1);
-		else if (matchesKey(data, "down")) this.offsetY = Math.min(Math.max(0, this.lines.length - this.visibleLines), this.offsetY + 1);
-		else if (matchesKey(data, "pageDown"))
-			this.offsetY = Math.min(Math.max(0, this.lines.length - this.visibleLines), this.offsetY + this.visibleLines);
-		else if (matchesKey(data, "pageUp")) this.offsetY = Math.max(0, this.offsetY - this.visibleLines);
-		else return;
+		const visibleLines = this.visibleLineCount();
+		const offsetY = Math.min(this.activeOffsetY(), Math.max(0, this.lines.length - visibleLines));
+		if (this.matchesBinding(data, "up") || data === "k") this.setActiveOffsetY(Math.max(0, offsetY - 1));
+		else if (this.matchesBinding(data, "down") || data === "j")
+			this.setActiveOffsetY(Math.min(Math.max(0, this.lines.length - visibleLines), offsetY + 1));
+		else if (this.matchesBinding(data, "pageDown") || matchesKey(data, "ctrl+d"))
+			this.setActiveOffsetY(Math.min(Math.max(0, this.lines.length - visibleLines), offsetY + Math.max(1, Math.floor(visibleLines / 2))));
+		else if (this.matchesBinding(data, "pageUp") || matchesKey(data, "ctrl+u"))
+			this.setActiveOffsetY(Math.max(0, offsetY - Math.max(1, Math.floor(visibleLines / 2))));
+		else if (data === "g") this.setActiveOffsetY(0);
+		else if (data === "G") this.setActiveOffsetY(Math.max(0, this.lines.length - visibleLines));
+		else if (data === "f") {
+			if (!this.expanded && !this.expandedOffsetInitialized) {
+				this.expandedOffsetY = this.compactOffsetY;
+				this.expandedOffsetInitialized = true;
+			}
+			this.expanded = !this.expanded;
+		} else return;
 		this.tui.requestRender();
+	}
+
+	private activeOffsetY(): number {
+		return this.expanded ? this.expandedOffsetY : this.compactOffsetY;
+	}
+
+	private setActiveOffsetY(offsetY: number): void {
+		if (this.expanded) this.expandedOffsetY = offsetY;
+		else this.compactOffsetY = offsetY;
+	}
+
+	private visibleLineCount(): number {
+		return this.expanded
+			? Math.max(this.compactVisibleLines, this.tui.terminal.rows - ARTIFACT_DETAIL_RESERVED_ROWS)
+			: this.compactVisibleLines;
 	}
 
 	private buildLines(width: number): void {
@@ -171,7 +207,6 @@ class DiscussionTranscriptViewport {
 			];
 		});
 		this.lines = [...header, ...(transcript.length > 0 ? transcript : [{ text: theme.fg("muted", "No rounds recorded.") }])];
-		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
 	}
 }
 
@@ -186,6 +221,20 @@ export async function showDiscussionDetailView(
 		return;
 	}
 	await ctx.ui.custom<void>(
-		(tui, theme, _keybindings, done) => new DiscussionTranscriptViewport(tui, () => ctx.ui.theme ?? theme, discussion, rounds, done),
+		(tui, theme, keybindings, done) =>
+			new DiscussionTranscriptViewport(
+				tui,
+				() => ctx.ui.theme ?? theme,
+				discussion,
+				rounds,
+				done,
+				(data, binding) => {
+					if (binding === "up") return keybindings.matches?.(data, "tui.select.up") === true || matchesKey(data, "up");
+					if (binding === "down") return keybindings.matches?.(data, "tui.select.down") === true || matchesKey(data, "down");
+					if (binding === "pageUp") return keybindings.matches?.(data, "tui.select.pageUp") === true || matchesKey(data, "pageUp");
+					if (binding === "pageDown") return keybindings.matches?.(data, "tui.select.pageDown") === true || matchesKey(data, "pageDown");
+					return keybindings.matches?.(data, "tui.select.cancel") === true || matchesKey(data, "escape") || matchesKey(data, "ctrl+c");
+				},
+			),
 	);
 }

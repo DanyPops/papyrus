@@ -24,11 +24,14 @@ interface ArtifactDetailLine {
 
 class ArtifactDetailViewport {
 	private offsetX = 0;
-	private offsetY = 0;
+	private compactOffsetY = 0;
+	private expandedOffsetY = 0;
+	private expandedOffsetInitialized = false;
 	private renderedWidth = 0;
 	private lines: ArtifactDetailLine[] = [];
-	private readonly visibleLines: number;
+	private readonly compactVisibleLines: number;
 	private readonly content: ArtifactDetailContent;
+	private expanded = false;
 
 	constructor(
 		private readonly tui: TUI,
@@ -36,8 +39,9 @@ class ArtifactDetailViewport {
 		artifact: Artifact,
 		relationshipLines: string[],
 		private readonly close: () => void,
+		private readonly matchesBinding: (data: string, binding: "up" | "down" | "pageUp" | "pageDown" | "cancel") => boolean,
 	) {
-		this.visibleLines = Math.max(
+		this.compactVisibleLines = Math.max(
 			ARTIFACT_DETAIL_MIN_VISIBLE_LINES,
 			Math.min(ARTIFACT_DETAIL_MAX_VISIBLE_LINES, tui.terminal.rows - ARTIFACT_DETAIL_RESERVED_ROWS),
 		);
@@ -53,14 +57,16 @@ class ArtifactDetailViewport {
 		this.buildLines(contentWidth);
 		const wideWidth = this.content.relationships.reduce((maximum, line) => Math.max(maximum, visibleWidth(line)), 0);
 		this.offsetX = Math.min(this.offsetX, Math.max(0, wideWidth - contentWidth));
-		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
-		const end = Math.min(this.lines.length, this.offsetY + this.visibleLines);
+		const visibleLines = this.visibleLineCount();
+		const offsetY = Math.min(this.activeOffsetY(), Math.max(0, this.lines.length - visibleLines));
+		const end = Math.min(this.lines.length, offsetY + visibleLines);
 		const theme = this.activeTheme();
 		const border = theme.fg("borderMuted", "─".repeat(Math.max(1, width)));
 		const footer = [
 			wideWidth > contentWidth ? `←/→ relationships · column ${this.offsetX + 1}/${wideWidth}` : "",
-			this.lines.length > this.visibleLines ? `↑/↓ scroll · ${this.offsetY + 1}-${end}/${this.lines.length}` : "",
-			"Esc back",
+			this.lines.length > visibleLines ? `j/k scroll · ${offsetY + 1}-${end}/${this.lines.length}` : "",
+			`f ${this.expanded ? "compact" : "expand"}`,
+			"q/Esc back",
 		]
 			.filter(Boolean)
 			.join(" · ");
@@ -69,7 +75,7 @@ class ArtifactDetailViewport {
 			truncateToWidth(theme.fg("accent", theme.bold("Artifact details")), width, ""),
 			border,
 			...this.lines
-				.slice(this.offsetY, end)
+				.slice(offsetY, end)
 				.map((line) =>
 					line.wide ? ` ${sliceByColumn(line.text, this.offsetX, contentWidth, true)}` : truncateToWidth(` ${line.text}`, width, ""),
 				),
@@ -79,16 +85,46 @@ class ArtifactDetailViewport {
 	}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+		if (this.matchesBinding(data, "cancel") || data === "q") {
 			this.close();
 			return;
 		}
-		if (matchesKey(data, "up")) this.offsetY = Math.max(0, this.offsetY - 1);
-		else if (matchesKey(data, "down")) this.offsetY = Math.min(Math.max(0, this.lines.length - this.visibleLines), this.offsetY + 1);
-		else if (matchesKey(data, "left")) this.offsetX = Math.max(0, this.offsetX - ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS);
-		else if (matchesKey(data, "right")) this.offsetX += ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS;
-		else return;
+		const visibleLines = this.visibleLineCount();
+		const offsetY = Math.min(this.activeOffsetY(), Math.max(0, this.lines.length - visibleLines));
+		if (this.matchesBinding(data, "up") || data === "k") this.setActiveOffsetY(Math.max(0, offsetY - 1));
+		else if (this.matchesBinding(data, "down") || data === "j")
+			this.setActiveOffsetY(Math.min(Math.max(0, this.lines.length - visibleLines), offsetY + 1));
+		else if (this.matchesBinding(data, "pageUp") || matchesKey(data, "ctrl+u"))
+			this.setActiveOffsetY(Math.max(0, offsetY - Math.max(1, Math.floor(visibleLines / 2))));
+		else if (this.matchesBinding(data, "pageDown") || matchesKey(data, "ctrl+d"))
+			this.setActiveOffsetY(Math.min(Math.max(0, this.lines.length - visibleLines), offsetY + Math.max(1, Math.floor(visibleLines / 2))));
+		else if (matchesKey(data, "left") || data === "h") this.offsetX = Math.max(0, this.offsetX - ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS);
+		else if (matchesKey(data, "right") || data === "l") this.offsetX += ARTIFACT_DETAIL_HORIZONTAL_PAN_COLUMNS;
+		else if (data === "g") this.setActiveOffsetY(0);
+		else if (data === "G") this.setActiveOffsetY(Math.max(0, this.lines.length - visibleLines));
+		else if (data === "f") {
+			if (!this.expanded && !this.expandedOffsetInitialized) {
+				this.expandedOffsetY = this.compactOffsetY;
+				this.expandedOffsetInitialized = true;
+			}
+			this.expanded = !this.expanded;
+		} else return;
 		this.tui.requestRender();
+	}
+
+	private activeOffsetY(): number {
+		return this.expanded ? this.expandedOffsetY : this.compactOffsetY;
+	}
+
+	private setActiveOffsetY(offsetY: number): void {
+		if (this.expanded) this.expandedOffsetY = offsetY;
+		else this.compactOffsetY = offsetY;
+	}
+
+	private visibleLineCount(): number {
+		return this.expanded
+			? Math.max(this.compactVisibleLines, this.tui.terminal.rows - ARTIFACT_DETAIL_RESERVED_ROWS)
+			: this.compactVisibleLines;
 	}
 
 	private buildLines(width: number): void {
@@ -137,7 +173,6 @@ class ArtifactDetailViewport {
 					]
 				: [];
 		this.lines = [...identity, ...body, ...labelsAndMetadataWithLeadingBlank, ...relationships];
-		this.offsetY = Math.min(this.offsetY, Math.max(0, this.lines.length - this.visibleLines));
 	}
 }
 
@@ -153,6 +188,20 @@ export async function showArtifactDetailView(
 		return;
 	}
 	await ctx.ui.custom<void>(
-		(tui, theme, _keybindings, done) => new ArtifactDetailViewport(tui, () => ctx.ui.theme ?? theme, artifact, relationshipLines, done),
+		(tui, theme, keybindings, done) =>
+			new ArtifactDetailViewport(
+				tui,
+				() => ctx.ui.theme ?? theme,
+				artifact,
+				relationshipLines,
+				done,
+				(data, binding) => {
+					if (binding === "up") return keybindings.matches?.(data, "tui.select.up") === true || matchesKey(data, "up");
+					if (binding === "down") return keybindings.matches?.(data, "tui.select.down") === true || matchesKey(data, "down");
+					if (binding === "pageUp") return keybindings.matches?.(data, "tui.select.pageUp") === true || matchesKey(data, "pageUp");
+					if (binding === "pageDown") return keybindings.matches?.(data, "tui.select.pageDown") === true || matchesKey(data, "pageDown");
+					return keybindings.matches?.(data, "tui.select.cancel") === true || matchesKey(data, "escape") || matchesKey(data, "ctrl+c");
+				},
+			),
 	);
 }

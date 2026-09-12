@@ -25,7 +25,7 @@ import {
 export type { Artifact } from "./artifact/artifact.ts";
 export type CreateInput = CreateArtifactInput;
 
-import { DEFAULT_GRAPH_DEPTH, DEFAULT_GRAPH_MAX_NODES, MAX_GRAPH_DEPTH, MAX_GRAPH_NODES } from "./constants.ts";
+import { artifactGraph } from "./artifact/artifact-graph-query.ts";
 
 interface ResolvedCreateInput extends CreateInput {
 	kind: string;
@@ -290,36 +290,7 @@ export function getArtifact(db: Db, id: string, opts?: { tree?: boolean; depth?:
 	const row = db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id) as Record<string, unknown> | null;
 	if (!row) return null;
 	const art = rowToArtifact(row);
-	if (opts?.tree) {
-		const depthLimit = Math.min(MAX_GRAPH_DEPTH, Math.max(0, Math.floor(opts.depth ?? DEFAULT_GRAPH_DEPTH)));
-		const nodeLimit = Math.min(MAX_GRAPH_NODES, Math.max(1, Math.floor(opts.maxNodes ?? DEFAULT_GRAPH_MAX_NODES)));
-		const queue: Array<{ id: string; depth: number }> = [{ id, depth: 0 }];
-		const allEdges = db.prepare('SELECT from_id AS "from", relation, to_id AS "to" FROM edges').all() as {
-			from: string;
-			relation: string;
-			to: string;
-		}[];
-		const reachable = new Set<string>([id]);
-		const adj = new Map<string, { from: string; relation: string; to: string }[]>();
-		for (const edge of allEdges) {
-			if (!adj.has(edge.from)) adj.set(edge.from, []);
-			adj.get(edge.from)!.push(edge);
-			if (!adj.has(edge.to)) adj.set(edge.to, []);
-			adj.get(edge.to)!.push(edge);
-		}
-		while (queue.length > 0 && reachable.size < nodeLimit) {
-			const current = queue.shift()!;
-			if (current.depth >= depthLimit) continue;
-			for (const edge of adj.get(current.id) ?? []) {
-				const other = edge.from === current.id ? edge.to : edge.from;
-				if (reachable.has(other)) continue;
-				if (reachable.size >= nodeLimit) break;
-				reachable.add(other);
-				queue.push({ id: other, depth: current.depth + 1 });
-			}
-		}
-		art.edges = allEdges.filter((edge) => reachable.has(edge.from) && reachable.has(edge.to));
-	}
+	if (opts?.tree) Object.assign(art, artifactGraph(db, id, opts));
 	return art;
 }
 

@@ -45,7 +45,7 @@ export class SQLiteArtifactStore implements AtomicArtifactStore, ArtifactTrashSt
 	}
 
 	get(id: string, options?: ArtifactGraphOptions): Artifact | null {
-		return getArtifact(this.db, id, options);
+		return getArtifact(this.db, id, options?.tree ? { ...options, depth: options.depth ?? 1 } : options);
 	}
 
 	getByAlias(alias: string): Artifact | null {

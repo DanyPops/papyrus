@@ -15,7 +15,7 @@ import { SQLiteArtifactScopeStore } from "./artifact/sqlite-artifact-scope-store
 import { SQLiteArtifactStore } from "./artifact/sqlite-artifact-store.ts";
 import { type AuthorityClaim, AuthorityRegistry, AuthorizedArtifactWriter } from "./authority-registry.ts";
 import { BINDER_FILED_IN_RELATION, BINDER_KIND, BINDER_ORGANIZES_RELATION } from "./binder/binder.ts";
-import { SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
+import { DEFAULT_GRAPH_DEPTH, SERVICE_MAX_BODY_BYTES, SQLITE_SCHEMA_VERSION } from "./constants.ts";
 import { migrateDb, openDb, schemaVersion } from "./db.ts";
 import { Discussions } from "./discussion/discussion-service.ts";
 import { SQLiteDiscussionRoundStore } from "./discussion/sqlite-discussion-round-store.ts";
@@ -385,7 +385,7 @@ function handlers(
 		"graph.tree": (input) =>
 			artifacts.get(string(input, "id"), {
 				tree: true,
-				depth: optionalNumber(input, "depth"),
+				depth: optionalNumber(input, "depth") ?? DEFAULT_GRAPH_DEPTH,
 				maxNodes: optionalNumber(input, "max_nodes") ?? optionalNumber(input, "maxNodes"),
 			}),
 		"graph.status": (input) => genericWriter.setStatus(string(input, "id"), string(input, "status"), eventContext(input)),

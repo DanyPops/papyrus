@@ -77,7 +77,7 @@ export function registerNotesVehicleOperations(registry: VehicleRegistry, notes:
 
 	define(
 		"show",
-		"Shows one note by id or title.",
+		"Shows one note by id or title with direct relationships and bounded graph completeness.",
 		"read",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		["project_root"],

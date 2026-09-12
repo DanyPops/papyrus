@@ -160,10 +160,17 @@ export function registerPlaybooksVehicleOperations(registry: VehicleRegistry, de
 		(input) => input,
 	);
 
-	define("show", "Shows one Playbook by id or title.", "read", { id: stringProp, name: stringProp }, [], (input) => ({
-		...input,
-		id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
-	}));
+	define(
+		"show",
+		"Shows one Playbook by id or title with direct relationships and bounded graph completeness.",
+		"read",
+		{ id: stringProp, name: stringProp },
+		[],
+		(input) => ({
+			...input,
+			id: resolvePlaybookId(artifacts, artifactScopes, input.id, input.name),
+		}),
+	);
 
 	define(
 		"preview",

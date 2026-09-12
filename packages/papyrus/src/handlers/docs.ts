@@ -88,10 +88,17 @@ export function registerDocsVehicleOperations(
 		(input) => input,
 	);
 
-	define("show", "Shows one Doc by id or title.", "read", { id: stringProp, name: stringProp, project_root: stringProp }, [], (input) => ({
-		...input,
-		id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name),
-	}));
+	define(
+		"show",
+		"Shows one Doc by id or title with direct relationships and bounded graph completeness.",
+		"read",
+		{ id: stringProp, name: stringProp, project_root: stringProp },
+		[],
+		(input) => ({
+			...input,
+			id: resolveDocId(artifacts, scopes, input.project_root as string | undefined, input.id, input.name),
+		}),
+	);
 
 	define(
 		"activate",

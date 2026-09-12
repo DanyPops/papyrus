@@ -18,6 +18,8 @@ export interface Artifact {
 	/** Short, globally-unique, human/agent-typeable name -- see domain/artifact-alias.ts. Always present once created; the id remains the true backend identity. */
 	alias: string;
 	edges?: ArtifactEdge[];
+	/** Reports whether resource limits cut short the requested relationship traversal. */
+	graphCompleteness?: { truncated: boolean; visitedNodes: number; examinedEdges: number };
 }
 
 /**
@@ -96,6 +98,7 @@ export interface ArtifactQuery {
 
 export interface ArtifactGraphOptions {
 	tree?: boolean;
+	/** Traversal depth; store detail reads default to one hop and graph.tree defaults to four. */
 	depth?: number;
 	maxNodes?: number;
 }

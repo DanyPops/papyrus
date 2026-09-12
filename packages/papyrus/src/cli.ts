@@ -100,6 +100,9 @@ const USAGE = `Usage:
   papyrus graph link <from> <relation> <to> [--json]
   papyrus graph unlink <from> <relation> <to> [--json]
   papyrus graph tree <id> [--depth <n>] [--max-nodes <n>] [--json]
+    Detail reads use one hop; graph tree defaults to four. JSON includes graphCompleteness.
+    Traversal caps: 1000 nodes, 4096 edge reads, 1000 returned edges, 64 KiB of edges.
+    Relationship fields over 1024 characters are omitted with truncated completeness.
   papyrus graph status <id> <status> [--json]
   papyrus graph history [--id <artifact-id>] [--actor <actor>] [--session-id <id>] [--since <rfc3339>] [--limit <count>] [--cursor <id>] [--direction <asc|desc>] [--json]
   papyrus gates run <id> [--json]

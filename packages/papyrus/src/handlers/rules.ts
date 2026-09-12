@@ -106,7 +106,7 @@ export function registerRulesVehicleOperations(
 
 	define(
 		"show",
-		"Shows one Rule by id or title. The response includes combinedLength (condition+action+body character count) and a non-blocking warning once it exceeds the ~600-character soft target.",
+		"Shows one Rule by id or title with direct relationships and bounded graph completeness. The response includes combinedLength (condition+action+body character count) and a non-blocking warning once it exceeds the ~600-character soft target.",
 		"read",
 		{ id: stringProp, name: stringProp, project_root: stringProp },
 		[],

@@ -490,7 +490,7 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 
 	define(
 		"show",
-		"Shows one Task by id or title.",
+		"Shows one Task by id or title with direct relationships and bounded graph completeness.",
 		"read",
 		{
 			id: stringProp,

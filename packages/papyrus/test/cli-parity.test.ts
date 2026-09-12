@@ -41,7 +41,13 @@ class FakeClient {
 	}
 }
 
-const artifact = { id: "a1", title: "Title", status: "todo" };
+const artifact = {
+	id: "a1",
+	title: "Title",
+	status: "todo",
+	edges: [{ from: "a1", relation: "references", to: "a2" }],
+	graphCompleteness: { truncated: true, visitedNodes: 2, examinedEdges: 3 },
+};
 const artifactList = [artifact];
 const artifactScope = { artifactId: "a1", mode: "global", projectIds: [] as string[], members: [] as unknown[], source: "unscoped" };
 const project = { id: "p1", name: "Project One", aliases: [] as string[], projectRoot: "/workspace/papyrus" };

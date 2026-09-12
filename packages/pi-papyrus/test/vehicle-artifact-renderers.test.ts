@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { TASK_EXECUTION_MAX_NODES, TASK_LIST_PAGE_MAX_LIMIT, TOOL_DETAILS_MAX_ITEMS } from "@danypops/papyrus";
 import type { VehicleOperationDescriptor } from "@danypops/vehicle-core";
 import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { ArtifactListCard } from "../extension/src/tool-rendering/artifact-list.ts";
@@ -538,6 +539,70 @@ describe("papyrusVehiclePresentations", () => {
 		);
 		return { presentation, text: component.render(80).join("\n") };
 	}
+
+	it("projects cursor pages without persisting their cursor", async () => {
+		const output = { items: [artifact()], nextCursor: "opaque-page-secret" };
+		const { presentation, text } = await renderProjected("tasks.list_page", output);
+		expect(parsePapyrusToolDetails(presentation)?.kind).toBe("artifact-list");
+		expect(text).toContain("A real task");
+		expect(text).toContain("More pages available");
+		expect(JSON.stringify(presentation)).not.toContain("opaque-page-secret");
+		expect(output.nextCursor).toBe("opaque-page-secret");
+		const empty = await renderProjected("tasks.list_page", { items: [] });
+		expect(empty.text).not.toContain("More pages available");
+	});
+
+	it("projects graph relationships as a bounded hierarchy", async () => {
+		const output = {
+			nodes: [
+				{ task: artifact({ id: "parent", title: "Parent" }), parentIds: [], childIds: ["child"], dependencyIds: [] },
+				{ task: artifact({ id: "child", title: "Child" }), parentIds: ["parent"], childIds: [], dependencyIds: ["parent"] },
+			],
+			rootIds: ["parent"],
+		};
+		const { presentation, text } = await renderProjected("tasks.graph", output);
+		expect(parsePapyrusToolDetails(presentation)?.kind).toBe("graph");
+		expect(text).toContain("Parent");
+		expect(text).toContain("Child");
+		expect(text).toContain("depends on");
+		expect(text).not.toContain("schemaVersion");
+		expect(JSON.stringify(presentation)).not.toContain("some body text");
+		expect((await renderProjected("tasks.graph", { nodes: [], rootIds: [] })).text).toContain("0 tasks");
+	});
+
+	it("bounds maximum collection envelopes and rendered previews", async () => {
+		const items = Array.from({ length: TASK_LIST_PAGE_MAX_LIMIT }, (_, i) => artifact({ id: `task-${i}` }));
+		const page = parsePapyrusToolDetails(await project("tasks.list_page", { items }));
+		expect(page?.kind).toBe("artifact-list");
+		if (page?.kind !== "artifact-list") throw new Error("expected list");
+		expect(page.rows.length).toBeLessThanOrEqual(TOOL_DETAILS_MAX_ITEMS);
+		expect(page.total).toBe(items.length);
+		expect(parsePapyrusToolDetails({ ...page, hasMore: "yes" })).toBeUndefined();
+		await expect(project("tasks.list_page", { items: [...items, artifact()] })).rejects.toThrow();
+		const nodes = Array.from({ length: TASK_EXECUTION_MAX_NODES }, (_, i) => ({
+			task: artifact({ id: `task-${i}` }),
+			parentIds: [],
+			childIds: [],
+			dependencyIds: [],
+		}));
+		const graph = await renderProjected("tasks.graph", { nodes, rootIds: [] });
+		expect(parsePapyrusToolDetails(graph.presentation)?.kind).toBe("graph");
+		expect(graph.text).toContain("Partial graph");
+		expect(graph.text.split("\n").length).toBeLessThanOrEqual(8);
+		await expect(project("tasks.graph", { nodes: [...nodes, nodes[0]], rootIds: [] })).rejects.toThrow();
+	});
+
+	it("rejects malformed collection envelopes", async () => {
+		for (const output of [{ items: "bad" }, { items: [], nextCursor: 1 }, { items: [{}] }]) {
+			await expect(project("tasks.list_page", output)).rejects.toThrow();
+		}
+		for (const output of [
+			{ nodes: [], rootIds: "bad" },
+			{ nodes: [{}], rootIds: [] },
+		]) {
+			await expect(project("tasks.graph", output)).rejects.toThrow();
+		}
+	});
 
 	it("projects every recognized output shape into a validated, versioned PapyrusToolDetails variant, never a raw passthrough", async () => {
 		const cases = [

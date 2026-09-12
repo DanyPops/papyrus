@@ -76,6 +76,7 @@ export class ArtifactListCard implements Component {
 			const omitted = Math.max(0, this.details.total - display.length);
 			if (omitted > 0) lines.push(truncateToWidth(this.theme.fg("dim", `${omitted} more · ${expandHint()}`), safeWidth));
 		}
+		if (this.details.hasMore) lines.push(truncateToWidth(this.theme.fg("dim", "More pages available"), safeWidth));
 		this.cachedWidth = safeWidth;
 		this.cachedLines = lines;
 		return lines;
@@ -188,7 +189,20 @@ export class TaskHierarchyPreview implements Component {
 			safeWidth,
 		);
 		const tree = new TreeView({ nodes: toTreeNodes(this.details, this.theme, this.expanded) });
-		const lines = [header, ...tree.render(safeWidth)];
+		const rendered = tree.render(safeWidth);
+		const displayed = rendered.slice(0, this.expanded ? 200 : TOOL_COLLAPSED_ROW_LIMIT);
+		const lines = [header, ...displayed];
+		if (rendered.length > displayed.length) {
+			lines.push(
+				truncateToWidth(
+					this.theme.fg("dim", `${rendered.length - displayed.length} more lines · ${this.expanded ? "display limit" : expandHint()}`),
+					safeWidth,
+				),
+			);
+		}
+		if (this.details.nodeCompleteness.truncated || this.details.edgeCompleteness.truncated) {
+			lines.push(truncateToWidth(this.theme.fg("dim", "Partial graph · presentation limit"), safeWidth));
+		}
 		this.cachedWidth = safeWidth;
 		this.cachedLines = lines;
 		return lines;

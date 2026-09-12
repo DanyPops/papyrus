@@ -22,6 +22,7 @@ export interface ArtifactListToolDetails extends ToolDetailsBase {
 	kind: "artifact-list";
 	rows: ToolArtifactSummary[];
 	total: number;
+	hasMore?: boolean;
 	completeness: ResultCompleteness;
 }
 

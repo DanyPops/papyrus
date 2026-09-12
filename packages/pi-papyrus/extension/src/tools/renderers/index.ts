@@ -23,7 +23,7 @@ import type { JsonValue, VehicleOperationDescriptor } from "@danypops/vehicle-co
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 import { ArtifactCard } from "../../tool-rendering/artifact-card.ts";
-import { ArtifactListCard } from "../../tool-rendering/artifact-list.ts";
+import { ArtifactListCard, TaskHierarchyPreview } from "../../tool-rendering/artifact-list.ts";
 import {
 	createArtifactDetails,
 	createArtifactListDetails,
@@ -67,6 +67,7 @@ import {
 	renderNoFocusedTask,
 	semanticText,
 } from "./shared.ts";
+import { taskGraphPresentation, taskPagePresentation } from "./task-collections.ts";
 import { isTaskCompletion, renderTaskCompletion } from "./task-completion.ts";
 import { isTaskExecutionPlan, renderTaskExecutionPlan } from "./task-execution.ts";
 
@@ -155,6 +156,11 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
  * instead of silently persisting and rendering raw JSON.
  */
 function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, output: unknown): PapyrusToolDetails {
+	if (descriptor.name === "tasks.graph" || descriptor.name === "tasks.list_page") {
+		const presentation = descriptor.name === "tasks.graph" ? taskGraphPresentation(output) : taskPagePresentation(output);
+		if (presentation) return presentation;
+		throw new Error(`${descriptor.name} produced no legal presentation variant`);
+	}
 	if (descriptor.name === "batch.execute") {
 		const summary = batchOutcomeSummary(output);
 		if (summary !== undefined) return createSemanticTextDetails(descriptor.name, summary);
@@ -222,8 +228,9 @@ function renderFromPapyrusPresentation(
 			return new Text(theme.fg("toolOutput", presentation.content), 0, 0);
 		case "semantic-text":
 			return new SemanticTextCard(presentation, theme, expanded);
-		case "transition":
 		case "graph":
+			return new TaskHierarchyPreview(presentation, theme, expanded);
+		case "transition":
 		case "gate-run":
 		case "invocation":
 		case "error":

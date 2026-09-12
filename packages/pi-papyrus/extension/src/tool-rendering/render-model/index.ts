@@ -83,6 +83,7 @@ export function parsePapyrusToolDetails(value: unknown): PapyrusToolDetails | un
 			return isBoundedArray(value.rows, TOOL_DETAILS_MAX_ITEMS, isArtifactSummary) &&
 				Number.isSafeInteger(value.total) &&
 				Number(value.total) >= value.rows.length &&
+				(value.hasMore === undefined || typeof value.hasMore === "boolean") &&
 				isCompleteness(value.completeness)
 				? (value as unknown as ArtifactListToolDetails)
 				: undefined;

@@ -196,7 +196,7 @@ const USAGE = `Usage:
   papyrus tasks reject <id> [--session-id <id>] [--idempotency-key <key>] [--json]
   papyrus tasks retry <id> [--session-id <id>] [--idempotency-key <key>] [--json]
   papyrus tasks cancel <id> [--session-id <id>] [--idempotency-key <key>] [--json]
-  papyrus tasks reopen <id> [--session-id <id>] [--idempotency-key <key>] [--json]
+  papyrus tasks reopen <id> [--reason <text>] [--session-id <id>] [--idempotency-key <key>] [--json]
   papyrus tasks cancel-subtree <id> [--session-id <id>] [--json]
   papyrus tasks depend <id> <prerequisite-id> [--reason <reason>] [--session-id <id>] [--json]
   papyrus tasks undepend <id> <prerequisite-id> [--reason <reason>] [--session-id <id>] [--json]

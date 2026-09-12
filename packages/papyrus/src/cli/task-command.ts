@@ -917,11 +917,12 @@ const startCommand = buildCommand({
 
 function buildSimpleTransitionCommand(action: "submit" | "reject" | "retry" | "cancel" | "reopen", brief: string) {
 	return buildCommand({
-		func: async function (this: TaskContext, flags: { sessionId?: string; idempotencyKey?: string }, id: string) {
+		func: async function (this: TaskContext, flags: { reason?: string; sessionId?: string; idempotencyKey?: string }, id: string) {
 			const artifact = await this.client.call<Record<string, unknown>, CliArtifact>(`tasks.${action}` as OperationName, {
 				id,
 				actor: "user",
 				source: "cli",
+				reason: flags.reason,
 				session_id: flags.sessionId,
 				...(flags.idempotencyKey ? { idempotency_key: flags.idempotencyKey } : {}),
 			});
@@ -929,6 +930,7 @@ function buildSimpleTransitionCommand(action: "submit" | "reject" | "retry" | "c
 		},
 		parameters: {
 			flags: {
+				reason: { brief: "Why this transition was made", kind: "parsed", parse: String, placeholder: "text", optional: true },
 				sessionId: { brief: "Scope to one agent session", kind: "parsed", parse: String, placeholder: "id", optional: true },
 				idempotencyKey: { brief: "Retry key for this exact mutation", kind: "parsed", parse: String, placeholder: "key", optional: true },
 			},
@@ -1045,7 +1047,7 @@ const app = buildApplication(
 			reject: buildSimpleTransitionCommand("reject", "Lifecycle transition: review -> rejected"),
 			retry: buildSimpleTransitionCommand("retry", "Lifecycle transition: rejected -> in-progress"),
 			cancel: buildSimpleTransitionCommand("cancel", "Lifecycle transition to canceled"),
-			reopen: buildSimpleTransitionCommand("reopen", "Lifecycle transition: canceled -> todo"),
+			reopen: buildSimpleTransitionCommand("reopen", "Lifecycle transition: canceled/done -> todo; completed tasks require --reason"),
 			"cancel-subtree": cancelSubtreeCommand,
 			depend: buildDependencyCommand(
 				"tasks.depend",

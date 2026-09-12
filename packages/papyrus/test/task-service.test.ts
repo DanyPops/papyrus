@@ -630,17 +630,70 @@ describe("Tasks port behavior", () => {
 	// its terminal status through a real transition" above) -- there was no supported way at all to
 	// un-cancel a task that reached canceled through a normal, later lifecycle transition (a
 	// deliberate "pause/park" cancel, not a creation-time mistake). reopen is that missing transition.
-	it("reopen recovers a canceled task back to todo, distinct from tasks.update's creation-recovery path", () => {
+	it("reopen recovers canceled and completed tasks under their original state", () => {
 		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
-		const task = tasks.create({ title: "Parked mid-flight" });
-		tasks.transition(task.id, "start");
-		const canceled = tasks.transition(task.id, "cancel");
-		expect(canceled.status).toBe("canceled");
+		const canceledTask = tasks.create({ title: "Parked mid-flight" });
+		tasks.transition(canceledTask.id, "start");
+		tasks.transition(canceledTask.id, "cancel");
+		expect(tasks.transition(canceledTask.id, "reopen").status).toBe("todo");
 
-		const reopened = tasks.transition(task.id, "reopen");
-		expect(reopened.status).toBe("todo");
-		// Genuinely reusable afterward -- not just a status flip.
-		expect(tasks.transition(task.id, "start").status).toBe("in-progress");
+		const checklist = { "Keep proof": { proof: [{ type: "test" as const, target: "test/task-service.test.ts" }] } };
+		const completedTask = tasks.create({
+			title: "Completed too early",
+			status: "review",
+			projectRoot: "/workspace/project-a",
+			extra: { owner: "agent" },
+			gates: [{ type: "command", target: "bun test" }],
+			checklist,
+		});
+		const dependent = tasks.create({ title: "Waiting successor" });
+		const completedSuccessor = tasks.create({ title: "Finished successor" });
+		tasks.depend(dependent.id, completedTask.id);
+		tasks.depend(completedSuccessor.id, completedTask.id);
+		const lease = tasks.claimLease(completedTask.id, "worker-a");
+		tasks.complete(completedTask.id, { reason: "premature verification" });
+		tasks.transition(completedSuccessor.id, "start");
+		tasks.transition(completedSuccessor.id, "submit");
+		tasks.complete(completedSuccessor.id);
+		const focusedBeforeReopen = tasks.active()?.id;
+
+		expect(() => tasks.transition(completedTask.id, "reopen")).toThrow("reason");
+		const reopened = tasks.transition(completedTask.id, "reopen", { actor: "agent", reason: "browser boundary still needs proof" });
+
+		expect(reopened).toMatchObject({ id: completedTask.id, status: "todo", title: completedTask.title });
+		expect(tasks.list({ projectRoot: "/workspace/project-a", scope: "project" }).map((task) => task.id)).toContain(completedTask.id);
+		expect(reopened.extra).toEqual({ owner: "agent", gates: [{ type: "command", target: "bun test" }], checklist });
+		expect(tasks.graph().nodes.find((node) => node.task.id === dependent.id)?.dependencyIds).toEqual([completedTask.id]);
+		expect(tasks.getLease(completedTask.id)).toMatchObject({ token: lease.token, owner: "worker-a" });
+		expect(tasks.active()?.id).toBe(focusedBeforeReopen);
+		expect(tasks.show(completedSuccessor.id).status).toBe("done");
+		expect(tasks.history(completedSuccessor.id).events.some((event) => event.type === "completed")).toBe(true);
+		expect(() => tasks.transition(dependent.id, "start")).toThrow("blocked by dependencies");
+		const completedTaskEvents = tasks.history(completedTask.id, { direction: "asc" }).events;
+		expect(completedTaskEvents.some((event) => event.type === "completed")).toBe(true);
+		expect(completedTaskEvents.at(-1)).toMatchObject({
+			type: "reopened",
+			fromStatus: "done",
+			toStatus: "todo",
+			reason: "browser boundary still needs proof",
+		});
+	});
+
+	it("reopen recovers an unknown completed-task mutation outcome exactly once", () => {
+		const tasks = new Tasks(new FakeArtifactStore(), new FakeGateRunner());
+		const task = tasks.create({ title: "Receipt-backed reopen", status: "review" });
+		tasks.complete(task.id);
+		const request = { key: "reopen-attempt-1", caller: "agent-a" };
+		const context = { reason: "remaining acceptance proof" };
+
+		const first = tasks.transition(task.id, "reopen", context, request);
+		const receipt = tasks.mutationStatus(request.key, request.caller);
+		const replay = tasks.transition(task.id, "reopen", context, request);
+
+		expect(first).toMatchObject({ status: "todo", changed: true, receiptId: expect.any(String) });
+		expect(receipt).toMatchObject({ state: "completed", operation: "reopen", taskName: task.id, taskStatus: "todo" });
+		expect(replay).toMatchObject({ status: "todo", changed: false, replayed: true, receiptId: first.receiptId });
+		expect(tasks.history(task.id).events.filter((event) => event.type === "reopened")).toHaveLength(1);
 	});
 
 	it("same-destination lifecycle calls are safe no-ops with no duplicate history", () => {

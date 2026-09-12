@@ -201,9 +201,10 @@ const TASK_TRANSITIONS: TransitionTable<TaskTransition, TaskStatus> = {
 	 * legitimately canceled (e.g. a deliberate "pause/park", since there is no direct
 	 * in-progress -> todo transition) can be brought back to todo and driven through the normal
 	 * lifecycle again, without rewriting its real history the way recoverCreation's own
-	 * terminal-at-creation check exists to prevent.
+	 * terminal-at-creation check exists to prevent. Completed tasks use the same transition with
+	 * a mandatory audited reason; their completed event and all task configuration remain intact.
 	 */
-	reopen: { from: ["canceled"], to: "todo" },
+	reopen: { from: ["canceled", "done"], to: "todo" },
 };
 
 function canonicalJson(value: unknown): string {
@@ -709,6 +710,9 @@ export class Tasks {
 		const inspection = this.prepareMutation<TaskLifecycleMutationResult>(action, id, context, request, false);
 		if (inspection.replay) return inspection.replay;
 		this.rejectDifferentPendingMutation(id, action, inspection.pending === true);
+		if (action === "reopen" && task.status === "done" && !context.reason?.trim()) {
+			throw new Error("reopening a completed task requires a non-empty reason");
+		}
 		if (task.status !== intendedStatus && !TASK_TRANSITIONS[action].from.includes(task.status as TaskStatus)) {
 			throw new TaskInvalidTransitionError(
 				action,

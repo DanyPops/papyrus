@@ -686,9 +686,12 @@ export function registerTasksVehicleOperations(registry: VehicleRegistry, deps: 
 	transitionOperation("retry", "Lifecycle transition: rejected -> in-progress.");
 	transitionOperation(
 		"cancel",
-		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected. Reversible via tasks.reopen if premature.",
+		"Lifecycle transition to canceled (terminal) from todo/in-progress/review/rejected. Reversible via tasks.reopen if work should resume.",
 	);
-	transitionOperation("reopen", "Lifecycle transition: canceled -> todo for work that should resume.");
+	transitionOperation(
+		"reopen",
+		"Lifecycle transition: canceled/done -> todo. Reopening completed work requires a non-empty reason and preserves its identity, history, gates, checklist, relationships, focus, and lease state.",
+	);
 
 	define(
 		"complete",

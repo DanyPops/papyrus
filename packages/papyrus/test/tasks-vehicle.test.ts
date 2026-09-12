@@ -79,11 +79,15 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		const operations = new Map(registry.manifest().operations.map((operation: VehicleManifestOperation) => [operation.name, operation]));
 		const start = operations.get("tasks.start")!;
 		const complete = operations.get("tasks.complete")!;
+		const reopen = operations.get("tasks.reopen")!;
 		const status = operations.get("tasks.mutation_status")!;
 		expect(start.inputSchema.properties).toHaveProperty("idempotency_key");
 		expect(start.description).toContain("SAME idempotency_key");
 		expect(start.description).toContain("tasks.show");
 		expect(complete.description).toContain("gates and history are not run twice");
+		expect(reopen.inputSchema.properties).toHaveProperty("reason");
+		expect(reopen.permissions).toEqual(["tasks:read", "tasks:write"]);
+		expect(reopen.description).toContain("completed work requires a non-empty reason");
 		expect(status.inputSchema.required).toEqual(["idempotency_key"]);
 		expect(status.description).toContain("never invent a replacement key");
 		service.close();
@@ -508,7 +512,7 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		service.close();
 	});
 
-	it("reopen brings a canceled task back to todo, distinct from tasks.update's own narrower creation-recovery path", async () => {
+	it("reopen restores canceled and completed tasks through the authorized lifecycle", async () => {
 		const { registry, service } = harness();
 		const created = (await registry.invoke("tasks.create", 1, { title: "Parked mid-flight", project_root: PROJECT }, PERMS)) as {
 			id: string;
@@ -528,6 +532,22 @@ describe("registerTasksVehicleOperations (wired through createPapyrusService)", 
 		// Genuinely reusable afterward, not just a status flip.
 		const restarted = (await registry.invoke("tasks.start", 1, { id: created.id }, PERMS)) as { status: string };
 		expect(restarted.status).toBe("in-progress");
+
+		const completed = (await registry.invoke(
+			"tasks.create",
+			1,
+			{ title: "Completed too early", status: "review", project_root: PROJECT },
+			PERMS,
+		)) as { id: string };
+		await registry.invoke("tasks.complete", 1, { id: completed.id }, PERMS);
+		await expect(registry.invoke("tasks.reopen", 1, { id: completed.id }, PERMS)).rejects.toThrow("requires a non-empty reason");
+		await expect(
+			registry.invoke("tasks.reopen", 1, { id: completed.id, reason: "acceptance proof remains" }, { permissions: ["tasks:read"] }),
+		).rejects.toThrow("requires permissions");
+		const reopenedDone = (await registry.invoke("tasks.reopen", 1, { id: completed.id, reason: "acceptance proof remains" }, PERMS)) as {
+			status: string;
+		};
+		expect(reopenedDone.status).toBe("todo");
 		service.close();
 	});
 

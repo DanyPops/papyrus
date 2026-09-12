@@ -219,7 +219,11 @@ const CLI_FIXTURES: Fixture[] = [
 	{ operation: "tasks.reject", result: artifact, invoke: (c) => runTaskCli(["reject", "a1", "--json"], c) },
 	{ operation: "tasks.retry", result: artifact, invoke: (c) => runTaskCli(["retry", "a1", "--json"], c) },
 	{ operation: "tasks.cancel", result: artifact, invoke: (c) => runTaskCli(["cancel", "a1", "--json"], c) },
-	{ operation: "tasks.reopen", result: artifact, invoke: (c) => runTaskCli(["reopen", "a1", "--json"], c) },
+	{
+		operation: "tasks.reopen",
+		result: artifact,
+		invoke: (c) => runTaskCli(["reopen", "a1", "--reason", "acceptance proof remains", "--json"], c),
+	},
 	{
 		operation: "tasks.cancel_subtree",
 		result: { canceled: ["a1"], skipped: [] },
@@ -458,6 +462,17 @@ describe("Papyrus CLI \u2014 structural operation parity", () => {
  * entirely, reachable only through the native tool. The CLI parses JSON without asserting a shape;
  * the service validates the shape appropriate to whichever operation actually receives it.
  */
+describe("tasks reopen CLI", () => {
+	it("forwards the audited reason and idempotency key", async () => {
+		const client = new FakeClient(artifact);
+		await runTaskCli(["reopen", "a1", "--reason", "acceptance proof remains", "--idempotency-key", "reopen-1", "--json"], client);
+		expect(client.calls[0]).toMatchObject({
+			operation: "tasks.reopen",
+			input: { id: "a1", reason: "acceptance proof remains", idempotency_key: "reopen-1", actor: "user", source: "cli" },
+		});
+	});
+});
+
 describe("playbooks --arguments-json (create: declares parameters, invoke: supplies values)", () => {
 	it("threads a declared-arguments array into playbooks.create", async () => {
 		const client = new FakeClient(artifact);

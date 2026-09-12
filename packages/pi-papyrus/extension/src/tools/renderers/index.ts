@@ -41,6 +41,7 @@ import {
 	parsePapyrusToolDetails,
 } from "../../tool-rendering/render-model.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "../render-diagnostics.ts";
+import { batchOutcomeSummary } from "./batch.ts";
 import {
 	isDiscussionAndRounds,
 	isDiscussionListOutput,
@@ -150,6 +151,11 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
  * instead of silently persisting and rendering raw JSON.
  */
 function projectPapyrusPresentation(descriptor: VehicleOperationDescriptor, output: unknown): PapyrusToolDetails {
+	if (descriptor.name === "batch.execute") {
+		const summary = batchOutcomeSummary(output);
+		if (summary !== undefined) return createSemanticTextDetails(descriptor.name, summary);
+		throw new Error(`${descriptor.name} produced no legal presentation variant`);
+	}
 	if (isArtifactArray(output)) return createArtifactListDetails(descriptor.name, output);
 	if (isArtifact(output)) return createArtifactDetails(descriptor.name, output);
 	if (isTaskFocus(output)) return createArtifactDetails(descriptor.name, output.artifact, focusAnnotation(output));

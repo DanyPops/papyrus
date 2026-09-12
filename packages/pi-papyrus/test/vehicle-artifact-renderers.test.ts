@@ -596,6 +596,40 @@ describe("papyrusVehiclePresentations", () => {
 		}
 	});
 
+	it("projects mixed batch outcomes safely", async () => {
+		const output = {
+			results: [
+				{ ok: true, result: { token: "fixture-private-value", artifact: artifact() } },
+				{ ok: false, error: "fixture-private-error" },
+			],
+		};
+		const { presentation, text } = await renderProjected("batch.execute", output);
+		expect(parsePapyrusToolDetails(presentation)).toMatchObject({ kind: "semantic-text", operation: "batch.execute" });
+		expect(text).toContain("1 succeeded, 1 failed");
+		expect(text).toContain("1: succeeded");
+		expect(text).toContain("2: failed");
+		expect(JSON.stringify(presentation)).not.toContain("fixture-private");
+		expect(output.results[0]).toHaveProperty("result.token", "fixture-private-value");
+	});
+
+	it("bounds batch presentation at the operation limit", async () => {
+		const output = { results: Array.from({ length: 100 }, () => ({ ok: true, result: "x".repeat(100_000) })) };
+		const { presentation, text } = await renderProjected("batch.execute", output);
+		expect(text).toContain("100 succeeded, 0 failed");
+		expect(JSON.stringify(presentation).length).toBeLessThan(4_000);
+	});
+
+	it("rejects malformed batch envelopes", async () => {
+		for (const output of [
+			{ results: [{ ok: "true", result: {} }] },
+			{ results: [{ ok: true }] },
+			{ results: [{ ok: false, error: 3 }] },
+			{ results: Array.from({ length: 101 }, () => ({ ok: true, result: {} })) },
+		]) {
+			await expect(project("batch.execute", output)).rejects.toThrow("no legal presentation");
+		}
+	});
+
 	it("projects a Playbook preview string into bounded presentation details", async () => {
 		const preview = "Apply playbook.\n".repeat(2_000);
 		const presentation = await project("playbooks.preview", preview);

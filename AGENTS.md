@@ -44,8 +44,9 @@ the shared task-tracking substrate this ecosystem's own AGENTS.md files point ba
   non-mutating CI variant).
 - `guard:install` wires `core.hooksPath` to `.githooks` -- a fresh clone needs `bun install` once
   before local hooks are active.
-- Run the touched package's typecheck + test after every change, then the workspace-wide
-  typecheck before considering a change done.
+- Run the touched package's typecheck + test after code changes, then the workspace-wide
+  typecheck before considering implementation done. Release-only metadata changes use the
+  GitHub Actions verification below.
 
 ## Multi-Repo Dependency Discipline
 
@@ -58,10 +59,12 @@ the shared task-tracking substrate this ecosystem's own AGENTS.md files point ba
 ## Git & Releases
 
 - Never commit an edit/write in the same tool call as the commit itself.
-- Release: bump `package.json` version (PATCH for a backward-compatible change), typecheck +
-  test + check locally, commit, push, then tag and push the tag. `@danypops/papyrus` uses
+- Release: bump `package.json` version and synchronize the lockfile (PATCH for a backward-compatible
+  change), commit, push, then tag and push the tag. `@danypops/papyrus` uses
   `papyrus-v<version>`, `@danypops/pi-papyrus` uses `pi-papyrus-v<version>` -- see
   `.github/workflows/publish.yml`. Push tags one at a time, never batched in a single `git push`.
+- GitHub Actions owns release verification. Use the publish workflow's tests and typechecks;
+  do not duplicate them locally for release-only changes or use local log dumps as release evidence.
 - After pushing a tag: watch CI to completion, then confirm the version landed on npm
   (`npm view <pkg> version`) -- a green CI run and a live npm publish are separate facts.
 

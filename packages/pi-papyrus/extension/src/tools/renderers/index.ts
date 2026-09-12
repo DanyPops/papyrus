@@ -40,6 +40,7 @@ import {
 	type PapyrusToolDetails,
 	parsePapyrusToolDetails,
 } from "../../tool-rendering/render-model.ts";
+import { SemanticTextCard } from "../../tool-rendering/semantic-text.ts";
 import { recordRenderDiagnostic, shapeFingerprint } from "../render-diagnostics.ts";
 import { batchOutcomeSummary } from "./batch.ts";
 import {
@@ -134,6 +135,9 @@ export function papyrusVehicleRenderers(descriptor: VehicleOperationDescriptor):
 				if (isTaskCompletion(output)) {
 					return renderTaskCompletion(output, theme, options.expanded);
 				}
+				if (isSemanticTextOutput(output)) {
+					return new SemanticTextCard(createSemanticTextDetails(descriptor.name, semanticText(output)), theme, options.expanded);
+				}
 				recordRenderDiagnostic({ event: "render-result-fell-through-to-generic", operation: descriptor.name });
 			}
 			return renderVehicleResult(descriptor, result, options, theme, context);
@@ -217,7 +221,7 @@ function renderFromPapyrusPresentation(
 		case "preview":
 			return new Text(theme.fg("toolOutput", presentation.content), 0, 0);
 		case "semantic-text":
-			return new Text(theme.fg("toolOutput", presentation.text), 0, 0);
+			return new SemanticTextCard(presentation, theme, expanded);
 		case "transition":
 		case "graph":
 		case "gate-run":

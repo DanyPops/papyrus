@@ -33,7 +33,7 @@
     },
     "packages/pi-papyrus": {
       "name": "@danypops/pi-papyrus",
-      "version": "0.59.6",
+      "version": "0.60.1",
       "dependencies": {
         "@danypops/jittor": "^0.19.2",
         "@danypops/papyrus": "^0.60.12",
@@ -46,7 +46,7 @@
       "devDependencies": {
         "@danypops/pi-extension-harness": "^0.8.3",
         "@danypops/pi-tui-harness": "^0.0.2",
-        "@danypops/vehicle-client-pi": "^0.46.0",
+        "@danypops/vehicle-client-pi": "^0.48.3",
         "@danypops/vehicle-conformance": "^0.3.0",
         "@earendil-works/pi-coding-agent": "^0.80.10",
         "bun-types": "latest",
@@ -54,7 +54,7 @@
         "typescript": "^5.7.3",
       },
       "peerDependencies": {
-        "@danypops/vehicle-client-pi": "^0.46.0",
+        "@danypops/vehicle-client-pi": "^0.48.3",
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
         "typebox": "*",
@@ -146,7 +146,7 @@
 
     "@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.8", "", { "dependencies": { "@danypops/vehicle-core": "^0.19.1", "@danypops/vehicle-server": "^0.27.1" } }, "sha512-bAFmheqC3z4vuyTE2j2xTcPmmsH9KE6tEXV8i5ZviqePpCSnctaLx5+WF+PERU8qMeCvnqGhGfKIKnK8OtJnyw=="],
 
-    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.46.0", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.7", "@danypops/vehicle-core": "^0.19.0", "@danypops/vehicle-server": "^0.27.0", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-eRzS8e5ajnHtGGzXLSEVOvWj857dzT2VrCToZ2RvWKLdqOTbq3sydivLIP2ZBZpnFEdFaG9+RCdh2DZsru9eow=="],
+    "@danypops/vehicle-client-pi": ["@danypops/vehicle-client-pi@0.48.4", "", { "dependencies": { "@danypops/pi-extension-harness": "^0.7.0", "@danypops/vehicle-client": "^0.10.8", "@danypops/vehicle-core": "^0.19.2", "@danypops/vehicle-server": "^0.27.3", "malevich-tui-components": "^0.28.0" }, "peerDependencies": { "@earendil-works/pi-agent-core": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" }, "optionalPeers": ["@earendil-works/pi-tui"] }, "sha512-F7Bb2a1hEtCVnm4OMrwWY2Q50oHdPmT9IvWO3bHMS1T1RG2w4oFNFoZbwHYeJNv3KTxKqPthlYGNzeL30OeZRw=="],
 
     "@danypops/vehicle-conformance": ["@danypops/vehicle-conformance@0.3.0", "", { "dependencies": { "@danypops/vehicle-core": "^0.13.0", "@danypops/vehicle-server": "^0.18.3" } }, "sha512-DUMqiIJt4SGdo9rsNvXDFOR5iaOZeaoSR3LrI/V9CFIHjUv+Ke/WjvsA6gLreFfih6l7O7zy+jLQ/NhONI0Z6A=="],
 
@@ -646,11 +646,9 @@
 
     "@danypops/vehicle-client-pi/@danypops/pi-extension-harness": ["@danypops/pi-extension-harness@0.7.0", "", { "dependencies": { "jiti": "^2.7.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-8kCj0IwzglQqsXKOkQqalp/4gNrIP9NsRizhnRtYi7H4LiX3ccQFxioUXG7aT93F/qn6873U0yifr82Rbft9ng=="],
 
-    "@danypops/vehicle-client-pi/@danypops/vehicle-client": ["@danypops/vehicle-client@0.10.5", "", { "dependencies": { "@danypops/vehicle-core": "^0.18.4", "@danypops/vehicle-server": "^0.26.0" } }, "sha512-QHmhXANpH3I4vjqQ3eKXJqD1g6HWJ7y+0YHVX4FKJAYQAmHCUtb7mlkHQ4BhlLepEBKwYVBa6mq64yOlQVo3aw=="],
+    "@danypops/vehicle-client-pi/@danypops/vehicle-core": ["@danypops/vehicle-core@0.19.2", "", {}, "sha512-LyU7oNEtJNUwcI6VlY6uMxpbcekdrr5mJAGJIZNku+N3KC+IRq9LiiujD1UmPV9cxqR+dA4Ve1/cur2yOZoJlQ=="],
 
-    "@danypops/vehicle-client-pi/@danypops/vehicle-core": ["@danypops/vehicle-core@0.19.0", "", {}, "sha512-FwG7wY3UzWgbhEUCqKJHUutTm2kxPf9f3YGmhnnPVV0PpRFpIIS7PTpwH+fNpd42AN230rGwcbbOePJMbkcEIw=="],
-
-    "@danypops/vehicle-client-pi/@danypops/vehicle-server": ["@danypops/vehicle-server@0.27.0", "", { "dependencies": { "@danypops/armada": "^0.5.1", "@danypops/vehicle-core": "^0.19.0", "better-result": "^3.0.1", "pino": "^10.3.1" } }, "sha512-Hiz9k7JQCf1l0VqolzEvOYcn1Wi1SH0RedthHwd5pEW5rnoD80AGmWtxFkVb15ktbUCgyIKxApAlR6cHR7d0ng=="],
+    "@danypops/vehicle-client-pi/@danypops/vehicle-server": ["@danypops/vehicle-server@0.27.3", "", { "dependencies": { "@danypops/armada": "^0.5.2", "@danypops/vehicle-core": "^0.19.2", "better-result": "^3.0.1", "pino": "^10.3.1" } }, "sha512-m7i7ZmlZ0N431VrEnFmdkpveCMB21hEgYF/Sm04Y21oItdqZFfpXX74x0HJtQw0q4Y8mCiOoqMglrN+OFZiezQ=="],
 
     "@danypops/vehicle-client-pi/malevich-tui-components": ["malevich-tui-components@0.28.0", "", {}, "sha512-tjAAIkfEzLjKG6UMH/IMV88baqhR3vuhoWckSaMS9yXdHoM02cRyv8x72G6KMOM9wp49BLa7a3C0j2t5as+f5g=="],
 
@@ -682,12 +680,8 @@
 
     "@danypops/jittor/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.5.0", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-QPBBwo8F163hIB8W+WPJYC09fg2kX7TnvfMNGIA+zeRY6ezMY48/Mmvoci2h6HYiA14i18Outp3jTe/oHZaV0w=="],
 
-    "@danypops/vehicle-client-pi/@danypops/vehicle-client/@danypops/vehicle-core": ["@danypops/vehicle-core@0.18.4", "", {}, "sha512-XaeS+U1LQT6qE+rRG7kg9bGI4l9kqAmQ3KYd7LX0Y7XoG8z7GMbaNiaVHQF5qvtMKyugycMX9XW9/Q+JYk/rQw=="],
-
-    "@danypops/vehicle-client-pi/@danypops/vehicle-client/@danypops/vehicle-server": ["@danypops/vehicle-server@0.26.0", "", { "dependencies": { "@danypops/armada": "^0.5.0", "@danypops/vehicle-core": "^0.18.0", "better-result": "^3.0.1", "pino": "^10.3.1" } }, "sha512-cNV6I5j8bzDiBoepTZfGim6PWb0qC6mmqN4sK9OS9P7ioqLauc1mXj1J59ZG9H5qNdGevjj/2DnJlsujBU1nBQ=="],
+    "@danypops/vehicle-client-pi/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.5.2", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-6qPzTDoKcbT3g4CDBj6wGCXnC5/2csPLEpBPyO94GhYzcVup7nQeqjex8ffFiJCfXlduTvJglwC5Q5PpbTACQA=="],
 
     "@danypops/vehicle-conformance/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.4.10", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-r76+ic8nsLM4MQE3by8GYJz2FXMeDNus70H6y2JL0rLekjN35pnvHpVzyxCoec/LDkA41gZ2Jo6bPkxXc01tnA=="],
-
-    "@danypops/vehicle-client-pi/@danypops/vehicle-client/@danypops/vehicle-server/@danypops/armada": ["@danypops/armada@0.5.0", "", { "dependencies": { "typebox": "^1.3.6" }, "bin": { "armada": "dist/cli.js" } }, "sha512-QPBBwo8F163hIB8W+WPJYC09fg2kX7TnvfMNGIA+zeRY6ezMY48/Mmvoci2h6HYiA14i18Outp3jTe/oHZaV0w=="],
   }
 }

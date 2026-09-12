@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PapyrusClient } from "@danypops/papyrus";
+import { createExtensionHarness } from "@danypops/pi-extension-harness";
 import { __resetInProcessVehicleRegistryForTests, __resetVehicleShellHandleForTests } from "@danypops/vehicle-client-pi/test-utils";
 import type { VehicleManifest } from "@danypops/vehicle-core";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -24,7 +25,7 @@ import {
 	setPapyrusClientConnectorForTests,
 	setVehicleClientTargetResolverForTests,
 } from "../extension/src/service-client.ts";
-import { PAPYRUS_VEHICLE_PERMISSIONS } from "../extension/src/tools/vehicle-notes-client.ts";
+import { PAPYRUS_VEHICLE_PERMISSIONS, registerNotesVehicle } from "../extension/src/tools/vehicle-notes-client.ts";
 import { waitFor } from "./support/wait-for.ts";
 
 function fakeSessionRegisterClient(): PapyrusClient {
@@ -92,14 +93,18 @@ function manifestServer(
 		description: "Papyrus.",
 		operations: realisticManifestOperations(),
 	},
+	firstNegotiationBarrier?: Promise<unknown>,
 ): { baseUrl: string; requestPaths: string[]; stop: () => void } {
 	const requestPaths: string[] = [];
 	const server = Bun.serve({
 		port: 0,
-		fetch(request) {
+		async fetch(request) {
 			const pathname = new URL(request.url).pathname;
 			requestPaths.push(pathname);
-			if (pathname === "/vehicle/negotiate") return Response.json({ agreement: { version: 1, capabilities: [] } });
+			if (pathname === "/vehicle/negotiate") {
+				if (requestPaths.length === 1) await firstNegotiationBarrier;
+				return Response.json({ agreement: { version: 1, capabilities: [] } });
+			}
 			if (pathname === "/vehicle/manifest") return Response.json(manifest);
 			return new Response("not found", { status: 404 });
 		},
@@ -108,6 +113,35 @@ function manifestServer(
 }
 
 describe("registerNotesVehicle opts into Vehicle Shell activation", () => {
+	it("shutdown prevents cross-session negotiation", async () => {
+		setVehicleClientTargetResolverForTests(() => undefined);
+		let retiredRegistration: ReturnType<typeof registerNotesVehicle> | undefined;
+		const retired = createExtensionHarness((api) => {
+			retiredRegistration = registerNotesVehicle(api);
+		});
+		await retired.boot();
+		await retired.shutdown();
+
+		const { baseUrl, requestPaths, stop } = manifestServer(undefined, retiredRegistration);
+		setVehicleClientTargetResolverForTests(() => ({ baseUrl, token: "test-token" }));
+		let activeRegistration: ReturnType<typeof registerNotesVehicle> | undefined;
+		const active = createExtensionHarness((api) => {
+			activeRegistration = registerNotesVehicle(api);
+		});
+		try {
+			await active.boot();
+			expect(retiredRegistration).toBeDefined();
+			expect(activeRegistration).toBeDefined();
+			const [retiredResult, activeResult] = await Promise.all([retiredRegistration, activeRegistration]);
+			expect(requestPaths).toEqual(["/vehicle/negotiate", "/vehicle/manifest"]);
+			expect(retiredResult).toBeUndefined();
+			expect(activeResult).toBeDefined();
+		} finally {
+			await active.shutdown();
+			stop();
+		}
+	}, 20_000);
+
 	it("grants project and scope-group permissions required by their native tools", () => {
 		expect(PAPYRUS_VEHICLE_PERMISSIONS).toEqual(
 			expect.arrayContaining(["projects:read", "projects:write", "scope_groups:read", "scope_groups:write"]),
